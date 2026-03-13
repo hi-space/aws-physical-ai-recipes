@@ -133,6 +133,14 @@ if [[ ! -f "$DOCKERFILE" ]]; then
     error "Dockerfile not found: ${DOCKERFILE}\nMake sure you run this script from the sagemaker-vla/ directory."
 fi
 
+# Docker 데몬 실행 확인
+if ! docker info >/dev/null 2>&1; then
+    error "Docker daemon is not running.\n  → 'sudo systemctl start docker' 또는 'sudo service docker start'로 Docker를 시작하세요.\n  → Docker Desktop을 사용 중이라면 앱을 실행하세요."
+fi
+
+# BuildKit 활성화 (레거시 빌더 deprecation 경고 방지)
+export DOCKER_BUILDKIT=1
+
 # ---------------------------------------------------------------------------
 # Step 1: ECR 인증
 # ---------------------------------------------------------------------------
