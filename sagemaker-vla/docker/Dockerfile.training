@@ -1,0 +1,114 @@
+# =============================================================================
+# Dockerfile.training - GR00T-N1.6 SageMaker Training Container
+# =============================================================================
+# Base: CUDA 12.4.1 devel (full toolkit needed for flash-attn compilation)
+# Installs: Python 3.10, uv, PyTorch 2.6+, flash-attn, Isaac-GR00T
+# Entrypoint: train_entry.py (SageMaker training entrypoint)
+# =============================================================================
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ---------------------------------------------------------------------------
+# System dependencies
+# ---------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    ca-certificates \
+    build-essential \
+    cmake \
+    ninja-build \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Python 3.10 installation
+# ---------------------------------------------------------------------------
+RUN add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3.10-dev \
+    python3.10-venv \
+    python3.10-distutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set python3.10 as default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+
+# Install pip
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
+
+# ---------------------------------------------------------------------------
+# Install uv (fast Python package manager)
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir uv
+
+# ---------------------------------------------------------------------------
+# Clone Isaac-GR00T repository
+# ---------------------------------------------------------------------------
+WORKDIR /opt/gr00t
+RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
+
+# ---------------------------------------------------------------------------
+# Install PyTorch 2.6+ with CUDA 12.4 support
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir \
+    torch>=2.6.0 \
+    torchvision \
+    torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# ---------------------------------------------------------------------------
+# Install flash-attn (pre-built wheel for PyTorch 2.6 + CUDA 12.4)
+# Using pre-built wheel avoids 20+ min source compilation
+# See: https://github.com/Dao-AILab/flash-attention/releases
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir flash-attn --no-build-isolation \
+    --find-links https://github.com/Dao-AILab/flash-attention/releases/expanded_assets/v2.7.4.post1
+
+# ---------------------------------------------------------------------------
+# Install Isaac-GR00T dependencies via uv
+# ---------------------------------------------------------------------------
+RUN uv pip install --system -e ".[train]"
+
+# ---------------------------------------------------------------------------
+# SageMaker directory structure
+# ---------------------------------------------------------------------------
+# /opt/ml/model      - model artifacts (SM_MODEL_DIR)
+# /opt/ml/input/data - input data channels (SM_CHANNEL_*)
+# /opt/ml/output     - output artifacts and failure info
+# /opt/ml/code       - training scripts
+RUN mkdir -p /opt/ml/model \
+             /opt/ml/input/data \
+             /opt/ml/output \
+             /opt/ml/code
+
+# ---------------------------------------------------------------------------
+# Copy training entrypoint
+# ---------------------------------------------------------------------------
+COPY src/train_entry.py /opt/ml/code/train_entry.py
+
+# ---------------------------------------------------------------------------
+# Environment variables
+# ---------------------------------------------------------------------------
+# Ensure Python output is sent straight to terminal (no buffering)
+ENV PYTHONUNBUFFERED=1
+# Add Isaac-GR00T to Python path
+ENV PYTHONPATH="/opt/gr00t"
+# CUDA visible devices (SageMaker sets this, but provide a default)
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+WORKDIR /opt/ml/code
+
+ENTRYPOINT ["python", "/opt/ml/code/train_entry.py"]
