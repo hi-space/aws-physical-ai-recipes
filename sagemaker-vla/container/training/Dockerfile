@@ -1,21 +1,25 @@
 # =============================================================================
-# Dockerfile.training - GR00T-N1.6 SageMaker Training Container
+# GR00T-N1.6 SageMaker 학습 컨테이너
 # =============================================================================
-# Base: CUDA 12.4.1 devel (full toolkit needed for flash-attn compilation)
-# Installs: Python 3.10, uv, PyTorch 2.6+, flash-attn, Isaac-GR00T
-# Entrypoint: train_entry.py (SageMaker training entrypoint)
+# Base: CUDA 12.4.1 devel (flash-attn 컴파일에 전체 툴킷 필요)
+# 포함: Python 3.10, PyTorch 2.6, flash-attn 2.7, Isaac-GR00T
+# 엔트리포인트: train.py (SageMaker 학습 엔트리포인트)
 # =============================================================================
 
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
-# Prevent interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/opt/gr00t:/opt/ml/code" \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # ---------------------------------------------------------------------------
-# System dependencies
+# 시스템 의존성
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    git-lfs \
     wget \
     curl \
     ca-certificates \
@@ -31,84 +35,60 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# Python 3.10 installation
+# Python 3.10
 # ---------------------------------------------------------------------------
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3.10-dev \
-    python3.10-venv \
-    python3.10-distutils \
+    python3.10 python3.10-dev python3.10-venv python3.10-distutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Set python3.10 as default python
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
-# Install pip
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
 
 # ---------------------------------------------------------------------------
-# Install uv (fast Python package manager)
+# uv (빠른 Python 패키지 관리자)
 # ---------------------------------------------------------------------------
 RUN pip install --no-cache-dir uv
 
 # ---------------------------------------------------------------------------
-# Clone Isaac-GR00T repository
-# ---------------------------------------------------------------------------
-WORKDIR /opt/gr00t
-RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
-
-# ---------------------------------------------------------------------------
-# Install PyTorch 2.6+ with CUDA 12.4 support
+# PyTorch 2.6 + CUDA 12.4
 # ---------------------------------------------------------------------------
 RUN pip install --no-cache-dir \
-    torch>=2.6.0 \
-    torchvision \
-    torchaudio \
+    "torch==2.6.0" \
+    "torchvision==0.21.0" \
+    "torchaudio==2.6.0" \
     --index-url https://download.pytorch.org/whl/cu124
 
 # ---------------------------------------------------------------------------
-# Install flash-attn (pre-built wheel for PyTorch 2.6 + CUDA 12.4)
-# Using pre-built wheel avoids 20+ min source compilation
-# See: https://github.com/Dao-AILab/flash-attention/releases
+# flash-attn (사전 빌드 wheel 사용 — 소스 컴파일 20분 절약)
 # ---------------------------------------------------------------------------
 RUN pip install --no-cache-dir flash-attn --no-build-isolation \
     --find-links https://github.com/Dao-AILab/flash-attention/releases/expanded_assets/v2.7.4.post1
 
 # ---------------------------------------------------------------------------
-# Install Isaac-GR00T dependencies via uv
+# Isaac-GR00T 클론 및 학습 의존성 설치
 # ---------------------------------------------------------------------------
+WORKDIR /opt/gr00t
+RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
+
 RUN uv pip install --system -e ".[train]"
 
 # ---------------------------------------------------------------------------
-# SageMaker directory structure
+# SageMaker 디렉토리 구조
 # ---------------------------------------------------------------------------
-# /opt/ml/model      - model artifacts (SM_MODEL_DIR)
-# /opt/ml/input/data - input data channels (SM_CHANNEL_*)
-# /opt/ml/output     - output artifacts and failure info
-# /opt/ml/code       - training scripts
-RUN mkdir -p /opt/ml/model \
-             /opt/ml/input/data \
-             /opt/ml/output \
-             /opt/ml/code
+# /opt/ml/model      → SM_MODEL_DIR (학습 후 모델 저장)
+# /opt/ml/input/data → SM_CHANNEL_* (S3 입력 채널 마운트)
+# /opt/ml/output     → 실패 정보 등
+# /opt/ml/code       → 학습 스크립트
+RUN mkdir -p /opt/ml/model /opt/ml/input/data /opt/ml/output /opt/ml/code
 
 # ---------------------------------------------------------------------------
-# Copy training entrypoint
+# 학습 엔트리포인트 복사
 # ---------------------------------------------------------------------------
-COPY src/train_entry.py /opt/ml/code/train_entry.py
-
-# ---------------------------------------------------------------------------
-# Environment variables
-# ---------------------------------------------------------------------------
-# Ensure Python output is sent straight to terminal (no buffering)
-ENV PYTHONUNBUFFERED=1
-# Add Isaac-GR00T to Python path
-ENV PYTHONPATH="/opt/gr00t"
-# CUDA visible devices (SageMaker sets this, but provide a default)
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+COPY container/training/train.py /opt/ml/code/train.py
 
 WORKDIR /opt/ml/code
 
-ENTRYPOINT ["python", "/opt/ml/code/train_entry.py"]
+ENTRYPOINT ["python", "/opt/ml/code/train.py"]

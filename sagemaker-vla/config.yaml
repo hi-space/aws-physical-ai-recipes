@@ -1,0 +1,34 @@
+aws:
+  region: ap-northeast-2        # 사용할 AWS 리전
+  account_id: ""                # deploy_stack.py 실행 후 자동 기입
+  bucket_name: ""               # deploy_stack.py 실행 후 자동 기입
+  role_arn: ""                  # deploy_stack.py 실행 후 자동 기입
+
+ecr:
+  training_uri: ""              # trigger_build.py 실행 후 자동 기입
+  inference_uri: ""             # trigger_build.py 실행 후 자동 기입
+
+model:
+  hf_model_id: nvidia/GR00T-N1.6-3B
+  s3_prefix: models/groot-n16
+
+dataset:
+  s3_prefix: datasets/my-robot
+
+training:
+  instance_type: ml.p4d.24xlarge   # 최소 48GB VRAM 필요 (8x A100 40GB)
+  use_spot: true                    # Managed Spot Training (최대 90% 비용 절감)
+  max_wait_seconds: 86400           # Spot 인스턴스 대기 최대 시간 (24시간)
+  max_steps: 10000
+  global_batch_size: 32
+  save_steps: 2000
+  num_gpus: 8                       # ml.p4d.24xlarge GPU 수
+
+inference:
+  instance_type: ml.g5.2xlarge     # 1x A10G 24GB (비용 효율)
+  endpoint_name: groot-n16-endpoint
+  model_package_group: groot-n16-models
+
+codebuild:
+  training_project: groot-n16-training-build
+  inference_project: groot-n16-inference-build

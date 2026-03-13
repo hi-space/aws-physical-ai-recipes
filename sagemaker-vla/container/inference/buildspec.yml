@@ -1,0 +1,54 @@
+version: 0.2
+# =============================================================================
+# GR00T-N1.6 추론 컨테이너 CodeBuild 빌드 스펙
+# =============================================================================
+# 이 파일은 AWS CodeBuild가 추론 컨테이너를 빌드하고 ECR에 푸시하는 과정을 정의합니다.
+# infra/cloudformation.yaml의 InferenceBuildProject에서 참조됩니다.
+#
+# 환경변수 (CloudFormation에서 자동 설정):
+#   ECR_REGISTRY:       예) 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
+#   AWS_DEFAULT_REGION: 예) ap-northeast-2
+
+env:
+  variables:
+    IMAGE_REPO: groot-n16-inference
+    IMAGE_TAG: latest
+
+phases:
+  pre_build:
+    commands:
+      - echo "ECR 인증 중..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION
+          | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-8)
+      - IMAGE_TAG_VERSIONED=${COMMIT_HASH:-latest}
+      - echo "빌드 시작 - 이미지:${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}"
+
+  build:
+    commands:
+      - echo "Docker 이미지 빌드 중 (Multi-stage build)..."
+      - export DOCKER_BUILDKIT=1
+      - docker build
+          --file container/inference/Dockerfile
+          --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
+          --cache-from ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+          .
+      - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
+      - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+
+  post_build:
+    commands:
+      - echo "ECR에 이미지 푸시 중..."
+      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
+      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+      - echo "빌드 완료!"
+      - echo "이미지 URI:${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}"
+      - printf '{"InferenceImageUri":"%s/%s:%s"}' $ECR_REGISTRY $IMAGE_REPO $IMAGE_TAG > image_uri.json
+
+artifacts:
+  files:
+    - image_uri.json
+
+cache:
+  paths:
+    - /root/.docker/**/*
