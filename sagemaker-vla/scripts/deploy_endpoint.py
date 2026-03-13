@@ -1,241 +1,274 @@
 #!/usr/bin/env python3
-"""SageMaker Endpoint deployment and management for GR00T-N1.6 inference.
+"""GR00T-N1.6 SageMaker Endpoint 배포/삭제 스크립트.
 
-Creates and deletes SageMaker Endpoints for serving fine-tuned GR00T models.
+Model Registry에서 승인된 최신 모델을 배포하거나,
+model.tar.gz S3 URI를 직접 지정하여 배포합니다.
 
-Usage:
-    # Deploy an endpoint
-    python scripts/deploy_endpoint.py --action deploy \
-        --model-s3-uri s3://bucket/output/finetuned/model.tar.gz \
-        --instance-type ml.g5.2xlarge \
-        --endpoint-name groot-inference \
-        --container-image-uri 123456789.dkr.ecr.us-east-1.amazonaws.com/groot-inference:latest \
-        --role-arn arn:aws:iam::123456789:role/SageMakerRole
+사용법:
+    # Model Registry에서 최신 승인 모델 배포 (권장):
+    python scripts/deploy_endpoint.py
 
-    # Delete an endpoint
-    python scripts/deploy_endpoint.py --action delete \
-        --endpoint-name groot-inference \
-        --region us-east-1
+    # S3 URI로 직접 배포:
+    python scripts/deploy_endpoint.py \\
+        --model-s3-uri s3://my-bucket/output/job-name/output/model.tar.gz
+
+    # 엔드포인트 삭제:
+    python scripts/deploy_endpoint.py --action delete
 """
 
 import argparse
 import sys
-import os
-from datetime import datetime
+from pathlib import Path
 
-# Add parent directory to path so we can import from src
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import boto3
+import yaml
+from botocore.exceptions import ClientError
 
-from src.config import DeploymentConfig
-
-try:
-    import boto3
-except ImportError:
-    boto3 = None
+PROJECT_ROOT = Path(__file__).parent.parent
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def deploy_endpoint(config: DeploymentConfig, role_arn: str) -> dict:
-    """Create a SageMaker Model, EndpointConfig, and Endpoint.
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def get_latest_approved_model(model_package_group: str, region: str) -> str:
+    """Model Registry에서 최신 승인된 모델 패키지 ARN을 가져옵니다.
 
     Args:
-        config: DeploymentConfig with deployment parameters.
-        role_arn: IAM role ARN for SageMaker execution.
+        model_package_group: 모델 패키지 그룹 이름.
+        region: AWS 리전.
 
     Returns:
-        Dict with endpoint_name and endpoint_url.
+        모델 패키지 ARN.
 
     Raises:
-        ImportError: If boto3 is not installed.
-        RuntimeError: If endpoint creation fails.
+        ValueError: 승인된 모델이 없는 경우.
     """
-    if boto3 is None:
-        raise ImportError("boto3 is required. Install with: pip install boto3")
+    sm = boto3.client("sagemaker", region_name=region)
 
-    sm_client = boto3.client("sagemaker")
-    region = sm_client.meta.region_name
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-
-    model_name = f"{config.endpoint_name}-model-{timestamp}"
-    endpoint_config_name = f"{config.endpoint_name}-config-{timestamp}"
-
-    # Create SageMaker Model
-    try:
-        sm_client.create_model(
-            ModelName=model_name,
-            PrimaryContainer={
-                "Image": config.container_image_uri,
-                "ModelDataUrl": config.model_s3_uri,
-            },
-            ExecutionRoleArn=role_arn,
-        )
-        print(f"Created model: {model_name}")
-    except Exception as e:
-        raise RuntimeError(f"Failed to create model '{model_name}': {e}")
-
-    # Create EndpointConfig
-    try:
-        sm_client.create_endpoint_config(
-            EndpointConfigName=endpoint_config_name,
-            ProductionVariants=[
-                {
-                    "VariantName": "primary",
-                    "ModelName": model_name,
-                    "InstanceType": config.instance_type,
-                    "InitialInstanceCount": 1,
-                },
-            ],
-        )
-        print(f"Created endpoint config: {endpoint_config_name}")
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to create endpoint config '{endpoint_config_name}': {e}"
-        )
-
-    # Create Endpoint
-    try:
-        sm_client.create_endpoint(
-            EndpointName=config.endpoint_name,
-            EndpointConfigName=endpoint_config_name,
-        )
-        print(f"Creating endpoint: {config.endpoint_name} (this may take several minutes)")
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to create endpoint '{config.endpoint_name}': {e}. "
-            "Check instance availability and service quotas."
-        )
-
-    endpoint_url = (
-        f"https://runtime.sagemaker.{region}.amazonaws.com"
-        f"/endpoints/{config.endpoint_name}/invocations"
+    response = sm.list_model_packages(
+        ModelPackageGroupName=model_package_group,
+        ModelApprovalStatus="Approved",
+        SortBy="CreationTime",
+        SortOrder="Descending",
+        MaxResults=1,
     )
 
-    print(f"Endpoint name: {config.endpoint_name}")
-    print(f"Endpoint URL: {endpoint_url}")
+    packages = response.get("ModelPackageSummaryList", [])
+    if not packages:
+        raise ValueError(
+            f"'{model_package_group}' 그룹에 승인된 모델이 없습니다.\n"
+            "  SageMaker 콘솔 → Model Registry에서 모델을 승인하세요."
+        )
 
-    return {"endpoint_name": config.endpoint_name, "endpoint_url": endpoint_url}
+    arn = packages[0]["ModelPackageArn"]
+    print(f"최신 승인 모델: {arn}")
+    return arn
 
 
-def delete_endpoint(endpoint_name: str, region: str = "us-east-1") -> None:
-    """Delete a SageMaker endpoint, its config, and associated model.
-
-    Args:
-        endpoint_name: Name of the endpoint to delete.
-        region: AWS region where the endpoint is deployed.
-
-    Raises:
-        ImportError: If boto3 is not installed.
-    """
-    if boto3 is None:
-        raise ImportError("boto3 is required. Install with: pip install boto3")
-
-    sm_client = boto3.client("sagemaker", region_name=region)
-
-    # Get endpoint config name from the endpoint
+def deploy_from_model_registry(
+    model_package_arn: str,
+    endpoint_name: str,
+    instance_type: str,
+    role_arn: str,
+    region: str,
+) -> None:
+    """Model Registry의 모델 패키지로 엔드포인트를 배포합니다."""
     try:
-        endpoint_desc = sm_client.describe_endpoint(EndpointName=endpoint_name)
-        endpoint_config_name = endpoint_desc["EndpointConfigName"]
-    except Exception as e:
-        print(f"Warning: Could not describe endpoint '{endpoint_name}': {e}")
-        endpoint_config_name = None
+        import sagemaker
+        from sagemaker.model import ModelPackage
+    except ImportError:
+        print("오류: sagemaker SDK가 설치되지 않았습니다.")
+        print("  pip install sagemaker")
+        sys.exit(1)
 
-    # Get model name from the endpoint config
-    model_name = None
-    if endpoint_config_name:
-        try:
-            config_desc = sm_client.describe_endpoint_config(
-                EndpointConfigName=endpoint_config_name
-            )
-            variants = config_desc.get("ProductionVariants", [])
-            if variants:
-                model_name = variants[0].get("ModelName")
-        except Exception as e:
-            print(f"Warning: Could not describe endpoint config '{endpoint_config_name}': {e}")
+    session = sagemaker.Session(
+        boto_session=boto3.Session(region_name=region)
+    )
 
-    # Delete endpoint
+    model = ModelPackage(
+        role=role_arn,
+        model_package_arn=model_package_arn,
+        sagemaker_session=session,
+    )
+
+    print(f"엔드포인트 배포 중: {endpoint_name}")
+    print(f"  인스턴스 타입: {instance_type}")
+    print(f"  (완료까지 수 분 소요됩니다...)")
+
+    model.deploy(
+        initial_instance_count=1,
+        instance_type=instance_type,
+        endpoint_name=endpoint_name,
+    )
+
+    print(f"\n엔드포인트 배포 완료!")
+    print(f"  엔드포인트 이름: {endpoint_name}")
+
+
+def deploy_from_s3_uri(
+    model_s3_uri: str,
+    inference_image_uri: str,
+    endpoint_name: str,
+    instance_type: str,
+    role_arn: str,
+    region: str,
+) -> None:
+    """S3 URI의 model.tar.gz로 엔드포인트를 직접 배포합니다."""
     try:
-        sm_client.delete_endpoint(EndpointName=endpoint_name)
-        print(f"Deleted endpoint: {endpoint_name}")
+        import sagemaker
+        from sagemaker.model import Model
+    except ImportError:
+        print("오류: sagemaker SDK가 설치되지 않았습니다.")
+        print("  pip install sagemaker")
+        sys.exit(1)
+
+    session = sagemaker.Session(
+        boto_session=boto3.Session(region_name=region)
+    )
+
+    model = Model(
+        image_uri=inference_image_uri,
+        model_data=model_s3_uri,
+        role=role_arn,
+        sagemaker_session=session,
+    )
+
+    print(f"엔드포인트 배포 중: {endpoint_name}")
+    print(f"  모델 URI:      {model_s3_uri}")
+    print(f"  인스턴스 타입: {instance_type}")
+    print(f"  (완료까지 수 분 소요됩니다...)")
+
+    model.deploy(
+        initial_instance_count=1,
+        instance_type=instance_type,
+        endpoint_name=endpoint_name,
+    )
+
+    print(f"\n엔드포인트 배포 완료!")
+    print(f"  엔드포인트 이름: {endpoint_name}")
+
+
+def delete_endpoint(endpoint_name: str, region: str) -> None:
+    """엔드포인트, 엔드포인트 설정, 모델을 삭제합니다."""
+    sm = boto3.client("sagemaker", region_name=region)
+
+    try:
+        ep = sm.describe_endpoint(EndpointName=endpoint_name)
+        config_name = ep["EndpointConfigName"]
+    except ClientError:
+        print(f"엔드포인트 '{endpoint_name}'을 찾을 수 없습니다.")
+        return
+
+    print(f"엔드포인트 삭제 중: {endpoint_name}")
+    sm.delete_endpoint(EndpointName=endpoint_name)
+
+    try:
+        cfg = sm.describe_endpoint_config(EndpointConfigName=config_name)
+        model_name = cfg["ProductionVariants"][0]["ModelName"]
+        sm.delete_endpoint_config(EndpointConfigName=config_name)
+        print(f"엔드포인트 설정 삭제: {config_name}")
+        sm.delete_model(ModelName=model_name)
+        print(f"모델 삭제: {model_name}")
     except Exception as e:
-        print(f"Warning: Could not delete endpoint '{endpoint_name}': {e}")
+        print(f"경고: 정리 중 오류 발생: {e}")
 
-    # Delete endpoint config
-    if endpoint_config_name:
-        try:
-            sm_client.delete_endpoint_config(EndpointConfigName=endpoint_config_name)
-            print(f"Deleted endpoint config: {endpoint_config_name}")
-        except Exception as e:
-            print(f"Warning: Could not delete endpoint config '{endpoint_config_name}': {e}")
-
-    # Delete model
-    if model_name:
-        try:
-            sm_client.delete_model(ModelName=model_name)
-            print(f"Deleted model: {model_name}")
-        except Exception as e:
-            print(f"Warning: Could not delete model '{model_name}': {e}")
-
-    print(f"Endpoint '{endpoint_name}' cleanup complete.")
+    print(f"\n엔드포인트 삭제 완료: {endpoint_name}")
 
 
 def main() -> None:
-    """CLI entrypoint for deploying or deleting a SageMaker endpoint."""
+    config = load_config()
+    aws_cfg = config.get("aws", {})
+    infer_cfg = config.get("inference", {})
+    ecr_cfg = config.get("ecr", {})
+
     parser = argparse.ArgumentParser(
-        description="Deploy or delete a SageMaker Endpoint for GR00T-N1.6 inference."
+        description="GR00T-N1.6 SageMaker Endpoint 배포/삭제",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+예시:
+  # Model Registry에서 최신 승인 모델 배포 (권장)
+  python scripts/deploy_endpoint.py
+
+  # S3 URI 직접 지정
+  python scripts/deploy_endpoint.py \\
+      --model-s3-uri s3://my-bucket/output/job-name/output/model.tar.gz
+
+  # 엔드포인트 삭제
+  python scripts/deploy_endpoint.py --action delete
+        """,
     )
-    parser.add_argument(
-        "--action", required=True, choices=["deploy", "delete"],
-        help="Action to perform: deploy or delete",
-    )
-    parser.add_argument(
-        "--model-s3-uri", default=None,
-        help="S3 URI of the fine-tuned model artifacts (required for deploy)",
-    )
-    parser.add_argument(
-        "--instance-type", default="ml.g5.2xlarge",
-        help="SageMaker instance type (default: ml.g5.2xlarge)",
-    )
-    parser.add_argument(
-        "--endpoint-name", required=True,
-        help="Name for the SageMaker endpoint",
-    )
-    parser.add_argument(
-        "--container-image-uri", default=None,
-        help="ECR container image URI for inference (required for deploy)",
-    )
-    parser.add_argument(
-        "--role-arn", default=None,
-        help="SageMaker execution role ARN (required for deploy)",
-    )
-    parser.add_argument(
-        "--region", default="us-east-1",
-        help="AWS region (default: us-east-1, used for delete)",
-    )
+    parser.add_argument("--action", choices=["deploy", "delete"], default="deploy",
+                        help="실행할 액션 (기본값: deploy)")
+    parser.add_argument("--endpoint-name", default=infer_cfg.get("endpoint_name", "groot-n16-endpoint"),
+                        help="엔드포인트 이름")
+    parser.add_argument("--instance-type", default=infer_cfg.get("instance_type", "ml.g5.2xlarge"),
+                        help="추론 인스턴스 타입")
+    parser.add_argument("--region", default=aws_cfg.get("region", "ap-northeast-2"),
+                        help="AWS 리전")
+    parser.add_argument("--role-arn", default=aws_cfg.get("role_arn", ""),
+                        help="SageMaker 실행 역할 ARN")
+    parser.add_argument("--model-s3-uri", default="",
+                        help="모델 S3 URI (미지정 시 Model Registry 사용)")
+    parser.add_argument("--inference-image-uri", default=ecr_cfg.get("inference_uri", ""),
+                        help="추론 컨테이너 ECR URI (--model-s3-uri 사용 시 필요)")
+    parser.add_argument("--model-package-group",
+                        default=infer_cfg.get("model_package_group", "groot-n16-models"),
+                        help="Model Registry 패키지 그룹 이름")
+    parser.add_argument("--model-package-arn", default="",
+                        help="특정 모델 패키지 ARN (미지정 시 최신 승인 모델 사용)")
 
     args = parser.parse_args()
 
-    if args.action == "deploy":
-        # Validate required deploy args
-        missing = []
-        if not args.model_s3_uri:
-            missing.append("--model-s3-uri")
-        if not args.container_image_uri:
-            missing.append("--container-image-uri")
-        if not args.role_arn:
-            missing.append("--role-arn")
-        if missing:
-            parser.error(f"deploy action requires: {', '.join(missing)}")
+    if args.action == "delete":
+        delete_endpoint(args.endpoint_name, args.region)
+        return
 
-        config = DeploymentConfig(
+    if not args.role_arn:
+        print("오류: --role-arn이 필요합니다.")
+        print("  infra/deploy_stack.py를 먼저 실행하거나 --role-arn을 지정하세요.")
+        sys.exit(1)
+
+    if args.model_s3_uri:
+        if not args.inference_image_uri:
+            print("오류: --model-s3-uri 사용 시 --inference-image-uri가 필요합니다.")
+            sys.exit(1)
+        deploy_from_s3_uri(
             model_s3_uri=args.model_s3_uri,
-            instance_type=args.instance_type,
+            inference_image_uri=args.inference_image_uri,
             endpoint_name=args.endpoint_name,
-            container_image_uri=args.container_image_uri,
+            instance_type=args.instance_type,
+            role_arn=args.role_arn,
+            region=args.region,
         )
-        result = deploy_endpoint(config=config, role_arn=args.role_arn)
-        print(f"\nDeployment result: {result}")
+    else:
+        model_package_arn = args.model_package_arn
+        if not model_package_arn:
+            try:
+                model_package_arn = get_latest_approved_model(
+                    args.model_package_group, args.region
+                )
+            except ValueError as e:
+                print(f"오류: {e}", file=sys.stderr)
+                sys.exit(1)
 
-    elif args.action == "delete":
-        delete_endpoint(endpoint_name=args.endpoint_name, region=args.region)
+        deploy_from_model_registry(
+            model_package_arn=model_package_arn,
+            endpoint_name=args.endpoint_name,
+            instance_type=args.instance_type,
+            role_arn=args.role_arn,
+            region=args.region,
+        )
+
+    print(f"\n추론 테스트:")
+    print(f"  python scripts/invoke_endpoint.py \\")
+    print(f"      --endpoint-name {args.endpoint_name} \\")
+    print(f"      --image-path test.png \\")
+    print(f"      --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.7 \\")
+    print(f"      --instruction \"pick up the red block\"")
 
 
 if __name__ == "__main__":
