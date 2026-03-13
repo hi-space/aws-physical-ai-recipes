@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
-"""Example script to invoke a SageMaker Endpoint for GR00T-N1.6 inference.
+"""GR00T-N1.6 SageMaker Endpoint 추론 호출 스크립트.
 
-Loads an RGB image from disk, encodes it as base64, and sends an inference
-request to a deployed SageMaker endpoint. Prints the returned action vectors
-and timestamp.
+이미지 파일을 base64로 인코딩하고 배포된 SageMaker 엔드포인트에
+추론 요청을 전송합니다.
 
-Usage:
-    python scripts/invoke_endpoint.py \
-        --endpoint-name groot-inference \
-        --image-path /path/to/image.png \
-        --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.7 \
-        --instruction "pick up the red block" \
-        --region us-east-1
-
-Requirements referenced: 3.2
+사용법:
+    python scripts/invoke_endpoint.py \\
+        --endpoint-name groot-n16-endpoint \\
+        --image-path /path/to/image.png \\
+        --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.7 \\
+        --instruction "pick up the red block"
 """
 
 import argparse
 import base64
 import json
 import sys
+from pathlib import Path
+
+import yaml
+
+PROJECT_ROOT = Path(__file__).parent.parent
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+
+
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    return {}
+
 
 # Graceful handling when boto3 is not installed
 try:
@@ -116,28 +125,34 @@ def invoke_endpoint(
 
 def main() -> None:
     """CLI entrypoint for invoking a GR00T SageMaker endpoint."""
+    config = load_config()
+    aws_cfg = config.get("aws", {})
+    infer_cfg = config.get("inference", {})
+
     parser = argparse.ArgumentParser(
-        description="Invoke a SageMaker Endpoint for GR00T-N1.6 inference."
+        description="GR00T-N1.6 SageMaker Endpoint 추론 호출"
     )
     parser.add_argument(
-        "--endpoint-name", required=True,
-        help="Name of the deployed SageMaker endpoint",
+        "--endpoint-name",
+        default=infer_cfg.get("endpoint_name", "groot-n16-endpoint"),
+        help="배포된 SageMaker 엔드포인트 이름",
     )
     parser.add_argument(
         "--image-path", required=True,
-        help="Path to an RGB image file (PNG, JPEG, etc.)",
+        help="RGB 이미지 파일 경로 (PNG, JPEG 등)",
     )
     parser.add_argument(
         "--proprioception", required=True,
-        help="Comma-separated floats for the robot proprioception vector",
+        help="로봇 관절 상태 벡터 (쉼표 구분 실수, 예: 0.1,0.2,0.3)",
     )
     parser.add_argument(
         "--instruction", required=True,
-        help="Natural language task instruction for the model",
+        help="자연어 작업 지시 (예: 'pick up the red block')",
     )
     parser.add_argument(
-        "--region", default="us-east-1",
-        help="AWS region (default: us-east-1)",
+        "--region",
+        default=aws_cfg.get("region", "ap-northeast-2"),
+        help="AWS 리전",
     )
 
     args = parser.parse_args()
