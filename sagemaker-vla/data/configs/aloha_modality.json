@@ -1,0 +1,32 @@
+{
+    "state": {
+        "dual_arm": {
+            "start": 0,
+            "end": 12
+        },
+        "gripper": {
+            "start": 12,
+            "end": 14
+        }
+    },
+    "action": {
+        "dual_arm": {
+            "start": 0,
+            "end": 12
+        },
+        "gripper": {
+            "start": 12,
+            "end": 14
+        }
+    },
+    "video": {
+        "cam_high": {
+            "original_key": "observation.images.cam_high"
+        }
+    },
+    "annotation": {
+        "human.task_description": {
+            "original_key": "task_index"
+        }
+    }
+}

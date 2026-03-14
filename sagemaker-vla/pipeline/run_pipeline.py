@@ -47,11 +47,12 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         from sagemaker.model import Model
         from sagemaker.workflow.parameters import ParameterInteger, ParameterString
         from sagemaker.workflow.pipeline import Pipeline
+        from sagemaker.workflow.pipeline_context import PipelineSession
         from sagemaker.workflow.steps import TrainingStep
         from sagemaker.workflow.model_step import ModelStep
     except ImportError:
         print("오류: sagemaker SDK가 설치되지 않았습니다.")
-        print("  pip install sagemaker")
+        print("  pip install 'sagemaker<3'")
         sys.exit(1)
 
     aws_cfg = config.get("aws", {})
@@ -79,7 +80,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         print("  --training-image-uri를 지정하거나 scripts/trigger_build.py를 먼저 실행하세요.")
         sys.exit(1)
 
-    sagemaker_session = sagemaker.Session(
+    sagemaker_session = PipelineSession(
         boto_session=__import__("boto3").Session(region_name=region)
     )
 
@@ -110,6 +111,10 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         name="GlobalBatchSize",
         default_value=args.global_batch_size or train_cfg.get("global_batch_size", 32),
     )
+    p_num_gpus = ParameterInteger(
+        name="NumGpus",
+        default_value=args.num_gpus or train_cfg.get("num_gpus", 8),
+    )
 
     # -----------------------------------------------------------------------
     # Step 1: Training Job (Spot Instance)
@@ -117,9 +122,14 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", True)
     max_wait = train_cfg.get("max_wait_seconds", 86400) if use_spot else None
 
+    # Script Mode: train.py를 런타임에 주입 (Docker 재빌드 없이 스크립트 수정 반영)
+    train_source_dir = str(PROJECT_ROOT / "container" / "training")
+
     estimator_kwargs = dict(
         image_uri=training_image_uri,
         role=role_arn,
+        entry_point="train.py",
+        source_dir=train_source_dir,
         instance_type=p_instance_type,
         instance_count=1,
         output_path=f"s3://{bucket}/output",
@@ -128,7 +138,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
             "max_steps": p_max_steps,
             "global_batch_size": p_global_batch_size,
             "save_steps": str(train_cfg.get("save_steps", 2000)),
-            "num_gpus": str(train_cfg.get("num_gpus", 8)),
+            "num_gpus": p_num_gpus,
         },
         sagemaker_session=sagemaker_session,
         environment={
@@ -195,6 +205,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
             p_instance_type,
             p_max_steps,
             p_global_batch_size,
+            p_num_gpus,
         ],
         steps=[training_step, register_step],
         sagemaker_session=sagemaker_session,
@@ -230,8 +241,8 @@ def main() -> None:
     )
 
     # 필수 인수
-    parser.add_argument("--embodiment-tag", default="new_embodiment",
-                        help="로봇 embodiment 식별자 (기본값: new_embodiment)")
+    parser.add_argument("--embodiment-tag", default="NEW_EMBODIMENT",
+                        help="로봇 embodiment 식별자 (기본값: NEW_EMBODIMENT)")
     parser.add_argument("--dataset-s3-uri", default="",
                         help="데이터셋 S3 URI (s3://bucket/prefix)")
     parser.add_argument("--base-model-s3-uri",
@@ -255,6 +266,8 @@ def main() -> None:
                         help="최대 학습 스텝")
     parser.add_argument("--global-batch-size", type=int, default=train_cfg.get("global_batch_size", 32),
                         help="글로벌 배치 크기")
+    parser.add_argument("--num-gpus", type=int, default=train_cfg.get("num_gpus", 8),
+                        help="GPU 수")
     parser.add_argument("--use-spot", dest="use_spot", action="store_true", default=None,
                         help="Spot Instance 사용 (기본값: config.yaml의 training.use_spot)")
     parser.add_argument("--no-spot", dest="use_spot", action="store_false",

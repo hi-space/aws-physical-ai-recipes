@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu124
 
 # flash-attn 사전 빌드 wheel 설치
-RUN pip install --no-cache-dir flash-attn --no-build-isolation \
+RUN pip install --no-cache-dir psutil && \
+    pip install --no-cache-dir "flash-attn==2.7.4.post1" --no-build-isolation \
     --find-links https://github.com/Dao-AILab/flash-attention/releases/expanded_assets/v2.7.4.post1
 
 

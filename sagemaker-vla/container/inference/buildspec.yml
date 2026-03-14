@@ -18,8 +18,7 @@ phases:
   pre_build:
     commands:
       - echo "ECR 인증 중..."
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION
-          | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-8)
       - IMAGE_TAG_VERSIONED=${COMMIT_HASH:-latest}
       - echo "빌드 시작 - 이미지:${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}"
@@ -28,11 +27,7 @@ phases:
     commands:
       - echo "Docker 이미지 빌드 중 (Multi-stage build)..."
       - export DOCKER_BUILDKIT=1
-      - docker build
-          --file container/inference/Dockerfile
-          --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
-          --cache-from ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
-          .
+      - docker build --file container/inference/Dockerfile --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} --cache-from ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} .
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
 
