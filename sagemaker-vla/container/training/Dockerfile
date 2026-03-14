@@ -32,6 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender-dev \
     software-properties-common \
+    ffmpeg \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
@@ -64,7 +69,8 @@ RUN pip install --no-cache-dir \
 # ---------------------------------------------------------------------------
 # flash-attn (사전 빌드 wheel 사용 — 소스 컴파일 20분 절약)
 # ---------------------------------------------------------------------------
-RUN pip install --no-cache-dir flash-attn --no-build-isolation \
+RUN pip install --no-cache-dir psutil && \
+    pip install --no-cache-dir flash-attn --no-build-isolation \
     --find-links https://github.com/Dao-AILab/flash-attention/releases/expanded_assets/v2.7.4.post1
 
 # ---------------------------------------------------------------------------
@@ -76,19 +82,20 @@ RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
 RUN uv pip install --system -e ".[train]"
 
 # ---------------------------------------------------------------------------
+# torchcodec (AV1 코덱 비디오 디코딩에 필요)
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir torchcodec
+
+# ---------------------------------------------------------------------------
+# SageMaker Training Toolkit (Script Mode 지원)
+# ---------------------------------------------------------------------------
+# entry_point/source_dir를 Estimator에서 지정하면 런타임에 스크립트를 주입.
+# Docker 재빌드 없이 train.py 수정사항을 즉시 반영할 수 있음.
+RUN pip install --no-cache-dir sagemaker-training
+
+# ---------------------------------------------------------------------------
 # SageMaker 디렉토리 구조
 # ---------------------------------------------------------------------------
-# /opt/ml/model      → SM_MODEL_DIR (학습 후 모델 저장)
-# /opt/ml/input/data → SM_CHANNEL_* (S3 입력 채널 마운트)
-# /opt/ml/output     → 실패 정보 등
-# /opt/ml/code       → 학습 스크립트
 RUN mkdir -p /opt/ml/model /opt/ml/input/data /opt/ml/output /opt/ml/code
 
-# ---------------------------------------------------------------------------
-# 학습 엔트리포인트 복사
-# ---------------------------------------------------------------------------
-COPY container/training/train.py /opt/ml/code/train.py
-
 WORKDIR /opt/ml/code
-
-ENTRYPOINT ["python", "/opt/ml/code/train.py"]

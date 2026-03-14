@@ -23,22 +23,65 @@ from pathlib import Path
 # 환경변수 파싱
 # -------------------------------------------------------------------------------
 
+def _get_hyperparameter(key: str, default: str = "") -> str:
+    """SageMaker 하이퍼파라미터를 환경변수에서 읽습니다.
+
+    SageMaker는 하이퍼파라미터를 SM_HP_ 접두사로 설정하지만,
+    키의 대소문자 변환이 버전마다 다를 수 있으므로 여러 형식을 시도합니다.
+    또한 /opt/ml/input/config/hyperparameters.json 파일도 확인합니다.
+    """
+    # 1. 환경변수에서 시도 (대문자, 원본)
+    for env_key in [f"SM_HP_{key.upper()}", f"SM_HP_{key}"]:
+        val = os.environ.get(env_key)
+        if val is not None:
+            return val
+
+    # 2. SageMaker hyperparameters.json 파일에서 시도
+    hp_path = Path("/opt/ml/input/config/hyperparameters.json")
+    if hp_path.exists():
+        try:
+            hp = json.loads(hp_path.read_text(encoding="utf-8"))
+            if key in hp:
+                return str(hp[key])
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return default
+
+
+def _detect_gpu_count() -> str:
+    """사용 가능한 GPU 수를 자동 감지합니다."""
+    try:
+        import torch
+        count = torch.cuda.device_count()
+        if count > 0:
+            return str(count)
+    except Exception:
+        pass
+    return "1"
+
+
 def parse_sagemaker_env() -> dict:
     """SageMaker 환경변수를 파싱하여 설정 딕셔너리로 반환합니다."""
+    # num_gpus: 하이퍼파라미터 → 자동 감지 순서로 결정
+    num_gpus = _get_hyperparameter("num_gpus")
+    if not num_gpus:
+        num_gpus = _detect_gpu_count()
+        print(f"num_gpus 하이퍼파라미터 미설정 → 자동 감지: {num_gpus}개 GPU")
+
     return {
         "model_dir": os.environ.get("SM_CHANNEL_MODEL", "/opt/ml/input/data/model"),
         "dataset_dir": os.environ.get("SM_CHANNEL_DATASET", "/opt/ml/input/data/dataset"),
         "output_dir": os.environ.get("SM_MODEL_DIR", "/opt/ml/model"),
-        # 하이퍼파라미터 (SageMaker는 SM_HP_ 접두사를 붙임)
-        "embodiment_tag": os.environ.get("SM_HP_EMBODIMENT_TAG", "new_embodiment"),
-        "max_steps": os.environ.get("SM_HP_MAX_STEPS", "10000"),
-        "global_batch_size": os.environ.get("SM_HP_GLOBAL_BATCH_SIZE", "32"),
-        "save_steps": os.environ.get("SM_HP_SAVE_STEPS", "2000"),
-        "num_gpus": os.environ.get("SM_HP_NUM_GPUS", "1"),
-        "video_key": os.environ.get("SM_HP_VIDEO_KEY", "video.webcam"),
-        "state_key": os.environ.get("SM_HP_STATE_KEY", "state.single_arm"),
-        "action_dim": os.environ.get("SM_HP_ACTION_DIM", "7"),
-        "wandb_api_key": os.environ.get("SM_HP_WANDB_API_KEY", ""),
+        "embodiment_tag": _get_hyperparameter("embodiment_tag", "NEW_EMBODIMENT"),
+        "max_steps": _get_hyperparameter("max_steps", "10000"),
+        "global_batch_size": _get_hyperparameter("global_batch_size", "32"),
+        "save_steps": _get_hyperparameter("save_steps", "2000"),
+        "num_gpus": num_gpus,
+        "video_key": _get_hyperparameter("video_key", "video.webcam"),
+        "state_key": _get_hyperparameter("state_key", "state.single_arm"),
+        "action_dim": _get_hyperparameter("action_dim", "7"),
+        "wandb_api_key": _get_hyperparameter("wandb_api_key", ""),
     }
 
 
@@ -75,29 +118,91 @@ def setup_wandb(env: dict) -> None:
 # GR00T 학습 실행
 # -------------------------------------------------------------------------------
 
+def ensure_tasks_jsonl(dataset_dir: str) -> None:
+    """GR00T가 요구하는 meta/tasks.jsonl이 없으면 기본 파일을 생성합니다."""
+    meta_dir = Path(dataset_dir) / "meta"
+    tasks_path = meta_dir / "tasks.jsonl"
+    if tasks_path.exists():
+        return
+
+    print(f"tasks.jsonl 누락 → 기본 파일 생성: {tasks_path}")
+    meta_dir.mkdir(parents=True, exist_ok=True)
+
+    # episodes.jsonl에서 task 정보 추출 시도
+    task_descriptions = set()
+    episodes_path = meta_dir / "episodes.jsonl"
+    if episodes_path.exists():
+        with open(episodes_path, "r", encoding="utf-8") as f:
+            for line in f:
+                ep = json.loads(line)
+                for t in ep.get("tasks", []):
+                    task_descriptions.add(t)
+
+    with open(tasks_path, "w", encoding="utf-8") as f:
+        if task_descriptions:
+            for i, desc in enumerate(sorted(task_descriptions)):
+                f.write(json.dumps({"task_index": i, "task": desc}) + "\n")
+        else:
+            f.write(json.dumps({"task_index": 0, "task": "default task"}) + "\n")
+
+    print(f"  tasks.jsonl 생성 완료 ({max(len(task_descriptions), 1)}개 태스크)")
+
+
 def run_gr00t_training(env: dict) -> None:
-    """Isaac-GR00T의 launch_finetune.py를 subprocess로 호출합니다."""
+    """Isaac-GR00T의 launch_finetune.py를 subprocess로 호출합니다.
+
+    num_gpus > 1인 경우 torchrun(DDP + DeepSpeed)으로 실행하고,
+    단일 GPU인 경우 CUDA_VISIBLE_DEVICES를 제한하여 실행합니다.
+    이렇게 해야 multi-GPU 머신에서도 DataParallel이 아닌 올바른
+    병렬화 전략을 사용합니다.
+    """
+    ensure_tasks_jsonl(env["dataset_dir"])
     training_output_dir = os.path.join(env["output_dir"], "checkpoint")
 
-    cmd = [
-        sys.executable,
+    num_gpus = int(env["num_gpus"])
+
+    finetune_args = [
         "gr00t/experiment/launch_finetune.py",
-        "--base-model-path", env["model_dir"],
-        "--dataset-path", env["dataset_dir"],
-        "--embodiment-tag", env["embodiment_tag"],
-        "--num-gpus", env["num_gpus"],
-        "--output-dir", training_output_dir,
-        "--max-steps", env["max_steps"],
-        "--global-batch-size", env["global_batch_size"],
-        "--save-steps", env["save_steps"],
+        "--base_model_path", env["model_dir"],
+        "--dataset_path", env["dataset_dir"],
+        "--embodiment_tag", env["embodiment_tag"],
+        "--num_gpus", str(num_gpus),
+        "--output_dir", training_output_dir,
+        "--max_steps", env["max_steps"],
+        "--global_batch_size", env["global_batch_size"],
+        "--save_steps", env["save_steps"],
     ]
 
+    # 데이터셋 안에 modality_config.py가 있으면 자동으로 전달
+    modality_config_path = os.path.join(env["dataset_dir"], "modality_config.py")
+    if os.path.isfile(modality_config_path):
+        finetune_args.extend(["--modality_config_path", modality_config_path])
+        print(f"Modality config 감지: {modality_config_path}")
+
     if env.get("wandb_api_key") and not os.environ.get("WANDB_DISABLED"):
-        cmd.append("--use-wandb")
+        finetune_args.append("--use_wandb")
+
+    # subprocess에 전달할 환경변수 (현재 환경 복사)
+    run_env = os.environ.copy()
+
+    if num_gpus > 1:
+        # Multi-GPU: torchrun(DDP + DeepSpeed)
+        cmd = [
+            sys.executable, "-m", "torch.distributed.run",
+            "--standalone",
+            "--nproc_per_node", str(num_gpus),
+        ] + finetune_args
+        print(f"[Multi-GPU] torchrun으로 {num_gpus}개 GPU DDP 학습 시작")
+    else:
+        # Single-GPU: CUDA_VISIBLE_DEVICES를 GPU 0번으로 제한하여
+        # HF Trainer가 다른 GPU를 감지하지 못하게 함 (DataParallel 방지)
+        cmd = [sys.executable] + finetune_args
+        run_env["CUDA_VISIBLE_DEVICES"] = "0"
+        print(f"[Single-GPU] python으로 단일 GPU 학습 시작 (CUDA_VISIBLE_DEVICES=0)")
 
     print(f"학습 명령어: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, cwd="/opt/gr00t", check=False)
+    result = subprocess.run(cmd, cwd="/opt/gr00t", env=run_env, check=False)
 
     if result.returncode != 0:
         print(f"오류: 학습 실패 (코드 {result.returncode})", file=sys.stderr)

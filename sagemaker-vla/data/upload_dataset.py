@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""로컬 LeRobot v2 데이터셋을 검증하고 S3에 업로드합니다.
+"""LeRobot 데이터셋을 검증하고 S3에 업로드합니다.
 
-LeRobot v2 형식:
-    my-dataset/
-    ├── meta/
-    │   ├── info.json         # 데이터셋 메타데이터 (로봇 타입, 액션 공간 등)
-    │   ├── episodes.jsonl    # 에피소드 목록
-    │   └── stats.json        # 데이터 통계
-    ├── data/
-    │   └── chunk-000/
-    │       └── episode_000000.parquet
-    └── videos/               # (선택) 비디오 관측
-        └── chunk-000/
-            └── episode_000000.mp4
+v3 형식 데이터셋은 자동으로 v2.1로 변환한 뒤 업로드합니다.
+(GR00T 파인튜닝에는 LeRobot v2 형식이 필요합니다.)
 
 사용법:
+    # 로컬 데이터셋 업로드:
     python data/upload_dataset.py \
         --local-path ./my-robot-dataset \
         --bucket my-groot-artifacts
@@ -24,11 +15,18 @@ LeRobot v2 형식:
         --local-path ./my-robot-dataset \
         --bucket my-groot-artifacts \
         --prefix datasets/my-robot-v1
+
+    # HuggingFace 데이터셋 다운로드 후 업로드 (v3이면 자동 변환):
+    python data/upload_dataset.py \
+        --hf-dataset-id lerobot/aloha_static_screw_driver \
+        --bucket my-groot-artifacts
 """
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import boto3
@@ -43,6 +41,53 @@ def load_config() -> dict:
     if CONFIG_PATH.exists():
         return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     return {}
+
+
+def download_hf_dataset(dataset_id: str, local_dir: str, hf_token: str = "") -> str:
+    """HuggingFace Hub에서 LeRobot 데이터셋을 다운로드합니다.
+
+    Args:
+        dataset_id: HuggingFace 데이터셋 ID (예: lerobot/aloha_sim_transfer_cube_human).
+        local_dir: 로컬 저장 디렉토리.
+        hf_token: HuggingFace API 토큰 (선택, 비공개 데이터셋에 필요).
+
+    Returns:
+        다운로드된 로컬 경로.
+    """
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print("오류: huggingface_hub이 설치되지 않았습니다.")
+        print("  pip install huggingface_hub")
+        sys.exit(1)
+
+    print(f"HuggingFace에서 데이터셋 다운로드 중: {dataset_id}")
+    print(f"저장 위치: {local_dir}")
+
+    kwargs = {
+        "repo_id": dataset_id,
+        "repo_type": "dataset",
+        "local_dir": local_dir,
+    }
+    if hf_token:
+        kwargs["token"] = hf_token
+
+    snapshot_download(**kwargs)
+    print(f"데이터셋 다운로드 완료: {local_dir}")
+    return local_dir
+
+
+def get_hf_token_from_ssm(region: str) -> str:
+    """SSM Parameter Store에서 HuggingFace 토큰을 가져옵니다."""
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        response = ssm.get_parameter(Name="/groot/hf-token", WithDecryption=True)
+        value = response["Parameter"]["Value"]
+        if value.startswith("PLACEHOLDER"):
+            return ""
+        return value
+    except Exception:
+        return ""
 
 
 def validate_lerobot_dataset(local_path: str) -> None:
@@ -90,6 +135,14 @@ def validate_lerobot_dataset(local_path: str) -> None:
         raise ValueError(
             "LeRobot v2 형식 검증 실패:\n" + "\n".join(f"  - {e}" for e in errors)
         )
+
+    # tasks.jsonl 필수 — 없으면 자동 생성
+    from convert_v3_to_v2 import ensure_tasks_jsonl
+
+    if ensure_tasks_jsonl(local_path):
+        print("  tasks.jsonl 없음 → 기본 파일 자동 생성.")
+    else:
+        print("  tasks.jsonl 확인 완료.")
 
     print("  LeRobot v2 형식 검증 통과.")
 
@@ -144,15 +197,24 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
+  # 로컬 데이터셋 업로드 (v3이면 자동 변환):
   python data/upload_dataset.py --local-path ./my-dataset
-  python data/upload_dataset.py --local-path ./my-dataset --bucket my-bucket --prefix datasets/my-robot-v1
-  python data/upload_dataset.py --local-path ./my-dataset --skip-validation
+  python data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot-v1
+
+  # HuggingFace 실제 로봇 데이터셋 다운로드 후 업로드:
+  python data/upload_dataset.py --hf-dataset-id lerobot/aloha_static_screw_driver
+  python data/upload_dataset.py --hf-dataset-id lerobot/aloha_static_screw_driver --hf-token hf_xxxx
         """,
     )
-    parser.add_argument(
+
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
         "--local-path",
-        required=True,
         help="업로드할 로컬 데이터셋 경로",
+    )
+    source_group.add_argument(
+        "--hf-dataset-id",
+        help="HuggingFace 데이터셋 ID (예: lerobot/aloha_sim_transfer_cube_human)",
     )
     parser.add_argument(
         "--bucket",
@@ -170,6 +232,11 @@ def main() -> None:
         help="AWS 리전 (기본값: ap-northeast-2)",
     )
     parser.add_argument(
+        "--hf-token",
+        default="",
+        help="HuggingFace API 토큰 (비공개 데이터셋에 필요). 미지정 시 SSM /groot/hf-token 참조.",
+    )
+    parser.add_argument(
         "--skip-validation",
         action="store_true",
         help="LeRobot v2 형식 검증 건너뜀",
@@ -182,30 +249,62 @@ def main() -> None:
         print("  --bucket 옵션을 지정하거나 infra/deploy_stack.py를 먼저 실행하세요.")
         sys.exit(1)
 
-    print(f"데이터셋 경로: {args.local_path}")
+    # HuggingFace 데이터셋 다운로드 모드
+    use_temp = False
+    if args.hf_dataset_id:
+        # HuggingFace 토큰: 인수 → SSM → 환경변수 순서로 확인
+        hf_token = args.hf_token
+        if not hf_token:
+            hf_token = get_hf_token_from_ssm(args.region)
+        if not hf_token:
+            hf_token = os.environ.get("HF_TOKEN", "")
 
-    # 1. 형식 검증
-    if not args.skip_validation:
-        print("LeRobot v2 형식 검증 중...")
-        try:
-            validate_lerobot_dataset(args.local_path)
-        except ValueError as e:
-            print(f"오류: {e}", file=sys.stderr)
-            sys.exit(1)
+        use_temp = True
+        tmp_dir = tempfile.mkdtemp(prefix="groot-dataset-")
+        local_path = tmp_dir
+        print(f"임시 디렉토리 사용: {local_path}")
+        download_hf_dataset(args.hf_dataset_id, local_path, hf_token)
     else:
-        print("형식 검증 건너뜀.")
+        local_path = args.local_path
 
-    # 2. S3 업로드
+    print(f"데이터셋 경로: {local_path}")
+
     try:
-        s3_uri = upload_to_s3(args.local_path, args.bucket, args.prefix, args.region)
-    except ClientError as e:
-        print(f"S3 업로드 오류: {e}", file=sys.stderr)
-        sys.exit(1)
+        # 0. v3 → v2 자동 변환
+        sys.path.insert(0, str(Path(__file__).parent))
+        from convert_v3_to_v2 import is_v3_dataset, convert_v3_to_v2
 
-    print(f"\n완료! 데이터셋 S3 URI:")
-    print(f"  {s3_uri}")
-    print(f"\n이 URI를 학습 시 사용하세요:")
-    print(f"  --dataset-s3-uri {s3_uri}")
+        if is_v3_dataset(local_path):
+            print("LeRobot v3 형식 감지 → v2.1로 자동 변환합니다.")
+            convert_v3_to_v2(local_path)
+
+        # 1. 형식 검증
+        if not args.skip_validation:
+            print("LeRobot v2 형식 검증 중...")
+            try:
+                validate_lerobot_dataset(local_path)
+            except ValueError as e:
+                print(f"오류: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print("형식 검증 건너뜀.")
+
+        # 2. S3 업로드
+        try:
+            s3_uri = upload_to_s3(local_path, args.bucket, args.prefix, args.region)
+        except ClientError as e:
+            print(f"S3 업로드 오류: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"\n완료! 데이터셋 S3 URI:")
+        print(f"  {s3_uri}")
+        print(f"\n이 URI를 학습 시 사용하세요:")
+        print(f"  --dataset-s3-uri {s3_uri}")
+    finally:
+        if use_temp:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            print("임시 디렉토리 정리 완료.")
 
 
 if __name__ == "__main__":

@@ -44,6 +44,12 @@ PROJECT_NAMES = {
     "inference": "groot-n16-inference-build",
 }
 
+# CodeBuild 프로젝트별 buildspec 경로
+BUILDSPEC_PATHS = {
+    "training": "container/training/buildspec.yml",
+    "inference": "container/inference/buildspec.yml",
+}
+
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
@@ -95,6 +101,7 @@ def start_build(
     region: str,
     source_s3_bucket: str = "",
     source_s3_key: str = "",
+    buildspec_path: str = "",
 ) -> str:
     """CodeBuild 빌드를 시작합니다.
 
@@ -103,6 +110,7 @@ def start_build(
         region: AWS 리전.
         source_s3_bucket: S3 소스 버킷 (S3 소스 방식 사용 시).
         source_s3_key: S3 소스 키 (S3 소스 방식 사용 시).
+        buildspec_path: buildspec 파일 경로 (S3 소스 내 상대 경로).
 
     Returns:
         CodeBuild 빌드 ID.
@@ -114,6 +122,8 @@ def start_build(
     if source_s3_bucket and source_s3_key:
         kwargs["sourceLocationOverride"] = f"{source_s3_bucket}/{source_s3_key}"
         kwargs["sourceTypeOverride"] = "S3"
+        if buildspec_path:
+            kwargs["buildspecOverride"] = buildspec_path
 
     try:
         response = cb.start_build(**kwargs)
@@ -222,11 +232,6 @@ def main() -> None:
         help="S3 소스 업로드용 버킷 (--upload-source 사용 시 필요)",
     )
     parser.add_argument(
-        "--upload-source",
-        action="store_true",
-        help="소스를 S3에 업로드하여 빌드 트리거 (GitHub 미연결 시 사용)",
-    )
-    parser.add_argument(
         "--no-wait",
         action="store_true",
         help="빌드 완료를 기다리지 않음 (백그라운드 실행)",
@@ -245,26 +250,27 @@ def main() -> None:
     else:
         build_types = [args.type]
 
-    # S3 소스 업로드 (선택)
+    # S3 소스 업로드 (NO_SOURCE 프로젝트이므로 항상 소스 업로드 필요)
     source_s3_bucket = ""
     source_s3_key = ""
-    if args.upload_source:
-        if not args.bucket:
-            print("오류: --upload-source 사용 시 --bucket이 필요합니다.")
-            sys.exit(1)
-        source_s3_key = upload_source_to_s3(args.bucket, args.region)
-        source_s3_bucket = args.bucket
+    if not args.bucket:
+        print("오류: --bucket이 필요합니다. (config.yaml의 aws.bucket_name 또는 --bucket 옵션)")
+        sys.exit(1)
+    source_s3_key = upload_source_to_s3(args.bucket, args.region)
+    source_s3_bucket = args.bucket
 
     # 빌드 시작
     build_ids = {}
     for build_type in build_types:
         project_name = PROJECT_NAMES[build_type]
+        buildspec_path = BUILDSPEC_PATHS.get(build_type, "")
         try:
             build_id = start_build(
                 project_name,
                 args.region,
                 source_s3_bucket,
                 source_s3_key,
+                buildspec_path,
             )
             build_ids[build_type] = build_id
         except ClientError as e:

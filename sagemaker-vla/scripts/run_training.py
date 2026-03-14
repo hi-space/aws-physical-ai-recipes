@@ -173,7 +173,7 @@ def main() -> None:
       --no-spot --no-wait
         """,
     )
-    parser.add_argument("--embodiment-tag", default="new_embodiment",
+    parser.add_argument("--embodiment-tag", default="NEW_EMBODIMENT",
                         help="로봇 embodiment 식별자")
     parser.add_argument("--dataset-s3-uri", default="",
                         help="데이터셋 S3 URI")
