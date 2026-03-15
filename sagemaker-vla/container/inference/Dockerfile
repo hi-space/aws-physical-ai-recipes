@@ -1,49 +1,12 @@
 # =============================================================================
-# GR00T-N1.6 SageMaker 추론 컨테이너 (Multi-stage build)
+# GR00T-N1.6 SageMaker 추론 컨테이너
 # =============================================================================
-# Stage 1 (builder): flash-attn 사전 컴파일 (CUDA devel 툴킷 필요)
-# Stage 2 (runtime): 경량 CUDA runtime + FastAPI 추론 서버
+# Single-stage build: CUDA devel + Isaac-GR00T + flash-attn + FastAPI
 #
 # 포트: 8080 (/ping, /invocations)
 # =============================================================================
 
-# ---------------------------------------------------------------------------
-# Stage 1: Builder — flash-attn 컴파일
-# ---------------------------------------------------------------------------
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget curl ca-certificates build-essential cmake ninja-build \
-    software-properties-common \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv python3.10-distutils \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
-
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
-
-# PyTorch (flash-attn 빌드 의존성)
-RUN pip install --no-cache-dir \
-    "torch==2.6.0" \
-    --index-url https://download.pytorch.org/whl/cu124
-
-# flash-attn 사전 빌드 wheel 설치
-RUN pip install --no-cache-dir psutil && \
-    pip install --no-cache-dir "flash-attn==2.7.4.post1" --no-build-isolation \
-    --find-links https://github.com/Dao-AILab/flash-attention/releases/expanded_assets/v2.7.4.post1
-
-
-# ---------------------------------------------------------------------------
-# Stage 2: Runtime — 경량 추론 서버
-# ---------------------------------------------------------------------------
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -53,7 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SAGEMAKER_BIND_TO_PORT=8080
 
 # ---------------------------------------------------------------------------
-# 시스템 의존성 (Java 불필요 — FastAPI 사용)
+# 시스템 의존성
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -65,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender-dev \
     software-properties-common \
+    build-essential cmake ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
@@ -82,7 +46,7 @@ RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
 RUN pip install --no-cache-dir uv
 
 # ---------------------------------------------------------------------------
-# PyTorch + uv (Isaac-GR00T 설치에 사용)
+# PyTorch (CUDA 12.4)
 # ---------------------------------------------------------------------------
 RUN pip install --no-cache-dir \
     "torch==2.6.0" \
@@ -90,23 +54,21 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu124
 
 # ---------------------------------------------------------------------------
-# flash-attn: builder stage에서 복사 (재컴파일 불필요)
-# ---------------------------------------------------------------------------
-COPY --from=builder \
-    /usr/local/lib/python3.10/dist-packages/flash_attn \
-    /usr/local/lib/python3.10/dist-packages/flash_attn
-
-COPY --from=builder \
-    /usr/local/lib/python3.10/dist-packages/flash_attn-2.7.4.post1.dist-info \
-    /usr/local/lib/python3.10/dist-packages/flash_attn-2.7.4.post1.dist-info
-
-# ---------------------------------------------------------------------------
-# Isaac-GR00T 클론 및 추론 의존성 설치 (학습 extras 제외)
+# Isaac-GR00T 클론 및 설치 (먼저 설치하여 의존성 확보)
 # ---------------------------------------------------------------------------
 WORKDIR /opt/gr00t
 RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
 
 RUN uv pip install --system -e .
+
+# ---------------------------------------------------------------------------
+# flash-attn: GR00T 이후 강제 재설치 (소스 빌드, ABI 일치 보장)
+# GR00T가 설치한 flash-attn을 덮어써서 현재 PyTorch ABI와 일치시킴
+# ---------------------------------------------------------------------------
+RUN pip install --no-cache-dir psutil ninja packaging && \
+    pip install --no-cache-dir --force-reinstall --no-deps \
+    "flash-attn==2.7.4.post1" --no-build-isolation && \
+    python -c "import flash_attn; import flash_attn_2_cuda; print(f'flash-attn {flash_attn.__version__} + CUDA extension OK')"
 
 # ---------------------------------------------------------------------------
 # FastAPI 추론 서버 의존성
@@ -125,4 +87,11 @@ COPY container/inference/serve.py /opt/ml/code/serve.py
 EXPOSE 8080
 WORKDIR /opt/ml/code
 
-ENTRYPOINT ["uvicorn", "serve:app", "--host", "0.0.0.0", "--port", "8080"]
+# SageMaker는 추론 컨테이너를 `docker run <image> serve`로 실행합니다.
+# ENTRYPOINT를 사용하지 않고 CMD만 사용하여 SageMaker의 `serve` 인자가
+# 추가 인자로 전달되는 문제를 방지합니다.
+RUN printf '#!/bin/bash\nexec uvicorn serve:app --host 0.0.0.0 --port 8080\n' > /usr/local/bin/serve && \
+    chmod +x /usr/local/bin/serve
+
+ENTRYPOINT []
+CMD ["/usr/local/bin/serve"]

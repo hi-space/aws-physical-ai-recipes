@@ -70,14 +70,47 @@ def load_model() -> None:
 
     logger.info(f"모델 로드 중: {model_dir}")
 
-    from gr00t.model.policy import Gr00tPolicy
+    # SageMaker는 /opt/ml/model을 읽기 전용으로 마운트합니다.
+    # 프로세서 파일이 서브디렉토리에만 있을 경우 임시 디렉토리로 병합 복사합니다.
+    import shutil
+    import tempfile
+
+    effective_model_dir = model_dir
+    processor_root = os.path.join(model_dir, "processor_config.json")
+    if not os.path.isfile(processor_root):
+        for subdir in ["processor", "checkpoint-1", "checkpoint"]:
+            src_dir = os.path.join(model_dir, subdir, "processor_config.json")
+            if os.path.isfile(src_dir):
+                logger.info(f"프로세서 파일이 {subdir}/에만 있음 → 임시 디렉토리로 병합 복사합니다.")
+                effective_model_dir = tempfile.mkdtemp(prefix="groot_model_")
+                # 루트 파일 복사 (심볼릭 링크로 빠르게)
+                for item in os.listdir(model_dir):
+                    s = os.path.join(model_dir, item)
+                    d = os.path.join(effective_model_dir, item)
+                    if os.path.isfile(s):
+                        os.symlink(s, d)
+                    elif os.path.isdir(s):
+                        os.symlink(s, d)
+                # 프로세서 파일을 루트로 복사 (기존 심볼릭 링크 덮어쓰지 않음)
+                proc_dir = os.path.join(model_dir, subdir)
+                for f in os.listdir(proc_dir):
+                    src_f = os.path.join(proc_dir, f)
+                    dst_f = os.path.join(effective_model_dir, f)
+                    if os.path.isfile(src_f) and not os.path.exists(dst_f):
+                        os.symlink(src_f, dst_f)
+                logger.info(f"병합된 모델 경로: {effective_model_dir}")
+                break
+
+    from gr00t.policy.gr00t_policy import Gr00tPolicy
+    from gr00t.data.embodiment_tags import EmbodimentTag
+
+    embodiment_tag = EmbodimentTag[_metadata["embodiment_tag"]]
 
     _policy = Gr00tPolicy(
-        model_path=model_dir,
-        embodiment_tag=_metadata["embodiment_tag"],
-        denoising_steps=4,
-        device="cuda",
-        use_bf16=True,
+        embodiment_tag=embodiment_tag,
+        model_path=effective_model_dir,
+        device="cuda:0",
+        strict=False,
     )
 
     logger.info("GR00T 모델 로드 완료.")
@@ -215,26 +248,35 @@ def _run_inference(validated: dict) -> dict:
         dtype=np.uint8,
     )
 
-    # 관측 딕셔너리 구성 (embodiment별 키 이름 사용)
+    # 관측 딕셔너리 구성 (GR00T Policy API 중첩 딕셔너리 형식)
+    # video_key 예: "video.webcam" → {"video": {"webcam": array}}
+    # state_key 예: "state.single_arm" → {"state": {"single_arm": array}}
     video_key = _metadata.get("video_key", "video.webcam")
     state_key = _metadata.get("state_key", "state.single_arm")
 
+    video_parts = video_key.split(".", 1)
+    state_parts = state_key.split(".", 1)
+
     obs = {
-        video_key: image[np.newaxis],  # (1, H, W, C)
-        state_key: np.array(validated["proprioception"], dtype=np.float32),
-        "annotation.human.task_description": [validated["instruction"]],
+        "video": {
+            video_parts[1] if len(video_parts) > 1 else video_parts[0]:
+                image[np.newaxis, np.newaxis],  # (B=1, T=1, H, W, C)
+        },
+        "state": {
+            state_parts[1] if len(state_parts) > 1 else state_parts[0]:
+                np.array(validated["proprioception"], dtype=np.float32)[np.newaxis, np.newaxis],  # (B=1, T=1, D)
+        },
+        "language": {
+            _policy.language_key: [[validated["instruction"]]],  # (B=1, 1)
+        },
     }
 
-    # GR00T 추론
-    action_dict = _policy.get_action(obs)
+    # GR00T 추론 — returns (action_dict, info)
+    action_dict, _info = _policy.get_action(obs)
 
     # 액션 배열 직렬화 (numpy → Python list)
-    if isinstance(action_dict, dict):
-        # action_dict에서 첫 번째 액션 키 추출
-        action_key = next(iter(action_dict))
-        actions = action_dict[action_key]
-    else:
-        actions = action_dict
+    action_key = next(iter(action_dict))
+    actions = action_dict[action_key]
 
     if isinstance(actions, np.ndarray):
         actions_list = actions.tolist()

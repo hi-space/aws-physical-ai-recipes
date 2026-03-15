@@ -75,6 +75,7 @@ def invoke_endpoint(
     proprioception: list[float],
     instruction: str,
     region: str = "us-east-1",
+    inference_component_name: str = "",
 ) -> dict:
     """Send an inference request to the SageMaker endpoint.
 
@@ -108,13 +109,17 @@ def invoke_endpoint(
     # Use sagemaker-runtime client to invoke the endpoint
     runtime_client = boto3.client("sagemaker-runtime", region_name=region)
 
+    invoke_kwargs = dict(
+        EndpointName=endpoint_name,
+        ContentType="application/json",
+        Accept="application/json",
+        Body=json.dumps(payload),
+    )
+    if inference_component_name:
+        invoke_kwargs["InferenceComponentName"] = inference_component_name
+
     try:
-        response = runtime_client.invoke_endpoint(
-            EndpointName=endpoint_name,
-            ContentType="application/json",
-            Accept="application/json",
-            Body=json.dumps(payload),
-        )
+        response = runtime_client.invoke_endpoint(**invoke_kwargs)
     except Exception as e:
         raise RuntimeError(f"Failed to invoke endpoint '{endpoint_name}': {e}")
 
@@ -151,11 +156,33 @@ def main() -> None:
     )
     parser.add_argument(
         "--region",
-        default=aws_cfg.get("region", "ap-northeast-2"),
+        default=aws_cfg.get("region", "us-west-2"),
         help="AWS 리전",
+    )
+    parser.add_argument(
+        "--inference-component-name",
+        default="",
+        help="Inference Component 이름 (IC 기반 배포 시 필요)",
     )
 
     args = parser.parse_args()
+
+    # Step 0: Auto-discover inference component name if not provided
+    if not args.inference_component_name:
+        try:
+            sm = boto3.client("sagemaker", region_name=args.region)
+            ic_resp = sm.list_inference_components(
+                EndpointNameEquals=args.endpoint_name,
+                SortBy="CreationTime",
+                SortOrder="Descending",
+                MaxResults=1,
+            )
+            ic_list = ic_resp.get("InferenceComponents", [])
+            if ic_list:
+                args.inference_component_name = ic_list[0]["InferenceComponentName"]
+                print(f"Auto-detected Inference Component: {args.inference_component_name}")
+        except Exception:
+            pass  # IC가 없는 일반 엔드포인트일 수 있음
 
     # Step 1: Load the image and encode as base64
     print(f"Loading image from: {args.image_path}")
@@ -174,6 +201,7 @@ def main() -> None:
         proprioception=proprioception,
         instruction=args.instruction,
         region=args.region,
+        inference_component_name=args.inference_component_name,
     )
 
     # Step 4: Print the response
