@@ -103,6 +103,7 @@ def deploy_from_model_registry(
         initial_instance_count=1,
         instance_type=instance_type,
         endpoint_name=endpoint_name,
+        container_startup_health_check_timeout=600,
     )
 
     print(f"\n엔드포인트 배포 완료!")
@@ -146,6 +147,7 @@ def deploy_from_s3_uri(
         initial_instance_count=1,
         instance_type=instance_type,
         endpoint_name=endpoint_name,
+        container_startup_health_check_timeout=600,
     )
 
     print(f"\n엔드포인트 배포 완료!")

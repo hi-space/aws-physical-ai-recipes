@@ -268,6 +268,18 @@ def copy_artifacts(env: dict) -> None:
         else:
             shutil.copy2(src, dst)
 
+    # 프로세서 파일을 루트로 복사 (Gr00tPolicy가 model_dir 루트에서 로드)
+    for subdir in ["processor", "checkpoint-1", "checkpoint"]:
+        proc_cfg = os.path.join(output_dir, subdir, "processor_config.json")
+        if os.path.isfile(proc_cfg) and not os.path.isfile(os.path.join(output_dir, "processor_config.json")):
+            print(f"프로세서 파일을 {subdir}/에서 루트로 복사합니다.")
+            for f in os.listdir(os.path.join(output_dir, subdir)):
+                src_f = os.path.join(output_dir, subdir, f)
+                dst_f = os.path.join(output_dir, f)
+                if os.path.isfile(src_f) and not os.path.exists(dst_f):
+                    shutil.copy2(src_f, dst_f)
+            break
+
     print("아티팩트 복사 완료.")
 
 

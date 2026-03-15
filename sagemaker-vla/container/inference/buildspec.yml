@@ -25,8 +25,9 @@ phases:
 
   build:
     commands:
-      - echo "Docker 이미지 빌드 중 (Multi-stage build)..."
+      - echo "Docker 이미지 빌드 중..."
       - export DOCKER_BUILDKIT=1
+      - docker pull ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} || true
       - docker build --file container/inference/Dockerfile --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} --cache-from ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} .
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
