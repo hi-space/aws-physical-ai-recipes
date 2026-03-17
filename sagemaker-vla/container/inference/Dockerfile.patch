@@ -1,0 +1,6 @@
+# Minimal patch Dockerfile: extends existing ECR image, only replaces serve.py
+# Used when Docker Hub rate limits prevent full rebuild
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+COPY container/inference/serve.py /opt/ml/code/serve.py
