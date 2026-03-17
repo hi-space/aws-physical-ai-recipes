@@ -46,50 +46,68 @@ graph LR
 ### 아키텍처 다이어그램
 
 ```mermaid
-graph TB
-    subgraph LOCAL ["로컬 환경"]
-        L1["infra/deploy_stack.py"]
-        L2["data/download_model.py"]
-        L3["data/upload_dataset.py"]
-        L4["scripts/trigger_build.py"]
-        L5["pipeline/run_pipeline.py"]
-        L6["scripts/deploy_endpoint.py"]
-        L7["scripts/invoke_endpoint.py"]
+flowchart LR
+    subgraph PREP ["준비"]
+        S1["<b>Step 1</b><br/>인프라 배포<br/><i>deploy_stack.py</i>"]
+        S2["<b>Step 2</b><br/>모델 다운로드<br/><i>download_model.py</i>"]
+        S3["<b>Step 3</b><br/>데이터셋 업로드<br/><i>upload_dataset.py</i>"]
+        S4["<b>Step 4</b><br/>컨테이너 빌드<br/><i>trigger_build.py</i>"]
     end
 
-    subgraph AWS ["AWS"]
-        subgraph CFN ["CloudFormation Stack"]
-            S3["<b>S3 Bucket</b><br/>models/ · datasets/<br/>output/ · checkpoints/"]
-            IAM["<b>IAM Role</b><br/>GR00TSageMakerRole"]
-            ECR["<b>ECR</b><br/>groot-n16-training<br/>groot-n16-inference"]
-            CB["<b>CodeBuild</b><br/>Docker 빌드 자동화"]
-            SSM["<b>SSM Parameters</b><br/>/groot/hf-token<br/>/groot/wandb-key"]
-        end
-
-        subgraph SM ["SageMaker"]
-            PIPE["<b>Pipeline</b><br/>Training Job (Spot)<br/>→ Model Registry 등록"]
-            MR["<b>Model Registry</b><br/>버전 관리 + 수동 승인"]
-            EP["<b>Endpoint</b><br/>실시간 추론"]
-        end
+    subgraph TRAIN ["학습"]
+        S5["<b>Step 5</b><br/>파인튜닝<br/><i>run_pipeline.py</i>"]
+        S6["<b>Step 6</b><br/>모델 승인<br/><i>Model Registry</i>"]
     end
 
-    L1 -->|AWS 리소스 생성| CFN
-    L2 -->|HuggingFace → S3| S3
-    L3 -->|데이터셋 → S3| S3
-    L4 -->|빌드 트리거| CB
-    CB -->|이미지 Push| ECR
-    L5 -->|파이프라인 실행| PIPE
-    ECR -->|이미지 Pull| PIPE
-    S3 -->|모델·데이터| PIPE
-    PIPE -->|모델 등록| MR
-    L6 -->|배포| EP
-    MR -->|승인된 모델| EP
-    L7 -->|추론 요청| EP
+    subgraph SERVE ["배포"]
+        S7["<b>Step 7</b><br/>엔드포인트 배포<br/><i>deploy_endpoint.py</i>"]
+        S8["<b>Step 8</b><br/>추론 테스트<br/><i>invoke_endpoint.py</i>"]
+    end
 
-    style LOCAL fill:#f0f4ff,stroke:#7b8ec2,color:#333
-    style AWS fill:#fff8f0,stroke:#e8873a,color:#333
-    style CFN fill:#fff3e0,stroke:#f7a35c,color:#333
-    style SM fill:#e8f5e9,stroke:#6dbf67,color:#333
+    S1 -->|"CloudFormation<br/>S3 · IAM · ECR · CodeBuild"| S2
+    S2 -->|"HuggingFace → S3"| S3
+    S3 -->|"데이터셋 → S3"| S4
+    S4 -->|"Docker → ECR"| S5
+    S5 -->|"Training Job (Spot)<br/>→ 모델 등록"| S6
+    S6 -->|"수동 승인"| S7
+    S7 -->|"SageMaker Endpoint"| S8
+
+    style PREP fill:#e3f2fd,stroke:#1976d2,color:#333
+    style TRAIN fill:#fff3e0,stroke:#f57c00,color:#333
+    style SERVE fill:#e8f5e9,stroke:#388e3c,color:#333
+```
+
+### AWS 서비스 구성
+
+```mermaid
+flowchart TB
+    subgraph CFN ["CloudFormation Stack"]
+        S3["<b>S3 Bucket</b><br/>models/groot-n16/<br/>datasets/my-robot/<br/>output/ · checkpoints/"]
+        IAM["<b>IAM Role</b><br/>GR00TSageMakerRole"]
+        ECR["<b>ECR</b><br/>groot-n16-training<br/>groot-n16-inference"]
+        CB["<b>CodeBuild</b><br/>groot-n16-training-build<br/>groot-n16-inference-build"]
+        SSM["<b>SSM Parameters</b><br/>/groot/hf-token<br/>/groot/wandb-key"]
+    end
+
+    subgraph SM ["SageMaker"]
+        PIPE["<b>Pipeline</b><br/>groot-n16-finetuning"]
+        TJ["<b>Training Job</b><br/>Spot Instance"]
+        MR["<b>Model Registry</b><br/>groot-n16-models<br/>버전 관리 + 수동 승인"]
+        EP["<b>Endpoint</b><br/>groot-n16-endpoint<br/>실시간 추론"]
+    end
+
+    CB -->|"이미지 Push"| ECR
+    ECR -->|"이미지 Pull"| TJ
+    S3 -->|"모델 · 데이터"| TJ
+    SSM -->|"HF Token · W&B Key"| CB
+    IAM -->|"실행 권한"| SM
+    PIPE --> TJ
+    TJ -->|"학습 결과 → S3"| S3
+    TJ -->|"모델 등록"| MR
+    MR -->|"승인된 모델 배포"| EP
+
+    style CFN fill:#fff3e0,stroke:#f57c00,color:#333
+    style SM fill:#e8f5e9,stroke:#388e3c,color:#333
 ```
 
 ---
