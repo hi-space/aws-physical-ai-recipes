@@ -6,6 +6,43 @@
 
 GR00T-N1.6-3B는 RGB 이미지, 자연어 지시, 로봇 고유수용감각(proprioception) 벡터를 입력받아 연속 액션 벡터를 출력하는 3B 파라미터 로봇 제어 모델입니다.
 
+### 데모 시나리오
+
+이 가이드에서는 다음 시나리오를 기준으로 전체 파이프라인을 시연합니다:
+
+| 항목 | 내용 |
+|------|------|
+| **로봇** | [ALOHA](https://tonyzhaozh.github.io/aloha/) — 양팔 원격조작 로봇 (6-DOF 팔 × 2 + 그리퍼 × 2) |
+| **데이터셋** | [`lerobot/aloha_static_screw_driver`](https://huggingface.co/datasets/lerobot/aloha_static_screw_driver) — 50 에피소드, 50Hz |
+| **태스크** | 드라이버 집어서 옮기기 (pick and place) |
+| **관측** | RGB 카메라 4대 (head, left_wrist, right_wrist, low) + 14차원 관절 상태 |
+| **액션** | 14차원 관절 위치 명령 (dual_arm:12 + gripper:2) |
+| **Embodiment Tag** | `NEW_EMBODIMENT` (커스텀 로봇 파인튜닝용) |
+
+```mermaid
+graph LR
+    subgraph 입력
+        A["🖼️ RGB 이미지<br/>(480×640×3)"]
+        B["🦾 관절 상태 14D<br/>dual_arm: 12<br/>gripper: 2"]
+        C["💬 자연어 지시<br/>&quot;pick up the screw driver&quot;"]
+    end
+
+    subgraph 모델
+        D["GR00T-N1.6-3B<br/>Vision-Language-Action<br/>(3B params)"]
+    end
+
+    subgraph 출력
+        E["🎯 액션 14D × 16 steps<br/>dual_arm: 12<br/>gripper: 2"]
+    end
+
+    A --> D
+    B --> D
+    C --> D
+    D --> E
+```
+
+> 다른 로봇이나 데이터셋으로 파인튜닝할 경우, 데이터셋 업로드(Step 3)와 하이퍼파라미터(Step 5)를 변경하면 동일한 파이프라인을 재사용할 수 있습니다.
+
 ### 아키텍처 다이어그램
 
 ```
@@ -76,7 +113,7 @@ AWS CLI 자격증명 구성:
 aws configure
 # AWS Access Key ID: <YOUR_ACCESS_KEY>
 # AWS Secret Access Key: <YOUR_SECRET_KEY>
-# Default region name: ap-northeast-2
+# Default region name: us-west-2
 # Default output format: json
 ```
 
@@ -111,7 +148,7 @@ CloudFormation 스택으로 모든 AWS 리소스를 한 번에 생성합니다.
 python infra/deploy_stack.py \
     --stack-name groot-n16-stack \
     --bucket-name <전 세계 고유한 버킷 이름> \
-    --region ap-northeast-2
+    --region us-west-2
 ```
 
 > 버킷 이름은 전 세계에서 고유해야 합니다. 예: `groot-yourname-20240101`
@@ -130,8 +167,8 @@ aws:
   bucket_name: "groot-yourname-20240101"
   role_arn: "arn:aws:iam::123456789012:role/GR00TSageMakerRole"
 ecr:
-  training_uri: "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/groot-n16-training:latest"
-  inference_uri: "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/groot-n16-inference:latest"
+  training_uri: "123456789012.dkr.ecr.us-west-2.amazonaws.com/groot-n16-training:latest"
+  inference_uri: "123456789012.dkr.ecr.us-west-2.amazonaws.com/groot-n16-inference:latest"
 ```
 
 ### (선택) 민감 정보 SSM 업데이트
@@ -375,6 +412,8 @@ aws sagemaker update-model-package \
 
 승인된 모델을 SageMaker Endpoint로 배포합니다.
 
+**방법 A: Model Registry에서 배포 (권장)**
+
 ```bash
 python scripts/deploy_endpoint.py
 ```
@@ -384,6 +423,24 @@ python scripts/deploy_endpoint.py
 python scripts/deploy_endpoint.py \
     --instance-type ml.g5.2xlarge \
     --endpoint-name groot-n16-endpoint
+```
+
+> `config.yaml`에 `aws.role_arn`이 설정되어 있으면 자동으로 사용됩니다. 설정되지 않은 경우 `--role-arn`을 직접 지정하세요:
+> ```bash
+> python scripts/deploy_endpoint.py \
+>     --role-arn arn:aws:iam::<ACCOUNT_ID>:role/GR00TSageMakerRole
+> ```
+
+**방법 B: S3 URI로 직접 배포**
+
+추론 컨테이너를 재빌드한 경우, Model Registry에 등록된 이미지가 이전 버전일 수 있습니다. 이때는 S3 모델 경로와 최신 이미지 URI를 직접 지정하여 배포합니다:
+
+```bash
+python scripts/deploy_endpoint.py \
+    --instance-type ml.g5.2xlarge \
+    --endpoint-name groot-n16-endpoint \
+    --model-s3-uri s3://<버킷>/output/<학습 job>/output/model.tar.gz \
+    --inference-image-uri <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/groot-n16-inference:latest
 ```
 
 ### 추론 인스턴스 추천
@@ -402,6 +459,38 @@ python scripts/deploy_endpoint.py \
 
 배포된 엔드포인트에 추론 요청을 전송합니다.
 
+### proprioception 형식
+
+모델이 학습된 데이터셋에 따라 state 키와 차원이 다릅니다. 두 가지 형식을 지원합니다:
+
+| 형식 | 사용 시점 | 예시 |
+|------|----------|------|
+| **Keyed** (권장) | 다중 state 키 모델 | `dual_arm:v1,...,v12;gripper:v1,v2` |
+| **Flat** | 단일 state 키 모델 | `0.1,0.2,0.3,0.4,0.5,0.6,0.7` |
+
+> 모델의 state 키와 차원은 `/info` 진단 엔드포인트로 확인할 수 있습니다. (아래 참고)
+
+### ALOHA 양팔 데이터셋 모델 (dual_arm:12 + gripper:2 = 14차원)
+
+```bash
+# Keyed 형식 (권장)
+python scripts/invoke_endpoint.py \
+    --image-path ./test.png \
+    --proprioception "dual_arm:0.1,0.2,0.3,0.4,0.5,0.6,0.1,0.2,0.3,0.4,0.5,0.6;gripper:0.0,0.0" \
+    --instruction "pick up the screw driver"
+
+# Flat 형식 (14값 → dual_arm:12 + gripper:2 자동 분할)
+python scripts/invoke_endpoint.py \
+    --image-path ./test.png \
+    --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.1,0.2,0.3,0.4,0.5,0.6,0.0,0.0 \
+    --instruction "pick up the screw driver"
+```
+
+### 단일 팔 데이터셋 모델 (single_arm:7 = 7차원)
+
+> 아래 예시는 단일 팔(7차원) 데이터셋으로 학습된 모델을 배포했을 때만 사용 가능합니다.
+> ALOHA 양팔 모델 엔드포인트에 7값을 보내면 차원 불일치 에러가 발생합니다.
+
 ```bash
 python scripts/invoke_endpoint.py \
     --image-path ./test_image.png \
@@ -409,7 +498,34 @@ python scripts/invoke_endpoint.py \
     --instruction "pick up the red block"
 ```
 
-요청 형식 (JSON):
+### 진단: 모델 입력 형식 확인
+
+엔드포인트의 `/info` 경로로 모델이 기대하는 state 키와 차원을 확인할 수 있습니다:
+
+```bash
+# SageMaker 엔드포인트는 /info를 직접 호출할 수 없으므로,
+# invoke_endpoint.py에 잘못된 차원을 보내면 에러 메시지에 필요한 형식이 표시됩니다.
+# 또는 CloudWatch 로그에서 startup 시 출력되는 상태 차원 정보를 확인하세요:
+aws logs tail /aws/sagemaker/Endpoints/groot-n16-endpoint \
+    --region us-west-2 --since 1h \
+    --filter-pattern "상태 차원"
+```
+
+### 요청/응답 형식
+
+요청 형식 (JSON) — Keyed state:
+```json
+{
+    "image": "<base64 인코딩된 RGB 이미지>",
+    "state": {
+        "dual_arm": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        "gripper": [0.0, 0.0]
+    },
+    "instruction": "pick up the screw driver"
+}
+```
+
+요청 형식 (JSON) — Flat proprioception (단일 state 키 모델용):
 ```json
 {
     "image": "<base64 인코딩된 RGB 이미지>",
@@ -421,7 +537,7 @@ python scripts/invoke_endpoint.py \
 응답 형식 (JSON):
 ```json
 {
-    "actions": [[0.05, -0.12, 0.33, 0.01, 0.0, -0.08, 0.15]],
+    "actions": [[0.05, -0.12, 0.33, 0.01, 0.0, -0.08, 0.15, ...]],
     "timestamp": "2024-01-15T10:30:00.000000+00:00"
 }
 ```
@@ -430,18 +546,22 @@ Python에서 직접 호출 예시:
 ```python
 import boto3, base64, json
 
-runtime = boto3.client("sagemaker-runtime", region_name="ap-northeast-2")
+runtime = boto3.client("sagemaker-runtime", region_name="us-west-2")
 
 with open("test_image.png", "rb") as f:
     image_b64 = base64.b64encode(f.read()).decode()
 
+# ALOHA 양팔 모델 예시 (keyed state)
 response = runtime.invoke_endpoint(
     EndpointName="groot-n16-endpoint",
     ContentType="application/json",
     Body=json.dumps({
         "image": image_b64,
-        "proprioception": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
-        "instruction": "pick up the red block",
+        "state": {
+            "dual_arm": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            "gripper": [0.0, 0.0],
+        },
+        "instruction": "pick up the screw driver",
     }),
 )
 
@@ -482,9 +602,9 @@ Error: An error occurred (AuthorizationException)
 aws sts get-caller-identity
 
 # ECR 재인증
-aws ecr get-login-password --region ap-northeast-2 \
+aws ecr get-login-password --region us-west-2 \
     | docker login --username AWS --password-stdin \
-    <account>.dkr.ecr.ap-northeast-2.amazonaws.com
+    <account>.dkr.ecr.us-west-2.amazonaws.com
 ```
 
 ### CodeBuild 실패

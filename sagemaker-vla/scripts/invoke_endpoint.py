@@ -54,18 +54,22 @@ def load_and_encode_image(image_path: str) -> str:
     return base64.b64encode(image_bytes).decode("utf-8")
 
 
-def parse_proprioception(raw: str) -> list[float]:
-    """Parse a comma-separated string of floats into a list.
+def parse_proprioception(raw: str):
+    """Parse proprioception input as flat list or keyed dict.
 
-    Args:
-        raw: Comma-separated float values, e.g. "0.1,0.2,0.3".
+    Formats:
+        Flat:  "0.1,0.2,0.3,0.4"
+        Dict:  "dual_arm:0.1,0.2,...,0.12;gripper:0.1,0.2"
 
     Returns:
-        List of float values.
-
-    Raises:
-        ValueError: If any value cannot be converted to float.
+        list[float] for flat format, dict[str, list[float]] for keyed format.
     """
+    if ":" in raw:
+        result = {}
+        for part in raw.split(";"):
+            key, values = part.split(":", 1)
+            result[key.strip()] = [float(v.strip()) for v in values.split(",")]
+        return result
     return [float(v.strip()) for v in raw.split(",")]
 
 
@@ -100,11 +104,15 @@ def invoke_endpoint(
         raise ImportError("boto3 is required. Install with: pip install boto3")
 
     # Build the request payload matching the inference handler's expected schema
+    # proprioception이 dict면 state 형식, list면 flat 형식
     payload = {
         "image": image_b64,
-        "proprioception": proprioception,
         "instruction": instruction,
     }
+    if isinstance(proprioception, dict):
+        payload["state"] = proprioception
+    else:
+        payload["proprioception"] = proprioception
 
     # Use sagemaker-runtime client to invoke the endpoint
     runtime_client = boto3.client("sagemaker-runtime", region_name=region)
@@ -148,7 +156,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--proprioception", required=True,
-        help="로봇 관절 상태 벡터 (쉼표 구분 실수, 예: 0.1,0.2,0.3)",
+        help=(
+            "로봇 관절 상태 벡터. 두 가지 형식 지원:\n"
+            "  Flat: 0.1,0.2,...,0.14 (단일 state 키 모델용)\n"
+            "  Keyed: dual_arm:v1,...,v12;gripper:v1,v2 (다중 state 키 모델용)"
+        ),
     )
     parser.add_argument(
         "--instruction", required=True,
