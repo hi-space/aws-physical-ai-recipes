@@ -45,54 +45,51 @@ graph LR
 
 ### 아키텍처 다이어그램
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  로컬 환경                                                           │
-│                                                                     │
-│  infra/deploy_stack.py ──────────────── AWS 리소스 생성              │
-│  data/download_model.py ─────────────── HuggingFace → S3           │
-│  data/upload_dataset.py ─────────────── 로컬 → S3                  │
-│  scripts/trigger_build.py ──────────── CodeBuild 트리거             │
-│  pipeline/run_pipeline.py ──────────── SageMaker Pipeline 실행      │
-│  scripts/deploy_endpoint.py ────────── 엔드포인트 배포              │
-│  scripts/invoke_endpoint.py ────────── 추론 요청                    │
-└─────────────────────────────────────────────────────────────────────┘
-         │                                │
-         ▼                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  AWS                                                                │
-│                                                                     │
-│  CloudFormation Stack                                               │
-│  ├── S3 Bucket                                                      │
-│  │   ├── models/groot-n16/           ← 베이스 모델                  │
-│  │   ├── datasets/my-robot/          ← 학습 데이터셋                │
-│  │   ├── output/                     ← 학습 결과                    │
-│  │   └── checkpoints/               ← Spot Instance 체크포인트     │
-│  │                                                                  │
-│  ├── IAM Role (GR00TSageMakerRole)   ← 최소 권한                   │
-│  │                                                                  │
-│  ├── ECR Repositories                                               │
-│  │   ├── groot-n16-training          ← 학습 컨테이너                │
-│  │   └── groot-n16-inference         ← 추론 컨테이너                │
-│  │                                                                  │
-│  ├── CodeBuild Projects                                             │
-│  │   ├── groot-n16-training-build    ← Docker 빌드 자동화           │
-│  │   └── groot-n16-inference-build                                  │
-│  │                                                                  │
-│  └── SSM Parameters                                                 │
-│      ├── /groot/hf-token             ← HuggingFace 토큰             │
-│      └── /groot/wandb-key            ← W&B API 키                  │
-│                                                                     │
-│  SageMaker                                                          │
-│  ├── Pipeline (groot-n16-finetuning)                                │
-│  │   ├── Step 1: Training Job (Spot Instance)                       │
-│  │   └── Step 2: Model Registry 등록                                │
-│  │                                                                  │
-│  ├── Model Registry (groot-n16-models)                              │
-│  │   └── 학습된 모델 버전 관리 + 수동 승인                          │
-│  │                                                                  │
-│  └── Endpoint (groot-n16-endpoint)   ← 실시간 추론                 │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph LOCAL ["로컬 환경"]
+        L1["infra/deploy_stack.py"]
+        L2["data/download_model.py"]
+        L3["data/upload_dataset.py"]
+        L4["scripts/trigger_build.py"]
+        L5["pipeline/run_pipeline.py"]
+        L6["scripts/deploy_endpoint.py"]
+        L7["scripts/invoke_endpoint.py"]
+    end
+
+    subgraph AWS ["AWS"]
+        subgraph CFN ["CloudFormation Stack"]
+            S3["<b>S3 Bucket</b><br/>models/ · datasets/<br/>output/ · checkpoints/"]
+            IAM["<b>IAM Role</b><br/>GR00TSageMakerRole"]
+            ECR["<b>ECR</b><br/>groot-n16-training<br/>groot-n16-inference"]
+            CB["<b>CodeBuild</b><br/>Docker 빌드 자동화"]
+            SSM["<b>SSM Parameters</b><br/>/groot/hf-token<br/>/groot/wandb-key"]
+        end
+
+        subgraph SM ["SageMaker"]
+            PIPE["<b>Pipeline</b><br/>Training Job (Spot)<br/>→ Model Registry 등록"]
+            MR["<b>Model Registry</b><br/>버전 관리 + 수동 승인"]
+            EP["<b>Endpoint</b><br/>실시간 추론"]
+        end
+    end
+
+    L1 -->|AWS 리소스 생성| CFN
+    L2 -->|HuggingFace → S3| S3
+    L3 -->|데이터셋 → S3| S3
+    L4 -->|빌드 트리거| CB
+    CB -->|이미지 Push| ECR
+    L5 -->|파이프라인 실행| PIPE
+    ECR -->|이미지 Pull| PIPE
+    S3 -->|모델·데이터| PIPE
+    PIPE -->|모델 등록| MR
+    L6 -->|배포| EP
+    MR -->|승인된 모델| EP
+    L7 -->|추론 요청| EP
+
+    style LOCAL fill:#f0f4ff,stroke:#7b8ec2,color:#333
+    style AWS fill:#fff8f0,stroke:#e8873a,color:#333
+    style CFN fill:#fff3e0,stroke:#f7a35c,color:#333
+    style SM fill:#e8f5e9,stroke:#6dbf67,color:#333
 ```
 
 ---
@@ -475,13 +472,13 @@ python scripts/deploy_endpoint.py \
 ```bash
 # Keyed 형식 (권장)
 python scripts/invoke_endpoint.py \
-    --image-path ./test.png \
+    --image-path ./sample/test.png \
     --proprioception "dual_arm:0.1,0.2,0.3,0.4,0.5,0.6,0.1,0.2,0.3,0.4,0.5,0.6;gripper:0.0,0.0" \
     --instruction "pick up the screw driver"
 
 # Flat 형식 (14값 → dual_arm:12 + gripper:2 자동 분할)
 python scripts/invoke_endpoint.py \
-    --image-path ./test.png \
+    --image-path ./sample/test.png \
     --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.1,0.2,0.3,0.4,0.5,0.6,0.0,0.0 \
     --instruction "pick up the screw driver"
 ```
