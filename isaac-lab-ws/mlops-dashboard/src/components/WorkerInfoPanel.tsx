@@ -1,4 +1,6 @@
-import type { Worker } from '../types/worker';
+'use client';
+
+import type { Worker } from '@/types/worker';
 import StatusBadge from './StatusBadge';
 
 function UtilBar({ label, value, color, suffix }: { label: string; value: number; color: string; suffix?: string }) {
@@ -26,7 +28,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
     { label: 'Queue', value: worker.batchJobQueue },
     { label: 'Uptime', value: worker.uptime },
   ];
-
   const training = [
     { label: 'Task', value: worker.taskName },
     { label: 'Experiment', value: worker.experimentName },
@@ -36,7 +37,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
     { label: 'Progress', value: `${worker.currentStep} / ${worker.totalSteps} steps` },
     { label: 'Current Reward', value: worker.currentReward.toFixed(1) },
   ];
-
   const tempColor = worker.gpuTemperature >= 85 ? 'bg-red-500' : worker.gpuTemperature >= 75 ? 'bg-yellow-500' : 'bg-green-500';
 
   return (
@@ -45,8 +45,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
         <h3 className="text-sm font-semibold text-gray-700">Worker Details</h3>
         <StatusBadge status={worker.status} />
       </div>
-
-      {/* Instance Info */}
       <div>
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Instance</p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -58,8 +56,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
           ))}
         </dl>
       </div>
-
-      {/* Training Info */}
       <div>
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Training</p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -71,26 +67,20 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
           ))}
         </dl>
       </div>
-
-      {/* Utilization */}
       <div className="space-y-3">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Utilization</p>
         <UtilBar label="GPU" value={worker.gpuUtilization} color="bg-purple-500" />
         <UtilBar label="GPU Memory" value={worker.gpuMemoryUtilization} color="bg-indigo-500" />
-        <UtilBar label="GPU Temp" value={worker.gpuTemperature} color={tempColor} suffix="°C" />
+        <UtilBar label="GPU Temp" value={worker.gpuTemperature} color={tempColor} suffix="\u00B0C" />
         <UtilBar label="CPU" value={worker.cpuUtilization} color="bg-blue-500" />
         <UtilBar label="Memory" value={worker.memoryUtilization} color="bg-teal-500" />
       </div>
-
-      {/* Tags */}
       {Object.keys(worker.tags).length > 0 && (
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Tags</p>
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(worker.tags).map(([k, v]) => (
-              <span key={k} className="inline-flex px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
-                {k}: {v}
-              </span>
+              <span key={k} className="inline-flex px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{k}: {v}</span>
             ))}
           </div>
         </div>

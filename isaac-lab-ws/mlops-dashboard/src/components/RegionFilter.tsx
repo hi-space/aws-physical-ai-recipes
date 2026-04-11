@@ -1,3 +1,5 @@
+'use client';
+
 interface RegionFilterProps {
   regions: string[];
   selected: string;

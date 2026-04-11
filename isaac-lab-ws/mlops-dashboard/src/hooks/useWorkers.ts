@@ -1,18 +1,83 @@
+'use client';
+
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Worker, FleetSummary } from '../types/worker';
-import { mockWorkers, simulateMetricsUpdate, mockExperiments, mockTrainingMetrics } from '../data/mockWorkers';
-import type { Experiment, TrainingMetrics } from '../types/worker';
+import type { Worker, FleetSummary, Experiment, TrainingMetrics, BatchJob } from '@/types/worker';
+import { simulateMetricsUpdate } from '@/data/mockWorkers';
 
 export function useWorkers() {
-  const [workers, setWorkers] = useState<Worker[]>(mockWorkers);
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [trainingMetrics, setTrainingMetrics] = useState<TrainingMetrics[]>([]);
+  const [batchJobs, setBatchJobs] = useState<BatchJob[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
+  const [dataSource, setDataSource] = useState<string>('loading');
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setWorkers((prev) => simulateMetricsUpdate(prev));
-    }, 3000);
-    return () => clearInterval(interval);
+  // Fetch workers from API
+  const fetchWorkers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/workers');
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      setWorkers(data.workers);
+      setDataSource(data.source);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
   }, []);
+
+  // Fetch batch jobs from API
+  const fetchBatchJobs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/batch-jobs');
+      const data = await res.json();
+      if (!data.error) setBatchJobs(data.jobs);
+    } catch {
+      // Batch jobs are supplementary, don't fail on error
+    }
+  }, []);
+
+  // Fetch experiments from API
+  const fetchExperiments = useCallback(async () => {
+    try {
+      const res = await fetch('/api/experiments');
+      const data = await res.json();
+      if (!data.error) {
+        setExperiments(data.experiments);
+        setTrainingMetrics(data.trainingMetrics);
+      }
+    } catch {
+      // Experiments are supplementary
+    }
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchWorkers();
+    fetchBatchJobs();
+    fetchExperiments();
+  }, [fetchWorkers, fetchBatchJobs, fetchExperiments]);
+
+  // Polling: refresh from API every 30s, simulate metrics jitter every 3s
+  useEffect(() => {
+    const jitterInterval = setInterval(() => {
+      setWorkers((prev) => (prev.length > 0 ? simulateMetricsUpdate(prev) : prev));
+    }, 3000);
+
+    const pollInterval = setInterval(() => {
+      fetchWorkers();
+      fetchBatchJobs();
+    }, 30000);
+
+    return () => {
+      clearInterval(jitterInterval);
+      clearInterval(pollInterval);
+    };
+  }, [fetchWorkers, fetchBatchJobs]);
 
   const regions = useMemo(() => {
     const set = new Set(workers.map((w) => w.region));
@@ -45,9 +110,6 @@ export function useWorkers() {
     [workers],
   );
 
-  const experiments: Experiment[] = mockExperiments;
-  const trainingMetrics: TrainingMetrics[] = mockTrainingMetrics;
-
   return {
     workers,
     filteredWorkers,
@@ -58,5 +120,8 @@ export function useWorkers() {
     getWorkerById,
     experiments,
     trainingMetrics,
+    batchJobs,
+    dataSource,
+    error,
   };
 }

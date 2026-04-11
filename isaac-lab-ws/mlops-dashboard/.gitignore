@@ -1,4 +1,4 @@
 node_modules/
-dist/
-.vite/
-*.local
+.next/
+out/
+.env.local
