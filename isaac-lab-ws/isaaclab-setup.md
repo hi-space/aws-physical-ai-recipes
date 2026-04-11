@@ -33,19 +33,52 @@ python scripts/reinforcement_learning/skrl/train.py --task=Isaac-Ant-v0
 7. IsaacLab 패키지 설치 (`./isaaclab.sh --install` + 수동 `--no-deps` 패키지)
 8. 설치 검증
 
-### 설치 확인 및 Newton 시각화 테스트
+### 설치 확인 및 시각화
 
-설치가 완료되면 Newton 물리 엔진 + 시각화로 학습을 돌려볼 수 있다:
+설치가 완료되면 학습을 돌려볼 수 있다:
 
 ```bash
 python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Humanoid-v0 --visualizer newton
 ```
 
-![newton-visualizer](./assets/newton-visualizer.png)
+`--visualizer` 옵션으로 시각화 백엔드를 선택할 수 있다:
 
-`--visualizer newton` 옵션은 Newton 물리 엔진의 자체 시각화를 띄운다. 브라우저에서 시뮬레이션 상태를 실시간으로 확인할 수 있다.
+| 옵션 | 방식 | 용도 |
+|------|------|------|
+| `newton` | OpenGL 윈도우 (pyglet) | 로컬 GUI 또는 DCV 원격 데스크탑으로 확인 |
+| `rerun` | 웹 브라우저 (Rerun) | DCV 없이 브라우저에서 원격 시각화 |
 
 참고: https://isaac-sim.github.io/IsaacLab/main/source/experimental-features/newton-physics-integration/visualization.html
+
+### Rerun 시각화 (원격 브라우저)
+
+DCV 없이 브라우저만으로 학습 상태를 실시간 확인할 수 있다.
+
+**사전 준비**: EC2 보안 그룹에서 포트 **9090** (웹 뷰어), **9876** (gRPC 데이터) TCP 인바운드를 열어야 한다.
+
+```bash
+# rerun-sdk 설치 (최초 1회)
+pip install rerun-sdk
+
+# 학습 실행
+python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0 --visualizer rerun
+```
+
+브라우저에서 접속:
+
+```
+http://<EC2_PUBLIC_IP>:9090/?url=rerun%2Bhttp%3A%2F%2F<EC2_PUBLIC_IP>%3A9876%2Fproxy
+```
+
+URL 디코딩하면 `rerun+http://<EC2_PUBLIC_IP>:9876/proxy`이지만, 브라우저에서는 인코딩된 형태로 입력해야 접속된다. `<EC2_PUBLIC_IP>`를 실제 EC2 퍼블릭 IP로 치환한다.
+
+![rerun-visualizer](./assets/rerun-visualizer.png)
+
+**Rerun 뷰어 기능:**
+- 실시간 시뮬레이션 상태 (로봇 자세, 관절 각도 등) 3D 시각화
+- 타임라인 스크러빙 — 시간을 앞뒤로 돌려서 과거 상태 확인 가능
+- `.rrd` 파일 녹화 — 학습 후 나중에 다시 재생 가능
+- 메모리 효율적 — `keep_historical_data=False` (기본값)로 현재 프레임만 유지
 
 ### 수동 설치 (참고용)
 
