@@ -43,12 +43,21 @@ python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Humanoid-v0 -
 
 `--visualizer` 옵션으로 시각화 백엔드를 선택할 수 있다:
 
-| 옵션 | 방식 | 용도 |
-|------|------|------|
-| `newton` | OpenGL 윈도우 (pyglet) | 로컬 GUI 또는 DCV 원격 데스크탑으로 확인 |
-| `rerun` | 웹 브라우저 (Rerun) | DCV 없이 브라우저에서 원격 시각화 |
+| Visualizer | Best For | Key Features | 접속 방식 |
+|------------|----------|--------------|-----------|
+| Omniverse | High-fidelity, Isaac Sim 통합 | USD, visual markers, live plots | Isaac Sim UI 또는 `--livestream` |
+| Newton | 빠른 반복 학습 | 낮은 오버헤드, visual markers | 로컬 OpenGL 윈도우 (DCV 등 원격 데스크탑 필요) |
+| Rerun | 원격 모니터링, 리플레이 | 웹 뷰어, 타임라인 스크러빙, 녹화 export | 브라우저 (원격 접속 가능, DCV 불필요) |
 
 참고: https://isaac-sim.github.io/IsaacLab/main/source/experimental-features/newton-physics-integration/visualization.html
+
+**Newton 시각화** — OpenGL 기반 경량 뷰어. pyglet 윈도우를 띄우므로 DCV 등 원격 데스크탑 환경에서 확인한다:
+
+```bash
+python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Humanoid-v0 --visualizer newton
+```
+
+![newton-visualizer](./assets/newton-visualizer.png)
 
 ### Rerun 시각화 (원격 브라우저)
 
