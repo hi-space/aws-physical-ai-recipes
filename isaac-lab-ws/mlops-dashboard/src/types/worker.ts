@@ -66,3 +66,20 @@ export interface FleetSummary {
   totalGpus: number;
   bestReward: number;
 }
+
+export interface BatchJob {
+  jobId: string;
+  jobName: string;
+  jobQueue: string;
+  status: string;
+  createdAt: string;
+  startedAt: string;
+  stoppedAt: string;
+  container: {
+    image: string;
+    vcpus: number;
+    memory: number;
+    gpus: number;
+  };
+  tags: Record<string, string>;
+}

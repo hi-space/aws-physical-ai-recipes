@@ -1,9 +1,10 @@
+'use client';
+
 import { useState } from 'react';
-import type { Worker } from '../types/worker';
+import type { Worker } from '@/types/worker';
 
 export default function TensorBoardEmbed({ worker }: { worker: Worker }) {
   const [loaded, setLoaded] = useState(false);
-
   const tbUrl = `http://${worker.publicIp}:${worker.tensorboardPort}`;
   const isAvailable = worker.status === 'RUNNING' && worker.publicIp !== '-';
 
@@ -12,12 +13,7 @@ export default function TensorBoardEmbed({ worker }: { worker: Worker }) {
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
         <h3 className="text-sm font-semibold text-gray-700">TensorBoard</h3>
         {isAvailable && (
-          <a
-            href={tbUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:text-blue-800"
-          >
+          <a href={tbUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800">
             Open in new tab &rarr;
           </a>
         )}
@@ -34,7 +30,7 @@ export default function TensorBoardEmbed({ worker }: { worker: Worker }) {
                 <div className="text-center">
                   <div className="w-8 h-8 border-2 border-gray-300 border-t-aws-orange rounded-full animate-spin mx-auto mb-3" />
                   <p className="text-sm text-gray-400">Connecting to TensorBoard...</p>
-                  <p className="text-xs text-gray-300 mt-1">Mock mode &mdash; iframe will not load real content</p>
+                  <p className="text-xs text-gray-300 mt-1">Ensure EC2 port 6006 is open</p>
                 </div>
               </div>
             )}

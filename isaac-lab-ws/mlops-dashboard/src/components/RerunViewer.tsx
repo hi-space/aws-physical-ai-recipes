@@ -1,13 +1,11 @@
+'use client';
+
 import { useState } from 'react';
-import type { Worker } from '../types/worker';
+import type { Worker } from '@/types/worker';
 
 export default function RerunViewer({ worker }: { worker: Worker }) {
   const [loaded, setLoaded] = useState(false);
-
-  const rerunUrl = `http://${worker.publicIp}:${worker.rerunPort}/?url=${encodeURIComponent(
-    `rerun+http://${worker.publicIp}:${worker.rerunDataPort}/proxy`,
-  )}`;
-
+  const rerunUrl = `http://${worker.publicIp}:${worker.rerunPort}/?url=${encodeURIComponent(`rerun+http://${worker.publicIp}:${worker.rerunDataPort}/proxy`)}`;
   const isAvailable = worker.status === 'RUNNING' && worker.publicIp !== '-';
 
   return (
@@ -15,12 +13,7 @@ export default function RerunViewer({ worker }: { worker: Worker }) {
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
         <h3 className="text-sm font-semibold text-gray-700">Simulation Viewer (Rerun)</h3>
         {isAvailable && (
-          <a
-            href={rerunUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:text-blue-800"
-          >
+          <a href={rerunUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800">
             Open in new tab &rarr;
           </a>
         )}
@@ -37,7 +30,7 @@ export default function RerunViewer({ worker }: { worker: Worker }) {
                 <div className="text-center">
                   <div className="w-8 h-8 border-2 border-gray-300 border-t-aws-orange rounded-full animate-spin mx-auto mb-3" />
                   <p className="text-sm text-gray-400">Connecting to Rerun viewer...</p>
-                  <p className="text-xs text-gray-300 mt-1">Mock mode &mdash; iframe will not load real content</p>
+                  <p className="text-xs text-gray-300 mt-1">Ensure EC2 ports 9090/9876 are open</p>
                 </div>
               </div>
             )}

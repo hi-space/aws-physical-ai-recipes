@@ -1,7 +1,6 @@
-import { Worker, TrainingMetrics, Experiment } from '../types/worker';
+import type { Worker, TrainingMetrics, Experiment, BatchJob } from '@/types/worker';
 
 export const mockWorkers: Worker[] = [
-  // Experiment 1: Isaac-Velocity-Flat-Anymal-D-v0 (4 workers, us-west-2, DDP world_size=16)
   {
     id: 'worker-001',
     instanceId: 'i-0a1b2c3d4e5f60001',
@@ -126,7 +125,6 @@ export const mockWorkers: Worker[] = [
     rerunDataPort: 9876,
     tensorboardPort: 6006,
   },
-  // Experiment 2: Isaac-Humanoid-v0 (2 workers, us-east-1, DDP world_size=8)
   {
     id: 'worker-005',
     instanceId: 'i-0b2c3d4e5f6a0005',
@@ -189,7 +187,6 @@ export const mockWorkers: Worker[] = [
     rerunDataPort: 9876,
     tensorboardPort: 6006,
   },
-  // PENDING worker
   {
     id: 'worker-007',
     instanceId: 'i-0c3d4e5f6a7b0007',
@@ -221,7 +218,6 @@ export const mockWorkers: Worker[] = [
     rerunDataPort: 9876,
     tensorboardPort: 6006,
   },
-  // FAILED worker
   {
     id: 'worker-008',
     instanceId: 'i-0d4e5f6a7b8c0008',
@@ -255,12 +251,10 @@ export const mockWorkers: Worker[] = [
   },
 ];
 
-// Generate realistic RL training curves
 function generateRLCurve(numPoints: number, maxReward: number, noise: number): number[] {
   const curve: number[] = [];
   for (let i = 0; i < numPoints; i++) {
     const t = i / numPoints;
-    // Logarithmic growth with saturation (typical RL learning curve)
     const base = maxReward * (1 - Math.exp(-4 * t));
     const jitter = (Math.random() - 0.5) * noise * 2;
     curve.push(Math.max(0, base + jitter));
@@ -308,15 +302,7 @@ export const mockExperiments: Experiment[] = [
     name: 'anymal-d-flat-v3',
     taskName: 'Isaac-Velocity-Flat-Anymal-D-v0',
     algorithm: 'PPO',
-    hyperparams: {
-      learning_rate: 3e-4,
-      batch_size: 4096,
-      gamma: 0.99,
-      clip_range: 0.2,
-      entropy_coef: 0.01,
-      num_envs: 4096,
-      max_steps: 10000,
-    },
+    hyperparams: { learning_rate: 3e-4, batch_size: 4096, gamma: 0.99, clip_range: 0.2, entropy_coef: 0.01, num_envs: 4096, max_steps: 10000 },
     workerIds: ['worker-001', 'worker-002', 'worker-003', 'worker-004'],
     status: 'RUNNING',
     startedAt: '2026-04-11T08:00:00Z',
@@ -329,15 +315,7 @@ export const mockExperiments: Experiment[] = [
     name: 'humanoid-walk-v1',
     taskName: 'Isaac-Humanoid-v0',
     algorithm: 'PPO',
-    hyperparams: {
-      learning_rate: 1e-4,
-      batch_size: 8192,
-      gamma: 0.995,
-      clip_range: 0.1,
-      entropy_coef: 0.005,
-      num_envs: 2048,
-      max_steps: 10000,
-    },
+    hyperparams: { learning_rate: 1e-4, batch_size: 8192, gamma: 0.995, clip_range: 0.1, entropy_coef: 0.005, num_envs: 2048, max_steps: 10000 },
     workerIds: ['worker-005', 'worker-006'],
     status: 'RUNNING',
     startedAt: '2026-04-11T09:38:00Z',
@@ -350,21 +328,60 @@ export const mockExperiments: Experiment[] = [
     name: 'ant-locomotion-v2',
     taskName: 'Isaac-Ant-v0',
     algorithm: 'SAC',
-    hyperparams: {
-      learning_rate: 5e-4,
-      batch_size: 2048,
-      gamma: 0.99,
-      tau: 0.005,
-      alpha: 0.2,
-      num_envs: 1024,
-      max_steps: 10000,
-    },
+    hyperparams: { learning_rate: 5e-4, batch_size: 2048, gamma: 0.99, tau: 0.005, alpha: 0.2, num_envs: 1024, max_steps: 10000 },
     workerIds: ['worker-007'],
     status: 'PENDING',
     startedAt: '2026-04-11T12:15:00Z',
     bestReward: 0,
     currentStep: 0,
     totalSteps: 10000,
+  },
+];
+
+export const mockBatchJobs: BatchJob[] = [
+  {
+    jobId: 'job-abc-001',
+    jobName: 'isaaclab-anymal-d-flat-0',
+    jobQueue: 'isaaclab-gpu-queue',
+    status: 'RUNNING',
+    createdAt: '2026-04-11T07:55:00Z',
+    startedAt: '2026-04-11T08:00:00Z',
+    stoppedAt: '',
+    container: { image: '913524902871.dkr.ecr.us-west-2.amazonaws.com/isaaclab-training:latest', vcpus: 48, memory: 196608, gpus: 4 },
+    tags: { Project: 'IsaacLab-RL', TrainingRun: 'run-042' },
+  },
+  {
+    jobId: 'job-def-001',
+    jobName: 'isaaclab-humanoid-walk-0',
+    jobQueue: 'isaaclab-gpu-queue-east',
+    status: 'RUNNING',
+    createdAt: '2026-04-11T09:30:00Z',
+    startedAt: '2026-04-11T09:38:00Z',
+    stoppedAt: '',
+    container: { image: '913524902871.dkr.ecr.us-east-1.amazonaws.com/isaaclab-training:latest', vcpus: 96, memory: 1048576, gpus: 8 },
+    tags: { Project: 'IsaacLab-RL', TrainingRun: 'run-043' },
+  },
+  {
+    jobId: 'job-ghi-001',
+    jobName: 'isaaclab-ant-locomotion-0',
+    jobQueue: 'isaaclab-gpu-queue',
+    status: 'RUNNABLE',
+    createdAt: '2026-04-11T12:10:00Z',
+    startedAt: '',
+    stoppedAt: '',
+    container: { image: '913524902871.dkr.ecr.us-west-2.amazonaws.com/isaaclab-training:latest', vcpus: 48, memory: 196608, gpus: 4 },
+    tags: { Project: 'IsaacLab-RL', TrainingRun: 'run-044' },
+  },
+  {
+    jobId: 'job-jkl-001',
+    jobName: 'isaaclab-humanoid-walk-retry',
+    jobQueue: 'isaaclab-gpu-queue-east',
+    status: 'FAILED',
+    createdAt: '2026-04-11T11:45:00Z',
+    startedAt: '2026-04-11T11:50:00Z',
+    stoppedAt: '2026-04-11T12:02:00Z',
+    container: { image: '913524902871.dkr.ecr.us-east-1.amazonaws.com/isaaclab-training:latest', vcpus: 96, memory: 1048576, gpus: 8 },
+    tags: { Project: 'IsaacLab-RL', TrainingRun: 'run-041' },
   },
 ];
 
@@ -384,12 +401,4 @@ export function simulateMetricsUpdate(workers: Worker[]): Worker[] {
       currentReward: parseFloat((w.currentReward + (Math.random() - 0.4) * 0.3).toFixed(1)),
     };
   });
-}
-
-export function getWorkerById(workers: Worker[], id: string): Worker | undefined {
-  return workers.find((w) => w.id === id);
-}
-
-export function getMetricsByWorkerId(id: string): TrainingMetrics | undefined {
-  return mockTrainingMetrics.find((m) => m.workerId === id);
 }

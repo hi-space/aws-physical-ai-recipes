@@ -1,13 +1,15 @@
+'use client';
+
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { Worker } from '../types/worker';
+import { useRouter } from 'next/navigation';
+import type { Worker } from '@/types/worker';
 import StatusBadge from './StatusBadge';
 
 type SortField = 'status' | 'instanceId' | 'taskName' | 'instanceType' | 'region' | 'gpuUtilization' | 'ddpRank' | 'currentStep';
 type SortDir = 'asc' | 'desc';
 
 export default function WorkerTable({ workers }: { workers: Worker[] }) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [sortField, setSortField] = useState<SortField>('ddpRank');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -34,7 +36,7 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
     >
       <span className="inline-flex items-center gap-1">
         {children}
-        {sortField === field && <span>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+        {sortField === field && <span>{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
       </span>
     </th>
   );
@@ -71,12 +73,10 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
               return (
                 <tr
                   key={w.id}
-                  onClick={() => navigate(`/worker/${w.id}`)}
+                  onClick={() => router.push(`/worker/${w.id}`)}
                   className="hover:bg-gray-50 cursor-pointer transition-colors"
                 >
-                  <td className="px-4 py-3">
-                    <StatusBadge status={w.status} />
-                  </td>
+                  <td className="px-4 py-3"><StatusBadge status={w.status} /></td>
                   <td className="px-4 py-3 font-mono text-sm text-gray-700">{w.instanceId.slice(0, 12)}...</td>
                   <td className="px-4 py-3 text-sm text-gray-800">{w.taskName}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">{w.experimentName}</td>
@@ -90,9 +90,7 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
                       <span className="text-sm text-gray-700 w-10 text-right">{w.gpuUtilization}%</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 text-center">
-                    {w.ddpRank}/{w.ddpWorldSize}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600 text-center">{w.ddpRank}/{w.ddpWorldSize}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">

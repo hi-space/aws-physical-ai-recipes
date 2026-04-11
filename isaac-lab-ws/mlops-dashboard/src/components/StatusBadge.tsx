@@ -1,4 +1,6 @@
-import type { WorkerStatus } from '../types/worker';
+'use client';
+
+import type { WorkerStatus } from '@/types/worker';
 
 const statusConfig: Record<WorkerStatus, { bg: string; text: string; dot: string; pulse?: boolean }> = {
   RUNNING: { bg: 'bg-green-100', text: 'text-green-800', dot: 'bg-green-500', pulse: true },

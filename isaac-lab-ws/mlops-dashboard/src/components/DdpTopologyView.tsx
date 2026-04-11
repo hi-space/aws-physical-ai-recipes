@@ -1,18 +1,12 @@
-import type { Worker, Experiment } from '../types/worker';
+'use client';
 
-interface DdpTopologyViewProps {
-  workers: Worker[];
-  experiments: Experiment[];
-}
+import type { Worker, Experiment } from '@/types/worker';
 
 const statusColor: Record<string, string> = {
-  RUNNING: '#22c55e',
-  PENDING: '#eab308',
-  STOPPED: '#9ca3af',
-  FAILED: '#ef4444',
+  RUNNING: '#22c55e', PENDING: '#eab308', STOPPED: '#9ca3af', FAILED: '#ef4444',
 };
 
-export default function DdpTopologyView({ workers, experiments }: DdpTopologyViewProps) {
+export default function DdpTopologyView({ workers, experiments }: { workers: Worker[]; experiments: Experiment[] }) {
   const activeExperiments = experiments.filter((e) => e.status === 'RUNNING' || e.status === 'PENDING');
 
   return (
@@ -21,43 +15,28 @@ export default function DdpTopologyView({ workers, experiments }: DdpTopologyVie
       <div className="flex gap-8 flex-wrap">
         {activeExperiments.map((exp) => {
           const expWorkers = workers.filter((w) => exp.workerIds.includes(w.id));
+          const svgWidth = Math.max(180, expWorkers.length * 80);
           return (
             <div key={exp.id} className="flex flex-col items-center">
               <div className="text-xs font-medium text-gray-500 mb-3">{exp.name} ({exp.algorithm})</div>
-              <svg width={Math.max(180, expWorkers.length * 80)} height={140} className="overflow-visible">
-                {/* Master node (rank 0) */}
+              <svg width={svgWidth} height={140} className="overflow-visible">
                 {expWorkers.filter((w) => w.ddpRank === 0).map((master) => {
-                  const cx = Math.max(90, (expWorkers.length * 80) / 2);
+                  const cx = svgWidth / 2;
                   return (
                     <g key={master.id}>
-                      {/* Lines from master to workers */}
                       {expWorkers.filter((w) => w.ddpRank !== 0).map((worker, i) => {
                         const wx = 40 + i * 80;
-                        return (
-                          <line
-                            key={worker.id}
-                            x1={cx}
-                            y1={45}
-                            x2={wx}
-                            y2={95}
-                            stroke="#d1d5db"
-                            strokeWidth={2}
-                            strokeDasharray={worker.status !== 'RUNNING' ? '4,4' : undefined}
-                          />
-                        );
+                        return <line key={worker.id} x1={cx} y1={45} x2={wx} y2={95} stroke="#d1d5db" strokeWidth={2} strokeDasharray={worker.status !== 'RUNNING' ? '4,4' : undefined} />;
                       })}
-                      {/* Master circle */}
                       <circle cx={cx} cy={30} r={22} fill={statusColor[master.status]} opacity={0.15} stroke={statusColor[master.status]} strokeWidth={2} />
                       <circle cx={cx} cy={30} r={14} fill={statusColor[master.status]} opacity={0.3} />
                       <text x={cx} y={34} textAnchor="middle" className="text-xs font-bold fill-gray-800">R0</text>
-                      {/* GPU util mini bar */}
                       <rect x={cx - 15} y={56} width={30} height={4} rx={2} fill="#e5e7eb" />
                       <rect x={cx - 15} y={56} width={30 * master.gpuUtilization / 100} height={4} rx={2} fill={statusColor[master.status]} />
                       <text x={cx} y={72} textAnchor="middle" className="fill-gray-400" style={{ fontSize: '9px' }}>{master.gpuUtilization}%</text>
                     </g>
                   );
                 })}
-                {/* Worker nodes */}
                 {expWorkers.filter((w) => w.ddpRank !== 0).map((worker, i) => {
                   const cx = 40 + i * 80;
                   return (
@@ -71,7 +50,6 @@ export default function DdpTopologyView({ workers, experiments }: DdpTopologyVie
                     </g>
                   );
                 })}
-                {/* Single-node experiment (no workers, only master) */}
                 {expWorkers.length === 1 && expWorkers.map((w) => (
                   <g key={w.id}>
                     <circle cx={90} cy={60} r={24} fill={statusColor[w.status]} opacity={0.15} stroke={statusColor[w.status]} strokeWidth={2} />
