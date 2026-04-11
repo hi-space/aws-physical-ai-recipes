@@ -24,13 +24,28 @@ python scripts/reinforcement_learning/skrl/train.py --task=Isaac-Ant-v0
 ```
 
 `~/docs/setup_newton.sh`가 아래를 자동으로 수행한다:
-1. `requirements_newton.txt`를 `~/environment/IsaacLab/`으로 복사
-2. Python 3.11 설치 (deadsnakes PPA)
-3. venv 생성 (`~/venv311`)
-4. `~/.bashrc` 환경변수 설정 (EULA, venv 활성화, `LAUNCH_OV_APP=1`)
-5. `requirements_newton.txt` 기반 의존성 설치
-6. IsaacLab 패키지 설치 (`./isaaclab.sh --install` + 수동 `--no-deps` 패키지)
-7. 설치 검증
+1. `feature/newton` 브랜치로 전환
+2. `requirements_newton.txt`를 `~/environment/IsaacLab/`으로 복사
+3. Python 3.11 설치 (deadsnakes PPA)
+4. venv 생성 (`~/venv311`)
+5. `~/.bashrc` 환경변수 설정 (EULA, venv 활성화, `LAUNCH_OV_APP=1`)
+6. `requirements_newton.txt` 기반 의존성 설치
+7. IsaacLab 패키지 설치 (`./isaaclab.sh --install` + 수동 `--no-deps` 패키지)
+8. 설치 검증
+
+### 설치 확인 및 Newton 시각화 테스트
+
+설치가 완료되면 Newton 물리 엔진 + 시각화로 학습을 돌려볼 수 있다:
+
+```bash
+python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Humanoid-v0 --visualizer newton
+```
+
+![newton-visualizer](./assets/newton-visualizer.png)
+
+`--visualizer newton` 옵션은 Newton 물리 엔진의 자체 시각화를 띄운다. 브라우저에서 시뮬레이션 상태를 실시간으로 확인할 수 있다.
+
+참고: https://isaac-sim.github.io/IsaacLab/main/source/experimental-features/newton-physics-integration/visualization.html
 
 ### 수동 설치 (참고용)
 
