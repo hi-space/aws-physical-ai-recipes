@@ -30,6 +30,13 @@ if [ ! -d "$ISAACLAB_DIR" ]; then
     error "IsaacLab 디렉토리가 없음: $ISAACLAB_DIR"
 fi
 
+info "feature/newton 브랜치로 전환 중..."
+cd "$ISAACLAB_DIR"
+git fetch origin feature/newton
+git checkout feature/newton
+git pull origin feature/newton
+ok "feature/newton 브랜치 전환 완료"
+
 info "requirements_newton.txt → $ISAACLAB_DIR 복사"
 cp "$DOCS_DIR/requirements_newton.txt" "$ISAACLAB_DIR/requirements_newton.txt"
 ok "파일 복사 완료"
