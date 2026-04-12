@@ -3,20 +3,6 @@
 import type { Worker } from '@/types/worker';
 import StatusBadge from './StatusBadge';
 
-function UtilBar({ label, value, color, suffix }: { label: string; value: number; color: string; suffix?: string }) {
-  return (
-    <div>
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-gray-500">{label}</span>
-        <span className="font-medium text-gray-700">{value}{suffix ?? '%'}</span>
-      </div>
-      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(100, value)}%` }} />
-      </div>
-    </div>
-  );
-}
-
 export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
   const info = [
     { label: 'Instance ID', value: worker.instanceId },
@@ -37,8 +23,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
     { label: 'Progress', value: `${worker.currentStep} / ${worker.totalSteps} steps` },
     { label: 'Current Reward', value: worker.currentReward.toFixed(1) },
   ];
-  const tempColor = worker.gpuTemperature >= 85 ? 'bg-red-500' : worker.gpuTemperature >= 75 ? 'bg-yellow-500' : 'bg-green-500';
-
   return (
     <div className="bg-white rounded-lg shadow-sm p-5 space-y-5">
       <div className="flex items-center justify-between">
@@ -66,14 +50,6 @@ export default function WorkerInfoPanel({ worker }: { worker: Worker }) {
             </div>
           ))}
         </dl>
-      </div>
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Utilization</p>
-        <UtilBar label="GPU" value={worker.gpuUtilization} color="bg-purple-500" />
-        <UtilBar label="GPU Memory" value={worker.gpuMemoryUtilization} color="bg-indigo-500" />
-        <UtilBar label="GPU Temp" value={worker.gpuTemperature} color={tempColor} suffix="\u00B0C" />
-        <UtilBar label="CPU" value={worker.cpuUtilization} color="bg-blue-500" />
-        <UtilBar label="Memory" value={worker.memoryUtilization} color="bg-teal-500" />
       </div>
       {Object.keys(worker.tags).length > 0 && (
         <div>

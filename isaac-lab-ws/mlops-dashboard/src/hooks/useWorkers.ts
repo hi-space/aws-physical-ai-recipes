@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Worker, FleetSummary, Experiment, TrainingMetrics, BatchJob } from '@/types/worker';
-import { simulateMetricsUpdate } from '@/data/mockWorkers';
 
 export function useWorkers() {
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -62,19 +61,14 @@ export function useWorkers() {
     fetchExperiments();
   }, [fetchWorkers, fetchBatchJobs, fetchExperiments]);
 
-  // Polling: refresh from API every 30s, simulate metrics jitter every 3s
+  // Polling: refresh from API every 30s
   useEffect(() => {
-    const jitterInterval = setInterval(() => {
-      setWorkers((prev) => (prev.length > 0 ? simulateMetricsUpdate(prev) : prev));
-    }, 3000);
-
     const pollInterval = setInterval(() => {
       fetchWorkers();
       fetchBatchJobs();
     }, 30000);
 
     return () => {
-      clearInterval(jitterInterval);
       clearInterval(pollInterval);
     };
   }, [fetchWorkers, fetchBatchJobs]);
@@ -90,16 +84,12 @@ export function useWorkers() {
   }, [workers, selectedRegion]);
 
   const summary: FleetSummary = useMemo(() => {
-    const running = workers.filter((w) => w.status === 'RUNNING');
     return {
       total: workers.length,
-      running: running.length,
+      running: workers.filter((w) => w.status === 'RUNNING').length,
       pending: workers.filter((w) => w.status === 'PENDING').length,
       stopped: workers.filter((w) => w.status === 'STOPPED').length,
       failed: workers.filter((w) => w.status === 'FAILED').length,
-      avgGpuUtilization: running.length
-        ? Math.round(running.reduce((sum, w) => sum + w.gpuUtilization, 0) / running.length)
-        : 0,
       totalGpus: workers.reduce((sum, w) => sum + w.gpuCount, 0),
       bestReward: Math.max(...workers.map((w) => w.currentReward), 0),
     };

@@ -12,11 +12,6 @@ export interface Worker {
   region: string;
   taskName: string;
   gpuCount: number;
-  gpuUtilization: number;
-  gpuMemoryUtilization: number;
-  gpuTemperature: number;
-  cpuUtilization: number;
-  memoryUtilization: number;
   uptime: string;
   startedAt: string;
   ddpRank: number;
@@ -62,7 +57,6 @@ export interface FleetSummary {
   pending: number;
   stopped: number;
   failed: number;
-  avgGpuUtilization: number;
   totalGpus: number;
   bestReward: number;
 }

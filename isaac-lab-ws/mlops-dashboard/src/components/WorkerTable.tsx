@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Worker } from '@/types/worker';
 import StatusBadge from './StatusBadge';
 
-type SortField = 'status' | 'instanceId' | 'taskName' | 'instanceType' | 'region' | 'gpuUtilization' | 'ddpRank' | 'currentStep';
+type SortField = 'status' | 'instanceId' | 'taskName' | 'instanceType' | 'region' | 'ddpRank' | 'currentStep';
 type SortDir = 'asc' | 'desc';
 
 export default function WorkerTable({ workers }: { workers: Worker[] }) {
@@ -41,13 +41,6 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
     </th>
   );
 
-  const gpuColor = (util: number) => {
-    if (util >= 80) return 'bg-green-500';
-    if (util >= 50) return 'bg-yellow-500';
-    if (util > 0) return 'bg-red-500';
-    return 'bg-gray-300';
-  };
-
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -60,7 +53,6 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Experiment</th>
               <SortHeader field="instanceType">Type</SortHeader>
               <SortHeader field="region">Region</SortHeader>
-              <SortHeader field="gpuUtilization">GPU Util</SortHeader>
               <SortHeader field="ddpRank">DDP Rank</SortHeader>
               <SortHeader field="currentStep">Progress</SortHeader>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Reward</th>
@@ -68,6 +60,13 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-400">
+                  No worker instances found
+                </td>
+              </tr>
+            ) : null}
             {sorted.map((w) => {
               const pct = w.totalSteps > 0 ? Math.round((w.currentStep / w.totalSteps) * 100) : 0;
               return (
@@ -82,14 +81,6 @@ export default function WorkerTable({ workers }: { workers: Worker[] }) {
                   <td className="px-4 py-3 text-sm text-gray-500">{w.experimentName}</td>
                   <td className="px-4 py-3 text-sm font-mono text-gray-600">{w.instanceType}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{w.region}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${gpuColor(w.gpuUtilization)}`} style={{ width: `${w.gpuUtilization}%` }} />
-                      </div>
-                      <span className="text-sm text-gray-700 w-10 text-right">{w.gpuUtilization}%</span>
-                    </div>
-                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600 text-center">{w.ddpRank}/{w.ddpWorldSize}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">

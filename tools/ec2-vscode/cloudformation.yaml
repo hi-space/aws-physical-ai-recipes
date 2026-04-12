@@ -154,10 +154,10 @@ Resources:
           # Fallback: install Node.js via fnm if not available
           if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
             echo "Installing Node.js 20 via fnm (fallback)..."
+            export HOME=/root
             curl -fsSL https://fnm.vercel.app/install | bash
-            export FNM_DIR="/root/.local/share/fnm"
-            export PATH="$FNM_DIR:$PATH"
-            eval "$(fnm env)"
+            export PATH="/root/.local/share/fnm:$PATH"
+            eval "$(fnm env --shell bash)"
             fnm install 20
             fnm use 20
             ln -sf "$(which node)" /usr/local/bin/node
