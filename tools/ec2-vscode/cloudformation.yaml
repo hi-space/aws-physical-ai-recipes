@@ -151,19 +151,14 @@ Resources:
           wget -qO- https://rpm.nodesource.com/setup_20.x | bash - || echo "[WARN] NodeSource setup failed"
           dnf install -y nodejs || echo "[WARN] nodejs install via dnf failed"
 
-          # Fallback: install Node.js via fnm if not available
+          # Fallback: install Node.js via binary tarball if not available
           if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
-            echo "Installing Node.js 20 via fnm (fallback)..."
-            export HOME=/root
-            curl -fsSL https://fnm.vercel.app/install | bash
-            export PATH="/root/.local/share/fnm:$PATH"
-            eval "$(fnm env --shell bash)"
-            fnm install 20
-            fnm use 20
-            ln -sf "$(which node)" /usr/local/bin/node
-            ln -sf "$(which npm)" /usr/local/bin/npm
-            ln -sf "$(which npx)" /usr/local/bin/npx
-            echo "Node.js installed via fnm: $(node -v)"
+            echo "Installing Node.js 20 via binary tarball (fallback)..."
+            NODE_VERSION=20.18.0
+            wget -q "https://nodejs.org/dist/v${!NODE_VERSION}/node-v${!NODE_VERSION}-linux-x64.tar.xz"
+            tar -xf "node-v${!NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1
+            rm -f "node-v${!NODE_VERSION}-linux-x64.tar.xz"
+            echo "Node.js installed via binary tarball: $(node -v)"
           fi
           echo "Node.js version: $(node -v), npm version: $(npm -v)"
 
