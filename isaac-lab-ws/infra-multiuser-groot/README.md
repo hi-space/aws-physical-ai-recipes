@@ -12,7 +12,7 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | 버전 관리 | 고정 | Version Profile 기반 (stable / latest) |
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
 | 인스턴스 타입 | g6.12xlarge 고정 | g6.12xlarge → g5.12xlarge → g6.xlarge → g5.xlarge 자동 fallback |
-| UserData | 모놀리식 | 4개 독립 셸 스크립트 모듈 |
+| UserData | 모놀리식 | 5개 독립 셸 스크립트 모듈 (cloudwatch-agent.sh는 옵션) |
 | Batch 지원 | 미포함 | Launch Template + IAM 자동화 |
 | 보안 | 미흡 | allowedCidr, EFS SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
@@ -130,20 +130,23 @@ cdk deploy -c userId=alice -c grootRepoUrl=""
 # 7. 인스턴스 타입 직접 지정 (fallback 무시)
 cdk deploy -c userId=alice -c inferenceInstanceType=g6e.4xlarge
 
-# 8. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
+# 8. CloudWatch Agent 활성화 (GPU/CPU/메모리/디스크 모니터링)
+cdk deploy -c userId=alice -c enableCloudWatch=true
+
+# 9. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
 cdk deploy -c userId=alice -c versionProfile=latest
 
-# 9. CloudShell에서 배포 (세션 끊김 방지)
+# 10. CloudShell에서 배포 (세션 끊김 방지)
 nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
 tail -f deploy.log
 
-# 10. 변경 사항 미리보기
+# 11. 변경 사항 미리보기
 cdk diff
 
-# 11. CloudFormation 템플릿 생성 (배포 없이)
+# 12. CloudFormation 템플릿 생성 (배포 없이)
 cdk synth
 
-# 12. 스택 삭제
+# 13. 스택 삭제
 cdk destroy -c userId=alice
 ```
 
@@ -159,6 +162,7 @@ cdk destroy -c userId=alice
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
 | `region` | 리전 코드 | CDK 기본 리전 | 배포 대상 리전 (멀티리전 배포용) |
 | `userId` | 영문소문자·숫자·하이픈 | (없음) | 멀티 사용자 배포 시 사용자 식별자 |
+| `enableCloudWatch` | `true` \| `false` | `false` | CloudWatch Agent 설치 여부 (GPU/CPU/메모리/디스크 모니터링) |
 
 Props는 CDK Context로 전달한다:
 
@@ -600,5 +604,5 @@ isaac-lab-golden-template/
 | install-simulators.sh | Isaac Lab에 불필요 |
 | sleep 120 | dpkg lock 폴링으로 대체 |
 | docker run nvidia-smi | 검증 단계, 배포 시간 단축 |
-| Monitoring: true | 비용 절감, 필요 시 추가 가능 |
+| Monitoring: true | CloudWatch Agent로 대체 (`-c enableCloudWatch=true`), 기본 비활성 |
 | 커널 업그레이드 후 reboot | 최종 reboot으로 대체 |
