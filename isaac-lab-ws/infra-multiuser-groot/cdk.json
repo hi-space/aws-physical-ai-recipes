@@ -1,0 +1,32 @@
+{
+  "app": "npx ts-node bin/isaac-lab-app.ts",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "**/*.js",
+      "tsconfig.json",
+      "package*.json",
+      "jest.config.js",
+      "node_modules",
+      "test",
+      "cdk.out",
+      "reference"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:target-partitions": [
+      "aws",
+      "aws-cn"
+    ],
+    "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
+    "@aws-cdk/core:stackRelativeExports": true,
+    "@aws-cdk/aws-ecs:arnFormatIncludesClusterName": true
+  }
+}

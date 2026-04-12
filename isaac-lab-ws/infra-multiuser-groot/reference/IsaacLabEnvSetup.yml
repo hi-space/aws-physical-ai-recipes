@@ -1,0 +1,656 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for NVIDIA Isaac Lab installs DCV, and optionally installs ROS and a simulator.
+Parameters:
+  InferenceInstanceType:
+    Description: NICE DCV Instance Type
+    Type: String
+    Default: g6.12xlarge
+    AllowedValues:
+      - g6.4xlarge
+      - g6e.4xlarge
+      - g6.12xlarge
+      - g6e.12xlarge
+    ConstraintDescription: Instance type for the GUI Inference Instance Type environment.
+  ROSVersion:
+    Description: Version of ROS to install
+    Type: String
+    Default: ROS2Humble
+    AllowedValues:
+      - ROS1Melodic
+      - NoROSUbuntu1804
+      - ROS1Noetic
+      - ROS2Foxy
+      - NoROSUbuntu2004
+      - ROS2Humble
+      - NoROSUbuntu2204
+  Simulator:
+    Description: Simulator to install
+    Type: String
+    Default: None
+    AllowedValues:
+      - Gazebo
+      - Carla
+      - None
+Mappings:
+  RegionAMIMap:
+    us-east-1:
+      ECS: ami-021ffd38d96581ad5
+    us-west-2:
+      ECS: ami-088a209fd7cd0aaf9
+    ap-northeast-2:
+      ECS: ami-047d087e61e36673e
+  OSMap:
+    ROS1Melodic:
+      Ubuntu: Ubuntu1804
+    ROS1Noetic:
+      Ubuntu: Ubuntu2004
+    ROS2Foxy:
+      Ubuntu: Ubuntu2004
+    ROS2Humble:
+      Ubuntu: Ubuntu2204
+    NoROSUbuntu1804:
+      Ubuntu: Ubuntu1804
+    NoROSUbuntu2004:
+      Ubuntu: Ubuntu2004
+    NoROSUbuntu2204:
+      Ubuntu: Ubuntu2204
+  ComputeMap:
+    g6.4xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+    g6.12xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+    g6e.4xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+    g6e.12xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+  AMIMap:
+    us-east-1:
+      Ubuntu1804CPU: ami-005de95e8ff495156 # Ubuntu Server 18.04 LTS (HVM), SSD Volume Type
+      Ubuntu1804GPU: ami-003566b22128092cd # isaacsim: ami-08084538a6dec4734
+      Ubuntu2004CPU: ami-08d4ac5b634553e16 # Ubuntu Server 20.04 LTS (HVM), SSD Volume Type
+      Ubuntu2004GPU: ami-003518f2b004625c9 # Deep Learning AMI GPU PyTorch 1.12.0 (Ubuntu 20.04) 20220824
+      Ubuntu2204CPU: ami-00096836009b16a22 # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+      Ubuntu2204GPU: ami-00096836009b16a22
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    us-west-2:
+      Ubuntu1804CPU: ami-0cfa91bdbc3be780c # Ubuntu Server 18.04 LTS (HVM), SSD Volume Type
+      Ubuntu1804GPU: ami-0475f1fb0e9b1f73f # isaacsim: ami-08084538a6dec4734
+      Ubuntu2004CPU: ami-0ddf424f81ddb0720 # Ubuntu Server 20.04 LTS (HVM), SSD Volume Type
+      Ubuntu2004GPU: ami-000193e0dec6049a7 # Deep Learning AMI GPU PyTorch 1.12.0 (Ubuntu 20.04) 20220824
+      Ubuntu2204CPU: ami-0fcf52bcf5db7b003 # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-northeast-1:
+      Ubuntu1804CPU: ami-021117b0e6a499966 # bionic 18.04 LTS amd64 hvm:ebs-ssd 20221201
+      Ubuntu1804GPU: ami-0b65e49e84399c746 # Deep Learning AMI (Ubuntu 18.04) Version 68.0
+      Ubuntu2004CPU: ami-0d0c6a887ce442603 # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206 hvm
+      Ubuntu2004GPU: ami-0327775fe220e5527 # AWS Deep Learning AMI GPU CUDA 11 (Ubuntu 20.04) 20220317
+      Ubuntu2204CPU: ami-0ff0cc5dc80fe14a6 # Cloud9Ubuntu-2022-04-28T13-38
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-northeast-2:
+      Ubuntu1804CPU: ami-0d19691dd2d866cb6 # bionic 18.04 LTS amd64 hvm:ebs-ssd 20221201
+      Ubuntu1804GPU: ami-04ddfb3670f486bcc # isaacsim: IsaacSim-Ubuntu-18.04-GPU-2022-05-31
+      Ubuntu2004CPU: ami-0ab9357b9799530ef # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206 hvm
+      Ubuntu2004GPU: ami-0d6df9f7aa5522909 # AWS Deep Learning AMI GPU TensorFlow 2.8.0 (Ubuntu 20.04) 20220216
+      Ubuntu2204CPU: ami-0032bc62a8ae2d773 # Cloud9Ubuntu-2022-04-28T13-38
+      Ubuntu2204GPU: ami-0ea0307b49409ffa0 # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-northeast-3:
+      Ubuntu1804CPU: ami-0fee715f47bd148b6 # bionic 18.04 LTS amd64 hvm:ebs-ssd 20221201
+      Ubuntu1804GPU: ami-03843c70f69c6305c # IsaacSim-Ubuntu-18.04-GPU-2022-05-31
+      Ubuntu2004CPU: ami-07b39279f43b646c6 # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206 hvm
+      Ubuntu2004GPU: ami-07fb6d65d0af9ed16 # Deep Learning AMI GPU PyTorch 1.13.1 (Ubuntu 20.04) 20230215
+      Ubuntu2204CPU: ami-07e1ec61b05c74710 # Cloud9Ubuntu-2022-04-28T13-38
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-southeast-1:
+      Ubuntu1804CPU: ami-02534880ddeb454f5 # bionic  18.04 LTS amd64 hvm:ebs-ssd 20221201   hvm
+      Ubuntu1804GPU: ami-0d67d736eeaffcc14 # IsaacSim-Ubuntu-18.04-GPU-2022-05-31
+      Ubuntu2004CPU: ami-0298b80b630effab3 # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206   hvm
+      Ubuntu2004GPU: ami-0a5df5cca3b475786 # Deep Learning AMI GPU PyTorch 1.13.1 (Ubuntu 20.04) 20230215
+      Ubuntu2204CPU: ami-0fc919643040d71da # Cloud9Ubuntu-2022-04-28T13-38
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-southeast-2:
+      Ubuntu1804CPU: ami-0d21d42bea8de8b55 # bionic  18.04 LTS amd64 hvm:ebs-ssd 20221201   hvm
+      Ubuntu1804GPU: ami-0cadf512ea43b3aef # IsaacSim-Ubuntu-18.04-GPU-2022-05-31
+      Ubuntu2004CPU: ami-0ab9357b9799530ef # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206   hvm
+      Ubuntu2004GPU: ami-03b026e61b4a8200d # Deep Learning AMI GPU PyTorch 1.13.1 (Ubuntu 20.04) 20230215
+      Ubuntu2204CPU: ami-0310483fb2b488153 # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+    ap-southeast-3:
+      Ubuntu1804CPU: ami-02c68bc8e70dcf83f # bionic  18.04 LTS amd64 hvm:ebs-ssd 20221201   hvm
+      Ubuntu1804GPU: ami-0cadf512ea43b3aef # IsaacSim-Ubuntu-18.04-GPU-2022-05-31
+      Ubuntu2004CPU: ami-07b39279f43b646c6 # focal 20.04 LTS amd64 hvm:ebs-ssd 20221206   hvm
+      Ubuntu2004GPU: ami-03b026e61b4a8200d # Deep Learning AMI GPU PyTorch 1.13.1 (Ubuntu 20.04) 20230215
+      #Ubuntu2204CPU: TODO # Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+      #Ubuntu2204GPU: TODO # Deep Learning AMI GPU PyTorch ? (Ubuntu 22.04)
+      
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: IsaacLab-VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  #Public Subnet for DCV Instance
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+      - 0
+      - !GetAZs
+        Ref: 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PublicA
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W33
+            reason: "DCV Instance needs a public IP to SSH to the EC2 instance."  
+  RouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  InternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTableA
+  SubnetARouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      SubnetId: !Ref SubnetA
+  #private Subnet for AWS Batch
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+      - 0
+      - !GetAZs
+        Ref: 'AWS::Region'
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PrivateB
+  RouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PRIRT01
+  SubnetRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      SubnetId: !Ref SubnetB
+  #NAT Gateway configuration starts here
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: NatEIP
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - NatEIP
+        - AllocationId
+      SubnetId:
+        Ref: SubnetA
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  NatRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId:
+        Ref: RouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NatGateway
+  #S3  Endpoint for AWS Batch
+  S3Endpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcEndpointType: 'Gateway'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcId: !Ref VPC
+      RouteTableIds:
+        - !Ref RouteTableB
+  #EC2 Launch Template
+  BatchLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: BatchEC2LaunchTemplate
+      LaunchTemplateData:        
+        ImageId: !FindInMap [RegionAMIMap, !Ref "AWS::Region", ECS]
+        BlockDeviceMappings: 
+          - Ebs:
+              VolumeSize: 250
+              VolumeType: gp2
+              DeleteOnTermination: true
+            DeviceName: /dev/xvda     
+  #EFS Mounting
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Security group for mount target
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 2049
+        ToPort: 2049
+        CidrIp: 0.0.0.0/0
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      FileSystemTags:
+      - Key: Name
+        Value: IsaacLab
+  MountTarget:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SubnetId: !Ref SubnetB
+      SecurityGroups:
+      - Ref: MountTargetSecurityGroup
+  
+  #DCV Instance Instance Setup
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Permit SSH traffic for DCV and 8080 traffic for DCV"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:  0.0.0.0/0
+          Description: Allow SSH traffic for DCV
+        - IpProtocol: tcp
+          FromPort: '8080'
+          ToPort: '8080'
+          CidrIp:  0.0.0.0/0
+          Description: Allow DCV traffic
+        - IpProtocol: tcp
+          FromPort: '8443'
+          ToPort: '8443'
+          CidrIp:  0.0.0.0/0
+          Description: Allow DCV traffic
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: EC23
+            reason: "Inference Instance needs to be able to SSH(22) and DCV(8080) to this machine, and the IP range it can connect from is not fixed."
+          - id: W40
+            reason: "TCP and UDP traffic needs to be permitted egress"
+          - id: W5
+            reason: "Egress is needed for a variety of functions"
+          - id: W9
+            reason: "Ingress is needed for a variety of functions"
+          - id: W2
+            reason: "Ingress is needed for a variety of functions"
+################## PERMISSIONS AND ROLES #################
+  BatchInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+  BatchInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: BatchEC2ComputeResourceRole
+      Path: /
+      Roles: 
+        - !Ref BatchInstanceRole
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess'
+      Policies:
+        - PolicyName: !Sub "RobotActions-${AWS::StackName}"
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [
+                      "ecr:GetAuthorizationToken",
+                      "ecr:BatchGetImage",
+                      "ecr:GetDownloadUrlForLayer"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                      "ssm:UpdateInstanceInformation",
+                      "ssmmessages:CreateControlChannel",
+                      "ssmmessages:CreateDataChannel",
+                      "ssmmessages:OpenControlChannel",
+                      "ssmmessages:OpenDataChannel"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                      "ssm:UpdateInstanceInformation",
+                      "ssmmessages:CreateControlChannel",
+                      "ssmmessages:CreateDataChannel",
+                      "ssmmessages:OpenControlChannel",
+                      "ssmmessages:OpenDataChannel"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                  "secretsmanager:GetSecretValue"
+                ]
+                Resource: !GetAtt 'InstanceCredentials.Id'
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: IAM4
+            reason: "Needs read-only S3 access to be able to fetch the DCV license from an external bucket."
+          - id: IAM5
+            reason: "Needs to be able to create Cloud9 environments, ECR repositories and SSM sessions, so cannot be restricted to a single resource."
+          - id: W11
+            reason: "Needs to be able to create Cloud9 environments, ECR repositories and SSM sessions, so cannot be restricted to a single resource."
+  InferenceInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+  FlowLogRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: 'vpc-flow-logs.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Policies:
+      - PolicyName: 'flowlogs-policy'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+            - 'logs:DescribeLogGroups'
+            - 'logs:DescribeLogStreams'
+            Resource: !GetAtt 'LogGroup.Arn'
+################## FLOW LOG #####################
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      RetentionInDays: 1
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W84
+            reason: "No sensitive data is logged in this flow log."
+  FlowLog:
+    Type: 'AWS::EC2::FlowLog'
+    Properties:
+      DeliverLogsPermissionArn: !GetAtt 'FlowLogRole.Arn'
+      LogGroupName: !Ref LogGroup
+      ResourceId: !Ref VPC
+      ResourceType: 'VPC'
+      TrafficType: REJECT
+  InstanceCredentials:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Description: Credentials used to authenticate against EC2 instance.
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "ubuntu"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludePunctuation: true
+        IncludeSpace: false
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W77
+            reason: "No need to share the secret cross-account"
+################## INSTANCE #####################
+  InferenceInstance:
+    Type: 'AWS::EC2::Instance'
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT60M
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+          - AMIMap
+          - !Ref "AWS::Region"
+          - Fn::FindInMap:
+              - ComputeMap
+              - !Ref InferenceInstanceType
+              - Fn::FindInMap:
+                  - OSMap
+                  - !Ref ROSVersion
+                  - "Ubuntu"
+      InstanceType: !Ref InferenceInstanceType
+      SubnetId: !Ref SubnetA
+      SecurityGroupIds:
+        - Ref: InstanceSecurityGroup
+      Monitoring: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 200
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash -v
+
+            ### 1. PREPARATION
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+            sleep 120
+
+            apt-get update && apt-get upgrade -y linux-aws && apt upgrade -y
+            if [ -f /var/run/reboot-required ]; then
+              rm -f /var/lib/cloud/instances/*/sem/config_scripts_user
+              echo rebooting ... $(date)
+              reboot
+              exit
+            fi
+
+            # Export variables to be available to sub-scripts
+            export STACKNAME=${AWS::StackName}
+            export ROSVERSION=${ROSVersion}
+            export REGION=${AWS::Region}
+            export ACCOUNT=${AWS::AccountId}
+
+            ### 2. DESKTOP
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-desktop.sh
+            bash ./install-desktop.sh
+            runuser -l  ubuntu -c "gsettings set org.gnome.desktop.interface monospace-font-name 'Mono Regular 12'"
+
+            ### 3. DCV
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-dcv.sh
+            bash ./install-dcv.sh
+
+            # Extras to enable DCV directly
+            export PASS=$(aws secretsmanager get-secret-value --secret-id ${Creds} --output text --query SecretString --region $REGION | jq -r .password)
+            echo "ubuntu:$PASS" | chpasswd
+            cat << 'EOF' > ./dcv.conf
+            [license]
+            [log]
+            [session-management]
+            create-session=true
+            [session-management/defaults]
+            [session-management/automatic-console-session]
+            owner = "ubuntu"
+            user = "ubuntu"
+            [display]
+            [connectivity]
+            web-port=8443
+            [security]
+            [clipboard]
+            primary-selection-paste=true
+            primary-selection-copy=true
+            EOF
+            mv ./dcv.conf /etc/dcv/dcv.conf
+            apt install -y mesa-utils openbox v4l2loopback-dkms
+            nvidia-xconfig --preserve-busid --enable-all-gpus
+
+            # Create service to restart graphical service on sign-in
+            cat << 'EOF' > /etc/systemd/system/graphics-restart.service
+            [Unit]
+            Description=Restart graphical.target
+            After=dcvserver.service
+
+            [Service]
+            ExecStart=/usr/bin/systemctl isolate graphical.target
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            systemctl daemon-reload
+            systemctl enable graphics-restart.service
+
+            ### 4. ROS
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-ros.sh
+            bash ./install-ros.sh
+
+            ### 5. INSTALL DOCKER
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-docker.sh
+            bash ./install-docker.sh
+
+            ### 5. SIMULATORS
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-simulators.sh
+            bash ./install-simulators.sh
+
+            ### 8. NVIDIA Package Installation
+            apt-get install -y nvidia-driver-535-server
+            curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+            && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+            && \
+                sudo apt-get update
+            apt-get install -y nvidia-container-toolkit nfs-common
+            systemctl restart docker
+            docker run --rm --gpus all ubuntu nvidia-smi
+
+            ### 9. EFS Mounting
+            mkdir -p /home/ubuntu/environment/efs
+            chown -R ubuntu:ubuntu /home/ubuntu/environment/efs
+            mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ${FileSystem}.efs.${AWS::Region}.amazonaws.com:/ /home/ubuntu/environment/efs
+            wget -P /home/ubuntu/environment/efs https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/agent_72000.pt
+            
+            ### 11 NVIDIA Isaac Lab Installation
+            cd /home/ubuntu/environment
+            git clone https://github.com/isaac-sim/IsaacLab.git
+            chown -R ubuntu:ubuntu /home/ubuntu/environment/IsaacLab
+            cd /home/ubuntu/environment/IsaacLab
+            wget https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/Dockerfile
+            wget https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/distributed_run.bash
+            docker build -t isaaclab-batch:latest .
+            aws ecr create-repository --repository-name isaaclab-batch --region ${AWS::Region}
+            aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+            docker tag isaaclab-batch:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/isaaclab-batch:latest
+            docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/isaaclab-batch:latest
+
+            ### 8. COMPLETION
+            # Signal creation complete
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.zip
+            unzip aws-cfn-bootstrap-py3-latest.zip
+            cd aws-cfn-bootstrap-2.0/
+            python3 setup.py install
+            /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource InferenceInstance --region ${AWS::Region}
+
+            reboot
+          - Creds: !GetAtt 'InstanceCredentials.Id'
+      IamInstanceProfile: !Ref InferenceInstanceProfile
+      Tags:
+        -
+          Key: Name
+          Value: !Sub "${AWS::StackName}"
+        -
+          Key: Application
+          Value: ROS Development Machine
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: EC29
+            reason: "Should not be part of an ASG. Should not have Termination Protection disabled, so the CFN can remove the instance when the stack is destroyed."
+          - id: IAM5
+            reason: "Needs to be able to create Cloud9 environments, ECR repositories and SSM sessions, so cannot be restricted to a single resource."
+  
+Outputs:
+  EC2Host:
+    Description: EC2 Instance Created.
+    Value: !Ref InferenceInstance
+  DCVURL:
+    Description: Address to navigate to for DCV session.
+    Value: !Sub
+      - 'https://${Ip}:8443'
+      - Ip: !GetAtt 'InferenceInstance.PublicIp'
+  LogGroupName:
+    Description: 'The name of the CloudWatch Logs log group where Amazon EC2 publishes your flow logs.'
+    Value: !Ref LogGroup
+  LogGroupARN:
+    Description: 'The ARN of the CloudWatch Logs log group where Amazon EC2 publishes your flow logs.'
+    Value: !GetAtt 'LogGroup.Arn'
