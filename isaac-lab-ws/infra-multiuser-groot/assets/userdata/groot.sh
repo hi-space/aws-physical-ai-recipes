@@ -23,7 +23,11 @@ if [ -z "$GROOT_REPO" ]; then
 fi
 
 # --- 1. HuggingFace에서 GR00T 모델 가중치 다운로드 (EFS) ---
-pip3 install -q huggingface_hub
+# Ubuntu 24.04 DLAMI에는 pip3가 미설치이므로 먼저 확인
+if ! which pip3 > /dev/null 2>&1; then
+  apt-get install -y python3-pip
+fi
+pip3 install --break-system-packages -q huggingface_hub
 if [ ! -d /home/ubuntu/environment/efs/GR00T-N1.6-3B ]; then
   python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='/home/ubuntu/environment/efs/GR00T-N1.6-3B')"
 fi

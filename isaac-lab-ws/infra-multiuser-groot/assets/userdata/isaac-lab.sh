@@ -39,20 +39,28 @@ chown -R ubuntu:ubuntu /home/ubuntu/environment/IsaacLab
 cd /home/ubuntu/environment/IsaacLab
 
 # -----------------------------------------------------------------------------
-# 3. Workshop_Asset 다운로드 (Dockerfile, distributed_run.bash)
+# 3. Workshop 에셋 복사 (Dockerfile, distributed_run.bash)
+#    dcv-instance.ts가 UserData 시작 부분에서 /tmp에 기록한 파일을 복사한다.
+#    외부 S3 URL 의존성 없이 리포에 내장된 에셋을 사용한다.
 # -----------------------------------------------------------------------------
-wget https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/Dockerfile
-wget https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/distributed_run.bash
+cp /tmp/workshop-dockerfile Dockerfile
+cp /tmp/workshop-distributed-run distributed_run.bash
 
 # -----------------------------------------------------------------------------
 # 4. Dockerfile에서 Isaac Sim 버전 sed 패치
-#    워크숍 원본 Dockerfile의 베이스 이미지를 지정된 버전으로 교체한다.
-#    Isaac Sim 5.x 이상에서는 EULA 동의와 root 권한이 필요하다.
+#    베이스 이미지를 지정된 버전으로 교체하고,
+#    Isaac Sim 5.x 이상에서는 추가 EULA 동의가 필요하다.
 # -----------------------------------------------------------------------------
 sed -i "s|FROM nvcr.io/nvidia/isaac-sim:.*|FROM nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION}|g" Dockerfile
-# Isaac Sim 5.x 이상: ACCEPT_EULA=Y 환경 변수 + USER root 추가
-# (4.x에서는 무시됨, 영향 없음)
-sed -i '/^FROM/a ENV ACCEPT_EULA=Y\nUSER root' Dockerfile
+
+MAJOR_VER=$(echo "${ISAAC_SIM_VERSION}" | cut -d. -f1)
+if [ "${MAJOR_VER}" -ge 5 ] 2>/dev/null; then
+  # 5.x: ACCEPT_EULA + OMNI_KIT_ACCEPT_EULA + USER root
+  sed -i '/^FROM/a ENV ACCEPT_EULA=Y\nENV OMNI_KIT_ACCEPT_EULA=YES\nUSER root' Dockerfile
+else
+  # 4.x: EULA 불필요
+  :
+fi
 
 # -----------------------------------------------------------------------------
 # 5. Docker 이미지 빌드

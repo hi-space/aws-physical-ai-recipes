@@ -131,7 +131,15 @@ apt-get update
 apt-get install -y ros-${ROS2_DISTRO}-desktop
 
 # rosdep 초기화
-apt-get install -y python3-rosdep2
+# Ubuntu 24.04(Jazzy)에서는 python3-rosdep2 apt 패키지가 없고,
+# DLAMI에 pip3도 미설치이므로 python3-pip 설치 후 pip로 rosdep 설치
+if apt-cache show python3-rosdep2 2>/dev/null | grep -q "^Package:"; then
+  apt-get install -y python3-rosdep2
+else
+  apt-get install -y python3-pip
+  pip3 install --break-system-packages rosdep
+fi
+rosdep init 2>/dev/null || true
 rosdep update || true
 
 # ROS2 환경 설정을 .bashrc에 추가
