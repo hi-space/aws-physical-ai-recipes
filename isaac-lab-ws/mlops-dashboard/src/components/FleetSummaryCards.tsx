@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import type { FleetSummary } from '@/types/worker';
 
 function Card({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
@@ -12,14 +13,13 @@ function Card({ label, value, sub, color }: { label: string; value: string | num
   );
 }
 
-export default function FleetSummaryCards({ summary }: { summary: FleetSummary }) {
+export default memo(function FleetSummaryCards({ summary }: { summary: FleetSummary }) {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <Card label="Total Workers" value={summary.total} sub={`${summary.pending} pending`} color="border-blue-500" />
       <Card label="Running" value={summary.running} sub={`${summary.failed} failed`} color="border-green-500" />
-      <Card label="Avg GPU Util" value={`${summary.avgGpuUtilization}%`} sub="across running workers" color="border-purple-500" />
       <Card label="Total GPUs" value={summary.totalGpus} sub="allocated" color="border-amber-500" />
       <Card label="Best Reward" value={summary.bestReward} sub="current best" color="border-aws-orange" />
     </div>
   );
-}
+});

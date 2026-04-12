@@ -7,7 +7,6 @@ import WorkerInfoPanel from '@/components/WorkerInfoPanel';
 import RerunViewer from '@/components/RerunViewer';
 import TensorBoardEmbed from '@/components/TensorBoardEmbed';
 import TrainingMetricsChart from '@/components/TrainingMetricsChart';
-import GpuTimelineChart from '@/components/GpuTimelineChart';
 
 export default function WorkerDetailPage({ params }: { params: Promise<{ workerId: string }> }) {
   const { workerId } = use(params);
@@ -53,7 +52,6 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ workerI
               </div>
               <div className="xl:col-span-2 space-y-6">
                 <TrainingMetricsChart metrics={metrics} />
-                <GpuTimelineChart worker={worker} />
               </div>
             </div>
 

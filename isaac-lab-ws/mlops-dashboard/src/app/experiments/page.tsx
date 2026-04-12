@@ -52,6 +52,11 @@ export default function ExperimentsPage() {
 
             {/* Experiment Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {ctx.experiments.length === 0 && (
+                <div className="col-span-full bg-white rounded-lg shadow-sm p-8 text-center text-sm text-gray-400">
+                  No experiments found
+                </div>
+              )}
               {ctx.experiments.map((exp, idx) => {
                 const isSelected = selectedIds.includes(exp.id);
                 const pct = exp.totalSteps > 0 ? Math.round((exp.currentStep / exp.totalSteps) * 100) : 0;
