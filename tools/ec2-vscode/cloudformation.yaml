@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'VSCode Server on EC2 (Public Subnet) - Simplified deployment with code-server, Claude Code, Kiro CLI'
+Description: 'VSCode Server on EC2 (CloudFront) - Secure deployment with code-server, Claude Code, Kiro CLI'
 
 Metadata:
   "AWS::CloudFormation::Interface":
@@ -76,6 +76,7 @@ Resources:
                 Action:
                   - ec2:DescribeRouteTables
                   - ec2:DescribeSubnets
+                  - ec2:DescribeManagedPrefixLists
                 Resource: '*'
 
   SubnetDiscoveryFunction:
@@ -148,9 +149,16 @@ Resources:
                   public_subnets.sort(key=lambda s: s['AvailabilityZone'])
                   subnet = public_subnets[0]
 
+                  # Get CloudFront origin-facing prefix list
+                  pl_resp = ec2.describe_managed_prefix_lists(
+                      Filters=[{'Name': 'prefix-list-name', 'Values': ['com.amazonaws.global.cloudfront.origin-facing']}]
+                  )
+                  cf_pl_id = pl_resp['PrefixLists'][0]['PrefixListId'] if pl_resp.get('PrefixLists') else ''
+
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {
                       'SubnetId': subnet['SubnetId'],
-                      'AvailabilityZone': subnet['AvailabilityZone']
+                      'AvailabilityZone': subnet['AvailabilityZone'],
+                      'CloudFrontPrefixListId': cf_pl_id
                   })
               except Exception as e:
                   cfnresponse.send(event, context, cfnresponse.FAILED, {},
@@ -173,13 +181,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 8888
           ToPort: 8888
-          CidrIp: 0.0.0.0/0
-          Description: "VSCode Server (code-server)"
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-          Description: "HTTPS (for tools and extensions)"
+          SourcePrefixListId: !GetAtt PublicSubnetDiscovery.CloudFrontPrefixListId
+          Description: "VSCode Server (CloudFront only)"
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-VSCode-SG'
@@ -396,18 +399,37 @@ Resources:
         - Key: Name
           Value: !Sub '${AWS::StackName}-VSCode-Server'
 
+  # CloudFront Distribution
+  VSCodeCloudFront:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${AWS::StackName} - VSCode Server'
+        Origins:
+          - Id: VSCodeOrigin
+            DomainName: !GetAtt VSCodeServer.PublicDnsName
+            CustomOriginConfig:
+              HTTPPort: 8888
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: VSCodeOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        PriceClass: PriceClass_200
+
 Outputs:
   VSCodeURL:
-    Description: VSCode Server URL (accessible after UserData completes, ~5-10 min)
-    Value: !Sub "http://${VSCodeServer.PublicIp}:8888"
+    Description: "VSCode Server URL (HTTPS via CloudFront)"
+    Value: !Sub "https://${VSCodeCloudFront.DomainName}"
 
   InstanceId:
     Description: EC2 Instance ID
     Value: !Ref VSCodeServer
-
-  PublicIP:
-    Description: EC2 Public IP
-    Value: !GetAtt VSCodeServer.PublicIp
 
   SSMCommand:
     Description: SSM Session Manager connection command

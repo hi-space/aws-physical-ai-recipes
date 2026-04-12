@@ -231,7 +231,6 @@ parse_output() {
 
 VSCODE_URL=$(parse_output "VSCodeURL")
 INSTANCE_ID=$(parse_output "InstanceId")
-PUBLIC_IP=$(parse_output "PublicIP")
 SSM_CMD=$(parse_output "SSMCommand")
 ROLE_NAME=$(parse_output "IAMRoleName")
 
