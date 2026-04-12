@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VSCode Server on EC2 (Public Subnet) - Simplified deployment with code-server, Claude Code, Kiro CLI'
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+         - VpcId
+         - PublicSubnetId
+      - Label:
+          default: "VSCode Configuration"
+        Parameters:
+         - InstanceType
+         - VSCodePassword
+         - EBSVolumeSize
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC ID (deploy.sh 가 자동 주입)"
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Public Subnet ID (deploy.sh 가 자동 탐색)"
+
+  InstanceType:
+    Type: String
+    Default: m7i.2xlarge
+    Description: "EC2 Instance Type"
+    AllowedValues:
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - t4g.xlarge
+      - t4g.2xlarge
+      - m7i.xlarge
+      - m7i.2xlarge
+      - m7g.xlarge
+      - m7g.2xlarge
+
+  VSCodePassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: "Password for VSCode Server (minimum 8 characters)"
+
+  EBSVolumeSize:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 500
+    Description: "EBS Volume Size (GB)"
+
+  AmazonLinux2023AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+
+Resources:
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${AWS::StackName} - VSCode Server SG'
+      GroupName: !Sub '${AWS::StackName}-VSCode-SG'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8888
+          ToPort: 8888
+          CidrIp: 0.0.0.0/0
+          Description: "VSCode Server (code-server)"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "HTTPS (for tools and extensions)"
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-SG'
+
+  # IAM Role for EC2
+  VSCodeServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-VSCode-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-Role'
+
+  VSCodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref VSCodeServerRole
+
+  # EC2 Instance
+  VSCodeServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmazonLinux2023AmiId
+      IamInstanceProfile: !Ref VSCodeInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnetId
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EBSVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          # Log all output
+          exec > >(tee /var/log/user-data.log) 2>&1
+
+          echo "Starting user-data script at $(date)"
+
+          # System update with conflict resolution
+          dnf update -y --allowerasing
+
+          # Install required packages with conflict resolution
+          dnf install -y --allowerasing curl jq tar gzip python3
+
+          # Install pip3 and Python packages
+          dnf install -y python3-pip
+          pip3 install boto3 click bedrock-agentcore
+
+          # Install development tools (required for native npm modules on ARM64)
+          dnf groupinstall -y "Development Tools" || dnf install -y gcc gcc-c++ make || echo "[WARN] Development Tools install failed"
+
+          # Install Node.js 20
+          wget -qO- https://rpm.nodesource.com/setup_20.x | bash - || echo "[WARN] NodeSource setup failed"
+          dnf install -y nodejs || echo "[WARN] nodejs install via dnf failed"
+
+          # Fallback: install Node.js via fnm if not available
+          if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
+            echo "Installing Node.js 20 via fnm (fallback)..."
+            export HOME=/root
+            curl -fsSL https://fnm.vercel.app/install | bash
+            export PATH="/root/.local/share/fnm:$PATH"
+            eval "$(fnm env --shell bash)"
+            fnm install 20
+            fnm use 20
+            ln -sf "$(which node)" /usr/local/bin/node
+            ln -sf "$(which npm)" /usr/local/bin/npm
+            ln -sf "$(which npx)" /usr/local/bin/npx
+            echo "Node.js installed via fnm: $(node -v)"
+          fi
+          echo "Node.js version: $(node -v), npm version: $(npm -v)"
+
+          # Install AWS CLI v2
+          wget "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -O "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          rm -rf aws awscliv2.zip
+
+          # Install SSM Plugin
+          dnf install -y https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
+
+          # Install Docker
+          dnf install -y docker
+          systemctl enable docker
+          systemctl start docker
+          usermod -aG docker ec2-user
+          echo "Docker installed: $(docker --version)" >> /var/log/user-data.log
+
+          # Install uv package manager
+          wget -qO- https://astral.sh/uv/install.sh | sh
+
+          # Install code-server v4.110.0
+          cd /tmp
+          if wget https://github.com/coder/code-server/releases/download/v4.110.0/code-server-4.110.0-linux-amd64.tar.gz; then
+            tar -xzf code-server-4.110.0-linux-amd64.tar.gz
+            mv code-server-4.110.0-linux-amd64 /usr/local/lib/code-server
+            ln -sf /usr/local/lib/code-server/bin/code-server /usr/local/bin/code-server
+            rm code-server-4.110.0-linux-amd64.tar.gz
+            echo "code-server installed successfully"
+          else
+            echo "ERROR: code-server download failed"
+            exit 1
+          fi
+
+          # Configure code-server
+          mkdir -p /home/ec2-user/.config/code-server
+          cat > /home/ec2-user/.config/code-server/config.yaml <<EOF
+          bind-addr: 0.0.0.0:8888
+          auth: password
+          password: "${VSCodePassword}"
+          cert: false
+          EOF
+
+          chown -R ec2-user:ec2-user /home/ec2-user/.config
+
+          # Create systemd service
+          cat > /etc/systemd/system/code-server.service <<EOF
+          [Unit]
+          Description=code-server
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/home/ec2-user
+          Environment="PASSWORD=${VSCodePassword}"
+          ExecStart=/usr/local/bin/code-server --config /home/ec2-user/.config/code-server/config.yaml
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Enable and start service
+          systemctl daemon-reload
+          systemctl enable code-server
+          systemctl start code-server
+
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm || echo "[WARN] CloudWatch agent download failed"
+          if [ -f amazon-cloudwatch-agent.rpm ]; then
+            rpm -U ./amazon-cloudwatch-agent.rpm || echo "[WARN] CloudWatch agent install failed"
+            rm -f amazon-cloudwatch-agent.rpm
+          fi
+
+          # Install kiro-cli
+          cd /home/ec2-user
+          if curl --proto '=https' --tlsv1.2 -sSf \
+            'https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-x86_64-linux.zip' \
+            -o 'kirocli.zip'; then
+            unzip -q kirocli.zip
+            if [ -d "kirocli/bin" ]; then
+              chmod +x kirocli/bin/*
+              cp kirocli/bin/* /usr/local/bin/
+              rm -rf kirocli kirocli.zip
+              echo "kiro-cli installed successfully"
+
+              # Test kiro-cli execution
+              sudo -u ec2-user /usr/local/bin/kiro-cli --version || echo "kiro-cli version check failed"
+            else
+              echo "WARNING: kirocli/bin directory not found"
+              ls -la
+            fi
+          else
+            echo "WARNING: kiro-cli download failed"
+          fi
+
+          # Install Claude Code via npm (retry once on failure)
+          npm install -g @anthropic-ai/claude-code || {
+            echo "[WARN] Claude Code CLI install failed, retrying in 10s..."
+            sleep 10
+            npm install -g @anthropic-ai/claude-code || echo "[WARN] Claude Code CLI install failed after retry"
+          }
+
+          # Ensure claude CLI is accessible system-wide (fnm puts global bins outside PATH)
+          NPM_PREFIX="$(npm prefix -g 2>/dev/null)"
+          if [ -n "$NPM_PREFIX" ] && [ -f "$NPM_PREFIX/bin/claude" ] && ! command -v claude &>/dev/null; then
+            ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude
+            echo "Claude CLI symlinked: $NPM_PREFIX/bin/claude -> /usr/local/bin/claude"
+          fi
+
+          # Install Claude Code extension for code-server (Open VSX)
+          sudo -u ec2-user /usr/local/bin/code-server --install-extension Anthropic.claude-code || {
+            echo "[WARN] Extension install via gallery failed, trying VSIX direct download..."
+            VSIX_URL=$(curl -s "https://open-vsx.org/api/Anthropic/claude-code/latest" | python3 -c "import sys,json; print(json.load(sys.stdin).get('files',{}).get('download',''))" 2>/dev/null || echo "")
+            if [ -n "$VSIX_URL" ]; then
+              curl -sL "$VSIX_URL" -o /tmp/claude-code.vsix
+              sudo -u ec2-user /usr/local/bin/code-server --install-extension /tmp/claude-code.vsix || echo "[WARN] VSIX install also failed"
+              rm -f /tmp/claude-code.vsix
+            else
+              echo "[WARN] Could not get VSIX download URL"
+            fi
+          }
+
+          # Signal completion
+          echo "VSCode Server installation completed at $(date)" | tee -a /var/log/user-data.log
+          echo "VSCode Server installation completed" > /var/log/vscode-setup.log
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-Server'
+
+Outputs:
+  VSCodeURL:
+    Description: VSCode Server URL (EC2 UserData 설치 완료 후 접속 가능, 약 5-10분)
+    Value: !Sub "http://${VSCodeServer.PublicIp}:8888"
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref VSCodeServer
+
+  PublicIP:
+    Description: EC2 Public IP
+    Value: !GetAtt VSCodeServer.PublicIp
+
+  SSMCommand:
+    Description: SSM Session Manager 접속 명령어
+    Value: !Sub "aws ssm start-session --target ${VSCodeServer}"
+
+  IAMRoleName:
+    Description: EC2 IAM Role Name (필요시 AdministratorAccess 추가)
+    Value: !Ref VSCodeServerRole
