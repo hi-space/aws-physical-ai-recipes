@@ -1,16 +1,17 @@
 # EC2 VSCode Server
 
-Public Subnet의 EC2에 code-server(VSCode)를 배포합니다.
+CloudFront를 통해 HTTPS로 접속하는 EC2 기반 code-server(VSCode)를 배포합니다.
 
 ## 아키텍처
 
 ```
-User Browser (HTTP:8888)
-  → EC2 (Public Subnet, Public IP)
-      - code-server v4.110.0
-      - Claude Code CLI + Extension
-      - Kiro CLI
-      - Docker, Node.js 20, Python3, AWS CLI v2
+User Browser (HTTPS)
+  → CloudFront (TLS termination)
+    → EC2:8888 (Public Subnet, SG: CloudFront IP만 허용)
+        - code-server v4.110.0
+        - Claude Code CLI + Extension
+        - Kiro CLI
+        - Docker, Node.js 20, Python3, AWS CLI v2
 ```
 
 ## 사전 조건
@@ -40,7 +41,6 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
     VpcId=vpc-xxxxx \
-    PublicSubnetId=subnet-xxxxx \
     InstanceType=m7i.2xlarge \
     VSCodePassword="MyPassword123" \
     EBSVolumeSize=100
@@ -49,10 +49,10 @@ aws cloudformation deploy \
 ## 접속 방법
 
 ### 브라우저 (VSCode Server)
-배포 완료 후 출력되는 URL로 접속합니다. EC2 UserData 설치 완료까지 약 5-10분 소요됩니다.
+배포 완료 후 출력되는 CloudFront URL로 접속합니다. EC2 UserData 설치 완료까지 약 5-10분 소요됩니다.
 
 ```
-http://<Public-IP>:8888
+https://<xxxxxx>.cloudfront.net
 ```
 
 ### SSM Session Manager (터미널)
