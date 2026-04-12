@@ -21,14 +21,6 @@ echo "  대상 OS: $OS_TYPE"
 echo "  설정 파일: $SHELL_RC"
 echo
 
-# ANTHROPIC_API_KEY 값 입력받기
-read -p "ANTHROPIC_API_KEY 값을 입력하세요: " ANTHROPIC_KEY
-
-if [ -z "$ANTHROPIC_KEY" ]; then
-    echo "오류: ANTHROPIC_API_KEY 값이 비어있습니다."
-    exit 1
-fi
-
 # AWS_BEARER_TOKEN_BEDROCK 값 입력받기
 read -p "AWS_BEARER_TOKEN_BEDROCK 값을 입력하세요: " AWS_TOKEN
 
@@ -115,6 +107,137 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${SELECTED_TOKENS}
 EOF
 
 echo
-echo "bashrc에 설정이 추가되었습니다."
-echo "설정을 적용하려면 다음 명령어를 실행하세요:"
+echo "셸 환경변수 설정이 추가되었습니다."
+
+# ─── VS Code settings.json 설정 ───
+
+# 색상 정의
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# jq 설치 확인
+if ! command -v jq &> /dev/null; then
+    echo -e "${YELLOW}jq가 설치되어 있지 않습니다. 설치 중...${NC}"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        brew install jq
+    else
+        sudo yum install -y jq || sudo apt-get install -y jq
+    fi
+fi
+
+# VS Code 설정 경로 결정
+if [[ "$OS_TYPE" == "macOS" ]]; then
+    SETTINGS_DIR="$HOME/Library/Application Support/Code/User"
+    RESTART_CMD="VS Code를 재시작하세요."
+else
+    SETTINGS_DIR="$HOME/.local/share/code-server/User"
+    RESTART_CMD="sudo systemctl restart code-server"
+fi
+
+SETTINGS_FILE="$SETTINGS_DIR/settings.json"
+
+echo ""
+echo "=== VS Code settings.json 설정 ==="
+echo -e "${BLUE}설정 경로: ${SETTINGS_FILE}${NC}"
+
+# 디렉토리 생성 (없는 경우)
+mkdir -p "$SETTINGS_DIR"
+
+# 기존 settings.json 백업
+if [ -f "$SETTINGS_FILE" ]; then
+    BACKUP_FILE="$SETTINGS_FILE.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$SETTINGS_FILE" "$BACKUP_FILE"
+    echo -e "${YELLOW}기존 설정 파일 백업됨: ${BACKUP_FILE}${NC}"
+fi
+
+# 환경변수에서 값 읽기 (없으면 기본값)
+SMALL_FAST_MODEL="us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# 임시 파일 생성
+TEMP_FILE=$(mktemp)
+TEMP_EXISTING=$(mktemp)
+
+cat > "$TEMP_FILE" << EOF
+{
+    "claudeCode.environmentVariables": [
+    {
+        "name": "CLAUDE_CODE_USE_BEDROCK",
+        "value": "1"
+    },
+    {
+      "name": "CLAUDE_CODE_SKIP_AUTH_LOGIN",
+      "value": "true"
+    },
+    {
+        "name": "AWS_BEARER_TOKEN_BEDROCK",
+        "value": "${AWS_TOKEN}"
+    },
+    {
+      "name": "AWS_REGION",
+      "value": "us-east-1"
+    },
+    {
+        "name": "ANTHROPIC_MODEL",
+        "value": "${SELECTED_MODEL}"
+    },
+    {
+      "name": "ANTHROPIC_SMALL_FAST_MODEL",
+      "value": "${SMALL_FAST_MODEL}"
+    },
+    {
+      "name": "CLAUDE_CODE_SUBAGENT_MODEL",
+      "value": "${SELECTED_MODEL}"
+    },
+    {
+      "name": "MAX_THINKING_TOKENS",
+      "value": "10240"
+    },
+    {
+      "name": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+      "value": "${SELECTED_TOKENS}"
+    }
+    ],
+    "claudeCode.disableLoginPrompt": true,
+    "claudeCode.preferredLocation": "panel",
+    "claudeCode.selectedModel": "${SELECTED_MODEL}"
+}
+EOF
+
+# trailing comma 제거 함수
+fix_json_trailing_comma() {
+    cat "$1" | tr '\n' '\r' | sed 's/,\r\s*}/\r}/g; s/,\r\s*]/\r]/g' | tr '\r' '\n'
+}
+
+# 기존 파일이 있으면 병합, 없으면 새로 생성
+if [ -f "$SETTINGS_FILE" ] && [ -s "$SETTINGS_FILE" ]; then
+    echo -e "${BLUE}기존 설정 파일에 Claude Code 설정을 추가합니다...${NC}"
+    fix_json_trailing_comma "$SETTINGS_FILE" > "$TEMP_EXISTING"
+    MERGED_FILE=$(mktemp)
+    if jq -s '.[0] * .[1]' "$TEMP_EXISTING" "$TEMP_FILE" > "$MERGED_FILE" 2>/dev/null; then
+        cp "$MERGED_FILE" "$SETTINGS_FILE"
+        echo -e "${GREEN}기존 설정과 병합 완료${NC}"
+    else
+        echo -e "${RED}JSON 병합 실패. 기존 파일 형식을 확인하세요.${NC}"
+        echo -e "${YELLOW}백업 파일에서 복원 가능: ${BACKUP_FILE}${NC}"
+        rm -f "$TEMP_FILE" "$TEMP_EXISTING" "$MERGED_FILE"
+        exit 1
+    fi
+    rm -f "$MERGED_FILE"
+else
+    echo -e "${BLUE}새 설정 파일을 생성합니다...${NC}"
+    cp "$TEMP_FILE" "$SETTINGS_FILE"
+fi
+
+rm -f "$TEMP_FILE" "$TEMP_EXISTING"
+
+echo ""
+echo -e "${GREEN}==========================================${NC}"
+echo -e "${GREEN} 설정이 완료되었습니다!${NC}"
+echo -e "${GREEN}==========================================${NC}"
+echo ""
+echo "설정을 적용하려면 다음을 실행하세요:"
 echo "  source $SHELL_RC"
+echo "  $RESTART_CMD"
