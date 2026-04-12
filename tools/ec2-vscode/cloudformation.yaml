@@ -8,7 +8,6 @@ Metadata:
           default: "Network Configuration"
         Parameters:
          - VpcId
-         - PublicSubnetId
       - Label:
           default: "VSCode Configuration"
         Parameters:
@@ -19,11 +18,7 @@ Metadata:
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: "VPC ID (deploy.sh 가 자동 주입)"
-
-  PublicSubnetId:
-    Type: AWS::EC2::Subnet::Id
-    Description: "Public Subnet ID (deploy.sh 가 자동 탐색)"
+    Description: "VPC ID (Public subnet is auto-discovered via Lambda)"
 
   InstanceType:
     Type: String
@@ -58,6 +53,115 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
 
 Resources:
+  # Lambda Custom Resource: Auto-discover public subnets (subnets with IGW route)
+  SubnetDiscoveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-SubnetDiscovery-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DescribeVpcResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSubnets
+                Resource: '*'
+
+  SubnetDiscoveryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-SubnetDiscovery'
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt SubnetDiscoveryRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              try:
+                  vpc_id = event['ResourceProperties']['VpcId']
+                  ec2 = boto3.client('ec2')
+
+                  # Get all route tables in VPC
+                  rts = ec2.describe_route_tables(
+                      Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}]
+                  )['RouteTables']
+
+                  igw_rt_ids = set()
+                  main_has_igw = False
+
+                  for rt in rts:
+                      has_igw = any(
+                          r.get('GatewayId', '').startswith('igw-')
+                          for r in rt.get('Routes', [])
+                      )
+                      if has_igw:
+                          igw_rt_ids.add(rt['RouteTableId'])
+                          if any(a.get('Main', False) for a in rt.get('Associations', [])):
+                              main_has_igw = True
+
+                  # Map subnets to their explicit route tables
+                  explicit_rt = {}
+                  for rt in rts:
+                      for assoc in rt.get('Associations', []):
+                          sid = assoc.get('SubnetId')
+                          if sid:
+                              explicit_rt[sid] = rt['RouteTableId']
+
+                  # Get all subnets in VPC
+                  subnets = ec2.describe_subnets(
+                      Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}]
+                  )['Subnets']
+
+                  public_subnets = []
+                  for s in subnets:
+                      sid = s['SubnetId']
+                      if sid in explicit_rt:
+                          if explicit_rt[sid] in igw_rt_ids:
+                              public_subnets.append(s)
+                      elif main_has_igw:
+                          public_subnets.append(s)
+
+                  if not public_subnets:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {},
+                          reason='No public subnets found in VPC ' + vpc_id)
+                      return
+
+                  # Sort by AZ, pick first
+                  public_subnets.sort(key=lambda s: s['AvailabilityZone'])
+                  subnet = public_subnets[0]
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'SubnetId': subnet['SubnetId'],
+                      'AvailabilityZone': subnet['AvailabilityZone']
+                  })
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {},
+                      reason=str(e))
+
+  PublicSubnetDiscovery:
+    Type: Custom::PublicSubnetDiscovery
+    Properties:
+      ServiceToken: !GetAtt SubnetDiscoveryFunction.Arn
+      VpcId: !Ref VpcId
+
   # Security Group
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -114,7 +218,7 @@ Resources:
       IamInstanceProfile: !Ref VSCodeInstanceProfile
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
-          SubnetId: !Ref PublicSubnetId
+          SubnetId: !GetAtt PublicSubnetDiscovery.SubnetId
           DeviceIndex: 0
           GroupSet:
             - !Ref InstanceSecurityGroup
@@ -294,7 +398,7 @@ Resources:
 
 Outputs:
   VSCodeURL:
-    Description: VSCode Server URL (EC2 UserData 설치 완료 후 접속 가능, 약 5-10분)
+    Description: VSCode Server URL (accessible after UserData completes, ~5-10 min)
     Value: !Sub "http://${VSCodeServer.PublicIp}:8888"
 
   InstanceId:
@@ -306,9 +410,9 @@ Outputs:
     Value: !GetAtt VSCodeServer.PublicIp
 
   SSMCommand:
-    Description: SSM Session Manager 접속 명령어
+    Description: SSM Session Manager connection command
     Value: !Sub "aws ssm start-session --target ${VSCodeServer}"
 
   IAMRoleName:
-    Description: EC2 IAM Role Name (필요시 AdministratorAccess 추가)
+    Description: EC2 IAM Role Name (attach AdministratorAccess if needed)
     Value: !Ref VSCodeServerRole

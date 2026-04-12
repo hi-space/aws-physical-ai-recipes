@@ -126,101 +126,55 @@ echo ""
 read -p "  EBS 볼륨 크기 (GB) [100]: " EBS_SIZE
 EBS_SIZE="${EBS_SIZE:-100}"
 
-# VPC Name (optional)
-echo ""
-read -p "  VPC 이름 (미입력시 Default VPC 사용): " VPC_NAME
-
 ###############################################################################
-#  [3/5] VPC / Subnet 자동 탐색 / Auto-discover VPC & Subnet                  #
+#  [3/5] VPC 선택 / Select VPC                                               #
 ###############################################################################
 echo ""
-echo -e "${CYAN}[3/5] VPC / Subnet 탐색 중...${NC}"
+echo -e "${CYAN}[3/5] VPC 선택... (Public Subnet은 CloudFormation이 자동 탐색)${NC}"
 
-if [ -z "$VPC_NAME" ]; then
-    # Default VPC 사용
-    VPC_ID=$(aws ec2 describe-vpcs \
-        --filters "Name=isDefault,Values=true" \
-        --query "Vpcs[0].VpcId" --output text --region "$REGION" 2>/dev/null)
-
-    if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-        echo -e "${RED}오류: Default VPC를 찾을 수 없습니다. VPC 이름을 지정해주세요.${NC}"
-        exit 1
-    fi
-    echo "  Default VPC 사용: $VPC_ID"
-else
-    # VPC Name 태그로 검색
-    VPC_ID=$(aws ec2 describe-vpcs \
-        --filters "Name=tag:Name,Values=$VPC_NAME" \
-        --query "Vpcs[0].VpcId" --output text --region "$REGION" 2>/dev/null)
-
-    if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-        echo -e "${RED}오류: '$VPC_NAME' 이름의 VPC를 찾을 수 없습니다${NC}"
-        echo "  사용 가능한 VPC 목록:"
-        aws ec2 describe-vpcs --region "$REGION" --output json 2>/dev/null | python3 -c "
+echo ""
+echo -e "  ${BOLD}VPC 선택:${NC}"
+VPC_LIST_JSON=$(aws ec2 describe-vpcs --region "$REGION" --output json 2>/dev/null)
+VPC_DISPLAY=$(echo "$VPC_LIST_JSON" | python3 -c "
 import json, sys
 vpcs = json.load(sys.stdin).get('Vpcs', [])
+def sort_key(v):
+    is_default = v.get('IsDefault', False)
+    name = next((t['Value'] for t in v.get('Tags', []) if t['Key'] == 'Name'), '')
+    return (0 if is_default else 1, name)
+vpcs.sort(key=sort_key)
 for v in vpcs:
-    name = next((t['Value'] for t in v.get('Tags', []) if t['Key'] == 'Name'), '(이름 없음)')
-    default = ' [Default]' if v.get('IsDefault') else ''
-    print('    {} {} {}{}'.format(v['VpcId'], v.get('CidrBlock',''), name, default))
-"
-        exit 1
-    fi
-    echo "  VPC '$VPC_NAME' 발견: $VPC_ID"
-fi
+    name = next((t['Value'] for t in v.get('Tags', []) if t['Key'] == 'Name'), '')
+    default_mark = ' [Default]' if v.get('IsDefault') else ''
+    label = (name + default_mark) if name else ('(이름 없음)' + default_mark)
+    print('{}\t{}\t{}'.format(v['VpcId'], v.get('CidrBlock',''), label))
+")
 
-# Public Subnet 자동 탐색 (IGW route가 있는 route table에 연결된 subnet)
-echo "  Public Subnet 탐색 중..."
-
-# 1) IGW가 연결된 route table 찾기
-IGW_ROUTE_TABLE_IDS=$(aws ec2 describe-route-tables \
-    --filters "Name=vpc-id,Values=$VPC_ID" \
-    --query "RouteTables[?Routes[?GatewayId && starts_with(GatewayId, 'igw-')]].RouteTableId" \
-    --output text --region "$REGION" 2>/dev/null)
-
-if [ -z "$IGW_ROUTE_TABLE_IDS" ]; then
-    echo -e "${RED}오류: IGW가 연결된 Route Table을 찾을 수 없습니다${NC}"
+if [ -z "$VPC_DISPLAY" ]; then
+    echo -e "${RED}오류: 사용 가능한 VPC가 없습니다${NC}"
     exit 1
 fi
 
-# 2) 해당 route table에 명시적으로 연결된 subnet 찾기
-PUBLIC_SUBNET_ID=""
-for RT_ID in $IGW_ROUTE_TABLE_IDS; do
-    SUBNET_ID=$(aws ec2 describe-route-tables \
-        --route-table-ids "$RT_ID" \
-        --query "RouteTables[0].Associations[?SubnetId].SubnetId | [0]" \
-        --output text --region "$REGION" 2>/dev/null)
+declare -a VPC_IDS=()
+i=1
+while IFS=$'\t' read -r vid cidr label; do
+    printf "    %2d) %-22s %-18s %s\n" "$i" "$vid" "$cidr" "$label"
+    VPC_IDS+=("$vid")
+    i=$((i+1))
+done <<< "$VPC_DISPLAY"
 
-    if [ -n "$SUBNET_ID" ] && [ "$SUBNET_ID" != "None" ]; then
-        PUBLIC_SUBNET_ID="$SUBNET_ID"
-        break
-    fi
-done
+echo ""
+read -p "  번호 입력 [1]: " VPC_CHOICE
+VPC_CHOICE="${VPC_CHOICE:-1}"
 
-# 3) 명시적 연결이 없으면 Main route table이 IGW를 가진 경우 (Default VPC 패턴)
-if [ -z "$PUBLIC_SUBNET_ID" ] || [ "$PUBLIC_SUBNET_ID" = "None" ]; then
-    MAIN_RT_HAS_IGW=$(aws ec2 describe-route-tables \
-        --filters "Name=vpc-id,Values=$VPC_ID" "Name=association.main,Values=true" \
-        --query "RouteTables[?Routes[?GatewayId && starts_with(GatewayId, 'igw-')]].RouteTableId | [0]" \
-        --output text --region "$REGION" 2>/dev/null)
-
-    if [ -n "$MAIN_RT_HAS_IGW" ] && [ "$MAIN_RT_HAS_IGW" != "None" ]; then
-        # Main route table에 IGW가 있으면 VPC의 아무 subnet이나 public
-        PUBLIC_SUBNET_ID=$(aws ec2 describe-subnets \
-            --filters "Name=vpc-id,Values=$VPC_ID" \
-            --query "Subnets[0].SubnetId" \
-            --output text --region "$REGION" 2>/dev/null)
-    fi
-fi
-
-if [ -z "$PUBLIC_SUBNET_ID" ] || [ "$PUBLIC_SUBNET_ID" = "None" ]; then
-    echo -e "${RED}오류: Public Subnet을 찾을 수 없습니다${NC}"
+if [[ "$VPC_CHOICE" =~ ^[0-9]+$ ]] && [ "$VPC_CHOICE" -ge 1 ] && [ "$VPC_CHOICE" -le "${#VPC_IDS[@]}" ]; then
+    VPC_ID="${VPC_IDS[$((VPC_CHOICE-1))]}"
+else
+    echo -e "${RED}오류: 잘못된 선택입니다${NC}"
     exit 1
 fi
-
-SUBNET_AZ=$(aws ec2 describe-subnets --subnet-ids "$PUBLIC_SUBNET_ID" \
-    --query "Subnets[0].AvailabilityZone" --output text --region "$REGION" 2>/dev/null)
-echo -e "  ${GREEN}Public Subnet: $PUBLIC_SUBNET_ID ($SUBNET_AZ)${NC}"
+echo -e "  ${GREEN}VPC: $VPC_ID${NC}"
+echo -e "  ${YELLOW}Public Subnet은 CloudFormation 배포 시 자동 탐색됩니다${NC}"
 
 ###############################################################################
 #  [4/5] 설정 확인 / Confirm                                                  #
@@ -235,7 +189,7 @@ echo "  │  Stack Name:    $STACK_NAME"
 echo "  │  Account:       $ACCOUNT_ID"
 echo "  │  Region:        $REGION"
 echo "  │  VPC:           $VPC_ID"
-echo "  │  Subnet:        $PUBLIC_SUBNET_ID ($SUBNET_AZ)"
+echo "  │  Subnet:        (Public Subnet 자동 탐색)"
 echo "  │  Instance Type: $INSTANCE_TYPE"
 echo "  │  EBS Size:      ${EBS_SIZE}GB"
 echo "  │  Password:      $(printf '*%.0s' $(seq 1 ${#VSCODE_PASSWORD}))"
@@ -258,7 +212,6 @@ aws cloudformation deploy \
     --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides \
         VpcId="$VPC_ID" \
-        PublicSubnetId="$PUBLIC_SUBNET_ID" \
         InstanceType="$INSTANCE_TYPE" \
         VSCodePassword="$VSCODE_PASSWORD" \
         EBSVolumeSize="$EBS_SIZE" \
