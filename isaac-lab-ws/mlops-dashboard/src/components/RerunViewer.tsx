@@ -40,7 +40,7 @@ export default function RerunViewer({ worker }: { worker: Worker }) {
   const [retryKey, setRetryKey] = useState(0);
 
   const dataUrl = `rerun+http://${worker.publicIp}:${worker.rerunDataPort}/proxy`;
-  const hostedUrl = `https://app.rerun.io/version/latest/?url=${encodeURIComponent(dataUrl)}`;
+  const hostedUrl = `http://${worker.publicIp}:${worker.rerunPort}/?url=${encodeURIComponent(dataUrl)}`;
   const directOpenUrl = `http://${worker.publicIp}:${worker.rerunPort}/?url=${encodeURIComponent(dataUrl)}`;
   const isAvailable = worker.status === 'RUNNING' && worker.publicIp !== '-';
 
@@ -117,7 +117,7 @@ export default function RerunViewer({ worker }: { worker: Worker }) {
               <p className="text-xs text-gray-400 mb-4">
                 {mode === 'direct'
                   ? `Could not connect to Rerun SDK at ${worker.publicIp}:${worker.rerunDataPort}. Ensure the EC2 security group allows inbound on port ${worker.rerunDataPort}.`
-                  : 'Could not load the hosted Rerun viewer from app.rerun.io.'}
+                  : `Could not load the Rerun viewer from ${worker.publicIp}:${worker.rerunPort}. Ensure the EC2 security group allows inbound on port ${worker.rerunPort}.`}
               </p>
               {isHttps && mode === 'direct' && (
                 <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 mb-4">
@@ -172,8 +172,8 @@ export default function RerunViewer({ worker }: { worker: Worker }) {
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
                 <div className="text-center">
                   <div className="w-8 h-8 border-2 border-gray-300 border-t-aws-orange rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-sm text-gray-400">Loading hosted Rerun viewer...</p>
-                  <p className="text-xs text-gray-300 mt-1">via app.rerun.io</p>
+                  <p className="text-sm text-gray-400">Loading worker Rerun viewer...</p>
+                  <p className="text-xs text-gray-300 mt-1">{worker.publicIp}:{worker.rerunPort}</p>
                 </div>
               </div>
             )}
