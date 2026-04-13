@@ -680,6 +680,18 @@
   resolved "https://registry.yarnpkg.com/@pkgjs/parseargs/-/parseargs-0.11.0.tgz#a77ea742fab25775145434eb1d2328cf5013ac33"
   integrity sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==
 
+"@rerun-io/web-viewer-react@^0.31.2":
+  version "0.31.2"
+  resolved "https://registry.yarnpkg.com/@rerun-io/web-viewer-react/-/web-viewer-react-0.31.2.tgz#0bb36cd1d0a1076adaa765a24df99950b6ada786"
+  integrity sha512-UWeKYdj+iuQ2eobxbOxG11VmW9MNJAogXkCbxnTwwSGu9m8D1Ed9ek/xi+1KwmS7eFAhm4Sw5H11nqHgT4v7wA==
+  dependencies:
+    "@rerun-io/web-viewer" "0.31.2"
+
+"@rerun-io/web-viewer@0.31.2":
+  version "0.31.2"
+  resolved "https://registry.yarnpkg.com/@rerun-io/web-viewer/-/web-viewer-0.31.2.tgz#692239198a26d67e00550984a181b13a54996e94"
+  integrity sha512-DXi6qsKTpXF63CgDmiz4poras++10L2XJgkaw+MANpbPep+qXQKh/VB0OSZ1Tz9evnYo1KJbKXEauKa5cZMKmA==
+
 "@rtsao/scc@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@rtsao/scc/-/scc-1.1.0.tgz#927dd2fae9bc3361403ac2c7a00c32ddce9ad7e8"
