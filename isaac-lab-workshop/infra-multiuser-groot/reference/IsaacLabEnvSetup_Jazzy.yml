@@ -1,0 +1,1198 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for NVIDIA Isaac Lab (Fast deployment - Isaac Lab installed separately)
+Parameters:
+  KeyPairName:
+    Description: (Optional) EC2 Key Pair for SSH access. Leave empty to create instance without key pair.
+    Type: String
+    Default: ''
+  InferenceInstanceType:
+    Description: NICE DCV Instance Type
+    Type: String
+    Default: g6.4xlarge
+    AllowedValues:
+      - g6.4xlarge
+      - g6.8xlarge
+      - g6.12xlarge
+      - g6.16xlarge
+      - g6e.4xlarge
+      - g6e.8xlarge
+      - g6e.12xlarge
+      - g6e.16xlarge
+    ConstraintDescription: Instance type for the GUI Inference Instance Type environment.
+  ExistingVpcId:
+    Description: (Optional) Existing VPC ID to use. Leave empty to create new VPC.
+    Type: String
+    Default: ''
+  ExistingSubnetId:
+    Description: (Optional) Existing Subnet ID to use. Leave empty to create new subnet.
+    Type: String
+    Default: ''
+  ROSVersion:
+    Description: Version of ROS to install
+    Type: String
+    Default: ROS2Jazzy
+    AllowedValues:
+      - ROS1Melodic
+      - NoROSUbuntu1804
+      - ROS1Noetic
+      - ROS2Foxy
+      - NoROSUbuntu2004
+      - ROS2Humble
+      - NoROSUbuntu2204
+      - ROS2Jazzy
+      - NoROSUbuntu2404
+  AvailabilityZoneIndex:
+    Description: Availability Zone index for EC2 instance (0=AZ1, 1=AZ2, 2=AZ3, 3=AZ4)
+    Type: String
+    Default: '3'
+    AllowedValues:
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+  Simulator:
+    Description: Simulator to install
+    Type: String
+    Default: None
+    AllowedValues:
+      - Gazebo
+      - Carla
+      - None
+Mappings:
+  RegionAMIMap:
+    us-east-1:
+      ECS: ami-021ffd38d96581ad5
+    us-west-2:
+      ECS: ami-088a209fd7cd0aaf9
+    ap-northeast-2:
+      ECS: ami-047d087e61e36673e
+  OSMap:
+    ROS1Melodic:
+      Ubuntu: Ubuntu1804
+    ROS1Noetic:
+      Ubuntu: Ubuntu2004
+    ROS2Foxy:
+      Ubuntu: Ubuntu2004
+    ROS2Humble:
+      Ubuntu: Ubuntu2204
+    ROS2Jazzy:
+      Ubuntu: Ubuntu2404
+    NoROSUbuntu1804:
+      Ubuntu: Ubuntu1804
+    NoROSUbuntu2004:
+      Ubuntu: Ubuntu2004
+    NoROSUbuntu2204:
+      Ubuntu: Ubuntu2204
+    NoROSUbuntu2404:
+      Ubuntu: Ubuntu2404
+  ComputeMap:
+    g6.4xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6.8xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6.12xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6.16xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6e.4xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6e.8xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6e.12xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+    g6e.16xlarge:
+      Ubuntu1804: Ubuntu1804GPU
+      Ubuntu2004: Ubuntu2004GPU
+      Ubuntu2204: Ubuntu2204GPU
+      Ubuntu2404: Ubuntu2404GPU
+  AMIMap:
+    us-east-1:
+      Ubuntu1804CPU: ami-005de95e8ff495156
+      Ubuntu1804GPU: ami-003566b22128092cd
+      Ubuntu2004CPU: ami-08d4ac5b634553e16
+      Ubuntu2004GPU: ami-003518f2b004625c9
+      Ubuntu2204CPU: ami-00096836009b16a22
+      Ubuntu2204GPU: ami-00096836009b16a22
+      Ubuntu2404CPU: ami-0e2c8caa4b6378d8c
+      Ubuntu2404GPU: ami-0e2c8caa4b6378d8c
+    us-west-2:
+      Ubuntu1804CPU: ami-0cfa91bdbc3be780c
+      Ubuntu1804GPU: ami-0475f1fb0e9b1f73f
+      Ubuntu2004CPU: ami-0ddf424f81ddb0720
+      Ubuntu2004GPU: ami-000193e0dec6049a7
+      Ubuntu2204CPU: ami-0fcf52bcf5db7b003
+      Ubuntu2404CPU: ami-05134c8ef96964280
+      Ubuntu2404GPU: ami-05134c8ef96964280
+    ap-northeast-1:
+      Ubuntu1804CPU: ami-021117b0e6a499966
+      Ubuntu1804GPU: ami-0b65e49e84399c746
+      Ubuntu2004CPU: ami-0d0c6a887ce442603
+      Ubuntu2004GPU: ami-0327775fe220e5527
+      Ubuntu2204CPU: ami-0ff0cc5dc80fe14a6
+      Ubuntu2404CPU: ami-0a0b7b240264a48d7
+      Ubuntu2404GPU: ami-0a0b7b240264a48d7
+    ap-northeast-2:
+      Ubuntu1804CPU: ami-0d19691dd2d866cb6
+      Ubuntu1804GPU: ami-04ddfb3670f486bcc
+      Ubuntu2004CPU: ami-0ab9357b9799530ef
+      Ubuntu2004GPU: ami-0d6df9f7aa5522909
+      Ubuntu2204CPU: ami-0032bc62a8ae2d773
+      Ubuntu2204GPU: ami-0ea0307b49409ffa0
+      Ubuntu2404CPU: ami-0c9c942bd7bf113a2
+      Ubuntu2404GPU: ami-0c9c942bd7bf113a2
+    ap-northeast-3:
+      Ubuntu1804CPU: ami-0fee715f47bd148b6
+      Ubuntu1804GPU: ami-03843c70f69c6305c
+      Ubuntu2004CPU: ami-07b39279f43b646c6
+      Ubuntu2004GPU: ami-07fb6d65d0af9ed16
+      Ubuntu2204CPU: ami-07e1ec61b05c74710
+      Ubuntu2404CPU: ami-0d52744d6551d851e
+      Ubuntu2404GPU: ami-0d52744d6551d851e
+    ap-southeast-1:
+      Ubuntu1804CPU: ami-02534880ddeb454f5
+      Ubuntu1804GPU: ami-0d67d736eeaffcc14
+      Ubuntu2004CPU: ami-0298b80b630effab3
+      Ubuntu2004GPU: ami-0a5df5cca3b475786
+      Ubuntu2204CPU: ami-0fc919643040d71da
+      Ubuntu2404CPU: ami-060e277c0d4cce553
+      Ubuntu2404GPU: ami-060e277c0d4cce553
+    ap-southeast-2:
+      Ubuntu1804CPU: ami-0d21d42bea8de8b55
+      Ubuntu1804GPU: ami-0cadf512ea43b3aef
+      Ubuntu2004CPU: ami-0ab9357b9799530ef
+      Ubuntu2004GPU: ami-03b026e61b4a8200d
+      Ubuntu2204CPU: ami-0310483fb2b488153
+      Ubuntu2404CPU: ami-001f2488b35ca8aad
+      Ubuntu2404GPU: ami-001f2488b35ca8aad
+    ap-southeast-3:
+      Ubuntu1804CPU: ami-02c68bc8e70dcf83f
+      Ubuntu1804GPU: ami-0cadf512ea43b3aef
+      Ubuntu2004CPU: ami-07b39279f43b646c6
+      Ubuntu2004GPU: ami-03b026e61b4a8200d
+      Ubuntu2404CPU: ami-0d6560339c7e123ab
+      Ubuntu2404GPU: ami-0d6560339c7e123ab
+      
+Conditions:
+  CreateVPC: !Equals [!Ref ExistingVpcId, '']
+  CreateSubnet: !Equals [!Ref ExistingSubnetId, '']
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  UseAZ1: !Equals [!Ref AvailabilityZoneIndex, '0']
+  UseAZ2: !Equals [!Ref AvailabilityZoneIndex, '1']
+  UseAZ3: !Equals [!Ref AvailabilityZoneIndex, '2']
+  UseAZ4: !Equals [!Ref AvailabilityZoneIndex, '3']
+  
+Resources:
+  # ECR Repository for Isaac Lab Docker images
+  IsaacLabECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: isaaclab-batch
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: IsaacLab-VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVPC
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVPC
+    Properties:
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      InternetGatewayId: !Ref InternetGateway
+  #Public Subnets for DCV Instance (one per AZ)
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PublicA
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W33
+            reason: "DCV Instance needs a public IP to SSH to the EC2 instance."
+  
+  SubnetAPublic2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PublicB
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W33
+            reason: "DCV Instance needs a public IP to SSH to the EC2 instance."
+  
+  SubnetAPublic3:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [2, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PublicC
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W33
+            reason: "DCV Instance needs a public IP to SSH to the EC2 instance."
+  
+  SubnetAPublic4:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [3, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PublicD
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W33
+            reason: "DCV Instance needs a public IP to SSH to the EC2 instance."
+  
+  RouteTableA:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateSubnet
+    Properties:
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+  InternetRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateSubnet
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTableA
+  
+  SubnetARouteTableAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      SubnetId: !If [CreateSubnet, !Ref SubnetA, !Ref ExistingSubnetId]
+  
+  SubnetARouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      SubnetId: !Ref SubnetAPublic2
+  
+  SubnetARouteTableAssociationC:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      SubnetId: !Ref SubnetAPublic3
+  
+  SubnetARouteTableAssociationD:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      SubnetId: !Ref SubnetAPublic4
+  
+  #Private Subnets for AWS Batch (one per AZ)
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.10.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PrivateA
+  
+  SubnetBPrivate2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PrivateB
+  
+  SubnetBPrivate3:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [2, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.12.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PrivateC
+  
+  SubnetBPrivate4:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet
+    Properties:
+      AvailabilityZone: !Select [3, !GetAZs '']
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      CidrBlock: 10.0.13.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PrivateD
+  
+  RouteTableB:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateSubnet
+    Properties:
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      Tags:
+        - Key: Name
+          Value: IsaacLab-PRIRT01
+  SubnetRouteTableAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      SubnetId: !Ref SubnetB
+  
+  SubnetRouteTableAssociationB2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      SubnetId: !Ref SubnetBPrivate2
+  
+  SubnetRouteTableAssociationB3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      SubnetId: !Ref SubnetBPrivate3
+  
+  SubnetRouteTableAssociationB4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      SubnetId: !Ref SubnetBPrivate4
+  
+  #NAT Gateway configuration starts here
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateSubnet
+    DependsOn: NatEIP
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - NatEIP
+        - AllocationId
+      SubnetId: !If [CreateSubnet, !Ref SubnetA, !Ref ExistingSubnetId]
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Condition: CreateSubnet
+    Properties:
+      Domain: vpc
+  NatRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateSubnet
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId:
+        Ref: RouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: NatGateway
+  #S3  Endpoint for AWS Batch
+  S3Endpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Condition: CreateVPC
+    Properties:
+      VpcEndpointType: 'Gateway'
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      RouteTableIds:
+        - !If [CreateSubnet, !Ref RouteTableB, !Ref 'AWS::NoValue']
+  
+  # EC2 Launch Template for AWS Batch
+  BatchLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'BatchEC2LaunchTemplate-${AWS::StackName}'
+      LaunchTemplateData:
+        ImageId: !FindInMap [RegionAMIMap, !Ref "AWS::Region", ECS]
+        IamInstanceProfile:
+          Arn: !GetAtt InferenceInstanceProfile.Arn
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: 250
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Iops: 3000
+              Throughput: 125
+            DeviceName: /dev/xvda
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${AWS::StackName}-Batch-Instance'
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            # Install EFS utilities for Amazon Linux 2
+            yum install -y amazon-efs-utils nfs-utils
+            
+  #EFS Mounting
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      GroupDescription: Security group for mount target
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 2049
+        ToPort: 2049
+        CidrIp: 0.0.0.0/0
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      FileSystemTags:
+      - Key: Name
+        Value: IsaacLab
+  MountTarget:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SubnetId: !If [CreateSubnet, !Ref SubnetB, !Ref ExistingSubnetId]
+      SecurityGroups:
+      - Ref: MountTargetSecurityGroup
+  
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Condition: CreateSubnet
+    DependsOn: MountTarget
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SubnetId: !Ref SubnetBPrivate2
+      SecurityGroups:
+      - Ref: MountTargetSecurityGroup
+  
+  MountTarget3:
+    Type: AWS::EFS::MountTarget
+    Condition: CreateSubnet
+    DependsOn: MountTarget2
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SubnetId: !Ref SubnetBPrivate3
+      SecurityGroups:
+      - Ref: MountTargetSecurityGroup
+  
+  MountTarget4:
+    Type: AWS::EFS::MountTarget
+    Condition: CreateSubnet
+    DependsOn: MountTarget3
+    Properties:
+      FileSystemId:
+        Ref: FileSystem
+      SubnetId: !Ref SubnetBPrivate4
+      SecurityGroups:
+      - Ref: MountTargetSecurityGroup
+  
+  #DCV Instance Instance Setup
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Permit SSH traffic for DCV and 8080 traffic for DCV"
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref ExistingVpcId]
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:  0.0.0.0/0
+          Description: Allow SSH traffic for DCV
+        - IpProtocol: tcp
+          FromPort: '8080'
+          ToPort: '8080'
+          CidrIp:  0.0.0.0/0
+          Description: Allow DCV traffic
+        - IpProtocol: tcp
+          FromPort: '8443'
+          ToPort: '8443'
+          CidrIp:  0.0.0.0/0
+          Description: Allow DCV traffic
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: EC23
+            reason: "Inference Instance needs to be able to SSH(22) and DCV(8080) to this machine, and the IP range it can connect from is not fixed."
+          - id: W40
+            reason: "TCP and UDP traffic needs to be permitted egress"
+          - id: W5
+            reason: "Egress is needed for a variety of functions"
+          - id: W9
+            reason: "Ingress is needed for a variety of functions"
+          - id: W2
+            reason: "Ingress is needed for a variety of functions"
+################## PERMISSIONS AND ROLES #################
+  BatchInstanceRole:
+    Type: 'AWS::IAM::Role'
+    DeletionPolicy: Retain
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+  BatchInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    DeletionPolicy: Retain
+    Properties:
+      InstanceProfileName: !Sub 'BatchEC2ComputeResourceRole-${AWS::StackName}'
+      Path: /
+      Roles: 
+        - !Ref BatchInstanceRole
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess'
+      Policies:
+        - PolicyName: !Sub "RobotActions-${AWS::StackName}"
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [
+                      "ecr:GetAuthorizationToken",
+                      "ecr:BatchGetImage",
+                      "ecr:GetDownloadUrlForLayer"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                      "ssm:UpdateInstanceInformation",
+                      "ssmmessages:CreateControlChannel",
+                      "ssmmessages:CreateDataChannel",
+                      "ssmmessages:OpenControlChannel",
+                      "ssmmessages:OpenDataChannel"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                      "ssm:UpdateInstanceInformation",
+                      "ssmmessages:CreateControlChannel",
+                      "ssmmessages:CreateDataChannel",
+                      "ssmmessages:OpenControlChannel",
+                      "ssmmessages:OpenDataChannel"
+                        ]
+                Resource: '*'
+              - Effect: Allow
+                Action: [
+                  "secretsmanager:GetSecretValue"
+                ]
+                Resource: !GetAtt 'InstanceCredentials.Id'
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: IAM4
+            reason: "Needs read-only S3 access to be able to fetch the DCV license from an external bucket."
+          - id: IAM5
+            reason: "Needs to be able to create Cloud9 environments, ECR repositories and SSM sessions, so cannot be restricted to a single resource."
+          - id: W11
+            reason: "Needs to be able to create Cloud9 environments, ECR repositories and SSM sessions, so cannot be restricted to a single resource."
+  InferenceInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+################## LOG GROUP #####################
+  LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      RetentionInDays: 1
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W84
+            reason: "No sensitive data is logged in this flow log."
+  InstanceCredentials:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Description: Credentials used to authenticate against EC2 instance.
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "ubuntu"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludePunctuation: true
+        IncludeSpace: false
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W77
+            reason: "No need to share the secret cross-account"
+################## INSTANCE #####################
+  InferenceInstance:
+    Type: 'AWS::EC2::Instance'
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT90M
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+          - AMIMap
+          - !Ref "AWS::Region"
+          - Fn::FindInMap:
+              - ComputeMap
+              - !Ref InferenceInstanceType
+              - Fn::FindInMap:
+                  - OSMap
+                  - !Ref ROSVersion
+                  - "Ubuntu"
+      InstanceType: !Ref InferenceInstanceType
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      SubnetId: !If 
+        - CreateSubnet
+        - !If 
+          - UseAZ1
+          - !Ref SubnetA
+          - !If
+            - UseAZ2
+            - !Ref SubnetAPublic2
+            - !If
+              - UseAZ3
+              - !Ref SubnetAPublic3
+              - !Ref SubnetAPublic4
+        - !Ref ExistingSubnetId
+      SecurityGroupIds:
+        - Ref: InstanceSecurityGroup
+      Monitoring: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 200
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash -v
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+            sleep 120
+            
+            # Skip full system upgrade to save time (10-15 minutes)
+            apt-get update
+            # apt-get upgrade -y linux-aws && apt upgrade -y
+            # if [ -f /var/run/reboot-required ]; then
+            #   rm -f /var/lib/cloud/instances/*/sem/config_scripts_user
+            #   echo rebooting ... $(date)
+            #   reboot
+            #   exit
+            # fi
+
+            export STACKNAME=${AWS::StackName}
+            export ROSVERSION=${ROSVersion}
+            export REGION=${AWS::Region}
+            export ACCOUNT=${AWS::AccountId}
+
+            ### AWS CLI v2
+            apt-get install -y unzip curl
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            /tmp/aws/install
+            rm -rf /tmp/aws /tmp/awscliv2.zip
+
+            ### DESKTOP
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-desktop.sh
+            bash ./install-desktop.sh
+            runuser -l ubuntu -c "gsettings set org.gnome.desktop.interface monospace-font-name 'Mono Regular 12'"
+            runuser -l ubuntu -c "gsettings set org.gnome.desktop.screensaver lock-enabled false"
+            runuser -l ubuntu -c "gsettings set org.gnome.desktop.screensaver idle-activation-enabled false"
+            runuser -l ubuntu -c "gsettings set org.gnome.desktop.session idle-delay 0"
+            runuser -l ubuntu -c "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing"
+            runuser -l ubuntu -c "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type nothing"
+
+            ### DCV
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-dcv.sh
+            bash ./install-dcv.sh
+            cd /tmp
+            wget https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-19030-ubuntu2404-x86_64.tgz
+            tar -xvzf nice-dcv-2024.0-19030-ubuntu2404-x86_64.tgz
+            cd nice-dcv-2024.0-19030-ubuntu2404-x86_64
+            apt-get install -y ./nice-dcv-server_2024.0.19030-1_amd64.ubuntu2404.deb
+
+            # Create PAM configuration for DCV
+            cat << 'DCVPAM' > /etc/pam.d/dcv
+            #%PAM-1.0
+            @include common-auth
+            @include common-account
+            @include common-session
+            DCVPAM
+
+            cat << 'DCVPERMS' > /etc/dcv/console.perms
+            [permissions]
+            %owner% allow builtin
+            [connect]
+            %owner% allow
+            DCVPERMS
+
+            cat << 'DCVCONF' > /etc/dcv/dcv.conf
+            [license]
+            [log]
+            [session-management]
+            create-session=true
+            [session-management/defaults]
+            [session-management/automatic-console-session]
+            owner="ubuntu"
+            [display]
+            target-fps=60
+            [connectivity]
+            web-port=8443
+            web-url-path="/"
+            [security]
+            authentication="system"
+            [clipboard]
+            primary-selection-paste=true
+            primary-selection-copy=true
+            DCVCONF
+
+            apt install -y mesa-utils openbox v4l2loopback-dkms
+            nvidia-xconfig --preserve-busid --enable-all-gpus --connected-monitor=DFP-0 --custom-edid=DFP-0:/etc/X11/edid.bin --mode-debug
+
+            cat << 'EDID' | base64 -d > /etc/X11/edid.bin
+            AP///////wAQrBbwTExLQQ4WAQOANCB46h7Frk80sSYOUFSlSwCBgKlA0QBxT6lAgYCpQNEAcU+pQAo
+            gODBRoFgkQDAlQCBQIxYAIQA6AAAAVGVzdAo=
+            EDID
+
+            cat << 'XORGCONF' > /etc/X11/xorg.conf
+            Section "ServerLayout"
+                Identifier     "Layout0"
+                Screen      0  "Screen0"
+                InputDevice    "Keyboard0" "CoreKeyboard"
+                InputDevice    "Mouse0" "CorePointer"
+            EndSection
+            Section "Files"
+                ModulePath "/usr/lib/x86_64-linux-gnu/nvidia/xorg"
+                ModulePath "/usr/lib/xorg/modules"
+            EndSection
+            Section "InputDevice"
+                Identifier     "Mouse0"
+                Driver         "mouse"
+                Option         "Protocol" "auto"
+                Option         "Device" "/dev/psaux"
+                Option         "Emulate3Buttons" "no"
+                Option         "ZAxisMapping" "4 5"
+            EndSection
+            Section "InputDevice"
+                Identifier     "Keyboard0"
+                Driver         "kbd"
+            EndSection
+            Section "Monitor"
+                Identifier     "Monitor0"
+                VendorName     "Unknown"
+                ModelName      "Unknown"
+                Option         "DPMS"
+                HorizSync       28.0 - 33.0
+                VertRefresh     43.0 - 72.0
+                Modeline       "1920x1080" 148.50 1920 2008 2052 2200 1080 1084 1089 1125 +hsync +vsync
+            EndSection
+            Section "Device"
+                Identifier     "Device0"
+                Driver         "nvidia"
+                VendorName     "NVIDIA Corporation"
+                BoardName      "NVIDIA GPU"
+                BusID          "PCI:0:30:0"
+                Option         "ConnectedMonitor" "DFP-0"
+                Option         "CustomEDID" "DFP-0:/etc/X11/edid.bin"
+                Option         "UseDisplayDevice" "DFP-0"
+                Option         "AllowEmptyInitialConfiguration" "True"
+                Option         "UseEDID" "True"
+                Option         "ModeValidation" "NoEdidModes, NoXServerModes"
+            EndSection
+            Section "Screen"
+                Identifier     "Screen0"
+                Device         "Device0"
+                Monitor        "Monitor0"
+                DefaultDepth    24
+                Option         "AllowEmptyInitialConfiguration" "True"
+                Option         "UseDisplayDevice" "DFP-0"
+                SubSection     "Display"
+                    Depth       24
+                    Modes      "1920x1080" "1680x1050" "1600x900" "1280x1024" "1024x768"
+                EndSubSection
+            EndSection
+            XORGCONF
+
+            cat << 'DCVSESSION' > /etc/systemd/system/dcv-session-create.service
+            [Unit]
+            Description=Create DCV Console Session
+            After=dcvserver.service graphical.target
+            Requires=dcvserver.service
+            [Service]
+            Type=oneshot
+            ExecStartPre=/bin/sleep 10
+            ExecStart=/usr/bin/dcv create-session --type=console --owner ubuntu console
+            RemainAfterExit=yes
+            Restart=on-failure
+            RestartSec=5
+            [Install]
+            WantedBy=graphical.target
+            DCVSESSION
+
+            cat << 'DCVRES' > /etc/systemd/system/dcv-resolution.service
+            [Unit]
+            Description=Set DCV Resolution to 1920x1080
+            After=dcv-session-create.service graphical.target
+            Requires=dcv-session-create.service
+            [Service]
+            Type=oneshot
+            User=ubuntu
+            Environment="DISPLAY=:0"
+            ExecStartPre=/bin/sleep 5
+            ExecStart=/bin/bash -c 'xrandr --output DVI-D-0 --mode 1920x1080 || xrandr --output DP-0 --mode 1920x1080 || xrandr --output HDMI-0 --mode 1920x1080 || xrandr -s 1920x1080 || true'
+            RemainAfterExit=yes
+            [Install]
+            WantedBy=graphical.target
+            DCVRES
+
+            cat << 'GRAPHRESTART' > /etc/systemd/system/graphics-restart.service
+            [Unit]
+            Description=Restart graphical.target
+            After=dcvserver.service
+            [Service]
+            ExecStart=/usr/bin/systemctl isolate graphical.target
+            [Install]
+            WantedBy=multi-user.target
+            GRAPHRESTART
+
+            systemctl daemon-reload
+            systemctl enable graphics-restart.service dcv-session-create.service dcv-resolution.service dcvserver
+            systemctl start dcvserver
+            
+            # Create virtual DCV session (avoid console session loop)
+            sleep 5
+            dcv create-session --type=virtual --owner ubuntu --storage-root /home/ubuntu my-session || true
+
+            ### ROS
+            if [ "$ROSVERSION" = "ROS2Jazzy" ]; then
+              apt-get update
+              apt-get install -y software-properties-common
+              add-apt-repository universe
+              apt-get update && apt-get install -y curl
+              curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+              apt-get update
+              apt-get install -y ros-jazzy-desktop python3-colcon-common-extensions python3-rosdep
+              echo "source /opt/ros/jazzy/setup.bash" >> /home/ubuntu/.bashrc
+              rosdep init || true
+              runuser -l ubuntu -c "rosdep update"
+            else
+              wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-ros.sh
+              bash ./install-ros.sh
+            fi
+
+            ### DOCKER
+            apt-get update
+            apt-get install -y ca-certificates curl
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            apt-get update
+            apt-get install -y docker-ce docker-ce-cli containerd.io
+            systemctl start docker
+            systemctl enable docker
+            usermod -aG docker ubuntu
+
+            ### SIMULATORS
+            wget https://raw.githubusercontent.com/aws-samples/robotics-boilerplate/main/install-simulators.sh
+            bash ./install-simulators.sh
+
+            ### NVIDIA
+            # Install NVIDIA Driver 550 (recommended for Isaac Sim 5.1.0)
+            apt-get install -y linux-headers-$(uname -r) dkms
+            apt-get install -y nvidia-driver-550
+            
+            # Start NVIDIA Persistence Daemon
+            nvidia-persistenced
+            
+            # Install NVIDIA Container Toolkit
+            curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+            curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+            apt-get update
+            apt-get install -y nvidia-container-toolkit nfs-common
+            nvidia-ctk runtime configure --runtime=docker
+            systemctl restart docker
+            docker run --rm --gpus all ubuntu nvidia-smi
+
+            ### EFS
+            mkdir -p /home/ubuntu/environment/efs
+            chown -R ubuntu:ubuntu /home/ubuntu/environment
+            mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ${FileSystem}.efs.${AWS::Region}.amazonaws.com:/ /home/ubuntu/environment/efs
+            wget -P /home/ubuntu/environment/efs https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/agent_72000.pt
+
+            ### INSTALL ISAAC LAB
+            echo "Installing Isaac Lab..."
+            cd /home/ubuntu/environment
+            git clone https://github.com/isaac-sim/IsaacLab.git
+            chown -R ubuntu:ubuntu /home/ubuntu/environment/IsaacLab
+            cd /home/ubuntu/environment/IsaacLab
+            
+            # Create Dockerfile
+            cat << 'EOF' > Dockerfile
+            FROM nvcr.io/nvidia/isaac-sim:5.1.0
+            
+            USER root
+            
+            # Disable driver version check
+            ENV OMNI_KIT_ALLOW_ROOT=1
+            ENV NVIDIA_DRIVER_CAPABILITIES=all
+            ENV CARB_DISABLE_DRIVER_CHECK=1
+            
+            RUN apt update -y
+            RUN apt install -y cmake build-essential git ncurses-term
+            COPY ./ /workspace/IsaacLab/
+            WORKDIR /workspace/IsaacLab
+            RUN ln -s /isaac-sim _isaac_sim
+            RUN ./isaaclab.sh -i
+            RUN chmod +x distributed_run.bash
+            ENTRYPOINT [""]
+            CMD ["/bin/bash"]
+            EOF
+            
+            wget https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/distributed_run.bash
+            chown -R ubuntu:ubuntu /home/ubuntu/environment/IsaacLab
+
+            ### CREATE ISAAC LAB INSTALL SCRIPT
+            cat << 'ISAACSCRIPT' > /home/ubuntu/environment/install-isaac-lab.sh
+            #!/bin/bash
+            echo "Isaac Lab Docker Installation Guide"
+            echo "====================================="
+            echo ""
+            echo "Isaac Lab requires Docker with GPU support."
+            echo "Due to network restrictions, you may need to:"
+            echo ""
+            echo "1. Clone Isaac Lab repository:"
+            echo "   git clone https://github.com/isaac-sim/IsaacLab.git"
+            echo ""
+            echo "2. Follow the official Isaac Lab Docker documentation:"
+            echo "   https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html"
+            echo ""
+            echo "3. Or use the pre-built Isaac Sim container:"
+            echo "   docker run --gpus all -it nvcr.io/nvidia/isaac-sim:5.1.0"
+            echo ""
+            echo "Note: PyPI access may be restricted in this environment."
+            ISAACSCRIPT
+
+            chmod +x /home/ubuntu/environment/install-isaac-lab.sh
+            chown ubuntu:ubuntu /home/ubuntu/environment/install-isaac-lab.sh
+
+            ### CREATE README
+            cat << 'README' > /home/ubuntu/environment/README.txt
+            ========================================
+            Isaac Lab Installation Instructions
+            ========================================
+
+            The base environment is ready with:
+            - NVIDIA Driver 550 (570)
+            - Docker with GPU support
+            - ROS2 Jazzy
+            - DCV for remote desktop
+
+            To use Isaac Lab:
+            1. See install-isaac-lab.sh for guidance
+            2. Or run pre-built container:
+               docker run --gpus all -it nvcr.io/nvidia/isaac-sim:5.1.0
+
+            DCV Password: Check AWS Secrets Manager
+            ========================================
+            README
+
+            chown ubuntu:ubuntu /home/ubuntu/environment/README.txt
+
+            ### INSTALL FIREFOX AND CREATE DESKTOP SHORTCUT
+            apt-get install -y firefox
+            mkdir -p /home/ubuntu/Desktop
+            cp /usr/share/applications/firefox.desktop /home/ubuntu/Desktop/ 2>/dev/null || true
+            chmod +x /home/ubuntu/Desktop/firefox.desktop 2>/dev/null || true
+            chown -R ubuntu:ubuntu /home/ubuntu/Desktop
+
+            ### SET PASSWORD BEFORE REBOOT
+            # Get password from Secrets Manager and set for ubuntu user
+            export PASS=$(aws secretsmanager get-secret-value --secret-id ${Creds} --output text --query SecretString --region $REGION | jq -r .password 2>/dev/null || echo "")
+            if [ -n "$PASS" ] && [ "$PASS" != "null" ]; then
+                echo "ubuntu:$PASS" | chpasswd
+                echo "Ubuntu user password set successfully"
+            fi
+
+            ### COMPLETION
+            # Install cfn-signal
+            cd /tmp
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.zip
+            unzip aws-cfn-bootstrap-py3-latest.zip
+            cd aws-cfn-bootstrap-2.0/
+            python3 setup.py install
+            
+            # Send success signal to CloudFormation BEFORE reboot
+            /usr/local/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource InferenceInstance --region ${AWS::Region}
+            
+            # Wait a moment to ensure signal is sent
+            sleep 5
+            
+            # Final reboot for NVIDIA driver and DCV
+            reboot
+          - Creds: !GetAtt 'InstanceCredentials.Id'
+            FileSystem: !Ref FileSystem
+      IamInstanceProfile: !Ref InferenceInstanceProfile
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+        - Key: Application
+          Value: ROS Development Machine
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: EC29
+            reason: "Should not be part of an ASG."
+          - id: IAM5
+            reason: "Needs to create ECR repositories and SSM sessions."
+  
+Outputs:
+  EC2Host:
+    Description: EC2 Instance Created.
+    Value: !Ref InferenceInstance
+  EC2PublicIP:
+    Description: Public IP address of the EC2 instance for SSH access.
+    Value: !GetAtt 'InferenceInstance.PublicIp'
+  SSHCommand:
+    Description: SSH command to connect to the instance (only if key pair was provided).
+    Condition: HasKeyPair
+    Value: !Sub
+      - 'ssh -i ${KeyName}.pem ubuntu@${Ip}'
+      - Ip: !GetAtt 'InferenceInstance.PublicIp'
+        KeyName: !Ref KeyPairName
+  DCVURL:
+    Description: Address to navigate to for DCV session.
+    Value: !Sub
+      - 'https://${Ip}:8443'
+      - Ip: !GetAtt 'InferenceInstance.PublicIp'
+  DCVUsername:
+    Description: DCV login username.
+    Value: 'ubuntu'
+  DCVPasswordSecret:
+    Description: Secrets Manager ARN containing DCV password.
+    Value: !Ref InstanceCredentials
+  EFSFileSystemId:
+    Description: EFS File System ID for AWS Batch Job Definitions.
+    Value: !Ref FileSystem
+  ECRRepositoryURI:
+    Description: ECR repository URI for Isaac Lab Docker images.
+    Value: !GetAtt IsaacLabECRRepository.RepositoryUri
+  IsaacLabInstallCommand:
+    Description: Command to install Isaac Lab after instance is ready.
+    Value: 'cd /home/ubuntu/environment && ./install-isaac-lab.sh'
+  LogGroupName:
+    Description: 'The name of the CloudWatch Logs log group for application logs.'
+    Value: !Ref LogGroup
+  LogGroupARN:
+    Description: 'The ARN of the CloudWatch Logs log group for application logs.'
+    Value: !GetAtt 'LogGroup.Arn'

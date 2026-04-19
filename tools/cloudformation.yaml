@@ -1,0 +1,443 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VSCode Server on EC2 (CloudFront) - Secure deployment with code-server, Claude Code, Kiro CLI'
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+         - VpcId
+      - Label:
+          default: "VSCode Configuration"
+        Parameters:
+         - InstanceType
+         - VSCodePassword
+         - EBSVolumeSize
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC ID (Public subnet is auto-discovered via Lambda)"
+
+  InstanceType:
+    Type: String
+    Default: m7i.2xlarge
+    Description: "EC2 Instance Type"
+    AllowedValues:
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - t4g.xlarge
+      - t4g.2xlarge
+      - m7i.xlarge
+      - m7i.2xlarge
+      - m7g.xlarge
+      - m7g.2xlarge
+
+  VSCodePassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: "Password for VSCode Server (minimum 8 characters)"
+
+  EBSVolumeSize:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 500
+    Description: "EBS Volume Size (GB)"
+
+  AmazonLinux2023AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+
+Resources:
+  # Lambda Custom Resource: Auto-discover public subnets (subnets with IGW route)
+  SubnetDiscoveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-SubnetDiscovery-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DescribeVpcResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeManagedPrefixLists
+                Resource: '*'
+
+  SubnetDiscoveryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-SubnetDiscovery'
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt SubnetDiscoveryRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              try:
+                  vpc_id = event['ResourceProperties']['VpcId']
+                  ec2 = boto3.client('ec2')
+
+                  # Get all route tables in VPC
+                  rts = ec2.describe_route_tables(
+                      Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}]
+                  )['RouteTables']
+
+                  igw_rt_ids = set()
+                  main_has_igw = False
+
+                  for rt in rts:
+                      has_igw = any(
+                          r.get('GatewayId', '').startswith('igw-')
+                          for r in rt.get('Routes', [])
+                      )
+                      if has_igw:
+                          igw_rt_ids.add(rt['RouteTableId'])
+                          if any(a.get('Main', False) for a in rt.get('Associations', [])):
+                              main_has_igw = True
+
+                  # Map subnets to their explicit route tables
+                  explicit_rt = {}
+                  for rt in rts:
+                      for assoc in rt.get('Associations', []):
+                          sid = assoc.get('SubnetId')
+                          if sid:
+                              explicit_rt[sid] = rt['RouteTableId']
+
+                  # Get all subnets in VPC
+                  subnets = ec2.describe_subnets(
+                      Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}]
+                  )['Subnets']
+
+                  public_subnets = []
+                  for s in subnets:
+                      sid = s['SubnetId']
+                      if sid in explicit_rt:
+                          if explicit_rt[sid] in igw_rt_ids:
+                              public_subnets.append(s)
+                      elif main_has_igw:
+                          public_subnets.append(s)
+
+                  if not public_subnets:
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {},
+                          reason='No public subnets found in VPC ' + vpc_id)
+                      return
+
+                  # Sort by AZ, pick first
+                  public_subnets.sort(key=lambda s: s['AvailabilityZone'])
+                  subnet = public_subnets[0]
+
+                  # Get CloudFront origin-facing prefix list
+                  pl_resp = ec2.describe_managed_prefix_lists(
+                      Filters=[{'Name': 'prefix-list-name', 'Values': ['com.amazonaws.global.cloudfront.origin-facing']}]
+                  )
+                  cf_pl_id = pl_resp['PrefixLists'][0]['PrefixListId'] if pl_resp.get('PrefixLists') else ''
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'SubnetId': subnet['SubnetId'],
+                      'AvailabilityZone': subnet['AvailabilityZone'],
+                      'CloudFrontPrefixListId': cf_pl_id
+                  })
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {},
+                      reason=str(e))
+
+  PublicSubnetDiscovery:
+    Type: Custom::PublicSubnetDiscovery
+    Properties:
+      ServiceToken: !GetAtt SubnetDiscoveryFunction.Arn
+      VpcId: !Ref VpcId
+
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${AWS::StackName} - VSCode Server SG'
+      GroupName: !Sub '${AWS::StackName}-VSCode-SG'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8888
+          ToPort: 8888
+          SourcePrefixListId: !GetAtt PublicSubnetDiscovery.CloudFrontPrefixListId
+          Description: "VSCode Server (CloudFront only)"
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-SG'
+
+  # IAM Role for EC2
+  VSCodeServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-VSCode-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-Role'
+
+  VSCodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref VSCodeServerRole
+
+  # EC2 Instance
+  VSCodeServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmazonLinux2023AmiId
+      IamInstanceProfile: !Ref VSCodeInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: !GetAtt PublicSubnetDiscovery.SubnetId
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EBSVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          # Log all output
+          exec > >(tee /var/log/user-data.log) 2>&1
+
+          echo "Starting user-data script at $(date)"
+
+          # System update with conflict resolution
+          dnf update -y --allowerasing
+
+          # Install required packages with conflict resolution
+          dnf install -y --allowerasing curl jq tar gzip python3
+
+          # Install pip3 and Python packages
+          dnf install -y python3-pip
+          pip3 install boto3 click bedrock-agentcore
+
+          # Install development tools (required for native npm modules on ARM64)
+          dnf groupinstall -y "Development Tools" || dnf install -y gcc gcc-c++ make || echo "[WARN] Development Tools install failed"
+
+          # Install Node.js 20
+          wget -qO- https://rpm.nodesource.com/setup_20.x | bash - || echo "[WARN] NodeSource setup failed"
+          dnf install -y nodejs || echo "[WARN] nodejs install via dnf failed"
+
+          # Fallback: install Node.js via binary tarball if not available
+          if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
+            echo "Installing Node.js 20 via binary tarball (fallback)..."
+            NODE_VERSION=20.18.0
+            wget -q "https://nodejs.org/dist/v${!NODE_VERSION}/node-v${!NODE_VERSION}-linux-x64.tar.xz"
+            tar -xf "node-v${!NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1
+            rm -f "node-v${!NODE_VERSION}-linux-x64.tar.xz"
+            echo "Node.js installed via binary tarball: $(node -v)"
+          fi
+          echo "Node.js version: $(node -v), npm version: $(npm -v)"
+
+          # Install AWS CLI v2
+          wget "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -O "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          rm -rf aws awscliv2.zip
+
+          # Install SSM Plugin
+          dnf install -y https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
+
+          # Install Docker
+          dnf install -y docker
+          systemctl enable docker
+          systemctl start docker
+          usermod -aG docker ec2-user
+          echo "Docker installed: $(docker --version)" >> /var/log/user-data.log
+
+          # Install uv package manager
+          wget -qO- https://astral.sh/uv/install.sh | sh
+
+          # Install code-server v4.110.0
+          cd /tmp
+          if wget https://github.com/coder/code-server/releases/download/v4.110.0/code-server-4.110.0-linux-amd64.tar.gz; then
+            tar -xzf code-server-4.110.0-linux-amd64.tar.gz
+            mv code-server-4.110.0-linux-amd64 /usr/local/lib/code-server
+            ln -sf /usr/local/lib/code-server/bin/code-server /usr/local/bin/code-server
+            rm code-server-4.110.0-linux-amd64.tar.gz
+            echo "code-server installed successfully"
+          else
+            echo "ERROR: code-server download failed"
+            exit 1
+          fi
+
+          # Configure code-server
+          mkdir -p /home/ec2-user/.config/code-server
+          cat > /home/ec2-user/.config/code-server/config.yaml <<EOF
+          bind-addr: 0.0.0.0:8888
+          auth: password
+          password: "${VSCodePassword}"
+          cert: false
+          EOF
+
+          chown -R ec2-user:ec2-user /home/ec2-user/.config
+
+          # Create systemd service
+          cat > /etc/systemd/system/code-server.service <<EOF
+          [Unit]
+          Description=code-server
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/home/ec2-user
+          Environment="PASSWORD=${VSCodePassword}"
+          ExecStart=/usr/local/bin/code-server --config /home/ec2-user/.config/code-server/config.yaml
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Enable and start service
+          systemctl daemon-reload
+          systemctl enable code-server
+          systemctl start code-server
+
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm || echo "[WARN] CloudWatch agent download failed"
+          if [ -f amazon-cloudwatch-agent.rpm ]; then
+            rpm -U ./amazon-cloudwatch-agent.rpm || echo "[WARN] CloudWatch agent install failed"
+            rm -f amazon-cloudwatch-agent.rpm
+          fi
+
+          # Install kiro-cli
+          cd /home/ec2-user
+          if curl --proto '=https' --tlsv1.2 -sSf \
+            'https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-x86_64-linux.zip' \
+            -o 'kirocli.zip'; then
+            unzip -q kirocli.zip
+            if [ -d "kirocli/bin" ]; then
+              chmod +x kirocli/bin/*
+              cp kirocli/bin/* /usr/local/bin/
+              rm -rf kirocli kirocli.zip
+              echo "kiro-cli installed successfully"
+
+              # Test kiro-cli execution
+              sudo -u ec2-user /usr/local/bin/kiro-cli --version || echo "kiro-cli version check failed"
+            else
+              echo "WARNING: kirocli/bin directory not found"
+              ls -la
+            fi
+          else
+            echo "WARNING: kiro-cli download failed"
+          fi
+
+          # Install Claude Code via npm (retry once on failure)
+          npm install -g @anthropic-ai/claude-code || {
+            echo "[WARN] Claude Code CLI install failed, retrying in 10s..."
+            sleep 10
+            npm install -g @anthropic-ai/claude-code || echo "[WARN] Claude Code CLI install failed after retry"
+          }
+
+          # Ensure claude CLI is accessible system-wide (fnm puts global bins outside PATH)
+          NPM_PREFIX="$(npm prefix -g 2>/dev/null)"
+          if [ -n "$NPM_PREFIX" ] && [ -f "$NPM_PREFIX/bin/claude" ] && ! command -v claude &>/dev/null; then
+            ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude
+            echo "Claude CLI symlinked: $NPM_PREFIX/bin/claude -> /usr/local/bin/claude"
+          fi
+
+          # Install Claude Code extension for code-server (Open VSX)
+          sudo -u ec2-user /usr/local/bin/code-server --install-extension Anthropic.claude-code || {
+            echo "[WARN] Extension install via gallery failed, trying VSIX direct download..."
+            VSIX_URL=$(curl -s "https://open-vsx.org/api/Anthropic/claude-code/latest" | python3 -c "import sys,json; print(json.load(sys.stdin).get('files',{}).get('download',''))" 2>/dev/null || echo "")
+            if [ -n "$VSIX_URL" ]; then
+              curl -sL "$VSIX_URL" -o /tmp/claude-code.vsix
+              sudo -u ec2-user /usr/local/bin/code-server --install-extension /tmp/claude-code.vsix || echo "[WARN] VSIX install also failed"
+              rm -f /tmp/claude-code.vsix
+            else
+              echo "[WARN] Could not get VSIX download URL"
+            fi
+          }
+
+          # Clone ec2-vscode repository
+          sudo -u ec2-user git clone https://github.com/hi-space/ec2-vscode.git /home/ec2-user/ec2-vscode || echo "[WARN] ec2-vscode repo clone failed"
+
+          # Signal completion
+          echo "VSCode Server installation completed at $(date)" | tee -a /var/log/user-data.log
+          echo "VSCode Server installation completed" > /var/log/vscode-setup.log
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VSCode-Server'
+
+  # CloudFront Distribution
+  VSCodeCloudFront:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${AWS::StackName} - VSCode Server'
+        Origins:
+          - Id: VSCodeOrigin
+            DomainName: !GetAtt VSCodeServer.PublicDnsName
+            CustomOriginConfig:
+              HTTPPort: 8888
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: VSCodeOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        PriceClass: PriceClass_200
+
+Outputs:
+  VSCodeURL:
+    Description: "VSCode Server URL (HTTPS via CloudFront)"
+    Value: !Sub "https://${VSCodeCloudFront.DomainName}"
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref VSCodeServer
+
+  SSMCommand:
+    Description: SSM Session Manager connection command
+    Value: !Sub "aws ssm start-session --target ${VSCodeServer}"
+
+  IAMRoleName:
+    Description: EC2 IAM Role Name (attach AdministratorAccess if needed)
+    Value: !Ref VSCodeServerRole
