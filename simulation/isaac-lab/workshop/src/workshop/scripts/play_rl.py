@@ -10,7 +10,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task", required=True, help="Play environment ID (e.g. Workshop-SO101-Reach-Play-v0)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint (defaults to latest)")
     parser.add_argument("--num_steps", type=int, default=1000, help="Number of simulation steps")
-    parser.add_argument("--headless", action="store_true", help="Run without visualization")
     parser.add_argument("--video", action="store_true", help="Record video")
     parser.add_argument("--video_length", type=int, default=200, help="Video length in steps")
     AppLauncher.add_app_launcher_args(parser)

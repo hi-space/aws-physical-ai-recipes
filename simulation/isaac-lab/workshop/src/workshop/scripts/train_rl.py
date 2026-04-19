@@ -9,7 +9,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task", required=True, help="Gym environment ID (e.g. Workshop-SO101-Reach-v0)")
     parser.add_argument("--num_envs", type=int, default=None, help="Override number of environments")
     parser.add_argument("--max_iterations", type=int, default=None, help="Override max iterations")
-    parser.add_argument("--headless", action="store_true", help="Run without visualization")
     parser.add_argument("--checkpoint", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--log_dir", type=str, default="logs/rsl_rl", help="Log directory")
     AppLauncher.add_app_launcher_args(parser)
