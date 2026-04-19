@@ -41,6 +41,8 @@ simulation/isaac-lab/workshop/
         ├── play_rl.py                     # 학습된 정책 시각화
         ├── collect_demos.py               # 시연 데이터 수집
         ├── convert_to_lerobot.py          # LeRobot v2.1 형식 변환
+        ├── convert_urdf_to_usd.py         # URDF → USD 변환 (setup.sh에서 호출)
+        ├── patch_mujoco_warp.py           # mujoco_warp 호환성 패치
         ├── download_hf_dataset.py         # HuggingFace 데이터셋 다운로드
         ├── upload_s3.py                   # S3 업로드
         ├── submit_batch_job.py            # AWS Batch Job 제출
@@ -97,10 +99,13 @@ bash setup.sh
 
 이 스크립트가 수행하는 작업:
 1. Python 환경 확인 (venv311 활성화 여부, isaaclab 설치 확인)
-2. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq)
-3. 워크숍 패키지 editable 설치 (`pip install --no-deps -e .`)
-4. SO-ARM 101 URDF + STL 메시 다운로드 (TheRobotStudio 공식)
-5. 등록된 환경 검증
+2. IsaacLab RL + rsl_rl 설치
+3. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq, h5py)
+4. 워크숍 패키지 editable 설치 (`pip install --no-deps -e .`)
+5. mujoco_warp 호환성 패치 (mujoco >= 3.7.0)
+6. SO-ARM 101 URDF + STL 메시 다운로드 (TheRobotStudio 공식)
+7. URDF → USD 변환 (Isaac Sim에서 사용할 수 있는 형식)
+8. 등록된 환경 검증
 
 ### 0-5. 환경 검증
 
@@ -176,7 +181,7 @@ submit_batch \
 ```bash
 play_rl \
   --task Workshop-SO101-Lift-Play-v0 \
-  --checkpoint logs/rsl_rl/lift_so101/<timestamp>/checkpoints/best_agent.pt
+  --checkpoint logs/rsl_rl/lift_so101/model_<iter>.pt
 ```
 
 #### 1-3. 시연 데이터 수집
@@ -184,7 +189,7 @@ play_rl \
 ```bash
 collect \
   --task Workshop-SO101-Lift-Play-v0 \
-  --checkpoint logs/rsl_rl/lift_so101/<timestamp>/checkpoints/best_agent.pt \
+  --checkpoint logs/rsl_rl/lift_so101/model_<iter>.pt \
   --num_episodes 200 \
   --output_dir /tmp/so101_demos
 ```

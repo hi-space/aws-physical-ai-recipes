@@ -25,7 +25,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 1: Python 환경 확인
 # ------------------------------------------------------------------
-echo "[1/7] Checking Python environment..."
+echo "[1/8] Checking Python environment..."
 
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     if [ -f "${VENV_DIR}/bin/activate" ]; then
@@ -53,7 +53,7 @@ echo ""
 # Step 2: IsaacLab RL + rsl_rl 설치 (newton-setup이 빠뜨린 패키지)
 # ------------------------------------------------------------------
 ISAACLAB_DIR="$HOME/environment/IsaacLab"
-echo "[2/7] Installing IsaacLab RL packages..."
+echo "[2/8] Installing IsaacLab RL packages..."
 
 if python -c "import isaaclab_rl" 2>/dev/null; then
     echo "  isaaclab_rl: already installed"
@@ -73,7 +73,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 3: 워크숍 추가 의존성 설치
 # ------------------------------------------------------------------
-echo "[3/7] Installing workshop dependencies..."
+echo "[3/8] Installing workshop dependencies..."
 pip install --quiet pandas pyarrow boto3 pyzmq h5py
 echo "  pandas, pyarrow, boto3, pyzmq, h5py: OK"
 echo ""
@@ -81,7 +81,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 4: 워크숍 패키지 editable 설치
 # ------------------------------------------------------------------
-echo "[4/7] Installing workshop package (editable)..."
+echo "[4/8] Installing workshop package (editable)..."
 cd "${SCRIPT_DIR}"
 pip install --no-deps --editable .
 echo "  workshop package: OK"

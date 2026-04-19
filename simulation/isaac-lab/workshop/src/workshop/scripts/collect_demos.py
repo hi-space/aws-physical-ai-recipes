@@ -26,6 +26,7 @@ def main():
     import numpy as np
     import torch
     from rsl_rl.runners import OnPolicyRunner
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
     import workshop  # noqa: F401
 
@@ -43,6 +44,7 @@ def main():
     agent_cfg = getattr(importlib.import_module(module_path), class_name)()
 
     env = gym.make(args.task, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env)
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     runner.load(args.checkpoint)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
@@ -59,10 +61,11 @@ def main():
             with torch.inference_mode():
                 actions = policy(obs)
 
-            states_buf.append(obs[0, :6].cpu().numpy())
+            obs_tensor = obs["policy"] if isinstance(obs, dict) else obs
+            states_buf.append(obs_tensor[0, :6].cpu().numpy())
             actions_buf.append(actions[0, :6].cpu().numpy())
 
-            obs, _, dones, _, _ = env.step(actions)
+            obs, _, dones, _ = env.step(actions)
             done = dones[0].item() if dones.numel() > 0 else False
 
         np.savez(
