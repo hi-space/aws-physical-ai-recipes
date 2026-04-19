@@ -6,14 +6,16 @@
 # 실행하면:
 #   1. Python 환경 확인 (venv311 활성화 여부)
 #   2. IsaacLab RL + rsl_rl 설치
-#   3. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq)
+#   3. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq, h5py)
 #   4. 워크숍 패키지 editable 설치 (pip install -e .)
 #   5. SO-ARM 101 URDF + STL 다운로드 (TheRobotStudio 공식)
-#   6. 등록된 Gym 환경 목록 출력하여 검증
+#   6. URDF → USD 변환 (Isaac Sim에서 사용할 수 있는 형식)
+#   7. 등록된 Gym 환경 목록 출력하여 검증
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URDF_DIR="${SCRIPT_DIR}/src/workshop/robots/urdf"
+USD_DIR="${SCRIPT_DIR}/src/workshop/robots/usd"
 VENV_DIR="$HOME/venv311"
 
 echo "=== Workshop GR00T + SO-ARM 101 Setup ==="
@@ -22,7 +24,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 1: Python 환경 확인
 # ------------------------------------------------------------------
-echo "[1/6] Checking Python environment..."
+echo "[1/7] Checking Python environment..."
 
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     if [ -f "${VENV_DIR}/bin/activate" ]; then
@@ -50,7 +52,7 @@ echo ""
 # Step 2: IsaacLab RL + rsl_rl 설치 (newton-setup이 빠뜨린 패키지)
 # ------------------------------------------------------------------
 ISAACLAB_DIR="$HOME/environment/IsaacLab"
-echo "[2/6] Installing IsaacLab RL packages..."
+echo "[2/7] Installing IsaacLab RL packages..."
 
 if python -c "import isaaclab_rl" 2>/dev/null; then
     echo "  isaaclab_rl: already installed"
@@ -70,7 +72,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 3: 워크숍 추가 의존성 설치
 # ------------------------------------------------------------------
-echo "[3/6] Installing workshop dependencies..."
+echo "[3/7] Installing workshop dependencies..."
 pip install --quiet pandas pyarrow boto3 pyzmq h5py
 echo "  pandas, pyarrow, boto3, pyzmq, h5py: OK"
 echo ""
@@ -78,20 +80,20 @@ echo ""
 # ------------------------------------------------------------------
 # Step 4: 워크숍 패키지 editable 설치
 # ------------------------------------------------------------------
-echo "[4/6] Installing workshop package (editable)..."
+echo "[4/7] Installing workshop package (editable)..."
 cd "${SCRIPT_DIR}"
 pip install --no-deps --editable .
 echo "  workshop package: OK"
 echo ""
 
 # ------------------------------------------------------------------
-# Step 4: SO-ARM 101 URDF + STL 다운로드
+# Step 5: SO-ARM 101 URDF + STL 다운로드
 # ------------------------------------------------------------------
 if [ -f "${URDF_DIR}/so_arm101.urdf" ]; then
-    echo "[5/6] URDF already exists, skipping download."
+    echo "[5/7] URDF already exists, skipping download."
     echo "  ${URDF_DIR}/so_arm101.urdf"
 else
-    echo "[5/6] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
+    echo "[5/7] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
 
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "${TEMP_DIR}"' EXIT
@@ -123,9 +125,22 @@ fi
 echo ""
 
 # ------------------------------------------------------------------
-# Step 5: 설치 검증
+# Step 6: URDF → USD 변환
 # ------------------------------------------------------------------
-echo "[6/6] Verifying registered environments..."
+if [ -f "${USD_DIR}/so_arm101.usd" ]; then
+    echo "[6/7] USD already exists, skipping conversion."
+    echo "  ${USD_DIR}/so_arm101.usd"
+else
+    echo "[6/7] Converting URDF → USD (one-time, requires Isaac Sim)..."
+    convert_urdf --headless
+    echo "  USD: ${USD_DIR}/so_arm101.usd"
+fi
+echo ""
+
+# ------------------------------------------------------------------
+# Step 7: 설치 검증
+# ------------------------------------------------------------------
+echo "[7/7] Verifying registered environments..."
 list_envs
 echo ""
 
@@ -137,7 +152,7 @@ echo "  # Module 1 Fast Track: Download HF dataset"
 echo "  download_hf -h"
 echo ""
 echo "  # Module 1 Deep Dive: Train RL policy"
-echo "  train_rl --task Workshop-SO101-Reach-v0"
+echo "  train_rl --task Workshop-SO101-Reach-v0 --headless"
 echo ""
 echo "  # Module 2+3: GR00T finetuning + Closed-loop"
 echo "  closed_loop --policy_host localhost --instruction 'lift the cube'"
