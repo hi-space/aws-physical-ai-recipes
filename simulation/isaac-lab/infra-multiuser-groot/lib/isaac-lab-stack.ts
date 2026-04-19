@@ -19,6 +19,7 @@ import { NetworkingConstruct } from './constructs/networking';
 import { EfsStorageConstruct } from './constructs/efs-storage';
 import { DcvInstanceConstruct } from './constructs/dcv-instance';
 import { BatchInfraConstruct } from './constructs/batch-infra';
+import { CloudFrontCodeServerConstruct } from './constructs/cloudfront-code-server';
 import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK } from './constructs/az-selector';
 
 /**
@@ -43,6 +44,8 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   grootBranch?: string;
   /** CloudWatch Agent 설치 여부 (기본값: false) */
   enableCloudWatch?: boolean;
+  /** code-server (VSCode) 설치 여부 (기본값: true) */
+  enableCodeServer?: boolean;
 }
 
 /**
@@ -118,8 +121,10 @@ export class IsaacLabStack extends cdk.Stack {
       resolvedInstanceType = azSelector.resolvedInstanceType;
     }
 
-    // --- [1/4] NetworkingConstruct ---
+    // --- [1/5] NetworkingConstruct ---
     // VPC, 서브넷, IGW, NAT, S3 Endpoint, Flow Log, DCV SG
+    const enableCodeServer = props.enableCodeServer ?? true;
+
     const networking = new NetworkingConstruct(this, 'Networking', {
       namePrefix,
       preferredAZ,
@@ -127,9 +132,10 @@ export class IsaacLabStack extends cdk.Stack {
       resolvedAZ,
       vpcCidr: props.vpcCidr,
       enableGroot: !!props.grootRepoUrl,
+      enableCodeServer,
     });
 
-    // --- [2/4] EfsStorageConstruct ---
+    // --- [2/5] EfsStorageConstruct ---
     // EFS 파일 시스템 + Mount Target (Networking 의존)
     const efsStorage = new EfsStorageConstruct(this, 'EfsStorage', {
       namePrefix,
@@ -138,7 +144,7 @@ export class IsaacLabStack extends cdk.Stack {
       vpcCidr: props.vpcCidr,
     });
 
-    // --- [3/4] DcvInstanceConstruct ---
+    // --- [3/5] DcvInstanceConstruct ---
     // DCV EC2 인스턴스 (Networking, EFS 의존)
     const dcvInstance = new DcvInstanceConstruct(this, 'DcvInstance', {
       namePrefix,
@@ -155,9 +161,19 @@ export class IsaacLabStack extends cdk.Stack {
       grootRepoUrl: props.grootRepoUrl,
       grootBranch: props.grootBranch,
       enableCloudWatch: props.enableCloudWatch,
+      enableCodeServer,
     });
 
-    // --- [4/4] BatchInfraConstruct ---
+    // --- [4/5] CloudFrontCodeServerConstruct (code-server 활성화 시만 생성) ---
+    let codeServerCdn: CloudFrontCodeServerConstruct | undefined;
+    if (enableCodeServer) {
+      codeServerCdn = new CloudFrontCodeServerConstruct(this, 'CodeServerCdn', {
+        instance: dcvInstance.instance,
+        namePrefix,
+      });
+    }
+
+    // --- [5/5] BatchInfraConstruct ---
     // Batch Launch Template + IAM (Networking, EFS 의존)
     const batchInfra = new BatchInfraConstruct(this, 'BatchInfra', {
       namePrefix,
@@ -177,6 +193,13 @@ export class IsaacLabStack extends cdk.Stack {
       value: cdk.Fn.join('', ['https://', dcvInstance.instance.attrPublicIp, ':8443']),
       description: 'DCV Access URL',
     });
+
+    if (codeServerCdn) {
+      new cdk.CfnOutput(this, 'CodeServerUrl', {
+        value: cdk.Fn.join('', ['https://', codeServerCdn.distributionDomainName]),
+        description: 'code-server (VSCode) Access URL via CloudFront',
+      });
+    }
 
     new cdk.CfnOutput(this, 'LogGroupName', {
       value: networking.logGroup.ref,

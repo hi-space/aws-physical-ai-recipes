@@ -29,6 +29,8 @@ export interface NetworkingProps {
   vpcCidr?: string;
   /** GR00T 활성화 여부 (SG에 ZMQ/DDS 포트 추가) */
   enableGroot?: boolean;
+  /** code-server 활성화 여부 (SG에 8888 포트 추가, 기본값: true) */
+  enableCodeServer?: boolean;
 }
 
 /**
@@ -258,6 +260,13 @@ export class NetworkingConstruct extends Construct {
           cidrIp: props.allowedCidr,
           description: 'DCV HTTPS',
         },
+        ...((props.enableCodeServer ?? true) ? [{
+          ipProtocol: 'tcp',
+          fromPort: 8888,
+          toPort: 8888,
+          cidrIp: props.allowedCidr,
+          description: 'code-server (VSCode Server)',
+        }] : []),
         // GR00T 활성화 시 ZMQ + ROS2 DDS 포트 추가
         ...(props.enableGroot ? [
           {

@@ -49,6 +49,8 @@ export interface DcvInstanceProps {
   grootBranch?: string;
   /** CloudWatch Agent 설치 여부 (기본값: false) */
   enableCloudWatch?: boolean;
+  /** code-server (VSCode) 설치 여부 (기본값: true) */
+  enableCodeServer?: boolean;
 }
 
 /**
@@ -188,6 +190,7 @@ export class DcvInstanceConstruct extends Construct {
       'source /tmp/userdata-scripts/isaac-lab.sh',
       'source /tmp/userdata-scripts/efs-mount.sh',
       'source /tmp/userdata-scripts/groot.sh',
+      ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh'] : []),
       '',
       'trap - ERR',
       'set +e',

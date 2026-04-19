@@ -33,6 +33,7 @@ const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const grootRepoUrl = app.node.tryGetContext('grootRepoUrl') ?? 'https://github.com/NVIDIA/Isaac-GR00T.git';
 const grootBranch = app.node.tryGetContext('grootBranch') ?? 'main';
 const enableCloudWatch = (app.node.tryGetContext('enableCloudWatch') ?? 'false') === 'true';
+const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') === 'true';
 const userId = app.node.tryGetContext('userId') ?? '';
 
 // userId 유효성 검사: 영문소문자, 숫자, 하이픈만 허용 (스택 이름·ECR 리포지토리 호환)
@@ -64,4 +65,5 @@ new IsaacLabStack(app, stackName, {
   grootBranch,
   userId,
   enableCloudWatch,
+  enableCodeServer,
 });
