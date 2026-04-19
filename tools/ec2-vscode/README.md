@@ -17,7 +17,7 @@ User Browser (HTTPS)
 ## 사전 조건
 
 - AWS CLI 설치 및 자격 증명 설정
-- 기존 VPC (미지정시 Default VPC 자동 사용)
+- 기존 VPC (Public Subnet은 CloudFormation이 자동 탐색)
 
 ## 빠른 시작
 
@@ -27,10 +27,12 @@ bash deploy.sh
 
 대화형으로 다음을 입력합니다:
 - **Stack Name** (필수) — 여러 사용자는 각자 다른 이름 사용
-- **Password** (필수) — 8자 이상
-- **Instance Type** — 기본값: m7i.2xlarge
+- **Password** (필수) — 8자 이상, 확인 입력 포함
+- **Instance Type** — 9개 옵션 중 번호로 선택 (기본값: m7i.2xlarge)
+  - x86_64: m7i.2xlarge, m7i.xlarge, t3.2xlarge, t3.xlarge, t3.large
+  - ARM64 Graviton: m7g.2xlarge, m7g.xlarge, t4g.2xlarge, t4g.xlarge
 - **EBS Size** — 기본값: 100GB
-- **VPC 이름** — 미입력시 Default VPC 사용
+- **VPC** — 리전 내 VPC 목록에서 번호로 선택
 
 ## 수동 배포
 
@@ -54,6 +56,23 @@ aws cloudformation deploy \
 ```
 https://<xxxxxx>.cloudfront.net
 ```
+
+### SSH (터미널)
+
+로컬 PC에서 SSH 키 생성과 config 설정을 자동으로 수행하는 스크립트를 제공합니다.
+
+```bash
+# 로컬 PC에서 실행
+bash ssh-client-setup/setup-ssh-client.sh <PUBLIC_IP>
+```
+
+스크립트 실행 후 출력되는 공개키 등록 명령어를 EC2 Instance Connect 브라우저 터미널에서 실행하면 바로 접속할 수 있습니다.
+
+```bash
+ssh isaaclab
+```
+
+자세한 내용은 [ssh-client-setup/README.md](ssh-client-setup/README.md)를 참고하세요.
 
 ### SSM Session Manager (터미널)
 ```bash
@@ -97,18 +116,12 @@ EC2 배포 후 Claude Code를 Amazon Bedrock과 연동하려면 별도 설정이
 # SSM 또는 브라우저 터미널에서 실행
 cd claude-code-setup
 
-# 1. Bedrock 환경변수 설정
+# 1. Bedrock 환경변수 + VS Code 설정
 bash 01-setup-bedrock-env.sh
 source ~/.bashrc
 
-# 2. VS Code 확장 설정
-bash 02-setup-vscode-settings.sh
-
-# 3. 플러그인 + MCP 서버 설치 (선택)
-bash 03-setup-plugins-and-mcp.sh
-
-# 4. AWS Skills 설치 (선택)
-bash 06-setup-aws-skills.sh
+# 2. 플러그인 + MCP 서버 설치
+bash 02-setup-plugins-and-mcp.sh
 ```
 
 자세한 내용은 [claude-code-setup/README.md](claude-code-setup/README.md)를 참고하세요.
