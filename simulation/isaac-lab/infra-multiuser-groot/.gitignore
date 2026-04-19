@@ -40,11 +40,17 @@ cdk.out.*/
 # Node.js
 node_modules/
 
-# TypeScript 빌드 출력
-*.js
-!jest.config.js
-*.d.ts
-*.js.map
+# 루트 .gitignore의 lib/ 규칙을 CDK 프로젝트에서 해제
+!lib/
+!bin/
+
+# TypeScript 빌드 출력 (lib/, bin/ 내 컴파일 결과물만 무시)
+lib/**/*.js
+lib/**/*.d.ts
+lib/**/*.js.map
+bin/**/*.js
+bin/**/*.d.ts
+bin/**/*.js.map
 
 # Python (스크립트 도구 사용 시)
 __pycache__/
