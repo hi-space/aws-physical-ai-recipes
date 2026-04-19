@@ -154,7 +154,7 @@ class LiftEventsCfg:
 
 @configclass
 class SoArm101LiftEnvCfg(ManagerBasedRLEnvCfg):
-    scene = LiftSceneCfg(num_envs=4096, env_spacing=1.5)
+    scene = LiftSceneCfg(num_envs=4096, env_spacing=1.5, replicate_physics=False)
     observations = LiftObservationsCfg()
     actions = LiftActionsCfg()
     rewards = LiftRewardsCfg()
