@@ -5,10 +5,11 @@
 #
 # 실행하면:
 #   1. Python 환경 확인 (venv311 활성화 여부)
-#   2. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq)
-#   3. 워크숍 패키지 editable 설치 (pip install -e .)
-#   4. SO-ARM 101 URDF + STL 다운로드 (TheRobotStudio 공식)
-#   5. 등록된 Gym 환경 목록 출력하여 검증
+#   2. IsaacLab RL + rsl_rl 설치
+#   3. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq)
+#   4. 워크숍 패키지 editable 설치 (pip install -e .)
+#   5. SO-ARM 101 URDF + STL 다운로드 (TheRobotStudio 공식)
+#   6. 등록된 Gym 환경 목록 출력하여 검증
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +22,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 1: Python 환경 확인
 # ------------------------------------------------------------------
-echo "[1/5] Checking Python environment..."
+echo "[1/6] Checking Python environment..."
 
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     if [ -f "${VENV_DIR}/bin/activate" ]; then
@@ -46,17 +47,38 @@ echo "  isaaclab: OK"
 echo ""
 
 # ------------------------------------------------------------------
-# Step 2: 워크숍 추가 의존성 설치
+# Step 2: IsaacLab RL + rsl_rl 설치 (newton-setup이 빠뜨린 패키지)
 # ------------------------------------------------------------------
-echo "[2/5] Installing workshop dependencies..."
+ISAACLAB_DIR="$HOME/environment/IsaacLab"
+echo "[2/6] Installing IsaacLab RL packages..."
+
+if python -c "import isaaclab_rl" 2>/dev/null; then
+    echo "  isaaclab_rl: already installed"
+else
+    echo "  Installing isaaclab_rl[rsl-rl] from IsaacLab source..."
+    pip install --no-deps --editable "${ISAACLAB_DIR}/source/isaaclab_rl"
+fi
+
+if python -c "import rsl_rl" 2>/dev/null; then
+    echo "  rsl_rl: already installed"
+else
+    echo "  Installing rsl-rl-lib..."
+    pip install --quiet "rsl-rl-lib==3.0.1"
+fi
+echo ""
+
+# ------------------------------------------------------------------
+# Step 3: 워크숍 추가 의존성 설치
+# ------------------------------------------------------------------
+echo "[3/6] Installing workshop dependencies..."
 pip install --quiet pandas pyarrow boto3 pyzmq
 echo "  pandas, pyarrow, boto3, pyzmq: OK"
 echo ""
 
 # ------------------------------------------------------------------
-# Step 3: 워크숍 패키지 editable 설치
+# Step 4: 워크숍 패키지 editable 설치
 # ------------------------------------------------------------------
-echo "[3/5] Installing workshop package (editable)..."
+echo "[4/6] Installing workshop package (editable)..."
 cd "${SCRIPT_DIR}"
 pip install --no-deps --editable .
 echo "  workshop package: OK"
@@ -66,10 +88,10 @@ echo ""
 # Step 4: SO-ARM 101 URDF + STL 다운로드
 # ------------------------------------------------------------------
 if [ -f "${URDF_DIR}/so_arm101.urdf" ]; then
-    echo "[4/5] URDF already exists, skipping download."
+    echo "[5/6] URDF already exists, skipping download."
     echo "  ${URDF_DIR}/so_arm101.urdf"
 else
-    echo "[4/5] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
+    echo "[5/6] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
 
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "${TEMP_DIR}"' EXIT
@@ -103,7 +125,7 @@ echo ""
 # ------------------------------------------------------------------
 # Step 5: 설치 검증
 # ------------------------------------------------------------------
-echo "[5/5] Verifying registered environments..."
+echo "[6/6] Verifying registered environments..."
 list_envs
 echo ""
 
