@@ -11,7 +11,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True, help="Path to RL checkpoint")
     parser.add_argument("--num_episodes", type=int, default=200, help="Number of episodes to collect")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory for .npz files")
-    parser.add_argument("--headless", action="store_true", help="Run without visualization")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
     return args

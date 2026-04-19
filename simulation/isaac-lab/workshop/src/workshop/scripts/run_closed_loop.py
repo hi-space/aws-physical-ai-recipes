@@ -15,7 +15,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--policy_port", type=int, default=5555, help="GR00T Policy Server port")
     parser.add_argument("--instruction", default="lift the cube", help="Language instruction for GR00T")
     parser.add_argument("--num_steps", type=int, default=5000, help="Number of simulation steps")
-    parser.add_argument("--headless", action="store_true", help="Run without visualization")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
     return args
