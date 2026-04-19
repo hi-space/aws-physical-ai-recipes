@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "workshop"
+version = "0.1.0"
+description = "GR00T + SO-ARM 101 Workshop on AWS"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.2.0",
+    "isaaclab>=2.3.0",
+    "rsl_rl>=2.3.0",
+    "gymnasium>=0.29.0",
+    "numpy>=1.26.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    "boto3>=1.34.0",
+    "pyzmq>=25.0.0",
+]
+
+[project.scripts]
+list_envs = "workshop.scripts.list_envs:main"
+train_rl = "workshop.scripts.train_rl:main"
+play_rl = "workshop.scripts.play_rl:main"
+collect = "workshop.scripts.collect_demos:main"
+convert = "workshop.scripts.convert_to_lerobot:main"
+download_hf = "workshop.scripts.download_hf_dataset:main"
+upload_s3 = "workshop.scripts.upload_s3:main"
+submit_batch = "workshop.scripts.submit_batch_job:main"
+closed_loop = "workshop.scripts.run_closed_loop:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
