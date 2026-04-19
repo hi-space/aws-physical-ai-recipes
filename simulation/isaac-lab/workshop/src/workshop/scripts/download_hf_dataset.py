@@ -40,7 +40,7 @@ def main():
         else:
             raise FileNotFoundError(f"Converted dataset not found under {output_dir}")
 
-    modality_src = Path(__file__).resolve().parents[2] / "configs" / "modality.json"
+    modality_src = Path(__file__).resolve().parents[3] / "configs" / "modality.json"
     modality_dst = dataset_path / "meta" / "modality.json"
     shutil.copy2(modality_src, modality_dst)
     print(f"Copied modality.json → {modality_dst}")
