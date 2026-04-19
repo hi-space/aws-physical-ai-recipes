@@ -1,0 +1,14 @@
+# Training logs (TensorBoard events, checkpoints, etc.)
+logs/
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.pkl
+*.h5
+
+# TensorBoard
+events.out.tfevents.*
