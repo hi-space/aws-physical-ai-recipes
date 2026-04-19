@@ -16,6 +16,117 @@ else
     OS_TYPE="Linux"
 fi
 
+ARCH=$(uname -m)
+
+# ─── 사전 요구사항: Node.js, Claude Code, Kiro CLI 설치 ───
+
+echo "=== 사전 요구사항 확인 ==="
+echo "  대상 OS: $OS_TYPE ($ARCH)"
+echo
+
+# --- Node.js 20+ 확인 및 설치 ---
+install_nodejs() {
+    echo "Node.js 20+ 가 필요합니다. 설치 중..."
+    if [[ "$OS_TYPE" == "macOS" ]]; then
+        if command -v brew &>/dev/null; then
+            brew install node@20
+            brew link --overwrite node@20 2>/dev/null || true
+        else
+            echo "ERROR: Homebrew가 설치되어 있지 않습니다. https://brew.sh 에서 먼저 설치하세요."
+            exit 1
+        fi
+    else
+        if command -v dnf &>/dev/null; then
+            wget -qO- https://rpm.nodesource.com/setup_20.x | sudo bash - || true
+            sudo dnf install -y nodejs || true
+        elif command -v apt-get &>/dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - || true
+            sudo apt-get install -y nodejs || true
+        fi
+
+        # Fallback: 바이너리 타르볼 설치
+        if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
+            echo "패키지 매니저 설치 실패. 바이너리로 설치 중..."
+            local NODE_VERSION=20.18.0
+            local NODE_ARCH="x64"
+            [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && NODE_ARCH="arm64"
+            wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+            sudo tar -xf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -C /usr/local --strip-components=1
+            rm -f "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+        fi
+    fi
+}
+
+if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d 'v')" -lt 20 ]; then
+    install_nodejs
+    echo "  Node.js $(node -v), npm $(npm -v) 설치 완료"
+else
+    echo "[OK] Node.js $(node -v) 이미 설치됨"
+fi
+
+# --- Claude Code CLI 설치 ---
+if ! command -v claude &>/dev/null; then
+    echo "Claude Code CLI 설치 중..."
+    npm install -g @anthropic-ai/claude-code || {
+        echo "[WARN] 설치 실패, 10초 후 재시도..."
+        sleep 10
+        npm install -g @anthropic-ai/claude-code || {
+            echo "ERROR: Claude Code CLI 설치에 실패했습니다."
+            exit 1
+        }
+    }
+
+    NPM_PREFIX="$(npm prefix -g 2>/dev/null)"
+    if [ -n "$NPM_PREFIX" ] && [ -f "$NPM_PREFIX/bin/claude" ] && ! command -v claude &>/dev/null; then
+        sudo ln -sf "$NPM_PREFIX/bin/claude" /usr/local/bin/claude
+        echo "  심볼릭 링크 생성: $NPM_PREFIX/bin/claude -> /usr/local/bin/claude"
+    fi
+    echo "[OK] Claude Code CLI 설치 완료"
+else
+    echo "[OK] Claude Code CLI 이미 설치됨"
+fi
+
+# --- Kiro CLI 설치 ---
+if ! command -v kiro-cli &>/dev/null; then
+    echo "Kiro CLI 설치 중..."
+    if [[ "$OS_TYPE" == "macOS" ]]; then
+        if [[ "$ARCH" == "arm64" ]]; then
+            KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-aarch64-darwin.zip"
+        else
+            KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-x86_64-darwin.zip"
+        fi
+    else
+        if [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+            KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-aarch64-linux.zip"
+        else
+            KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-x86_64-linux.zip"
+        fi
+    fi
+
+    TEMP_DIR=$(mktemp -d)
+    if curl --proto '=https' --tlsv1.2 -sSf "$KIRO_URL" -o "$TEMP_DIR/kirocli.zip"; then
+        unzip -q "$TEMP_DIR/kirocli.zip" -d "$TEMP_DIR"
+        if [ -d "$TEMP_DIR/kirocli/bin" ]; then
+            chmod +x "$TEMP_DIR/kirocli/bin/"*
+            sudo cp "$TEMP_DIR/kirocli/bin/"* /usr/local/bin/
+            echo "[OK] Kiro CLI 설치 완료"
+        else
+            echo "[WARN] Kiro CLI 바이너리를 찾을 수 없습니다. 건너뜁니다."
+        fi
+    else
+        echo "[WARN] Kiro CLI 다운로드 실패. 건너뜁니다."
+    fi
+    rm -rf "$TEMP_DIR"
+else
+    echo "[OK] Kiro CLI 이미 설치됨"
+fi
+
+echo
+echo "=== 사전 요구사항 확인 완료 ==="
+echo
+
+# ─── Bedrock 환경변수 설정 ───
+
 echo "=== Claude Code + Amazon Bedrock 셸 설정 ==="
 echo "  대상 OS: $OS_TYPE"
 echo "  설정 파일: $SHELL_RC"
