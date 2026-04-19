@@ -3,7 +3,7 @@
 # Ubuntu 22.04 + Python 3.11 + isaacsim 5.1.0
 #
 # 사용법:
-#   cd ~/docs && bash setup_newton.sh
+#   cd ~/docs && bash setup.sh
 #
 # 완료 후:
 #   source ~/.bashrc
@@ -37,8 +37,8 @@ git checkout feature/newton
 git pull origin feature/newton
 ok "feature/newton 브랜치 전환 완료"
 
-info "requirements_newton.txt → $ISAACLAB_DIR 복사"
-cp "$DOCS_DIR/requirements_newton.txt" "$ISAACLAB_DIR/requirements_newton.txt"
+info "requirements.txt → $ISAACLAB_DIR 복사"
+cp "$DOCS_DIR/requirements.txt" "$ISAACLAB_DIR/requirements.txt"
 ok "파일 복사 완료"
 
 # ============================================================
@@ -111,13 +111,13 @@ export LAUNCH_OV_APP=1
 ok "환경변수 설정 완료"
 
 # ============================================================
-# 4. pip 의존성 설치 (requirements_newton.txt)
+# 4. pip 의존성 설치 (requirements.txt)
 # ============================================================
 info "pip 의존성 설치 중 (시간이 걸릴 수 있습니다)..."
 
-REQUIREMENTS="$ISAACLAB_DIR/requirements_newton.txt"
+REQUIREMENTS="$ISAACLAB_DIR/requirements.txt"
 if [ ! -f "$REQUIREMENTS" ]; then
-    error "requirements_newton.txt를 찾을 수 없음: $REQUIREMENTS"
+    error "requirements.txt를 찾을 수 없음: $REQUIREMENTS"
 fi
 
 pip install --upgrade pip
