@@ -8,9 +8,10 @@
 #   2. IsaacLab RL + rsl_rl 설치
 #   3. 워크숍 추가 의존성 설치 (pandas, pyarrow, boto3, pyzmq, h5py)
 #   4. 워크숍 패키지 editable 설치 (pip install -e .)
-#   5. SO-ARM 101 URDF + STL 다운로드 (TheRobotStudio 공식)
-#   6. URDF → USD 변환 (Isaac Sim에서 사용할 수 있는 형식)
-#   7. 등록된 Gym 환경 목록 출력하여 검증
+#   5. mujoco_warp 호환성 패치 (mujoco >= 3.7.0)
+#   6. SO-ARM 101 URDF + STL 다운로드 (TheRobotStudio 공식)
+#   7. URDF → USD 변환 (Isaac Sim에서 사용할 수 있는 형식)
+#   8. 등록된 Gym 환경 목록 출력하여 검증
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,13 +88,20 @@ echo "  workshop package: OK"
 echo ""
 
 # ------------------------------------------------------------------
-# Step 5: SO-ARM 101 URDF + STL 다운로드
+# Step 5: mujoco_warp 호환성 패치
+# ------------------------------------------------------------------
+echo "[5/8] Patching mujoco_warp for mujoco >= 3.7.0 compatibility..."
+patch_mujoco
+echo ""
+
+# ------------------------------------------------------------------
+# Step 6: SO-ARM 101 URDF + STL 다운로드
 # ------------------------------------------------------------------
 if [ -f "${URDF_DIR}/so_arm101.urdf" ]; then
-    echo "[5/7] URDF already exists, skipping download."
+    echo "[6/8] URDF already exists, skipping download."
     echo "  ${URDF_DIR}/so_arm101.urdf"
 else
-    echo "[5/7] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
+    echo "[6/8] Downloading SO-ARM 101 URDF from TheRobotStudio/SO-ARM100..."
 
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "${TEMP_DIR}"' EXIT
@@ -125,22 +133,22 @@ fi
 echo ""
 
 # ------------------------------------------------------------------
-# Step 6: URDF → USD 변환
+# Step 7: URDF → USD 변환
 # ------------------------------------------------------------------
 if [ -f "${USD_DIR}/so_arm101_flat.usd" ]; then
-    echo "[6/7] USD already exists, skipping conversion."
+    echo "[7/8] USD already exists, skipping conversion."
     echo "  ${USD_DIR}/so_arm101_flat.usd"
 else
-    echo "[6/7] Converting URDF → USD (one-time, requires Isaac Sim)..."
+    echo "[7/8] Converting URDF → USD (one-time, requires Isaac Sim)..."
     convert_urdf --headless
     echo "  USD: ${USD_DIR}/so_arm101_flat.usd"
 fi
 echo ""
 
 # ------------------------------------------------------------------
-# Step 7: 설치 검증
+# Step 8: 설치 검증
 # ------------------------------------------------------------------
-echo "[7/7] Verifying registered environments..."
+echo "[8/8] Verifying registered environments..."
 list_envs
 echo ""
 
