@@ -67,10 +67,10 @@ fi
 # --- Claude Code CLI 설치 ---
 if ! command -v claude &>/dev/null; then
     echo "Claude Code CLI 설치 중..."
-    npm install -g @anthropic-ai/claude-code || {
+    sudo npm install -g @anthropic-ai/claude-code || {
         echo "[WARN] 설치 실패, 10초 후 재시도..."
         sleep 10
-        npm install -g @anthropic-ai/claude-code || {
+        sudo npm install -g @anthropic-ai/claude-code || {
             echo "ERROR: Claude Code CLI 설치에 실패했습니다."
             exit 1
         }
