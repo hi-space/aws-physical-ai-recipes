@@ -71,8 +71,8 @@ echo ""
 # Step 3: 워크숍 추가 의존성 설치
 # ------------------------------------------------------------------
 echo "[3/6] Installing workshop dependencies..."
-pip install --quiet pandas pyarrow boto3 pyzmq
-echo "  pandas, pyarrow, boto3, pyzmq: OK"
+pip install --quiet pandas pyarrow boto3 pyzmq h5py
+echo "  pandas, pyarrow, boto3, pyzmq, h5py: OK"
 echo ""
 
 # ------------------------------------------------------------------
