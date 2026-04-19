@@ -18,6 +18,8 @@ import { Construct } from 'constructs';
  * BatchInfraConstruct Props
  */
 export interface BatchInfraProps {
+  /** 리소스 Name 태그 접두사 (예: 'IsaacLab-Stable-alice') */
+  namePrefix: string;
   /** VPC 참조 */
   vpc: ec2.CfnVPC;
   /** 프라이빗 서브넷 참조 */
@@ -49,6 +51,8 @@ export class BatchInfraConstruct extends Construct {
   constructor(scope: Construct, id: string, props: BatchInfraProps) {
     super(scope, id);
 
+    const p = props.namePrefix;
+
     // --- IAM Role ---
     // Batch EC2 인스턴스용 역할: S3 읽기, ECS 컨테이너 서비스, EFS 전체, SSM
     const role = new iam.CfnRole(this, 'BatchRole', {
@@ -68,7 +72,7 @@ export class BatchInfraConstruct extends Construct {
         'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
         'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-Batch-Role' }],
+      tags: [{ key: 'Name', value: `${p}-Batch-Role` }],
     });
 
     // --- Instance Profile ---
@@ -89,7 +93,7 @@ export class BatchInfraConstruct extends Construct {
           description: 'Allow all outbound traffic',
         },
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-Batch-SG' }],
+      tags: [{ key: 'Name', value: `${p}-Batch-SG` }],
     });
     this.securityGroup = batchSecurityGroup;
 
@@ -134,7 +138,7 @@ export class BatchInfraConstruct extends Construct {
       tagSpecifications: [
         {
           resourceType: 'launch-template',
-          tags: [{ key: 'Name', value: 'IsaacLab-Batch-LT' }],
+          tags: [{ key: 'Name', value: `${p}-Batch-LT` }],
         },
       ],
     });

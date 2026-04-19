@@ -17,6 +17,8 @@ import { Construct } from 'constructs';
  * NetworkingConstruct Props
  */
 export interface NetworkingProps {
+  /** 리소스 Name 태그 접두사 (예: 'IsaacLab-Stable-alice') */
+  namePrefix: string;
   /** AZ 선택: 'auto' (Fn::Select(0)), '0'~'5' (인덱스), 또는 AZ 이름 직접 지정 (예: 'us-east-1b') */
   preferredAZ: string;
   /** DCV 보안 그룹 인바운드 소스 CIDR (기본값: '0.0.0.0/0') */
@@ -74,17 +76,19 @@ export class NetworkingConstruct extends Construct {
     const publicSubnetCidr = `${cidrPrefix}.0.0/24`;
     const privateSubnetCidr = `${cidrPrefix}.1.0/24`;
 
+    const p = props.namePrefix;
+
     // --- VPC ---
     this.vpc = new ec2.CfnVPC(this, 'VPC', {
       cidrBlock: vpcCidr,
       enableDnsSupport: true,
       enableDnsHostnames: true,
-      tags: [{ key: 'Name', value: 'IsaacLab-VPC' }],
+      tags: [{ key: 'Name', value: `${p}-VPC` }],
     });
 
     // --- Internet Gateway ---
     const igw = new ec2.CfnInternetGateway(this, 'InternetGateway', {
-      tags: [{ key: 'Name', value: 'IsaacLab-IGW' }],
+      tags: [{ key: 'Name', value: `${p}-IGW` }],
     });
 
     // VPC에 IGW 연결
@@ -99,13 +103,13 @@ export class NetworkingConstruct extends Construct {
       cidrBlock: publicSubnetCidr,
       availabilityZone: selectedAZ,
       mapPublicIpOnLaunch: true,
-      tags: [{ key: 'Name', value: 'IsaacLab-Public-Subnet' }],
+      tags: [{ key: 'Name', value: `${p}-Public-Subnet` }],
     });
 
     // 퍼블릭 라우트 테이블
     const publicRouteTable = new ec2.CfnRouteTable(this, 'PublicRouteTable', {
       vpcId: this.vpc.ref,
-      tags: [{ key: 'Name', value: 'IsaacLab-Public-RT' }],
+      tags: [{ key: 'Name', value: `${p}-Public-RT` }],
     });
 
     // 퍼블릭 라우트: 0.0.0.0/0 → IGW
@@ -128,26 +132,26 @@ export class NetworkingConstruct extends Construct {
       vpcId: this.vpc.ref,
       cidrBlock: privateSubnetCidr,
       availabilityZone: selectedAZ,
-      tags: [{ key: 'Name', value: 'IsaacLab-Private-Subnet' }],
+      tags: [{ key: 'Name', value: `${p}-Private-Subnet` }],
     });
 
     // NAT Gateway용 Elastic IP
     const natEip = new ec2.CfnEIP(this, 'NatEIP', {
       domain: 'vpc',
-      tags: [{ key: 'Name', value: 'IsaacLab-NAT-EIP' }],
+      tags: [{ key: 'Name', value: `${p}-NAT-EIP` }],
     });
 
     // NAT Gateway (퍼블릭 서브넷에 배치)
     const natGateway = new ec2.CfnNatGateway(this, 'NatGateway', {
       subnetId: this.publicSubnet.ref,
       allocationId: natEip.attrAllocationId,
-      tags: [{ key: 'Name', value: 'IsaacLab-NAT-GW' }],
+      tags: [{ key: 'Name', value: `${p}-NAT-GW` }],
     });
 
     // 프라이빗 라우트 테이블
     const privateRouteTable = new ec2.CfnRouteTable(this, 'PrivateRouteTable', {
       vpcId: this.vpc.ref,
-      tags: [{ key: 'Name', value: 'IsaacLab-Private-RT' }],
+      tags: [{ key: 'Name', value: `${p}-Private-RT` }],
     });
 
     // 프라이빗 라우트: 0.0.0.0/0 → NAT Gateway
@@ -176,7 +180,7 @@ export class NetworkingConstruct extends Construct {
     // logGroupName을 지정하지 않으면 CDK가 고유 이름을 자동 생성하여 스택 간 충돌 방지
     this.logGroup = new logs.CfnLogGroup(this, 'FlowLogGroup', {
       retentionInDays: 1,
-      tags: [{ key: 'Name', value: 'IsaacLab-FlowLog-Group' }],
+      tags: [{ key: 'Name', value: `${p}-FlowLog-Group` }],
     });
 
     // Flow Log용 IAM 역할
@@ -212,7 +216,7 @@ export class NetworkingConstruct extends Construct {
           },
         },
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-FlowLog-Role' }],
+      tags: [{ key: 'Name', value: `${p}-FlowLog-Role` }],
     });
 
     // VPC Flow Log
@@ -223,7 +227,7 @@ export class NetworkingConstruct extends Construct {
       logDestinationType: 'cloud-watch-logs',
       logGroupName: this.logGroup.ref,
       deliverLogsPermissionArn: flowLogRole.attrArn,
-      tags: [{ key: 'Name', value: 'IsaacLab-VPC-FlowLog' }],
+      tags: [{ key: 'Name', value: `${p}-VPC-FlowLog` }],
     });
 
     // --- DCV용 보안 그룹 ---
@@ -279,7 +283,7 @@ export class NetworkingConstruct extends Construct {
           description: 'Allow all outbound traffic',
         },
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-DCV-SG' }],
+      tags: [{ key: 'Name', value: `${p}-SG` }],
     });
   }
 }

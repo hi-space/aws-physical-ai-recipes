@@ -15,6 +15,8 @@ import { Construct } from 'constructs';
  * EfsStorageConstruct Props
  */
 export interface EfsStorageProps {
+  /** 리소스 Name 태그 접두사 (예: 'IsaacLab-Stable-alice') */
+  namePrefix: string;
   /** VPC 참조 */
   vpc: ec2.CfnVPC;
   /** 프라이빗 서브넷 참조 */
@@ -40,11 +42,13 @@ export class EfsStorageConstruct extends Construct {
   constructor(scope: Construct, id: string, props: EfsStorageProps) {
     super(scope, id);
 
+    const p = props.namePrefix;
+
     // --- EFS 파일 시스템 ---
     // generalPurpose 성능 모드로 생성
     this.fileSystem = new efs.CfnFileSystem(this, 'FileSystem', {
       performanceMode: 'generalPurpose',
-      fileSystemTags: [{ key: 'Name', value: 'IsaacLab-EFS' }],
+      fileSystemTags: [{ key: 'Name', value: `${p}-EFS` }],
     });
 
     // --- EFS 보안 그룹 ---
@@ -69,7 +73,7 @@ export class EfsStorageConstruct extends Construct {
           description: 'Allow all outbound traffic',
         },
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-EFS-SG' }],
+      tags: [{ key: 'Name', value: `${p}-EFS-SG` }],
     });
 
     // --- EFS Mount Target ---

@@ -39,6 +39,8 @@ export interface DcvInstanceProps {
   versionProfileName: VersionProfileName;
   /** DCV AMI ID */
   amiId: string;
+  /** 리소스 Name 태그 접두사 (예: 'IsaacLab-Stable-alice') */
+  namePrefix: string;
   /** ECR 리포지토리 이름 (멀티 사용자 시 사용자별 분리) */
   ecrRepoName?: string;
   /** GR00T 리포지토리 URL (빈 문자열이면 GR00T 미설치) */
@@ -69,6 +71,8 @@ export class DcvInstanceConstruct extends Construct {
   constructor(scope: Construct, id: string, props: DcvInstanceProps) {
     super(scope, id);
 
+    const p = props.namePrefix;
+
     // --- Secrets Manager Secret ---
     // DCV 비밀번호 자동 생성 (32자, 구두점 제외)
     const secret = new secretsmanager.CfnSecret(this, 'DcvSecret', {
@@ -80,7 +84,7 @@ export class DcvInstanceConstruct extends Construct {
         excludePunctuation: true,
         includeSpace: false,
       },
-      tags: [{ key: 'Name', value: 'IsaacLab-DCV-Secret' }],
+      tags: [{ key: 'Name', value: `${p}-Secret` }],
     });
     this.secretArn = secret.ref;
 
@@ -119,7 +123,7 @@ export class DcvInstanceConstruct extends Construct {
           },
         },
       ],
-      tags: [{ key: 'Name', value: 'IsaacLab-DCV-Role' }],
+      tags: [{ key: 'Name', value: `${p}-Role` }],
     });
 
     // --- Instance Profile ---
@@ -224,7 +228,7 @@ export class DcvInstanceConstruct extends Construct {
           WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,
         }),
       ),
-      tags: [{ key: 'Name', value: 'IsaacLab-DCV-Instance' }],
+      tags: [{ key: 'Name', value: `${p}-Instance` }],
     });
 
     // cfn-signal의 --resource 값에 인스턴스의 논리적 ID를 사용해야 함
