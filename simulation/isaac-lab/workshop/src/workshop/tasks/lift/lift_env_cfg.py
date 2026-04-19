@@ -14,6 +14,7 @@ from isaaclab.utils import configclass
 
 import isaaclab.envs.mdp as mdp
 from workshop.robots import SO_ARM101_CFG
+from workshop.tasks import mdp_terms
 
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 GRIPPER_JOINT = ["gripper"]
@@ -60,7 +61,7 @@ class LiftObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
         cube_pos = ObsTerm(
-            func=mdp.object_position_in_robot_root_frame,
+            func=mdp_terms.object_position_in_robot_root_frame,
             params={"object_cfg": SceneEntityCfg("cube"), "robot_cfg": SceneEntityCfg("robot")},
         )
         target_pos = ObsTerm(
@@ -94,12 +95,12 @@ class LiftActionsCfg:
 @configclass
 class LiftRewardsCfg:
     reaching_cube = RewTerm(
-        func=mdp.reward_reaching_target,
+        func=mdp_terms.reward_reaching_target,
         weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot"), "command_name": "object_pose"},
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["Fixed_Jaw"]), "command_name": "object_pose"},
     )
     lifting = RewTerm(
-        func=mdp.object_height_reward,
+        func=mdp_terms.object_height_reward,
         weight=5.0,
         params={"object_cfg": SceneEntityCfg("cube"), "min_height": 0.3},
     )

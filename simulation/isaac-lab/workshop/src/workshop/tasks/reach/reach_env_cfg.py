@@ -14,6 +14,7 @@ from isaaclab.utils import configclass
 
 import isaaclab.envs.mdp as mdp
 from workshop.robots import SO_ARM101_CFG
+from workshop.tasks import mdp_terms
 
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 
@@ -70,9 +71,9 @@ class ActionsCfg:
 @configclass
 class RewardsCfg:
     reaching = RewTerm(
-        func=mdp.reward_reaching_target,
+        func=mdp_terms.reward_reaching_target,
         weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot"), "command_name": "ee_pose"},
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["Fixed_Jaw"]), "command_name": "ee_pose"},
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
