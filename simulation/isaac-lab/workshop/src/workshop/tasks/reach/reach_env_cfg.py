@@ -73,7 +73,7 @@ class RewardsCfg:
     reaching = RewTerm(
         func=mdp_terms.reward_reaching_target,
         weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot", body_names=["Fixed_Jaw"]), "command_name": "ee_pose"},
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["gripper_frame_link"]), "command_name": "ee_pose"},
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
@@ -88,7 +88,7 @@ class TerminationsCfg:
 class CommandsCfg:
     ee_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="Fixed_Jaw",
+        body_name="gripper_frame_link",
         resampling_time_range=(4.0, 4.0),
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.15, 0.45),
@@ -116,7 +116,7 @@ class EventsCfg:
 
 @configclass
 class SoArm101ReachEnvCfg(ManagerBasedRLEnvCfg):
-    scene = ReachSceneCfg(num_envs=4096, env_spacing=1.5)
+    scene = ReachSceneCfg(num_envs=4096, env_spacing=1.5, replicate_physics=False)
     observations = ObservationsCfg()
     actions = ActionsCfg()
     rewards = RewardsCfg()

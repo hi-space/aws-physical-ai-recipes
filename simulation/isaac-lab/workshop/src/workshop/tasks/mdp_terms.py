@@ -15,9 +15,9 @@ def object_position_in_robot_root_frame(
     robot_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
     """Object position expressed in the robot's root frame."""
-    object_pos_w = env.scene[object_cfg.name].data.root_pos_w[:, :3]
-    robot_pos_w = env.scene[robot_cfg.name].data.root_pos_w[:, :3]
-    robot_quat_w = env.scene[robot_cfg.name].data.root_quat_w
+    object_pos_w = torch.as_tensor(env.scene[object_cfg.name].data.root_pos_w, device=env.device)[:, :3]
+    robot_pos_w = torch.as_tensor(env.scene[robot_cfg.name].data.root_pos_w, device=env.device)[:, :3]
+    robot_quat_w = torch.as_tensor(env.scene[robot_cfg.name].data.root_quat_w, device=env.device)
     object_pos_rel = object_pos_w - robot_pos_w
     object_pos_b = _quat_rotate_inverse(robot_quat_w, object_pos_rel)
     return object_pos_b
@@ -29,7 +29,9 @@ def reward_reaching_target(
     command_name: str,
 ) -> torch.Tensor:
     """Negative L2 distance between end-effector and commanded target pose."""
-    ee_pos_w = env.scene[asset_cfg.name].data.body_pos_w[:, asset_cfg.body_ids[0], :3]
+    body_id = asset_cfg.body_ids[0] if isinstance(asset_cfg.body_ids, (list, tuple)) else asset_cfg.body_ids
+    body_pos = torch.as_tensor(env.scene[asset_cfg.name].data.body_pos_w, device=env.device)
+    ee_pos_w = body_pos[:, body_id, :3]
     target_pos = env.command_manager.get_command(command_name)[:, :3]
     distance = torch.norm(ee_pos_w - target_pos, dim=-1)
     return -distance
@@ -41,7 +43,7 @@ def object_height_reward(
     min_height: float,
 ) -> torch.Tensor:
     """Reward for lifting an object above min_height."""
-    object_height = env.scene[object_cfg.name].data.root_pos_w[:, 2]
+    object_height = torch.as_tensor(env.scene[object_cfg.name].data.root_pos_w, device=env.device)[:, 2]
     return torch.clamp(object_height - min_height, min=0.0)
 
 

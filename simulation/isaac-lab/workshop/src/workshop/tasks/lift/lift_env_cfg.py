@@ -97,7 +97,7 @@ class LiftRewardsCfg:
     reaching_cube = RewTerm(
         func=mdp_terms.reward_reaching_target,
         weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot", body_names=["Fixed_Jaw"]), "command_name": "object_pose"},
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["gripper_frame_link"]), "command_name": "object_pose"},
     )
     lifting = RewTerm(
         func=mdp_terms.object_height_reward,
@@ -117,7 +117,7 @@ class LiftTerminationsCfg:
 class LiftCommandsCfg:
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="Fixed_Jaw",
+        body_name="gripper_frame_link",
         resampling_time_range=(6.0, 6.0),
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.25, 0.35),

@@ -127,13 +127,13 @@ echo ""
 # ------------------------------------------------------------------
 # Step 6: URDF → USD 변환
 # ------------------------------------------------------------------
-if [ -f "${USD_DIR}/so_arm101.usd" ]; then
+if [ -f "${USD_DIR}/so_arm101_flat.usd" ]; then
     echo "[6/7] USD already exists, skipping conversion."
-    echo "  ${USD_DIR}/so_arm101.usd"
+    echo "  ${USD_DIR}/so_arm101_flat.usd"
 else
     echo "[6/7] Converting URDF → USD (one-time, requires Isaac Sim)..."
     convert_urdf --headless
-    echo "  USD: ${USD_DIR}/so_arm101.usd"
+    echo "  USD: ${USD_DIR}/so_arm101_flat.usd"
 fi
 echo ""
 
