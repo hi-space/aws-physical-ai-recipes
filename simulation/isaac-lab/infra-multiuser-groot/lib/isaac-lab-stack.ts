@@ -61,6 +61,11 @@ export class IsaacLabStack extends cdk.Stack {
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
     const userId = props.userId ?? '';
 
+    // --- 리소스 Name 태그 접두사 (스택 이름과 동일 패턴) ---
+    const profilePart = props.versionProfile.charAt(0).toUpperCase() + props.versionProfile.slice(1);
+    const userSuffix = userId ? `-${userId}` : '';
+    const namePrefix = `IsaacLab-${profilePart}${userSuffix}`;
+
     // --- 사용자별 ECR 리포지토리 이름 ---
     const ecrRepoName = userId ? `isaaclab-batch-${userId}` : 'isaaclab-batch';
 
@@ -116,6 +121,7 @@ export class IsaacLabStack extends cdk.Stack {
     // --- [1/4] NetworkingConstruct ---
     // VPC, 서브넷, IGW, NAT, S3 Endpoint, Flow Log, DCV SG
     const networking = new NetworkingConstruct(this, 'Networking', {
+      namePrefix,
       preferredAZ,
       allowedCidr,
       resolvedAZ,
@@ -126,6 +132,7 @@ export class IsaacLabStack extends cdk.Stack {
     // --- [2/4] EfsStorageConstruct ---
     // EFS 파일 시스템 + Mount Target (Networking 의존)
     const efsStorage = new EfsStorageConstruct(this, 'EfsStorage', {
+      namePrefix,
       vpc: networking.vpc,
       privateSubnet: networking.privateSubnet,
       vpcCidr: props.vpcCidr,
@@ -134,6 +141,7 @@ export class IsaacLabStack extends cdk.Stack {
     // --- [3/4] DcvInstanceConstruct ---
     // DCV EC2 인스턴스 (Networking, EFS 의존)
     const dcvInstance = new DcvInstanceConstruct(this, 'DcvInstance', {
+      namePrefix,
       vpc: networking.vpc,
       publicSubnet: networking.publicSubnet,
       dcvSecurityGroup: networking.dcvSecurityGroup,
@@ -152,6 +160,7 @@ export class IsaacLabStack extends cdk.Stack {
     // --- [4/4] BatchInfraConstruct ---
     // Batch Launch Template + IAM (Networking, EFS 의존)
     const batchInfra = new BatchInfraConstruct(this, 'BatchInfra', {
+      namePrefix,
       vpc: networking.vpc,
       privateSubnet: networking.privateSubnet,
       efsSecurityGroup: efsStorage.securityGroup,
