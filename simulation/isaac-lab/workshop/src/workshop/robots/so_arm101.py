@@ -3,16 +3,13 @@ from pathlib import Path
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.sim.converters.urdf_converter_cfg import UrdfConverterCfg
 
-_ASSETS_DIR = Path(__file__).resolve().parent
+_ROBOTS_DIR = Path(__file__).resolve().parent
+_USD_PATH = str(_ROBOTS_DIR / "usd" / "so_arm101.usd")
 
 SO_ARM101_CFG = ArticulationCfg(
-    spawn=sim_utils.UrdfFileCfg(
-        fix_base=True,
-        replace_cylinders_with_capsules=True,
-        asset_path=f"{_ASSETS_DIR}/urdf/so_arm101.urdf",
-        activate_contact_sensors=False,
+    spawn=sim_utils.UsdFileCfg(
+        usd_path=_USD_PATH,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
             max_depenetration_velocity=5.0,
@@ -22,11 +19,7 @@ SO_ARM101_CFG = ArticulationCfg(
             solver_position_iteration_count=8,
             solver_velocity_iteration_count=0,
         ),
-        joint_drive=UrdfConverterCfg.JointDriveCfg(
-            gains=UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                stiffness=0, damping=0
-            )
-        ),
+        activate_contact_sensors=False,
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         rot=(1.0, 0.0, 0.0, 0.0),

@@ -24,6 +24,7 @@ download_hf = "workshop.scripts.download_hf_dataset:main"
 upload_s3 = "workshop.scripts.upload_s3:main"
 submit_batch = "workshop.scripts.submit_batch_job:main"
 closed_loop = "workshop.scripts.run_closed_loop:main"
+convert_urdf = "workshop.scripts.convert_urdf_to_usd:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
