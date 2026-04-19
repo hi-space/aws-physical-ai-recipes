@@ -123,6 +123,9 @@ class LiftCommandsCfg:
             pos_x=(0.25, 0.35),
             pos_y=(-0.1, 0.1),
             pos_z=(0.35, 0.5),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
+            yaw=(0.0, 0.0),
         ),
     )
 
