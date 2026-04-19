@@ -392,6 +392,9 @@ Resources:
             fi
           }
 
+          # Clone ec2-vscode repository
+          sudo -u ec2-user git clone https://github.com/hi-space/ec2-vscode.git /home/ec2-user/ec2-vscode || echo "[WARN] ec2-vscode repo clone failed"
+
           # Signal completion
           echo "VSCode Server installation completed at $(date)" | tee -a /var/log/user-data.log
           echo "VSCode Server installation completed" > /var/log/vscode-setup.log

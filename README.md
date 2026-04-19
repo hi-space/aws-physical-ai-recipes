@@ -28,9 +28,7 @@ aws-physical-ai-recipes/
 │
 ├── simulation/                        # 시뮬레이션 환경 레시피
 │   └── isaac-lab/                     #   NVIDIA Isaac Lab 워크스페이스
-│       ├── newton-setup.md            #     IsaacLab + Newton 물리엔진 셋업 가이드
-│       ├── setup_newton.sh            #     원클릭 설치 스크립트
-│       ├── requirements_newton.txt    #     Python 의존성
+│       ├── newton-setup/              #     Newton 물리엔진 수동 셋업 (가이드 + 스크립트)
 │       ├── infra-multiuser-groot/     #     멀티유저 GPU 환경 CDK 프로젝트
 │       ├── mlops-dashboard/           #     분산 학습 모니터링 대시보드 (Next.js)
 │       └── assets/                    #     시각화 스크린샷
@@ -92,13 +90,17 @@ cat README.md
 
 ### Simulation / Isaac Lab
 
-NVIDIA Isaac Lab 시뮬레이션 환경 구축, 멀티유저 GPU 인프라 배포, 분산 학습 모니터링을 위한 통합 워크스페이스입니다.
+NVIDIA Isaac Lab 시뮬레이션 환경 구축, 멀티유저 GPU 인프라 배포, 분산 학습 모니터링을 위한 통합 워크스페이스입니다. 두 가지 접근 방식을 제공합니다:
+
+- **CDK 인프라 배포** — 멀티유저 워크숍/데모용. DCV 원격 데스크탑 + Batch 분산 학습
+- **수동 셋업** — 기존 GPU 인스턴스에서 Newton 물리엔진으로 직접 학습
 
 | 구성 요소 | 설명 |
 |-----------|------|
-| [Newton Setup Guide](./simulation/isaac-lab/newton-setup.md) | IsaacLab + Newton 물리엔진 설치 가이드 (Ubuntu 22.04 + AWS) |
-| [Infra CDK](./simulation/isaac-lab/infra-multiuser-groot/) | 멀티유저 Isaac Lab GPU 환경 원클릭 CDK 배포 (AZ 자동 탐색, DCV, Batch) |
-| [MLOps Dashboard](./simulation/isaac-lab/mlops-dashboard/) | IsaacLab RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
+| [Isaac Lab README](./simulation/isaac-lab/) | 전체 개요 및 접근 방식 비교 |
+| [Newton Setup Guide](./simulation/isaac-lab/newton-setup/) | Newton 물리엔진 수동 셋업 가이드 |
+| [Infra CDK](./simulation/isaac-lab/infra-multiuser-groot/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (AZ 자동 탐색, DCV, Batch) |
+| [MLOps Dashboard](./simulation/isaac-lab/mlops-dashboard/) | RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
 
 ### Tools / EC2 VSCode Server
 
