@@ -1,7 +1,18 @@
 """RL training for SO-101 tasks using rsl_rl PPO."""
 import argparse
+import inspect
 
 from isaaclab.app import AppLauncher
+
+
+def _strip_unknown_alg_keys(cfg_dict: dict) -> dict:
+    """Remove algorithm keys that the installed rsl_rl PPO doesn't accept."""
+    from rsl_rl.algorithms import PPO
+
+    valid = set(inspect.signature(PPO.__init__).parameters.keys()) - {"self"}
+    alg = cfg_dict.get("algorithm", {})
+    cfg_dict["algorithm"] = {k: v for k, v in alg.items() if k in valid or k == "class_name"}
+    return cfg_dict
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,8 +34,9 @@ def main():
 
     import gymnasium as gym
     import importlib
+    import importlib.metadata as metadata
     from rsl_rl.runners import OnPolicyRunner
-    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
 
     import workshop  # noqa: F401
 
@@ -42,12 +54,14 @@ def main():
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
 
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
+
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
 
     runner = OnPolicyRunner(
         env,
-        agent_cfg.to_dict(),
+        _strip_unknown_alg_keys(agent_cfg.to_dict()),
         log_dir=f"{args.log_dir}/{agent_cfg.experiment_name}",
         device=agent_cfg.device,
     )

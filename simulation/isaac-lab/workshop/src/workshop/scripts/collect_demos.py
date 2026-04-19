@@ -1,8 +1,19 @@
 """Collect demonstration episodes from a trained RL policy."""
 import argparse
+import inspect
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
+
+
+def _strip_unknown_alg_keys(cfg_dict: dict) -> dict:
+    """Remove algorithm keys that the installed rsl_rl PPO doesn't accept."""
+    from rsl_rl.algorithms import PPO
+
+    valid = set(inspect.signature(PPO.__init__).parameters.keys()) - {"self"}
+    alg = cfg_dict.get("algorithm", {})
+    cfg_dict["algorithm"] = {k: v for k, v in alg.items() if k in valid or k == "class_name"}
+    return cfg_dict
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,10 +34,11 @@ def main():
 
     import gymnasium as gym
     import importlib
+    import importlib.metadata as metadata
     import numpy as np
     import torch
     from rsl_rl.runners import OnPolicyRunner
-    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
 
     import workshop  # noqa: F401
 
@@ -43,9 +55,11 @@ def main():
     module_path, class_name = agent_cfg_entry.rsplit(":", 1)
     agent_cfg = getattr(importlib.import_module(module_path), class_name)()
 
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
+
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    runner = OnPolicyRunner(env, _strip_unknown_alg_keys(agent_cfg.to_dict()), log_dir=None, device=agent_cfg.device)
     runner.load(args.checkpoint)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
@@ -61,7 +75,7 @@ def main():
             with torch.inference_mode():
                 actions = policy(obs)
 
-            obs_tensor = obs["policy"] if isinstance(obs, dict) else obs
+            obs_tensor = obs["policy"] if hasattr(obs, "__getitem__") and "policy" in obs else obs
             states_buf.append(obs_tensor[0, :6].cpu().numpy())
             actions_buf.append(actions[0, :6].cpu().numpy())
 
