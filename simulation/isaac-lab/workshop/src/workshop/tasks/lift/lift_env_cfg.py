@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
+from isaaclab.assets import AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -41,16 +41,13 @@ class LiftSceneCfg(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.3, 0.0, 0.1)),
     )
     robot = SO_ARM101_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-    cube = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Cube",
-        spawn=sim_utils.CuboidCfg(
-            size=(0.04, 0.04, 0.04),
+    target = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/Target",
+        spawn=sim_utils.SphereCfg(
+            radius=0.02,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.5, 1.0)),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.3, 0.0, 0.22)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.3, 0.0, 0.4)),
     )
 
 
@@ -60,10 +57,6 @@ class LiftObservationsCfg:
     class PolicyCfg(ObsGroup):
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
-        cube_pos = ObsTerm(
-            func=mdp_terms.object_position_in_robot_root_frame,
-            params={"object_cfg": SceneEntityCfg("cube"), "robot_cfg": SceneEntityCfg("robot")},
-        )
         target_pos = ObsTerm(
             func=mdp.generated_commands,
             params={"command_name": "object_pose"},
@@ -94,15 +87,10 @@ class LiftActionsCfg:
 
 @configclass
 class LiftRewardsCfg:
-    reaching_cube = RewTerm(
+    reaching = RewTerm(
         func=mdp_terms.reward_reaching_target,
         weight=1.0,
         params={"asset_cfg": SceneEntityCfg("robot", body_names=["gripper_frame_link"]), "command_name": "object_pose"},
-    )
-    lifting = RewTerm(
-        func=mdp_terms.object_height_reward,
-        weight=5.0,
-        params={"object_cfg": SceneEntityCfg("cube"), "min_height": 0.3},
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
@@ -139,15 +127,6 @@ class LiftEventsCfg:
             "asset_cfg": SceneEntityCfg("robot"),
             "position_range": (-0.1, 0.1),
             "velocity_range": (0.0, 0.0),
-        },
-    )
-    reset_cube = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("cube"),
-            "pose_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
-            "velocity_range": {},
         },
     )
 
