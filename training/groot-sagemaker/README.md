@@ -135,7 +135,7 @@ aws configure
 ### 로컬 Python 의존성 설치
 
 ```bash
-cd sagemaker-vla/
+cd training/groot-sagemaker/
 pip install -r requirements-dev.txt
 ```
 
@@ -672,7 +672,7 @@ with open("image.png", "rb") as f:
 ## 프로젝트 구조
 
 ```
-sagemaker-vla/
+groot-sagemaker/
 ├── infra/
 │   ├── cloudformation.yaml      # IAM, S3, ECR, CodeBuild, SSM
 │   └── deploy_stack.py          # CloudFormation 스택 배포
