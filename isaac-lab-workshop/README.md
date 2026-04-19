@@ -17,8 +17,6 @@ isaac-lab-workshop/
 └── assets/                    # 시각화 스크린샷
 ```
 
-> **워크숍 핸즈온**: GR00T + SO-ARM 101 워크숍은 [simulation/workshop-groot-so101](../simulation/workshop-groot-so101/)를 참조하세요.
-
 ## 두 가지 접근 방식
 
 사용 목적에 따라 선택합니다.

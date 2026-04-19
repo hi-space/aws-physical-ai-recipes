@@ -2,15 +2,17 @@
 
 EC2 인스턴스에 SSH 접속과 Claude Code + Bedrock 연동을 설정하는 가이드 및 스크립트입니다.
 
-> EC2 배포는 [simulation/isaac-lab/infra-multiuser-groot](../../simulation/isaac-lab/infra-multiuser-groot/) CDK 프로젝트에서 code-server(VSCode)를 포함하여 수행합니다.
+> EC2 배포는 [isaac-lab-workshop/infra-multiuser-groot](../isaac-lab-workshop/infra-multiuser-groot/) CDK 프로젝트에서 code-server(VSCode)를 포함하여 수행합니다.
 
 ## 구성
 
 ```
-ec2-vscode/
+tools/
 ├── 01-setup-ssh-client.sh       # SSH 키 생성 + config 설정 자동화
-├── 02-setup-bedrock-env.sh      # Bedrock 환경변수 + VS Code 설정
-└── 03-setup-plugins-and-mcp.sh  # 플러그인 + MCP 서버 설치
+├── 02-setup-bedrock-env.sh      # Node.js/Claude/Kiro 설치 + Bedrock 환경변수 + VS Code 설정
+├── 03-setup-plugins-and-mcp.sh  # 플러그인 + MCP 서버 설치
+├── cloudformation.yaml          # CloudFront + EC2 인프라
+└── deploy.sh                    # 대화형 배포 스크립트
 ```
 
 ---
