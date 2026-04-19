@@ -5,7 +5,7 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 _ROBOTS_DIR = Path(__file__).resolve().parent
-_USD_PATH = str(_ROBOTS_DIR / "usd" / "so_arm101.usd")
+_USD_PATH = str(_ROBOTS_DIR / "usd" / "so_arm101_flat.usd")
 
 SO_ARM101_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(

@@ -24,6 +24,7 @@ def main():
     import gymnasium as gym
     import importlib
     from rsl_rl.runners import OnPolicyRunner
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
     import workshop  # noqa: F401
 
@@ -42,6 +43,7 @@ def main():
         agent_cfg.max_iterations = args.max_iterations
 
     env = gym.make(args.task, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env)
 
     runner = OnPolicyRunner(
         env,

@@ -2,6 +2,9 @@
 
 Requires 'isaacsim.exp.full.kit' experience to enable the URDF importer
 extension which is not loaded by default in Isaac Sim 5.1 pip install.
+
+After conversion, flattens the USD (removes sublayer references) and fixes
+zero-inertia links that would crash the Newton/MuJoCo solver.
 """
 import argparse
 import sys
@@ -19,6 +22,7 @@ def main():
     args.experience = "isaacsim.exp.full.kit"
     launcher = AppLauncher(args)
 
+    from pxr import Usd, UsdPhysics, Gf
     from isaaclab.sim.converters.urdf_converter import UrdfConverter
     from isaaclab.sim.converters.urdf_converter_cfg import UrdfConverterCfg
 
@@ -46,8 +50,37 @@ def main():
     )
 
     converter = UrdfConverter(cfg)
-    usd_path = converter.usd_path
-    print(f"\nUSD file created: {usd_path}")
+    raw_usd = converter.usd_path
+    print(f"Raw USD: {raw_usd}")
+
+    flat_path = str(Path(output_dir) / "so_arm101_flat.usd")
+    stage = Usd.Stage.Open(raw_usd)
+    stage.Flatten().Export(flat_path)
+    print(f"Flattened USD: {flat_path}")
+
+    stage = Usd.Stage.Open(flat_path)
+    min_mass = 0.001
+    min_inertia = Gf.Vec3f(1e-6, 1e-6, 1e-6)
+    fixed_count = 0
+    for prim in stage.Traverse():
+        mass_api = UsdPhysics.MassAPI(prim)
+        if not mass_api:
+            continue
+        inertia_attr = mass_api.GetDiagonalInertiaAttr()
+        mass_attr = mass_api.GetMassAttr()
+        if inertia_attr.IsValid():
+            val = inertia_attr.Get()
+            if val is not None and (val[0] <= 0 or val[1] <= 0 or val[2] <= 0):
+                inertia_attr.Set(min_inertia)
+                if mass_attr.IsValid() and mass_attr.Get() < min_mass:
+                    mass_attr.Set(min_mass)
+                fixed_count += 1
+                print(f"  Fixed zero inertia: {prim.GetPath()}")
+    stage.GetRootLayer().Save()
+    if fixed_count:
+        print(f"Fixed {fixed_count} link(s) with zero inertia")
+
+    print(f"\nUSD ready: {flat_path}")
 
     launcher.app.close()
 
