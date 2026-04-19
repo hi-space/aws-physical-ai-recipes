@@ -26,6 +26,7 @@ def main():
     import importlib
     import torch
     from rsl_rl.runners import OnPolicyRunner
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
     import workshop  # noqa: F401
 
@@ -39,13 +40,14 @@ def main():
     agent_cfg = getattr(importlib.import_module(module_path), class_name)()
 
     env = gym.make(args.task, cfg=env_cfg, render_mode="rgb_array" if args.video else None)
+    env = RslRlVecEnvWrapper(env)
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
 
     checkpoint = args.checkpoint
     if checkpoint is None:
-        pattern = f"logs/rsl_rl/{agent_cfg.experiment_name}/*/checkpoints/best_agent.pt"
-        matches = sorted(glob.glob(pattern))
+        pattern = f"logs/rsl_rl/{agent_cfg.experiment_name}/model_*.pt"
+        matches = sorted(glob.glob(pattern), key=lambda p: int(p.rsplit("_", 1)[-1].replace(".pt", "")))
         if not matches:
             raise FileNotFoundError(f"No checkpoint found matching {pattern}")
         checkpoint = matches[-1]
@@ -58,7 +60,7 @@ def main():
     for step in range(args.num_steps):
         with torch.inference_mode():
             actions = policy(obs)
-        obs, _, _, _, _ = env.step(actions)
+        obs, _, _, _ = env.step(actions)
 
     env.close()
     simulation_app.close()
