@@ -219,3 +219,6 @@ logs/
 *.pth
 *.onnx
 *.safetensors
+
+# macOS
+.DS_Store
