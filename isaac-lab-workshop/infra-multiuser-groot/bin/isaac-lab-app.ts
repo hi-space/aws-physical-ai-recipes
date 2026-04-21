@@ -34,6 +34,7 @@ const grootRepoUrl = app.node.tryGetContext('grootRepoUrl') ?? 'https://github.c
 const grootBranch = app.node.tryGetContext('grootBranch') ?? 'main';
 const enableCloudWatch = (app.node.tryGetContext('enableCloudWatch') ?? 'false') === 'true';
 const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') === 'true';
+const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
 const userId = app.node.tryGetContext('userId') ?? '';
 
 // userId 유효성 검사: 영문소문자, 숫자, 하이픈만 허용 (스택 이름·ECR 리포지토리 호환)
@@ -66,4 +67,5 @@ new IsaacLabStack(app, stackName, {
   userId,
   enableCloudWatch,
   enableCodeServer,
+  isaacSimVersion: isaacSimVersion || undefined,
 });
