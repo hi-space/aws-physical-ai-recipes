@@ -46,6 +46,8 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   enableCloudWatch?: boolean;
   /** code-server (VSCode) 설치 여부 (기본값: true) */
   enableCodeServer?: boolean;
+  /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
+  isaacSimVersion?: string;
 }
 
 /**
@@ -59,7 +61,7 @@ export class IsaacLabStack extends cdk.Stack {
     super(scope, id, props);
 
     // --- Props 기본값 적용 ---
-    const instanceType = props.inferenceInstanceType ?? 'g6.12xlarge';
+    const instanceType = props.inferenceInstanceType ?? 'g6e.4xlarge';
     const preferredAZ = props.preferredAZ ?? 'auto';
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
     const userId = props.userId ?? '';
@@ -78,7 +80,11 @@ export class IsaacLabStack extends cdk.Stack {
     }
 
     // --- 버전 프로필 조회 ---
-    const profile = VERSION_PROFILES[props.versionProfile];
+    const baseProfile = VERSION_PROFILES[props.versionProfile];
+    // isaacSimVersion 오버라이드: context로 지정 시 프로필 기본값 대신 사용
+    const profile = props.isaacSimVersion
+      ? { ...baseProfile, isaacSimVersion: props.isaacSimVersion, isaacSimDockerImage: `nvcr.io/nvidia/isaac-sim:${props.isaacSimVersion}` }
+      : baseProfile;
 
     // --- AMI 매핑을 CfnMapping으로 변환 ---
     // DCV AMI 매핑: DCV_AMI_MAPPING은 이미 Record<string, Record<string, string>> 형식
