@@ -19,7 +19,7 @@ echo "===== [$(date)] START: groot.sh ====="
 if [ -z "$GROOT_REPO" ]; then
   echo "GROOT_REPO가 설정되지 않음. GR00T 설치를 건너뜁니다."
   echo "===== [$(date)] END: groot.sh (SKIPPED) ====="
-  exit 0
+  return 0
 fi
 
 # --- 1. HuggingFace에서 GR00T 모델 가중치 다운로드 (EFS) ---
