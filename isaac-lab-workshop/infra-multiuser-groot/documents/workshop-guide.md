@@ -192,3 +192,216 @@ CDK를 사용한 IaC 배포와 CloudInstanceOptimizer를 활용한 RL 튜닝을 
 - [SKRL Documentation](https://skrl.readthedocs.io/en/latest/)
 - [NVIDIA Isaac Sim Container Installation](https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_container.html)
 - [AWS HPC Blog: Scale RL with AWS Batch](https://aws.amazon.com/blogs/hpc/scale-reinforcement-learning-with-aws-batch-multi-node-parallel-jobs/)
+
+---
+
+## CloudShell 기반 배포 가이드 (참가자용)
+
+### 전체 흐름
+
+```
+1. CloudShell 환경 설정 .............. 5분
+2. 할당량 사전 체크 (관리자) ......... 1분
+3. 인프라 배포 (백그라운드) .......... 30~60분
+4. DCV / code-server 접속
+5. Isaac Lab 학습 실행
+6. 리소스 정리
+```
+
+### Step 1. CloudShell 환경 설정
+
+1. [AWS 콘솔](https://console.aws.amazon.com) 로그인
+2. 우측 상단 리전을 **US East (N. Virginia) `us-east-1`** 으로 설정
+3. 상단 `>_` 아이콘 클릭 → CloudShell 실행
+4. 아래 명령어 실행:
+
+```bash
+git clone --depth 1 https://github.com/hi-space/aws-physical-ai-recipes.git ~/aws-physical-ai-recipes
+source ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/scripts/setup-cloudshell.sh
+```
+
+> 재접속 시에는 `source` 명령만 다시 실행:
+> ```bash
+> source ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/scripts/setup-cloudshell.sh
+> ```
+
+### Step 2. 할당량 사전 체크 (관리자)
+
+배포 전 참가자 수에 맞는 서비스 할당량이 확보되어 있는지 확인한다. 관리자가 워크숍 전에 1회 실행한다.
+
+```bash
+# 10명 배포 예정 — 체크만
+./scripts/check-quotas.sh -n 10
+
+# 부족 시 자동 증가 요청 (GPU vCPU 제외 — 별도 티켓 필요)
+./scripts/check-quotas.sh -n 10 --auto-request
+```
+
+> GPU vCPU 할당량(`Running On-Demand G and VT instances`)은 자동 증가 대상이 아니므로, Service Quotas 콘솔 또는 AWS Support 티켓으로 사전 요청해야 한다. 승인에 1~3일 소요될 수 있으므로 워크숍 최소 1주 전에 요청한다.
+
+### Step 3. 인프라 배포
+
+관리자가 안내한 **본인 이름**과 **VPC 번호**를 사용한다.
+
+```bash
+nohup npx cdk deploy \
+  -c userId=<본인이름> \
+  -c vpcCidr=10.<번호>.0.0/16 \
+  -c isaacSimVersion=5.1.0 \
+  -c region=us-east-1 \
+  --require-approval never > deploy.log 2>&1 &
+```
+
+예시 (alice, 번호 1):
+```bash
+nohup npx cdk deploy \
+  -c userId=alice \
+  -c vpcCidr=10.1.0.0/16 \
+  -c isaacSimVersion=5.1.0 \
+  -c region=us-east-1 \
+  --require-approval never > deploy.log 2>&1 &
+```
+
+> ⚠️ CloudShell은 20분 비활성 시 세션이 종료된다. `nohup &`으로 실행하므로 세션이 끊겨도 배포는 계속 진행된다.
+> **명령어 끝의 `&`를 반드시 포함해야 백그라운드로 실행된다.**
+
+진행 확인:
+```bash
+tail -f deploy.log
+# 또는 AWS 콘솔 → CloudFormation → 스택: IsaacLab-Stable-<본인이름>
+```
+
+### Step 4. 접속 정보 확인
+
+배포 완료 후 (`Outputs:` 출력 시):
+
+```bash
+cat deploy.log | grep -E 'DcvUrl|CodeServerUrl|SecretArn'
+```
+
+DCV 비밀번호 확인:
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id $(cat deploy.log | grep SecretArn | awk -F= '{print $2}' | tr -d ' ') \
+  --region us-east-1 \
+  --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
+```
+
+### Step 5. DCV 접속
+
+1. 브라우저에서 **DcvUrl** 열기 (예: `https://1.2.3.4:8443`)
+2. 인증서 경고 → "고급" → "계속 진행"
+3. Username: `ubuntu` / Password: 위에서 확인한 비밀번호
+
+접속 후 터미널을 열어 환경이 정상 설치되었는지 확인:
+
+```bash
+# GPU 드라이버 확인
+nvidia-smi
+
+# Docker 이미지 빌드 확인 (컨테이너는 직접 실행 전까지 없음)
+docker images | grep isaaclab
+
+# EFS 마운트 확인
+df -h | grep efs
+
+# code-server 상태 확인
+systemctl status code-server
+
+# GR00T 설치 확인 (활성화한 경우)
+ls /home/ubuntu/environment/groot_docker
+```
+
+정상 결과:
+- `nvidia-smi` → GPU 정보 출력 (L40S 또는 L4)
+- `docker images | grep isaaclab` → `isaaclab-batch:latest` 이미지 존재
+- `df -h | grep efs` → EFS 마운트 포인트 표시
+- `code-server` → `active (running)`
+
+문제가 있으면 UserData 로그 확인:
+```bash
+sudo tail -100 /var/log/cloud-init-output.log
+```
+
+### Step 6. code-server (VSCode) 접속
+
+1. 브라우저에서 **CodeServerUrl** 열기 (예: `https://d1234.cloudfront.net`)
+2. Password: DCV와 동일 (같은 Secrets Manager 시크릿 사용)
+
+> DCV와 code-server 모두 동일한 비밀번호를 사용한다. Step 4에서 조회한 비밀번호를 그대로 입력하면 된다.
+
+### Step 7. Isaac Lab 학습 실행
+
+DCV 또는 code-server 터미널에서:
+
+```bash
+# Docker 컨테이너 접속
+docker exec -it $(docker ps -q) bash
+
+# 학습 실행 (headless, 빠른 학습)
+cd /workspace/IsaacLab
+python source/standalone/workflows/skrl/train.py \
+  --task Isaac-Velocity-Rough-H1-v0 \
+  --num_envs 2048 \
+  --headless
+
+# TensorBoard 모니터링 (새 터미널에서)
+docker exec -it $(docker ps -q) bash
+tensorboard --logdir /workspace/IsaacLab/logs --host 0.0.0.0 --port 6006
+# DCV 브라우저에서 http://localhost:6006 접속
+```
+
+### Step 8. 리소스 정리
+
+**워크숍 완료 후 반드시 실행** — GPU 인스턴스는 시간당 과금된다.
+
+```bash
+source ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/scripts/setup-cloudshell.sh
+npx cdk destroy -c userId=<본인이름> -c region=us-east-1
+```
+
+삭제 확인:
+```bash
+aws cloudformation describe-stacks \
+  --stack-name IsaacLab-Stable-<본인이름> \
+  --region us-east-1 2>&1 | grep -E "StackStatus|does not exist"
+```
+
+### EBS 볼륨 확장 (디스크 부족 시)
+
+Docker 이미지 추가 빌드나 학습 데이터로 디스크가 부족할 경우, 실행 중인 인스턴스에서 바로 확장할 수 있다.
+
+```bash
+# DCV 인스턴스 내부에서 실행 (500GB로 확장)
+sudo ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/scripts/expand-ebs.sh 500
+
+# 또는 CloudShell에서 인스턴스 ID 지정
+./scripts/expand-ebs.sh 500 i-0abc123def456
+```
+
+스크립트가 수행하는 작업:
+1. 루트 볼륨 ID 자동 조회
+2. `aws ec2 modify-volume`으로 크기 변경
+3. 변경 완료 대기
+4. `growpart` + `resize2fs`로 파일시스템 확장
+
+> 재부팅 없이 온라인으로 확장된다. 축소는 불가능하다.
+
+### 트러블슈팅
+
+| 증상 | 해결 |
+|------|------|
+| CloudShell 세션 끊김 | 배포는 계속 진행됨. 재접속 후 `source` 실행 → `tail -f deploy.log` 또는 CloudFormation 콘솔 확인 |
+| 배포 실패 | `cat deploy.log \| grep -i "error\|fail"` 로 원인 확인 → `cdk destroy` 후 재배포 |
+| DCV 접속 불가 | CloudFormation 스택 상태가 `CREATE_COMPLETE`인지 확인. 브라우저 인증서 경고 허용 필요 |
+| Docker 컨테이너 없음 | UserData 실행 중일 수 있음. `sudo tail -f /var/log/cloud-init-output.log`로 진행 상황 확인 |
+
+### 배포 파라미터 요약
+
+| 파라미터 | 설명 | 예시 |
+|----------|------|------|
+| `userId` | 본인 식별자 (영문소문자, 숫자, 하이픈) | `alice`, `team-1` |
+| `vpcCidr` | VPC 네트워크 대역 (참가자별 고유) | `10.1.0.0/16` |
+| `isaacSimVersion` | Isaac Sim 버전 | `4.5.0`, `5.1.0` |
+| `region` | AWS 리전 | `us-east-1` |
+| `versionProfile` | 소프트웨어 프로필 | `stable` (기본), `latest` |
