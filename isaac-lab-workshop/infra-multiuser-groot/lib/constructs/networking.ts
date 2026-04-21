@@ -264,8 +264,8 @@ export class NetworkingConstruct extends Construct {
           ipProtocol: 'tcp',
           fromPort: 8888,
           toPort: 8888,
-          cidrIp: props.allowedCidr,
-          description: 'code-server (VSCode Server)',
+          sourcePrefixListId: 'pl-3b927c52', // com.amazonaws.global.cloudfront.origin-facing
+          description: 'code-server via CloudFront only',
         }] : []),
         // GR00T 활성화 시 ZMQ + ROS2 DDS 포트 추가
         ...(props.enableGroot ? [
