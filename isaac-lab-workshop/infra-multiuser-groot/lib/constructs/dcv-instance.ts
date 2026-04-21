@@ -216,7 +216,7 @@ export class DcvInstanceConstruct extends Construct {
         {
           deviceName: '/dev/sda1',
           ebs: {
-            volumeSize: 200,
+            volumeSize: 300,
             volumeType: 'gp3',
             encrypted: true,
           },
