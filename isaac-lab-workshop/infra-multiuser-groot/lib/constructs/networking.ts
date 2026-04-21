@@ -11,6 +11,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
 /**
@@ -260,13 +261,6 @@ export class NetworkingConstruct extends Construct {
           cidrIp: props.allowedCidr,
           description: 'DCV HTTPS',
         },
-        ...((props.enableCodeServer ?? true) ? [{
-          ipProtocol: 'tcp',
-          fromPort: 8888,
-          toPort: 8888,
-          sourcePrefixListId: 'pl-3b927c52', // com.amazonaws.global.cloudfront.origin-facing
-          description: 'code-server via CloudFront only',
-        }] : []),
         // GR00T 활성화 시 ZMQ + ROS2 DDS 포트 추가
         ...(props.enableGroot ? [
           {
@@ -294,5 +288,31 @@ export class NetworkingConstruct extends Construct {
       ],
       tags: [{ key: 'Name', value: `${p}-SG` }],
     });
+
+    // --- code-server 8888 포트: CloudFront origin-facing prefix list로 제한 ---
+    // prefix list ID는 리전마다 다르므로 AwsCustomResource로 동적 조회
+    if (props.enableCodeServer ?? true) {
+      const cfPrefixList = new cr.AwsCustomResource(this, 'CloudFrontPrefixListLookup', {
+        onCreate: {
+          service: 'EC2',
+          action: 'describeManagedPrefixLists',
+          parameters: {
+            Filters: [{ Name: 'prefix-list-name', Values: ['com.amazonaws.global.cloudfront.origin-facing'] }],
+          },
+          physicalResourceId: cr.PhysicalResourceId.of('cf-prefix-list'),
+        },
+        installLatestAwsSdk: false,
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE }),
+      });
+
+      new ec2.CfnSecurityGroupIngress(this, 'CodeServerFromCloudFront', {
+        groupId: this.dcvSecurityGroup.ref,
+        ipProtocol: 'tcp',
+        fromPort: 8888,
+        toPort: 8888,
+        sourcePrefixListId: cfPrefixList.getResponseField('PrefixLists.0.PrefixListId'),
+        description: 'code-server via CloudFront only',
+      });
+    }
   }
 }
