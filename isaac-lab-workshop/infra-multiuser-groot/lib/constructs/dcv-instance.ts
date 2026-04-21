@@ -169,7 +169,7 @@ export class DcvInstanceConstruct extends Construct {
       'export SECRET_ID="${SecretId}"',
       `export ECR_REPO_NAME="${props.ecrRepoName ?? 'isaaclab-batch'}"`,
       `export GROOT_REPO="${props.grootRepoUrl ?? ''}"`,
-      `export GROOT_BRANCH="${props.grootBranch ?? 'main'}"`,
+      `export GROOT_BRANCH="${props.grootBranch ?? 'n1.6-release'}"`,
       '',
       'aws s3 cp ${UserdataScriptsUrl} /tmp/userdata-scripts.zip',
       'unzip -o /tmp/userdata-scripts.zip -d /tmp/userdata-scripts',
