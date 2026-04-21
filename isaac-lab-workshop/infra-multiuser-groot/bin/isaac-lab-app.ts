@@ -31,7 +31,7 @@ const preferredAZ = app.node.tryGetContext('preferredAZ') ?? 'auto';
 const allowedCidr = app.node.tryGetContext('allowedCidr') ?? '0.0.0.0/0';
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const grootRepoUrl = app.node.tryGetContext('grootRepoUrl') ?? 'https://github.com/NVIDIA/Isaac-GR00T.git';
-const grootBranch = app.node.tryGetContext('grootBranch') ?? 'main';
+const grootBranch = app.node.tryGetContext('grootBranch') ?? 'n1.6-release';
 const enableCloudWatch = (app.node.tryGetContext('enableCloudWatch') ?? 'false') === 'true';
 const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') === 'true';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
