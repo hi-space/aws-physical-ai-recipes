@@ -41,6 +41,6 @@ fi
 # 3. 사전 학습된 모델 파일 다운로드
 #    Workshop_Asset 중 agent_72000.pt를 EFS에 다운로드한다.
 # -----------------------------------------------------------------------------
-wget -P /home/ubuntu/environment/efs https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/agent_72000.pt
+wget -P /home/ubuntu/environment/efs https://ws-assets-prod-iad-r-pdx-f3b3f9f1a7d6a3d0.s3.us-west-2.amazonaws.com/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/agent_72000.pt || echo "[WARN] 사전 학습 모델 다운로드 실패 — 수동 다운로드 필요"
 
 echo "===== [$(date)] END: efs-mount.sh ====="
