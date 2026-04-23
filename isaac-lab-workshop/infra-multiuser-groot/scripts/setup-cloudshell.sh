@@ -9,6 +9,7 @@
 # 사용법:
 #   source ./scripts/setup-cloudshell.sh
 # =============================================================================
+_SAVED_OPTS=$(set +o 2>/dev/null)
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -95,3 +96,5 @@ echo " CloudShell 세션 끊김 방지 (권장):"
 echo "   nohup npx cdk deploy -c userId=<이름> -c vpcCidr=10.<번호>.0.0/16 -c isaacSimVersion=5.1.0 -c region=us-east-1 --require-approval never > deploy.log 2>&1 &"
 echo "   tail -f deploy.log"
 echo "============================================"
+eval "$_SAVED_OPTS" 2>/dev/null || true
+unset _SAVED_OPTS
