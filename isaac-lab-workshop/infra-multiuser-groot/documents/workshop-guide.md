@@ -230,11 +230,11 @@ source ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/script
 배포 전 참가자 수에 맞는 서비스 할당량이 확보되어 있는지 확인한다. 관리자가 워크숍 전에 1회 실행한다.
 
 ```bash
-# 10명 배포 예정 — 체크만
-./scripts/check-quotas.sh -n 10
+# 10명 배포 예정 — 체크만 (bash 서브셸로 실행하여 exit 1이 현재 셸에 영향 없도록)
+bash ./scripts/check-quotas.sh -n 10 || true
 
 # 부족 시 자동 증가 요청 (GPU vCPU 제외 — 별도 티켓 필요)
-./scripts/check-quotas.sh -n 10 --auto-request
+bash ./scripts/check-quotas.sh -n 10 --auto-request || true
 ```
 
 > GPU vCPU 할당량(`Running On-Demand G and VT instances`)은 자동 증가 대상이 아니므로, Service Quotas 콘솔 또는 AWS Support 티켓으로 사전 요청해야 한다. 승인에 1~3일 소요될 수 있으므로 워크숍 최소 1주 전에 요청한다.
