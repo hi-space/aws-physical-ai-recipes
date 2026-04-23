@@ -60,8 +60,8 @@ export interface DcvInstanceProps {
  * - Secrets Manager Secret (DCV 비밀번호 자동 생성, 32자, 구두점 제외)
  * - IAM Role (S3 읽기, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
- * - EC2 Instance (GPU, 200GB EBS gp3, EBS 암호화 활성화)
- * - CloudFormation CreationPolicy (60분 타임아웃)
+ * - EC2 Instance (GPU, 300GB EBS gp3, EBS 암호화 활성화)
+ * - CloudFormation CreationPolicy (90분 타임아웃)
  * - UserData (6개 모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
  */
 export class DcvInstanceConstruct extends Construct {
@@ -253,7 +253,7 @@ export class DcvInstanceConstruct extends Construct {
     );
 
     // --- CreationPolicy ---
-    // UserData 완료 시 cfn-signal을 수신하며, 타임아웃은 60분
+    // UserData 완료 시 cfn-signal을 수신하며, 타임아웃은 90분
     // DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축
     (cfnInstance as cdk.CfnResource).cfnOptions.creationPolicy = {
       resourceSignal: {
