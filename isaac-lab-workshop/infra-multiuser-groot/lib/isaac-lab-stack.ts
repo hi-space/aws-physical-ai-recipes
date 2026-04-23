@@ -1,8 +1,8 @@
 /**
  * IsaacLabStack 메인 스택
  *
- * 4개의 Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
- * 조합 순서: Networking → EFS → DCV → Batch
+ * 5개의 Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
+ * 조합 순서: Networking → EFS → AzSelector(조건부) → DCV → CloudFront(조건부) → Batch
  *
  * 멀티 사용자 지원:
  *   userId가 지정되면 ECR 리포지토리명과 리소스 태그에 사용자 식별자가 포함되어
@@ -28,7 +28,7 @@ import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK } from './construct
 export interface IsaacLabStackProps extends cdk.StackProps {
   /** 버전 프로필 이름 (stable, latest) */
   versionProfile: VersionProfileName;
-  /** DCV 인스턴스 타입 (기본값: 'g6.12xlarge') */
+  /** DCV 인스턴스 타입 (기본값: 'g6e.4xlarge') */
   inferenceInstanceType?: string;
   /** AZ 선택: 'auto' 또는 '0'~'5' 인덱스 (기본값: 'auto') */
   preferredAZ?: string;
@@ -40,7 +40,7 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   vpcCidr?: string;
   /** GR00T 리포지토리 URL (지정 시 GR00T 추론 서버 설치) */
   grootRepoUrl?: string;
-  /** GR00T 리포지토리 브랜치 (기본값: 'main') */
+  /** GR00T 리포지토리 브랜치 (기본값: 'n1.6-release') */
   grootBranch?: string;
   /** CloudWatch Agent 설치 여부 (기본값: false) */
   enableCloudWatch?: boolean;
