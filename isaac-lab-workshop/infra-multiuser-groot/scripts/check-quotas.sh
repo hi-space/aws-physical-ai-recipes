@@ -5,10 +5,10 @@
 # 현재 리소스 사용량을 조회한 뒤, N명 추가 배포에 필요한 할당량이
 # 충분한지 확인한다. 부족하면 자동 증가 요청도 가능.
 #
-# 사용법:
-#   ./scripts/check-quotas.sh -n 10                  # 10명 배포 예정
-#   ./scripts/check-quotas.sh -n 10 --auto-request   # 부족 시 자동 증가 요청
-#   ./scripts/check-quotas.sh -n 20 -r us-west-2
+# 사용법 (bash 서브셸로 실행 권장 — exit 1이 현재 셸에 영향 없도록):
+#   bash ./scripts/check-quotas.sh -n 10                  # 10명 배포 예정
+#   bash ./scripts/check-quotas.sh -n 10 --auto-request   # 부족 시 자동 증가 요청
+#   bash ./scripts/check-quotas.sh -n 20 -r us-west-2
 # =============================================================================
 set -euo pipefail
 
@@ -171,7 +171,8 @@ check "NAT Gateways per AZ"          "vpc" "L-FE5A380F" "$NAT_COUNT" 1
 echo ""
 echo "── EC2 ──"
 check "Elastic IPs"                  "ec2" "L-0263D0A3" "$EIP_COUNT" 1
-check "G/VT On-Demand vCPU"          "ec2" "L-3819A6DF" "$GPU_VCPU" 48 --manual
+# per_user vCPU: g6e.4xlarge=16, g6.12xlarge=48
+check "G/VT On-Demand vCPU"          "ec2" "L-DB2E81BA" "$GPU_VCPU" 48 --manual
 
 echo ""
 echo "── Storage & CDN ──"
