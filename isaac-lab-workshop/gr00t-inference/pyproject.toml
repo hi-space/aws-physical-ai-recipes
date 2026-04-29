@@ -1,0 +1,10 @@
+[project]
+name = "gr00t-inference-test"
+version = "0.1.0"
+description = "GR00T N1 inference test client"
+requires-python = ">=3.10"
+dependencies = [
+    "pyzmq>=26.0",
+    "msgpack>=1.0",
+    "numpy>=1.24",
+]
