@@ -80,7 +80,7 @@ Wants=network-online.target
 Type=simple
 Restart=on-failure
 ExecStartPre=/bin/bash -c 'mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 $EFS_ID.efs.$REGION.amazonaws.com:/ /home/ubuntu/environment/efs 2>/dev/null || true'
-ExecStart=docker run --rm --gpus all --name groot-inference -p 5555:5555 -v /home/ubuntu/environment/efs:/workspace/weights groot-n1:latest gr00t/eval/run_gr00t_server.py --model_path /workspace/weights/GR00T-N1.6-3B --embodiment_tag GR1 --port 5555
+ExecStart=docker run --rm --gpus all --name groot-inference --network=host -v /home/ubuntu/environment/efs:/workspace/weights groot-n1:latest gr00t/eval/run_gr00t_server.py --model_path /workspace/weights/GR00T-N1.6-3B --embodiment_tag GR1 --host 0.0.0.0 --port 5555
 
 [Install]
 WantedBy=multi-user.target
