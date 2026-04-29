@@ -58,7 +58,7 @@ export interface DcvInstanceProps {
  *
  * 생성 리소스:
  * - Secrets Manager Secret (DCV 비밀번호 자동 생성, 32자, 구두점 제외)
- * - IAM Role (S3 읽기, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
+ * - IAM Role (S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
  * - EC2 Instance (GPU, 300GB EBS gp3, EBS 암호화 활성화)
  * - CloudFormation CreationPolicy (90분 타임아웃)
@@ -91,7 +91,7 @@ export class DcvInstanceConstruct extends Construct {
     this.secretArn = secret.ref;
 
     // --- IAM Role ---
-    // EC2 인스턴스용 역할: S3 읽기, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기
+    // EC2 인스턴스용 역할: S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기
     const role = new iam.CfnRole(this, 'DcvInstanceRole', {
       assumeRolePolicyDocument: {
         Version: '2012-10-17',
@@ -104,7 +104,7 @@ export class DcvInstanceConstruct extends Construct {
         ],
       },
       managedPolicyArns: [
-        'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess',
+        'arn:aws:iam::aws:policy/AmazonS3FullAccess',
         'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
         'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
         'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
