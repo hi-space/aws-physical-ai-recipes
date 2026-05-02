@@ -54,6 +54,7 @@ export class OsmoStack extends cdk.Stack {
       cluster: eksCluster.cluster,
       dbEndpoint: dataStores.dbEndpoint,
       dbPort: dataStores.dbPort,
+      dbSecretArn: dataStores.dbSecret.ref,
       redisEndpoint: dataStores.redisEndpoint,
       redisPort: dataStores.redisPort,
       dataBucket: dataStores.bucket,
