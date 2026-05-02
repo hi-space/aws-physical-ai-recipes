@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "workload_manager": "slurm",
+  "controller_group": "head",
+  "worker_groups": [
+    { "instance_group_name": "sim", "partition_name": "sim" },
+    { "instance_group_name": "train", "partition_name": "train" },
+    { "instance_group_name": "debug", "partition_name": "debug" }
+  ],
+  "fsx_dns_name": "FSX_DNS_REPLACE",
+  "fsx_mountname": "FSX_MOUNT_REPLACE"
+}

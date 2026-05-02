@@ -1,0 +1,45 @@
+{
+  "ClusterName": "hyperpod-robotics",
+  "InstanceGroups": [
+    {
+      "InstanceGroupName": "head",
+      "InstanceType": "ml.m5.xlarge",
+      "InstanceCount": 1,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "sim",
+      "InstanceType": "ml.g5.12xlarge",
+      "InstanceCount": 16,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "train",
+      "InstanceType": "ml.g6e.12xlarge",
+      "InstanceCount": 4,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "debug",
+      "InstanceType": "ml.g5.4xlarge",
+      "InstanceCount": 1,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    }
+  ],
+  "VpcConfig": {
+    "SecurityGroupIds": ["sg-REPLACE"],
+    "Subnets": ["subnet-REPLACE"]
+  }
+}
