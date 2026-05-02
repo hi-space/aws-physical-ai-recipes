@@ -246,10 +246,10 @@ const createVpc = (app.node.tryGetContext('createVpc') ?? 'true') === 'true';
 const simMaxCount = parseInt(app.node.tryGetContext('simMaxCount') ?? '16', 10);
 const trainMaxCount = parseInt(app.node.tryGetContext('trainMaxCount') ?? '4', 10);
 const simInstanceType = app.node.tryGetContext('simInstanceType') ?? 'ml.g5.12xlarge';
-const trainPreset = app.node.tryGetContext('trainPreset') ?? '';  // default | heavy | max
-const trainInstanceType = trainPreset
-  ? (TRAIN_INSTANCE_PRESETS[trainPreset] ?? 'ml.g6e.12xlarge')
-  : (app.node.tryGetContext('trainInstanceType') ?? 'ml.g6e.12xlarge');
+const trainPreset = app.node.tryGetContext('trainPreset') ?? 'default';  // default | heavy | max
+const trainInstanceType = app.node.tryGetContext('trainInstanceType')
+  ?? TRAIN_INSTANCE_PRESETS[trainPreset]
+  ?? 'ml.g6e.12xlarge';
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 const simUseSpot = (app.node.tryGetContext('simUseSpot') ?? 'true') === 'true';
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';

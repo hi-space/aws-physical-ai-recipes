@@ -277,7 +277,7 @@ training/hyperpod/
 | trainMaxCount | 4 | train 파티션 최대 인스턴스 수 |
 | simInstanceType | ml.g5.12xlarge | sim 파티션 인스턴스 타입 |
 | trainInstanceType | ml.g6e.12xlarge | train 파티션 인스턴스 타입 (직접 지정) |
-| trainPreset | (없음) | train 프리셋: default(g6e), heavy(p4d), max(p5) |
+| trainPreset | default | train 프리셋: default(g6e), heavy(p4d), max(p5) |
 | fsxCapacityGiB | 1200 | FSx 용량 (GiB) |
 | simUseSpot | true | sim 파티션 Spot 사용 여부 |
 
