@@ -308,6 +308,56 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs' --output table
 ```
 
+### DCV 접속
+
+1. 브라우저에서 `DcvUrl` 열기 (예: `https://<PublicIP>:8443`)
+2. 인증서 경고 → "고급" → "계속 진행"
+3. 로그인: username `ubuntu`, password는 Secrets Manager에서 확인
+
+```bash
+# 비밀번호 조회 (deploy.log에서 SecretArn 추출)
+aws secretsmanager get-secret-value \
+  --secret-id $(cat deploy.log | grep SecretArn | awk -F= '{print $2}' | tr -d ' ') \
+  --region us-east-1 \
+  --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
+```
+
+또는 AWS 콘솔 → Secrets Manager → `InstanceCredentials-*` → "Retrieve secret value"에서 확인.
+
+### code-server (VSCode) 접속
+
+`enableCodeServer=true` (기본값)로 배포한 경우, CloudFront를 통해 브라우저 VSCode에 접속할 수 있다.
+
+- 브라우저에서 `CodeServerUrl` 열기 (CloudFront HTTPS URL)
+- Password: DCV와 동일 (같은 Secrets Manager 시크릿)
+
+### 환경 설치 확인
+
+DCV 접속 후 터미널에서 아래 명령으로 정상 설치 여부를 확인한다:
+
+```bash
+# GPU 드라이버 확인 (L40S 또는 L4 출력)
+nvidia-smi
+
+# Isaac Lab Docker 이미지 확인
+docker images | grep isaaclab
+
+# EFS 마운트 확인
+df -h | grep efs
+
+# code-server 상태 확인
+systemctl status code-server
+
+# GR00T 설치 확인 (grootRepoUrl 지정 시)
+ls /home/ubuntu/environment/groot_docker
+```
+
+문제가 있으면 UserData 로그를 확인한다:
+
+```bash
+sudo tail -100 /var/log/user-data.log
+```
+
 ### 스택 삭제
 
 ```bash
@@ -451,37 +501,225 @@ aws secretsmanager get-secret-value \
   --output text
 ```
 
-## AWS Batch CE/JQ/JD 콘솔 수동 생성 가이드
+## AWS Batch 분산 학습 환경 설정
 
-AWS Batch의 Compute Environment, Job Queue, Job Definition은 자동화 범위 밖이며, CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
+AWS Batch의 Compute Environment, Job Queue, Job Definition은 워크숍 참가자가 직접 학습하며 구성하는 영역이므로 CDK 자동화 범위 밖이다. CDK는 Launch Template, IAM, Security Group 등 기반 리소스만 생성하며, 나머지는 CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
 
-### 필요한 CfnOutput 값
+> **단일 AZ 제약**: Batch 노드는 CDK가 선택한 AZ의 프라이빗 서브넷에서만 실행된다. 해당 AZ에 GPU capacity가 부족하면 Job이 RUNNABLE 상태에서 대기한다. 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
 
-- `BatchLaunchTemplateId` — Launch Template ID
-- `BatchInstanceProfileArn` — Instance Profile ARN
-- `PrivateSubnetId` — 프라이빗 서브넷 ID
-- `BatchSecurityGroupId` — Batch 보안 그룹 ID
-- `EfsFileSystemId` — EFS 파일 시스템 ID
+### CDK가 생성한 Batch 리소스
+
+| CfnOutput Key | 설명 | 용도 |
+|---------------|------|------|
+| `BatchLaunchTemplateId` | EC2 Launch Template ID | CE 생성 시 참조 |
+| `BatchInstanceProfileArn` | Instance Profile ARN | CE 생성 시 Instance role |
+| `PrivateSubnetId` | 프라이빗 서브넷 ID | CE 네트워크 설정 |
+| `BatchSecurityGroupId` | Batch 보안 그룹 ID | CE 네트워크 설정 |
+| `EfsFileSystemId` | EFS 파일 시스템 ID | JD에서 EFS 볼륨 설정 |
+
+**Launch Template 구성:**
+
+| 항목 | 값 | 설명 |
+|------|---|------|
+| AMI | ECS Optimized GPU AMI (Amazon Linux 2) | NVIDIA 드라이버, ECS Agent, Docker 사전 설치 |
+| EBS | 250GB gp3, 암호화 | Isaac Sim 이미지(~50GB)와 학습 임시 데이터용 |
+
+**Instance Profile IAM 권한:**
+
+| 관리형 정책 | 용도 |
+|-------------|------|
+| `AmazonS3ReadOnlyAccess` | S3에서 데이터셋/모델 다운로드 |
+| `AmazonEC2ContainerServiceforEC2Role` | ECR 이미지 풀, CloudWatch 로그 전송 |
+| `AmazonElasticFileSystemFullAccess` | EFS 마운트 및 읽기/쓰기 |
+| `AmazonSSMManagedInstanceCore` | SSM을 통한 인스턴스 접속 (디버깅) |
+
+**Batch Security Group 규칙:**
+
+| 방향 | 프로토콜 | 소스/대상 | 용도 |
+|------|----------|-----------|------|
+| Inbound | 전체 (자기 참조) | Batch SG 자신 | 노드 간 NCCL 통신, PyTorch distributed rendezvous |
+| Outbound | 전체 | 0.0.0.0/0 | ECR 이미지 풀, NAT 경유 인터넷 접근 |
+
+EFS Security Group에도 Batch SG를 소스로 하는 NFS(TCP 2049) 인그레스 규칙이 자동 추가된다.
 
 ### 1단계: Compute Environment 생성
 
 1. AWS Batch 콘솔 → Compute environments → Create
-2. Type: Managed, Provisioning model: On-Demand
-3. Instance types: `g6.12xlarge`, Launch template: `BatchLaunchTemplateId`
-4. Instance role: `BatchInstanceProfileArn`
-5. VPC subnets: `PrivateSubnetId`, Security groups: `BatchSecurityGroupId`
+2. Orchestration type: EC2, Type: Managed
+
+| 설정 | 값 | 비고 |
+|------|---|------|
+| Instance types | `g6.12xlarge` | L4 GPU 4개, 48 vCPU, 192GB RAM |
+| Launch template | `BatchLaunchTemplateId` 값 | CfnOutput 참조 |
+| Instance role | `BatchInstanceProfileArn` 값 | CfnOutput 참조 |
+| VPC subnets | `PrivateSubnetId` 값 | CfnOutput 참조 |
+| Security groups | `BatchSecurityGroupId` 값 | CfnOutput 참조 |
 
 ### 2단계: Job Queue 생성
 
 1. AWS Batch 콘솔 → Job queues → Create
-2. Name: `isaac-lab-jq`, Priority: 1
+2. Orchestration type: EC2, Name: `IsaacLabJobQueue`, Priority: 1
 3. Connected compute environments: 1단계에서 생성한 CE
 
 ### 3단계: Job Definition 생성
 
-1. Platform type: EC2, Container image: ECR의 Isaac Lab Docker 이미지 URI
-2. EFS 마운트: Volume name `efs-volume`, EFS file system ID: `EfsFileSystemId`
-3. Mount point: Container path `/home/ubuntu/environment/efs`
+1. AWS Batch 콘솔 → Job definitions → Create
+2. Orchestration type: EC2, Job type: **multi-node parallel**
+
+| 설정 | 값 | 비고 |
+|------|---|------|
+| Name | `IsaacLabJobDefinition` | |
+| Execution timeout | `3600` (초) | 1시간 (워크숍 100 iteration ≈ 12분) |
+| Number of nodes | `2` | 2노드 × 4GPU = 8 GPU |
+| Instance type | `g6.12xlarge` | CE와 동일 |
+
+**Storage — EFS 볼륨:**
+
+| 설정 | 값 |
+|------|---|
+| Volume name | `efs` |
+| EFS File System ID | `EfsFileSystemId` 값 (CfnOutput) |
+| Root directory | `/` |
+
+**Container properties:**
+
+| 설정 | 값 | 비고 |
+|------|---|------|
+| Image | ECR의 `isaaclab-batch:latest` URI | |
+| vCPUs | `16` | g6.12xlarge 48 vCPU 중 컨테이너 할당분 |
+| Memory | `60000` (MB) | GPU 텐서 공유 + DataLoader 버퍼 |
+| GPUs | `4` | 노드당 L4 GPU 전체 할당 |
+| Command | 아래 참조 | EFS 심볼릭 링크 + 분산 학습 |
+
+**Command (EFS에 체크포인트 저장):**
+
+```json
+["/bin/bash", "-c", "mkdir -p /efs/models && mkdir -p /workspace/IsaacLab/logs && ln -sf /efs/models /workspace/IsaacLab/logs/skrl && cd /workspace/IsaacLab && ./distributed_run.bash"]
+```
+
+**Environment variables:**
+
+| 변수 | 값 | 설명 |
+|------|---|------|
+| `TASK` | `Isaac-Velocity-Rough-H1-v0` | 학습 태스크 |
+| `NCCL_SOCKET_IFNAME` | `eth0` | NCCL 노드 간 통신 인터페이스 |
+| `ACCEPT_EULA` | `Y` | NVIDIA Omniverse 라이센스 동의 |
+| `PRIVACY_CONSENT` | `Y` | 데이터 수집 동의 |
+| `PROC_PER_NODE` | `4` | 노드당 GPU 수 |
+| `MAX_ITERATIONS` | `100` | 학습 반복 횟수 (워크숍용) |
+
+**Linux parameters:**
+
+| 설정 | 값 | 비고 |
+|------|---|------|
+| Shared memory size | `60000` (MB) | Isaac Sim GPU↔CPU 데이터 전달 + PyTorch DataLoader. Docker 기본 64MB로는 OOM 발생 |
+
+**Mount points:**
+
+| Source volume | Container path |
+|---------------|----------------|
+| `efs` | `/efs` |
+
+### 4단계: Job 제출
+
+1. AWS Batch 콘솔 → Jobs → Submit new job
+2. Job definition: `IsaacLabJobDefinition`, Job queue: `IsaacLabJobQueue`
+3. Running 상태에서 Nodes 탭으로 2개 노드 확인
+4. Log stream 선택 → CloudWatch Logs에서 학습 메트릭 확인
+
+> 2노드 × 4GPU에서 100 iteration 완료까지 약 12분 소요. GPU 할당 대기로 시작이 지연될 수 있다.
+
+## 배포 후 주요 작업 흐름
+
+배포 완료 후 DCV에 접속하여 아래 순서로 작업을 진행한다. 각 단계의 상세 가이드는 별도 문서를 참고한다.
+
+### Isaac Lab 강화학습 실행
+
+DCV 터미널에서 Docker 컨테이너를 실행하고 Isaac Lab 학습을 수행한다:
+
+```bash
+# 컨테이너 실행
+cd ~/environment/IsaacLab && xhost +
+docker run --shm-size=60g --name isaac-lab \
+  --entrypoint bash -it --gpus all --rm --network=host \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
+  isaaclab-batch:latest
+```
+
+```bash
+# 컨테이너 내부에서 headless 학습 (렌더링 없이 빠름, 워크숍 권장)
+cd /workspace/IsaacLab && \
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+  --task Isaac-Velocity-Rough-H1-v0 \
+  --num_envs 2048 \
+  --headless
+```
+
+| 모드 | 명령 | 특징 |
+|------|------|------|
+| GUI | `torch.distributed.run` + `train.py` (headless 미지정) | DCV에서 시뮬레이션 시각화 가능. 렌더링 오버헤드로 학습 느림 |
+| Headless | `isaaclab.sh -p train.py --headless` | 렌더링 없이 학습에 집중. 워크숍에서 권장 |
+
+학습 로그와 체크포인트는 컨테이너 내부 `/workspace/IsaacLab/logs/skrl/h1_rough/`에 저장된다.
+
+### 모델 추론 (IsaacSim에서 시각화)
+
+학습된 체크포인트를 로드하여 로봇 동작을 시각적으로 확인한다:
+
+```bash
+# EFS를 마운트한 컨테이너에서 실행
+docker run --shm-size=60g --name isaac-lab \
+  --entrypoint bash -it --gpus all --rm --network=host \
+  -v /home/ubuntu/environment/efs:/workspace/IsaacLab/TrainedModel \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
+  isaaclab-batch:latest
+```
+
+```bash
+# 컨테이너 내부에서 추론 실행
+cd /workspace/IsaacLab && \
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
+  --task=Isaac-Velocity-Rough-H1-v0 \
+  --num_envs 25 \
+  --checkpoint=/workspace/IsaacLab/TrainedModel/agent_72000.pt
+```
+
+| 체크포인트 | 경로 | 설명 |
+|------------|------|------|
+| 사전 학습 완료 | `/workspace/IsaacLab/TrainedModel/agent_72000.pt` | EFS에 자동 배치 (72,000 iteration) |
+| Batch 학습 결과 | `/workspace/IsaacLab/TrainedModel/models/h1_rough/{timestamp}_ppo_torch/checkpoints/best_agent.pt` | 분산 학습 최고 성능 시점 |
+
+### GR00T N1 추론 테스트
+
+`grootRepoUrl`을 지정하여 배포한 경우, GR00T 추론 서버가 systemd로 자동 실행된다:
+
+```bash
+# 서비스 상태 확인
+sudo systemctl status groot-inference.service
+
+# 빌드 완료 확인 (Docker 빌드 5~10분 소요)
+sudo systemctl status groot-docker-build.service
+
+# 포트 확인
+ss -tlnp | grep 5555
+```
+
+Ping 테스트:
+
+```bash
+docker run --rm --network=host groot-n1:latest -c "
+import zmq, msgpack
+ctx = zmq.Context()
+sock = ctx.socket(zmq.REQ)
+sock.connect('tcp://localhost:5555')
+sock.send(msgpack.packb({'endpoint': 'ping'}))
+print('Response:', msgpack.unpackb(sock.recv(), raw=False))
+"
+```
+
+정상 응답: `{'status': 'ok', 'message': 'Server is running'}`
+
+외부에서 접속 시 EC2 퍼블릭 IP의 TCP 5555 포트를 사용한다 (Security Group에서 자동 허용).
 
 ## 커스터마이징 가이드
 
@@ -534,7 +772,7 @@ cdk deploy
 
 ### 배포가 오래 걸릴 때 (UserData 진행 상황 확인)
 
-`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 60분) 대기한다.
+`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 90분) 대기한다.
 
 진행 상황을 실시간으로 확인하려면:
 
@@ -606,7 +844,7 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
 - EFS 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
 - Batch와 단일 AZ 제약: 현재 구조는 AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 EFS Mount Target이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없지만, Batch Job은 나중에 실행되므로 해당 AZ에 GPU capacity가 없으면 Job이 실행되지 않는다. 다른 AZ에 capacity가 있어도 서브넷과 Mount Target이 없어 fallback할 수 없다. 이를 해결하려면 여러 AZ에 프라이빗 서브넷과 EFS Mount Target을 미리 생성해야 하나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다. Batch Job 실행 시 capacity 부족이 발생하면 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
-- CreationPolicy 타임아웃: 60분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
+- CreationPolicy 타임아웃: 90분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
 - Ubuntu 24.04 (latest) 고유 제한:
   - External Script `install-dcv.sh`, `install-desktop.sh`가 24.04를 완전히 지원하지 않아 자체 로직으로 대체
@@ -666,7 +904,7 @@ isaac-lab-golden-template/
 | EFS | generalPurpose 성능 모드, 프라이빗 서브넷 Mount Target |
 | Batch Launch Template | ECS Optimized AMI, 250GB EBS gp3, EBS 암호화 |
 | Batch IAM Role | S3 읽기, ECS 컨테이너 서비스, EFS 전체, SSM |
-| DCV Instance | 200GB EBS, CreationPolicy |
+| DCV Instance | 300GB EBS gp3 암호화, CreationPolicy |
 | DCV IAM Role | S3 읽기, ECR 전체, EFS 전체, SSM, Secrets Manager (ARN 제한) |
 | Secrets Manager | 32자, 구두점 제외, ubuntu 사용자 |
 | VPC Flow Log | CloudWatch Logs, RetentionInDays: 1 |
@@ -694,7 +932,7 @@ isaac-lab-golden-template/
 | Wayland | 해당 없음 (22.04는 X11 기본) | Ubuntu 24.04에서 Wayland 비활성화 + nvidia-xconfig 스킵 | DCV X11 호환성 |
 | Isaac Sim EULA | 해당 없음 (4.x는 EULA 불필요) | 5.x Dockerfile에 ACCEPT_EULA=Y + USER root 자동 추가 | Isaac Sim 5.x 호환성 |
 | Docker 권한 | ubuntu 사용자 docker 그룹 미추가 | usermod -aG docker ubuntu 추가 | sudo 없이 docker 사용 |
-| CreationPolicy | 60분, 항상 성공 | 60분, 에러 시 즉시 실패 보고 | `trap ERR`로 에러 감지, cfn-signal에 실제 종료 코드 전달 |
+| CreationPolicy | 60분, 항상 성공 | 90분, 에러 시 즉시 실패 보고 | `trap ERR`로 에러 감지, cfn-signal에 실제 종료 코드 전달 |
 | Outputs | 4개 | 12개 | Batch CE 수동 생성 지원, CodeServerUrl 추가 |
 | IaC 도구 | CloudFormation YAML | CDK TypeScript (L1 Construct) | 타입 안전성, Construct 캡슐화 |
 

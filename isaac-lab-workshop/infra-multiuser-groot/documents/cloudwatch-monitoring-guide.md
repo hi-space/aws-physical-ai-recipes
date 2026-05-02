@@ -83,15 +83,16 @@ managedPolicyArns: [
 
 ### 2. UserData 스크립트
 
-`assets/userdata/cloudwatch-agent.sh`가 UserData 실행 순서 [3/6]으로 추가된다.
+`assets/userdata/cloudwatch-agent.sh`가 UserData 실행 순서 [3/7]으로 추가된다 (`enableCloudWatch=true` 시).
 
 ```
-[1/6] common.sh          - 시스템 업데이트, 데스크톱, DCV, ROS2, Docker
-[2/6] nvidia-driver.sh    - NVIDIA 드라이버 설치/업그레이드
-[3/6] cloudwatch-agent.sh - CloudWatch Agent 설치 및 시작 ← 추가
-[4/6] isaac-lab.sh        - Isaac Lab Docker 이미지 빌드
-[5/6] efs-mount.sh        - EFS 마운트 및 모델 다운로드
-[6/6] groot.sh            - GR00T 추론 서버 (선택)
+[1/7] common.sh          - 시스템 업데이트, 데스크톱, DCV, ROS2, Docker
+[2/7] nvidia-driver.sh    - NVIDIA 드라이버 설치/업그레이드
+[3/7] cloudwatch-agent.sh - CloudWatch Agent 설치 및 시작 (enableCloudWatch=true 시)
+[4/7] isaac-lab.sh        - Isaac Lab Docker 이미지 빌드
+[5/7] efs-mount.sh        - EFS 마운트 및 모델 다운로드
+[6/7] groot.sh            - GR00T 추론 서버 (grootRepoUrl 지정 시)
+[7/7] code-server.sh      - code-server 설치 (enableCodeServer=true 시, 기본 활성)
 ```
 
 nvidia-driver.sh 이후에 실행되어야 NVIDIA 드라이버(NVML)가 준비된 상태에서 `nvidia_gpu` 플러그인이 정상 동작한다.
