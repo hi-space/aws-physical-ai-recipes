@@ -1,28 +1,28 @@
 # Isaac Sim 대규모 Synthetic Data 생성
 #
 # 사용법:
-#   osmo workflow run -f sim-datagen.yaml
+#   osmo workflow submit sim-datagen.yaml
 #
-# 8개 Pod 병렬 실행 (총 32 GPU)으로 synthetic 데이터를 대량 생성한다.
-# 각 Pod에 OSMO_TASK_INDEX가 자동 주입되어 데이터를 shard 단위로 분할 저장한다.
+# 8개 Pod 병렬 실행 (총 32 GPU)으로 synthetic 데이터를 대량 생성합니다.
+# 각 Pod에 OSMO_TASK_INDEX가 자동 주입되어 데이터를 shard 단위로 분할 저장합니다.
 #
-# NOTE: 이 파일은 OSMO workflow YAML 예시입니다.
+# 참고: OSMO 버전에 따라 스펙이 다를 수 있습니다.
 # https://github.com/NVIDIA/OSMO
 
-name: isaac-sim-datagen
-
-stages:
-  - name: generate
-    image: nvcr.io/nvidia/isaac-sim:4.5.0
-    resources:
-      gpu: 4
-      node_pool: gpu-sim
-    parallelism: 8
-    command: |
-      python generate_data.py \
-        --env Isaac-Lift-Franka-v0 \
-        --num-episodes 10000 \
-        --output-dir /data/datasets/synthetic/lift-franka \
-        --shard-id ${OSMO_TASK_INDEX}
-    volumes:
-      - s3://bucket/datasets:/data/datasets
+workflow:
+  tasks:
+    - name: generate
+      image: nvcr.io/nvidia/isaac-sim:4.5.0
+      platform: gpu-sim
+      resources:
+        gpu: 4
+      parallelism: 8
+      command: |
+        python /opt/scripts/generate_data.py \
+          --env Isaac-Lift-Franka-v0 \
+          --num-episodes 10000 \
+          --output-dir /data/datasets/synthetic/lift-franka \
+          --shard-id ${OSMO_TASK_INDEX} \
+          --total-shards 8
+      volumes:
+        - s3://${OSMO_DATA_BUCKET}/datasets:/data/datasets

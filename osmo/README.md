@@ -151,37 +151,149 @@ osmo-controller-xxxxx-yyyyy       1/1     Running   0          5m
 osmo-scheduler-xxxxx-yyyyy        1/1     Running   0          5m
 ```
 
-#### 1.6.4 Workflow 실행
+#### 1.6.4 Workflow 제출
 
 ```bash
 # GR00T Fine-tuning → Isaac Sim 검증
-osmo workflow run -f workflows/groot-train-sim.yaml
+osmo workflow submit workflows/groot-train-sim.yaml
 
 # 대규모 Sim 데이터 생성
-osmo workflow run -f workflows/sim-datagen.yaml
+osmo workflow submit workflows/sim-datagen.yaml
 ```
 
 ***
 
-### 1.7 Workflow 예시
+### 1.7 Workflow 사용 가이드
 
-#### 1.7.1 GR00T Train → Sim 검증 (`workflows/groot-train-sim.yaml`)
+OSMO는 Physical AI 워크플로를 YAML로 정의하고 `osmo` CLI로 제출/모니터링합니다. GR00T 학습, Isaac Sim 검증 등 컨테이너 기반 작업을 선언적으로 오케스트레이션합니다.
 
-GR00T-N1.6-3B fine-tuning 완료 후 자동으로 Isaac Sim에서 학습된 policy를 검증하는 2-stage 파이프라인입니다.
+{% hint style="info" %}
+OSMO는 GR00T에 대한 별도 통합을 제공하지 않습니다. GR00T 컨테이너 이미지(`nvcr.io/nvidia/gr00t`)를 일반 워크로드로 실행하는 방식입니다. 학습 스크립트는 컨테이너에 포함되어 있거나 S3에서 마운트합니다.
+{% endhint %}
+
+#### 1.7.1 Workflow YAML 구조
+
+OSMO workflow YAML의 기본 구조입니다:
+
+```yaml
+workflow:
+  tasks:
+    - name: task-name          # 작업 식별자
+      image: container/image   # 실행할 컨테이너 이미지
+      platform: node-pool      # 타겟 노드 풀 (gpu-train, gpu-sim)
+      resources:
+        gpu: 4                 # 필요한 GPU 수
+      inputs:
+        - task: upstream-task  # 의존성 (이 작업 완료 후 실행)
+      parallelism: 8           # 동일 작업 병렬 실행 수
+      command: |               # 컨테이너 내 실행 명령
+        python train.py
+      volumes:
+        - s3://bucket/path:/mount/path  # S3 데이터 마운트
+```
+
+| 필드 | 설명 | 필수 |
+|------|------|------|
+| `name` | 작업 식별자 (workflow 내 고유) | O |
+| `image` | OCI 컨테이너 이미지 (NGC 등) | O |
+| `platform` | 스케줄링 대상 노드 풀 | O |
+| `resources.gpu` | 요청 GPU 수 | O |
+| `inputs` | 의존 작업 목록 (완료 후 실행) | X |
+| `parallelism` | 병렬 Pod 수 (각 Pod에 `OSMO_TASK_INDEX` 주입) | X |
+| `command` | 컨테이너 내 실행 명령 | O |
+| `volumes` | S3 볼륨 마운트 | X |
+
+#### 1.7.2 OSMO CLI 명령어
+
+워크플로 제출부터 완료까지 사용하는 핵심 CLI 명령어입니다:
+
+```bash
+# 워크플로 제출
+osmo workflow submit workflows/groot-train-sim.yaml
+
+# 변수 오버라이드 (S3 버킷명 등)
+osmo workflow submit workflows/groot-train-sim.yaml \
+  --set OSMO_DATA_BUCKET=my-osmo-bucket-alice
+
+# 상태 확인
+osmo workflow query <workflow-id>
+
+# 실행 중인 워크플로 목록
+osmo workflow list --status running
+
+# 특정 작업의 로그 확인
+osmo workflow logs <workflow-id> --task finetune
+
+# 워크플로 취소
+osmo workflow cancel <workflow-id>
+
+# YAML 문법 사전 검증
+osmo workflow validate workflows/groot-train-sim.yaml
+```
+
+#### 1.7.3 GR00T Fine-tuning 실행 예시
+
+GR00T 모델을 커스텀 데이터셋으로 fine-tuning하고 Isaac Sim에서 검증하는 전체 흐름입니다:
 
 ```mermaid
 flowchart LR
-    A["finetune\n(gpu-train, 4×L40S)"] -->|"완료 후"| B["verify-in-sim\n(gpu-sim, 1×L4)"]
-    A -->|"체크포인트"| S3["S3"]
-    S3 --> B
+    A["finetune\n(gpu-train, 4×L40S)"] -->|"체크포인트"| S3["S3"]
+    S3 -->|"모델 로드"| B["verify-in-sim\n(gpu-sim, 1×L4)"]
 ```
 
-| Stage | 이미지 | GPU | 역할 |
-|-------|--------|-----|------|
-| `finetune` | `nvcr.io/nvidia/gr00t:1.6.0` | 4 (gpu-train) | GR00T DDP fine-tuning |
-| `verify-in-sim` | `nvcr.io/nvidia/isaac-sim:4.5.0` | 1 (gpu-sim) | Isaac Sim policy 검증 |
+**Step 1. 데이터셋 업로드**
 
-#### 1.7.2 Isaac Sim 대규모 데이터 생성 (`workflows/sim-datagen.yaml`)
+학습에 사용할 데이터셋을 S3에 업로드합니다. CDK 배포 시 출력된 버킷명을 사용합니다.
+
+```bash
+# CDK Output에서 버킷명 확인
+export BUCKET=$(aws cloudformation describe-stacks --stack-name Osmo \
+  --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+  --output text)
+
+# 데이터셋 업로드 (LeRobot ALOHA 형식 예시)
+aws s3 sync ./my-aloha-dataset s3://$BUCKET/datasets/groot/aloha/
+```
+
+**Step 2. Workflow 제출**
+
+```bash
+osmo workflow submit workflows/groot-train-sim.yaml \
+  --set OSMO_DATA_BUCKET=$BUCKET
+```
+
+제출하면 OSMO가 다음을 자동으로 수행합니다:
+1. Cluster Autoscaler가 `gpu-train` 노드(g6e.12xlarge, 4×L40S) 프로비저닝
+2. `finetune` 작업 실행 — `torchrun`으로 4-GPU DDP 학습
+3. 학습 완료 후 체크포인트를 S3에 저장
+4. `gpu-sim` 노드(g5.12xlarge) 프로비저닝
+5. `verify-in-sim` 작업 실행 — Isaac Sim에서 policy 검증
+6. 완료 후 GPU 노드 자동 scale-down (10분 idle 후)
+
+**Step 3. 모니터링**
+
+```bash
+# 전체 워크플로 상태
+osmo workflow query <workflow-id>
+
+# 학습 로그 실시간 확인
+osmo workflow logs <workflow-id> --task finetune
+
+# 검증 결과 확인
+osmo workflow logs <workflow-id> --task verify-in-sim
+```
+
+**Step 4. 결과 확인**
+
+```bash
+# 학습된 체크포인트 확인
+aws s3 ls s3://$BUCKET/checkpoints/groot-aloha/
+
+# 로컬로 다운로드
+aws s3 cp s3://$BUCKET/checkpoints/groot-aloha/model_final.pt ./
+```
+
+#### 1.7.4 Isaac Sim 대규모 데이터 생성
 
 8개 Pod를 병렬(총 32 GPU)로 실행하여 synthetic 데이터를 대량 생성합니다.
 
@@ -197,6 +309,52 @@ flowchart TB
 ```
 
 각 Pod에 `OSMO_TASK_INDEX` 환경 변수가 자동 주입되어 데이터를 shard 단위로 분할 저장합니다.
+
+```bash
+osmo workflow submit workflows/sim-datagen.yaml \
+  --set OSMO_DATA_BUCKET=$BUCKET
+```
+
+#### 1.7.5 커스텀 Workflow 작성
+
+자신만의 학습 파이프라인을 작성하려면 `workflows/` 디렉토리에 YAML 파일을 추가합니다.
+
+**예시: 3-stage 파이프라인 (Sim DataGen → Train → Verify)**
+
+```yaml
+workflow:
+  tasks:
+    - name: datagen
+      image: nvcr.io/nvidia/isaac-sim:4.5.0
+      platform: gpu-sim
+      resources:
+        gpu: 4
+      parallelism: 4
+      command: |
+        python generate_data.py --output-dir /data/datasets/custom
+
+    - name: train
+      image: nvcr.io/nvidia/gr00t:1.6.0
+      platform: gpu-train
+      resources:
+        gpu: 4
+      inputs:
+        - task: datagen
+      command: |
+        torchrun --nproc_per_node=4 train.py --dataset /data/datasets/custom
+
+    - name: verify
+      image: nvcr.io/nvidia/isaac-sim:4.5.0
+      platform: gpu-sim
+      resources:
+        gpu: 1
+      inputs:
+        - task: train
+      command: |
+        python verify_policy.py --checkpoint /data/checkpoints/model_final.pt
+```
+
+`inputs` 필드로 의존 관계를 선언하면 OSMO가 자동으로 DAG를 구성하여 순서를 보장합니다.
 
 ***
 
@@ -280,7 +438,9 @@ osmo/
 ### References
 
 - [NVIDIA OSMO GitHub](https://github.com/NVIDIA/OSMO)
+- [OSMO Cookbook (Workflow 예시 모음)](https://github.com/NVIDIA/OSMO/tree/main/cookbook)
 - [OSMO Terraform AWS Example](https://github.com/NVIDIA/OSMO/tree/main/deployments/terraform/aws/example)
+- [NVIDIA GR00T (Generalist Robot 00 Technology)](https://developer.nvidia.com/isaac/groot)
 - [Amazon EKS 공식 문서](https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html)
 - [EKS Managed Node Groups](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html)
 - [이 레포의 HyperPod 레시피](../training/hyperpod/) — SLURM 기반 대안
