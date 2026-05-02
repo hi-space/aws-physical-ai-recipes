@@ -11,6 +11,7 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 | Training | [groot-sagemaker](./training/groot-sagemaker/) | GR00T-N1.6-3B VLA 모델 SageMaker 파인튜닝 및 실시간 추론 배포 | SageMaker, ECR, CodeBuild, S3 | Available |
 | Simulation | [isaac-lab-workshop](./isaac-lab-workshop/) | Isaac Lab 시뮬레이션 환경 구축, 멀티유저 인프라, 학습 모니터링 | EC2 (GPU), CDK, Batch, EFS | Available |
 | Tools | [tools](./tools/) | EC2 개발 환경 설정 (SSH, Bedrock, Claude Code, 플러그인) | EC2, CloudFront, CloudFormation | Available |
+| Orchestration | [osmo](./osmo/) | NVIDIA OSMO on EKS — Kubernetes 기반 Physical AI 워크플로 오케스트레이션 | EKS, RDS, ElastiCache, S3 | Available |
 
 ## Repository Structure
 
@@ -31,6 +32,10 @@ aws-physical-ai-recipes/
 │   ├── infra-multiuser-groot/         #   멀티유저 GPU 환경 CDK 프로젝트
 │   ├── exp/mlops-dashboard/           #   분산 학습 모니터링 대시보드 (Next.js)
 │   └── assets/                        #   시각화 스크린샷
+│
+├── osmo/                              # NVIDIA OSMO on EKS 레시피
+│   ├── cdk/                           #   EKS + 인프라 CDK 프로젝트
+│   └── workflows/                     #   OSMO workflow YAML 예시
 │
 └── tools/                             # EC2 개발 환경 설정
     ├── 01-setup-ssh-client.sh         #   SSH 키 생성 + config 설정
