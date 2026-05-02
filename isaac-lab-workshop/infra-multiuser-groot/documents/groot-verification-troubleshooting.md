@@ -28,48 +28,65 @@ ss -tlnp | grep 5555
 docker ps | grep groot
 ```
 
-### 3. ZMQ 추론 서버 테스트
+### 3. ZMQ Ping 테스트
 
 ```bash
-pip3 install pyzmq
+pip3 install pyzmq msgpack numpy
 
-# 서버 정보 조회
 python3 << 'EOF'
-import zmq, json
+import zmq, msgpack
 ctx = zmq.Context()
 sock = ctx.socket(zmq.REQ)
+sock.setsockopt(zmq.RCVTIMEO, 10000)
 sock.connect("tcp://localhost:5555")
-sock.send_json({"action": "get_server_info"})
-print(json.dumps(sock.recv_json(), indent=2))
+sock.send(msgpack.packb({"action": "ping"}))
+resp = msgpack.unpackb(sock.recv(), raw=False)
+print("Response:", resp)
+sock.close()
+ctx.term()
 EOF
 ```
 
-### 4. 더미 추론 테스트
+> GR00T 서버는 msgpack 바이너리 프로토콜을 사용한다. `send_json()` / `recv_json()`을 사용하면 `UnicodeDecodeError`가 발생한다.
+
+### 4. PolicyClient 추론 테스트
+
+`groot_docker` 내 `PolicyClient`를 사용하는 것이 가장 정확한 테스트 방법이다.
 
 ```bash
-python3 << 'EOF'
-import zmq, numpy as np
+cat > /tmp/test_groot.py << 'PYEOF'
+import numpy as np
+import time
+from gr00t.policy.server_client import PolicyClient
 
-ctx = zmq.Context()
-sock = ctx.socket(zmq.REQ)
-sock.connect("tcp://localhost:5555")
-
-sock.send_json({
-    "action": "infer",
-    "observation": {
-        "video.rgb": np.random.rand(1, 224, 224, 3).tolist(),
-        "state.joint_position": np.random.rand(1, 32).tolist(),
+policy = PolicyClient(host="localhost", port=5555)
+obs = {
+    "video": {"ego_view_bg_crop_pad_res256_freq20": np.random.randint(0, 255, (1, 1, 256, 256, 3), dtype=np.uint8)},
+    "state": {
+        "left_arm": np.random.rand(1, 1, 7).astype(np.float32),
+        "right_arm": np.random.rand(1, 1, 7).astype(np.float32),
+        "left_hand": np.random.rand(1, 1, 6).astype(np.float32),
+        "right_hand": np.random.rand(1, 1, 6).astype(np.float32),
+        "waist": np.random.rand(1, 1, 3).astype(np.float32),
     },
-    "embodiment_tag": "GR1",
-})
-
-resp = sock.recv_json()
-print("Result keys:", list(resp.keys()))
-print("Action shape:", np.array(resp.get("action", [])).shape)
-EOF
+    "language": {"task": [["pick up the apple"]]},
+}
+start = time.time()
+try:
+    action, info = policy.get_action(obs)
+    print(f"SUCCESS ({time.time()-start:.2f}s)")
+    if isinstance(action, dict):
+        for k, v in action.items():
+            print(f"  {k}: shape={v.shape if hasattr(v,'shape') else type(v)}")
+    elif isinstance(action, np.ndarray):
+        print(f"  Action shape: {action.shape}")
+except Exception as e:
+    print(f"ERROR: {e}")
+PYEOF
+PYTHONPATH=/home/ubuntu/environment/groot_docker/gr00t python3 /tmp/test_groot.py
 ```
 
-정상이면 `action` 키에 로봇 관절 명령 배열이 반환된다.
+정상이면 5개의 action 키에 shape `(1, 16, D)`의 관절 명령 배열이 반환된다.
 
 ### 5. 전체 상태 한 번에 확인
 
