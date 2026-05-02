@@ -56,53 +56,12 @@ EC2 (DCV Instance)
 
 멀티 GPU 인스턴스(예: g6.12xlarge, 4x NVIDIA L4)에서는 각 GPU별로 메트릭이 개별 수집되며, `gpu` dimension으로 구분된다.
 
-## CDK 변경 사항
+## 활성화 방법
 
-### 1. IAM 권한
-
-`dcv-instance.ts`의 IAM Role에 `CloudWatchAgentServerPolicy` 관리형 정책을 추가한다.
-
-```typescript
-managedPolicyArns: [
-  'arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess',
-  'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
-  'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
-  'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
-  'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy',  // 추가
-],
-```
-
-이 정책은 다음 권한을 부여한다:
-
-| 권한 | 용도 |
-|------|------|
-| `cloudwatch:PutMetricData` | 커스텀 메트릭 전송 |
-| `logs:CreateLogGroup` | 로그 그룹 자동 생성 |
-| `logs:CreateLogStream` | 로그 스트림 생성 |
-| `logs:PutLogEvents` | 로그 이벤트 전송 |
-
-### 2. UserData 스크립트
-
-`assets/userdata/cloudwatch-agent.sh`가 UserData 실행 순서 [3/7]으로 추가된다 (`enableCloudWatch=true` 시).
-
-```
-[1/7] common.sh          - 시스템 업데이트, 데스크톱, DCV, ROS2, Docker
-[2/7] nvidia-driver.sh    - NVIDIA 드라이버 설치/업그레이드
-[3/7] cloudwatch-agent.sh - CloudWatch Agent 설치 및 시작 (enableCloudWatch=true 시)
-[4/7] isaac-lab.sh        - Isaac Lab Docker 이미지 빌드
-[5/7] efs-mount.sh        - EFS 마운트 및 모델 다운로드
-[6/7] groot.sh            - GR00T 추론 서버 (grootRepoUrl 지정 시)
-[7/7] code-server.sh      - code-server 설치 (enableCodeServer=true 시, 기본 활성)
-```
-
-nvidia-driver.sh 이후에 실행되어야 NVIDIA 드라이버(NVML)가 준비된 상태에서 `nvidia_gpu` 플러그인이 정상 동작한다.
-
-### 3. Agent 설정 파일
-
-`assets/cloudwatch/amazon-cloudwatch-agent.json`에 수집 대상 메트릭과 네임스페이스를 정의한다.
+배포 시 `-c enableCloudWatch=true`를 지정하면 `cloudwatch-agent.sh`가 자동 실행되어 Agent를 설치하고 시작한다.
 
 - **네임스페이스**: `IsaacLab/Monitoring` (CloudWatch 콘솔에서 커스텀 네임스페이스로 조회)
-- **수집 간격**: 60초 (비용과 세분화 간 균형)
+- **수집 간격**: 60초
 - **자동 차원**: `InstanceId`, `InstanceType`이 모든 메트릭에 자동 태깅
 
 ## 배포 후 확인
