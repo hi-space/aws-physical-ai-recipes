@@ -1,0 +1,52 @@
+# OS 생성 파일
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE / 에디터
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# CDK 빌드 아티팩트
+cdk.out/
+cdk.out.*/
+
+# 임시 파일
+*.tmp
+*.bak
+*.log
+
+# 환경 변수 / 시크릿
+.env
+.env.*
+*.pem
+*.key
+
+# Node.js
+node_modules/
+
+# 루트 .gitignore의 lib/ 규칙을 CDK 프로젝트에서 해제
+!lib/
+!bin/
+
+# TypeScript 빌드 출력 (lib/, bin/ 내 컴파일 결과물만 무시)
+lib/**/*.js
+lib/**/*.d.ts
+lib/**/*.js.map
+bin/**/*.js
+bin/**/*.d.ts
+bin/**/*.js.map
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Claude
+.claude/
+CLAUDE.md
