@@ -1,39 +1,46 @@
-# GR00T Fine-tuning → Isaac Sim 검증 파이프라인
+# GR00T Fine-tuning → Isaac Sim Policy 검증 파이프라인
 #
 # 사용법:
-#   osmo workflow run -f groot-train-sim.yaml
+#   osmo workflow submit groot-train-sim.yaml
 #
-# NOTE: 이 파일은 OSMO workflow YAML 예시입니다.
-# 실제 OSMO 버전에 따라 스펙이 다를 수 있으므로 공식 문서를 참고하세요.
+# 2-stage 파이프라인:
+#   1. finetune: GR00T-N1 모델을 커스텀 데이터셋으로 fine-tuning (4×L40S)
+#   2. verify-in-sim: 학습된 policy를 Isaac Sim 환경에서 자동 검증 (1×L4)
+#
+# 참고: OSMO 버전에 따라 스펙이 다를 수 있습니다.
 # https://github.com/NVIDIA/OSMO
 
-name: groot-finetune-and-verify
+workflow:
+  tasks:
+    - name: finetune
+      image: nvcr.io/nvidia/gr00t:1.6.0
+      platform: gpu-train
+      resources:
+        gpu: 4
+      command: |
+        torchrun --nproc_per_node=4 \
+          /opt/gr00t/scripts/train.py \
+          --dataset /data/datasets/groot/aloha \
+          --output-dir /data/checkpoints/groot-aloha \
+          --model gr00t-n1-2b \
+          --epochs 50 \
+          --batch-size 32
+      volumes:
+        - s3://${OSMO_DATA_BUCKET}/datasets:/data/datasets
+        - s3://${OSMO_DATA_BUCKET}/checkpoints:/data/checkpoints
 
-stages:
-  - name: finetune
-    image: nvcr.io/nvidia/gr00t:1.6.0
-    resources:
-      gpu: 4
-      node_pool: gpu-train
-    command: |
-      torchrun --nproc_per_node=4 train_groot.py \
-        --dataset /data/datasets/groot/aloha \
-        --output-dir /data/checkpoints/groot-aloha \
-        --epochs 50
-    volumes:
-      - s3://bucket/datasets:/data/datasets
-      - s3://bucket/checkpoints:/data/checkpoints
-
-  - name: verify-in-sim
-    depends_on: [finetune]
-    image: nvcr.io/nvidia/isaac-sim:4.5.0
-    resources:
-      gpu: 1
-      node_pool: gpu-sim
-    command: |
-      python verify_in_sim.py \
-        --checkpoint /data/checkpoints/groot-aloha/model_final.pt \
-        --env Isaac-Lift-Franka-v0 \
-        --num-episodes 20
-    volumes:
-      - s3://bucket/checkpoints:/data/checkpoints
+    - name: verify-in-sim
+      image: nvcr.io/nvidia/isaac-sim:4.5.0
+      platform: gpu-sim
+      resources:
+        gpu: 1
+      inputs:
+        - task: finetune
+      command: |
+        python /opt/scripts/verify_policy.py \
+          --checkpoint /data/checkpoints/groot-aloha/model_final.pt \
+          --env Isaac-Lift-Franka-v0 \
+          --num-episodes 20 \
+          --success-threshold 0.8
+      volumes:
+        - s3://${OSMO_DATA_BUCKET}/checkpoints:/data/checkpoints
