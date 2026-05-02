@@ -103,7 +103,27 @@ export class EksClusterConstruct extends Construct {
       },
     });
 
-    // Cluster Autoscaler
+    // Cluster Autoscaler — IRSA (IAM Roles for Service Accounts)
+    const autoscalerSa = this.cluster.addServiceAccount('AutoscalerSA', {
+      name: 'cluster-autoscaler',
+      namespace: 'kube-system',
+    });
+    autoscalerSa.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: [
+        'autoscaling:DescribeAutoScalingGroups',
+        'autoscaling:DescribeAutoScalingInstances',
+        'autoscaling:DescribeLaunchConfigurations',
+        'autoscaling:DescribeScalingActivities',
+        'autoscaling:DescribeTags',
+        'autoscaling:SetDesiredCapacity',
+        'autoscaling:TerminateInstanceInAutoScalingGroup',
+        'ec2:DescribeLaunchTemplateVersions',
+        'ec2:DescribeInstanceTypes',
+        'eks:DescribeNodegroup',
+      ],
+      resources: ['*'],
+    }));
+
     this.cluster.addHelmChart('ClusterAutoscaler', {
       chart: 'cluster-autoscaler',
       repository: 'https://kubernetes.github.io/autoscaler',
@@ -113,6 +133,12 @@ export class EksClusterConstruct extends Construct {
           clusterName: this.cluster.clusterName,
         },
         awsRegion: cdk.Aws.REGION,
+        rbac: {
+          serviceAccount: {
+            create: false,
+            name: 'cluster-autoscaler',
+          },
+        },
         extraArgs: {
           'scale-down-delay-after-add': '10m',
           'scale-down-unneeded-time': '10m',

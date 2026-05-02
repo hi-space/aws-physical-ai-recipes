@@ -3,6 +3,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 export interface DataStoresProps {
@@ -18,6 +19,7 @@ export class DataStoresConstruct extends Construct {
   public readonly dbPort: string;
   public readonly redisEndpoint: string;
   public readonly redisPort: string;
+  public readonly dbSecret: secretsmanager.CfnSecret;
 
   constructor(scope: Construct, id: string, props: DataStoresProps) {
     super(scope, id);
@@ -44,6 +46,19 @@ export class DataStoresConstruct extends Construct {
         }],
       },
       tags: [{ key: 'Name', value: `${p}-Data` }],
+    });
+
+    // --- Secrets Manager (DB Password) ---
+    this.dbSecret = new secretsmanager.CfnSecret(this, 'DbSecret', {
+      name: `${p}-db-secret`.toLowerCase(),
+      description: 'OSMO RDS PostgreSQL credentials',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'osmo' }),
+        generateStringKey: 'password',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      tags: [{ key: 'Name', value: `${p}-DB-Secret` }],
     });
 
     // --- RDS Security Group ---
@@ -75,9 +90,7 @@ export class DataStoresConstruct extends Construct {
       dbInstanceClass: 'db.t3.medium',
       allocatedStorage: '20',
       masterUsername: 'osmo',
-      masterUserPassword: cdk.Fn.join('', [
-        '{{resolve:secretsmanager:', `${p}-db-secret`.toLowerCase(), ':SecretString:password}}',
-      ]),
+      masterUserPassword: `{{resolve:secretsmanager:${this.dbSecret.ref}:SecretString:password}}`,
       vpcSecurityGroups: [dbSG.ref],
       dbSubnetGroupName: dbSubnetGroup.ref,
       multiAz: false,
