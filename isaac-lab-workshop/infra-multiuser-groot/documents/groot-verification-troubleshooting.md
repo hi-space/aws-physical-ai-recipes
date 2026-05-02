@@ -107,7 +107,7 @@ sudo journalctl -u groot-docker-build.service --no-pager -n 100
 |------|------|------|
 | `nvcr.io/nvidia/pytorch:25.04-py3` pull 실패 | NGC 레지스트리 접근 불가 또는 rate limit | 재시도: `sudo systemctl restart groot-docker-build.service` |
 | `pip install` 실패 | 네트워크 또는 의존성 충돌 | 로그에서 실패 패키지 확인 후 수동 빌드: `cd /home/ubuntu/environment/groot_docker && docker build -t groot-n1:latest .` |
-| 디스크 공간 부족 | pytorch 이미지 ~15GB + 빌드 캐시 | `docker system prune -f` 후 재시도. EBS 200GB에서 부족하면 볼륨 확장 필요 |
+| 디스크 공간 부족 | pytorch 이미지 ~15GB + 빌드 캐시 | `docker system prune -f` 후 재시도. EBS 300GB에서 부족하면 볼륨 확장 필요 |
 
 ### groot-inference.service 실패
 
