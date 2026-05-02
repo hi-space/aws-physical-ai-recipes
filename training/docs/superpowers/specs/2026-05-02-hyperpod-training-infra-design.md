@@ -33,14 +33,23 @@ SLURM 템플릿, 예시 코드, 가이드 문서를 함께 제공한다.
 
 ### 멀티유저 격리
 
-기존 `infra-multiuser-groot` 패턴과 동일하게 사용자별 VPC + 클러스터 완전 격리:
+기존 `infra-multiuser-groot` 패턴과 동일하게 사용자별 클러스터 완전 격리:
 
 ```bash
-cdk deploy -c userId=alice   # alice 전용 VPC + 클러스터 + 스토리지
-cdk deploy -c userId=bob     # bob 전용 VPC + 클러스터 + 스토리지
+# 새 VPC 생성 (기본)
+cdk deploy -c userId=alice
+cdk deploy -c userId=bob
+
+# 기존 VPC 재사용 (UserId 태그로 자동 탐색)
+cdk deploy -c userId=alice -c createVpc=false
+
+# Train 인스턴스 프리셋 사용
+cdk deploy -c userId=alice -c trainPreset=heavy    # p4d.24xlarge (8×A100)
+cdk deploy -c userId=alice -c trainPreset=max      # p5.48xlarge (8×H100)
 ```
 
-격리 리소스: VPC, S3 Bucket, FSx for Lustre, HyperPod Cluster, MLflow Server
+격리 리소스: VPC(선택적), S3 Bucket, FSx for Lustre, HyperPod Cluster, MLflow Server
+VPC 재사용: `createVpc=false` 시 동일 userId의 기존 VPC를 태그로 자동 탐색
 식별: 스택명/리소스명에 userId 포함, UserId 태그로 비용 추적
 
 ### 인프라 다이어그램
@@ -263,12 +272,22 @@ training/hyperpod/
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
 | userId | (필수) | 사용자 식별자 (스택/리소스 격리) |
+| createVpc | true | false이면 UserId 태그로 기존 VPC 자동 탐색하여 재사용 |
 | simMaxCount | 16 | sim 파티션 최대 인스턴스 수 |
 | trainMaxCount | 4 | train 파티션 최대 인스턴스 수 |
 | simInstanceType | ml.g5.12xlarge | sim 파티션 인스턴스 타입 |
-| trainInstanceType | ml.g6e.12xlarge | train 파티션 인스턴스 타입 |
+| trainInstanceType | ml.g6e.12xlarge | train 파티션 인스턴스 타입 (직접 지정) |
+| trainPreset | (없음) | train 프리셋: default(g6e), heavy(p4d), max(p5) |
 | fsxCapacityGiB | 1200 | FSx 용량 (GiB) |
 | simUseSpot | true | sim 파티션 Spot 사용 여부 |
+
+#### Train 인스턴스 프리셋
+
+| 프리셋 | 인스턴스 | GPU | 적합한 작업 |
+|--------|---------|-----|------------|
+| default | ml.g6e.12xlarge | 4× L40S (48GB) | GR00T-3B LoRA/Full SFT |
+| heavy | ml.p4d.24xlarge | 8× A100 (40GB) | 대규모 VLA, 멀티노드 |
+| max | ml.p5.48xlarge | 8× H100 (80GB) | 큰 모델 full fine-tuning |
 
 ### CDK 스택 생성 리소스
 

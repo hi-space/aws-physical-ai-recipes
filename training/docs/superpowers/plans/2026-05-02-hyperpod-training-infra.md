@@ -183,6 +183,21 @@ export interface ClusterDefaults {
   debug: InstanceGroupConfig;
 }
 
+/**
+ * Train 인스턴스 타입 프리셋
+ *
+ * | 프리셋  | 인스턴스           | GPU             | 적합한 작업                    |
+ * |---------|-------------------|-----------------|-------------------------------|
+ * | default | ml.g6e.12xlarge   | 4× L40S (48GB)  | GR00T-3B LoRA/Full SFT        |
+ * | heavy   | ml.p4d.24xlarge   | 8× A100 (40GB)  | 대규모 VLA, 멀티노드            |
+ * | max     | ml.p5.48xlarge    | 8× H100 (80GB)  | 큰 모델 full fine-tuning       |
+ */
+export const TRAIN_INSTANCE_PRESETS: Record<string, string> = {
+  default: 'ml.g6e.12xlarge',
+  heavy: 'ml.p4d.24xlarge',
+  max: 'ml.p5.48xlarge',
+};
+
 export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
   head: {
     name: 'head',
@@ -221,15 +236,20 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
+import { TRAIN_INSTANCE_PRESETS } from '../lib/config/cluster-config';
 
 const app = new cdk.App();
 
 const userId = app.node.tryGetContext('userId') ?? '';
 const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION;
+const createVpc = (app.node.tryGetContext('createVpc') ?? 'true') === 'true';
 const simMaxCount = parseInt(app.node.tryGetContext('simMaxCount') ?? '16', 10);
 const trainMaxCount = parseInt(app.node.tryGetContext('trainMaxCount') ?? '4', 10);
 const simInstanceType = app.node.tryGetContext('simInstanceType') ?? 'ml.g5.12xlarge';
-const trainInstanceType = app.node.tryGetContext('trainInstanceType') ?? 'ml.g6e.12xlarge';
+const trainPreset = app.node.tryGetContext('trainPreset') ?? '';  // default | heavy | max
+const trainInstanceType = trainPreset
+  ? (TRAIN_INSTANCE_PRESETS[trainPreset] ?? 'ml.g6e.12xlarge')
+  : (app.node.tryGetContext('trainInstanceType') ?? 'ml.g6e.12xlarge');
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 const simUseSpot = (app.node.tryGetContext('simUseSpot') ?? 'true') === 'true';
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
@@ -249,6 +269,7 @@ const stackName = `HyperPod${userSuffix}`;
 new HyperPodStack(app, stackName, {
   env,
   userId,
+  createVpc,
   vpcCidr,
   simMaxCount,
   trainMaxCount,
@@ -295,6 +316,10 @@ import { Construct } from 'constructs';
 export interface NetworkingProps {
   namePrefix: string;
   vpcCidr?: string;
+  /** false이면 UserId 태그로 기존 VPC를 자동 탐색 */
+  createVpc?: boolean;
+  /** 기존 VPC 탐색 시 사용할 UserId 태그 값 */
+  userId?: string;
 }
 
 export class NetworkingConstruct extends Construct {
@@ -302,15 +327,68 @@ export class NetworkingConstruct extends Construct {
   public readonly publicSubnet: ec2.CfnSubnet;
   public readonly privateSubnet: ec2.CfnSubnet;
   public readonly privateRouteTable: ec2.CfnRouteTable;
+  /** 기존 VPC 사용 시 조회된 VPC ID */
+  public readonly vpcId: string;
+  /** 기존 VPC 사용 시 조회된 Private Subnet ID */
+  public readonly privateSubnetId: string;
 
   constructor(scope: Construct, id: string, props: NetworkingProps) {
     super(scope, id);
 
+    const createVpc = props.createVpc ?? true;
+    const p = props.namePrefix;
+
+    // --- 기존 VPC 자동 탐색 모드 ---
+    if (!createVpc) {
+      const vpcLookup = new cr.AwsCustomResource(this, 'VpcLookup', {
+        onCreate: {
+          service: 'EC2',
+          action: 'describeVpcs',
+          parameters: {
+            Filters: [{ Name: 'tag:UserId', Values: [props.userId ?? ''] }],
+          },
+          physicalResourceId: cr.PhysicalResourceId.of('vpc-lookup'),
+        },
+        installLatestAwsSdk: false,
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+        }),
+      });
+      this.vpcId = vpcLookup.getResponseField('Vpcs.0.VpcId');
+
+      const subnetLookup = new cr.AwsCustomResource(this, 'SubnetLookup', {
+        onCreate: {
+          service: 'EC2',
+          action: 'describeSubnets',
+          parameters: {
+            Filters: [
+              { Name: 'vpc-id', Values: [this.vpcId] },
+              { Name: 'tag:Name', Values: ['*Private*'] },
+            ],
+          },
+          physicalResourceId: cr.PhysicalResourceId.of('subnet-lookup'),
+        },
+        installLatestAwsSdk: false,
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+        }),
+      });
+      this.privateSubnetId = subnetLookup.getResponseField('Subnets.0.SubnetId');
+
+      // CfnVPC/CfnSubnet 참조는 사용하지 않지만 인터페이스 호환을 위해 null 할당
+      // 실제 구현에서는 Fn.importValue 또는 별도 인터페이스로 처리
+      this.vpc = undefined as any;
+      this.publicSubnet = undefined as any;
+      this.privateSubnet = undefined as any;
+      this.privateRouteTable = undefined as any;
+      return;
+    }
+
+    // --- 새 VPC 생성 모드 ---
     const vpcCidr = props.vpcCidr ?? '10.0.0.0/16';
     const cidrPrefix = vpcCidr.split('.').slice(0, 2).join('.');
     const publicSubnetCidr = `${cidrPrefix}.0.0/24`;
     const privateSubnetCidr = `${cidrPrefix}.1.0/24`;
-    const p = props.namePrefix;
 
     // VPC
     this.vpc = new ec2.CfnVPC(this, 'VPC', {
@@ -839,6 +917,7 @@ import { DEFAULT_CLUSTER_CONFIG } from './config/cluster-config';
 
 export interface HyperPodStackProps extends cdk.StackProps {
   userId: string;
+  createVpc: boolean;
   vpcCidr: string;
   simMaxCount: number;
   trainMaxCount: number;
@@ -880,6 +959,8 @@ export class HyperPodStack extends cdk.Stack {
     // 1. Networking
     const networking = new NetworkingConstruct(this, 'Networking', {
       namePrefix,
+      createVpc: props.createVpc,
+      userId: props.userId,
       vpcCidr: props.vpcCidr,
     });
 
