@@ -4,6 +4,7 @@ export interface InstanceGroupConfig {
   instanceCount: number;
   maxCount: number;
   useSpot: boolean;
+  slurmNodeType: 'Controller' | 'Compute';
 }
 
 export interface ClusterDefaults {
@@ -35,6 +36,7 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
     instanceCount: 1,
     maxCount: 1,
     useSpot: false,
+    slurmNodeType: 'Controller',
   },
   sim: {
     name: 'sim',
@@ -42,6 +44,7 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
     instanceCount: 0,
     maxCount: 16,
     useSpot: true,
+    slurmNodeType: 'Compute',
   },
   train: {
     name: 'train',
@@ -49,6 +52,7 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
     instanceCount: 0,
     maxCount: 4,
     useSpot: false,
+    slurmNodeType: 'Compute',
   },
   debug: {
     name: 'debug',
@@ -56,5 +60,6 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
     instanceCount: 0,
     maxCount: 1,
     useSpot: false,
+    slurmNodeType: 'Compute',
   },
 };

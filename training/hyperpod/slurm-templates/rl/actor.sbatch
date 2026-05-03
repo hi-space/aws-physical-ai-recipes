@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=rl-actor
-#SBATCH --partition=sim
+#SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=4
 #SBATCH --time=24:00:00

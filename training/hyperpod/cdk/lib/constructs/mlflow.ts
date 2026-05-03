@@ -36,6 +36,7 @@ export class MlflowConstruct extends Construct {
     this.trackingServerArn = trackingServer.getAtt('TrackingServerArn').toString();
     this.trackingUri = cdk.Fn.join('', ['https://', cdk.Aws.REGION, '.experiments.sagemaker.aws/mlflow/', `${p}-mlflow`.toLowerCase()]);
 
-    new cdk.CfnOutput(this, 'MlflowTrackingUri', { value: this.trackingUri, description: 'SageMaker MLflow Tracking URI' });
+    new cdk.CfnOutput(this, 'MlflowTrackingUri', { value: this.trackingUri, description: 'MLflow UI URL (browser)' });
+    new cdk.CfnOutput(this, 'MlflowTrackingArn', { value: `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:mlflow-tracking-server/${`${p}-mlflow`.toLowerCase()}`, description: 'MLflow Tracking ARN (for Python SDK)' });
   }
 }

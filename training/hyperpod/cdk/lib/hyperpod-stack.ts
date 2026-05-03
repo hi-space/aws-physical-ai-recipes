@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import { NetworkingConstruct } from './constructs/networking';
 import { StorageConstruct } from './constructs/storage';
 import { HyperPodClusterConstruct } from './constructs/hyperpod-cluster';
+import { JumpHostConstruct } from './constructs/jump-host';
 import { MlflowConstruct } from './constructs/mlflow';
 import { DEFAULT_CLUSTER_CONFIG } from './config/cluster-config';
 
@@ -60,14 +61,28 @@ export class HyperPodStack extends cdk.Stack {
       privateSubnetId: networking.privateSubnetId,
       fsxSecurityGroup: storage.securityGroup,
       dataBucket: storage.bucket,
+      endpointSG: networking.endpointSG,
+      ssmEndpoints: networking.ssmEndpoints,
       ...clusterConfig,
     });
 
-    // 4. MLflow
-    new MlflowConstruct(this, 'MLflow', {
+    // 4. Jump Host for SSH access to cluster nodes
+    const jumpHost = new JumpHostConstruct(this, 'JumpHost', {
       namePrefix,
-      artifactBucket: storage.bucket,
+      vpcId: networking.vpcId,
+      publicSubnetId: networking.publicSubnetId,
+      clusterSecurityGroupId: cluster.clusterSecurityGroupId,
+      lifecycleBucketName: cluster.lifecycleBucket.ref,
     });
+
+    // 5. MLflow - skip if already exists (handles orphaned resources from failed deploys)
+    const enableMlflow = (this.node.tryGetContext('enableMlflow') ?? 'true') === 'true';
+    if (enableMlflow) {
+      new MlflowConstruct(this, 'MLflow', {
+        namePrefix,
+        artifactBucket: storage.bucket,
+      });
+    }
 
     // Stack Outputs
     new cdk.CfnOutput(this, 'S3BucketName', { value: storage.bucket.ref, description: 'Data S3 Bucket' });

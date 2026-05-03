@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dcv-debug
-#SBATCH --partition=debug
+#SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
 #SBATCH --time=4:00:00

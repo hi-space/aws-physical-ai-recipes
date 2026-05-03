@@ -37,11 +37,11 @@ def example_rl_logging():
 
 def example_vla_logging():
     """VLA 학습 중 MLflow 기록 예시."""
-    mlflow.set_experiment("vla-groot-demo")
+    mlflow.set_experiment("groot-n1.7-finetune")
 
     with mlflow.start_run(run_name="groot-aloha-finetune"):
         mlflow.log_params({
-            "model": "GR00T-N1.6-3B",
+            "model": "GR00T-N1.7-3B",
             "dataset": "aloha",
             "epochs": 50,
             "batch_size": 32,

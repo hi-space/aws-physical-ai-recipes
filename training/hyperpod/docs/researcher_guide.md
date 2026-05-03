@@ -104,31 +104,81 @@ aws s3 ls s3://hyperpod-data-ACCOUNT-REGION/checkpoints/vla/ --recursive --human
 
 ### 4.1 GR00T 학습
 
-#### 단일 노드
+GR00T fine-tuning은 NVIDIA Isaac-GR00T 공식 파이프라인(`Gr00tTrainer` + `TrainingRunner`)을 사용합니다.
+
+#### Step 1: 데이터 준비
+
+데이터셋은 LeRobot v2 형식이어야 합니다:
+
+```
+/fsx/datasets/groot/aloha/
+├── meta/
+│   ├── info.json          # 데이터셋 메타 정보
+│   ├── episodes.jsonl     # 에피소드 목록
+│   ├── tasks.jsonl        # 태스크 설명
+│   └── modality.json      # 센서/액션 매핑 (GR00T 필수)
+├── data/
+│   └── *.parquet          # 상태/액션 데이터
+└── videos/
+    └── *.mp4              # 카메라 영상
+```
+
+데이터셋 검증:
 
 ```bash
-cd /fsx/scratch
+python /fsx/scratch/vla/prepare_dataset.py \
+  --dataset-path /fsx/datasets/groot/aloha \
+  --validate
+```
 
-# run_vla.sh 래퍼 사용
-bash /path/to/run_vla.sh --model groot --dataset aloha --epochs 50
+#### Step 2: Modality Config 선택
 
-# 또는 sbatch 직접 제출
+로봇에 맞는 modality config를 선택합니다:
+
+| Config | 로봇 | 설명 |
+|--------|------|------|
+| `aloha` | ALOHA | Bimanual, front camera, 14-DOF |
+| `so100` | SO-100 | Single arm, front+wrist camera, 7-DOF |
+
+커스텀 로봇은 `modality_configs/` 디렉토리에 새 `.py` 파일을 추가하세요.
+
+#### Step 3: 학습 실행
+
+```bash
+# 기본 설정 (ALOHA, 5000 steps)
 sbatch \
-  --export=ALL,DATASET=aloha,EPOCHS=50 \
+  --export=ALL,DATASET=aloha,MODALITY_CONFIG=aloha \
+  /path/to/finetune_groot.sbatch
+
+# 커스텀 설정
+sbatch \
+  --export=ALL,DATASET=my_robot,MODALITY_CONFIG=/fsx/configs/my_robot.py,EMBODIMENT_TAG=NEW_EMBODIMENT,MAX_STEPS=10000,BATCH_SIZE=16,LR=1e-5 \
   /path/to/finetune_groot.sbatch
 ```
 
 #### 멀티노드
 
 ```bash
-# 4개 노드에서 분산 학습
+# 4개 노드 (16 GPU) 분산 학습
 sbatch \
   --nodes=4 \
-  --export=ALL,DATASET=aloha,EPOCHS=50 \
+  --export=ALL,DATASET=aloha,MAX_STEPS=10000 \
   /path/to/finetune_groot.sbatch
 ```
 
-GR00T 작업 모니터링:
+#### 주요 파라미터
+
+| 파라미터 | 기본값 | 설명 |
+|----------|--------|------|
+| `MAX_STEPS` | 5000 | 총 학습 스텝 수 |
+| `BATCH_SIZE` | 32 | GPU당 배치 크기 |
+| `LR` | 2e-5 | 학습률 |
+| `SAVE_STEPS` | 500 | 체크포인트 저장 간격 |
+| `STATE_DROPOUT` | 0.3 | State dropout 확률 |
+| `MODALITY_CONFIG` | aloha | Modality 설정 (이름 또는 .py 경로) |
+| `EMBODIMENT_TAG` | NEW_EMBODIMENT | 로봇 embodiment 태그 |
+
+#### 작업 모니터링
 
 ```bash
 # 작업 상태 확인

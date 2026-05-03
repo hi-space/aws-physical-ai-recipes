@@ -40,6 +40,8 @@ export class StorageConstruct extends Construct {
       tags: [{ key: 'Name', value: `${p}-FSx-SG` }],
     });
 
+    // PERSISTENT_2 does not support importPath/exportPath inline.
+    // Must use separate DataRepositoryAssociation resources.
     this.fileSystem = new fsx.CfnFileSystem(this, 'LustreFS', {
       fileSystemType: 'LUSTRE',
       storageCapacity: props.fsxCapacityGiB,
@@ -49,11 +51,30 @@ export class StorageConstruct extends Construct {
         deploymentType: 'PERSISTENT_2',
         perUnitStorageThroughput: 125,
         dataCompressionType: 'LZ4',
-        importPath: cdk.Fn.join('', ['s3://', this.bucket.ref, '/datasets']),
-        exportPath: cdk.Fn.join('', ['s3://', this.bucket.ref, '/checkpoints']),
-        autoImportPolicy: 'NEW_CHANGED_DELETED',
       },
       tags: [{ key: 'Name', value: `${p}-FSx` }],
+    });
+
+    // datasets/ → auto-import from S3
+    new fsx.CfnDataRepositoryAssociation(this, 'DRADatasets', {
+      fileSystemId: this.fileSystem.ref,
+      fileSystemPath: '/datasets',
+      dataRepositoryPath: cdk.Fn.join('', ['s3://', this.bucket.ref, '/datasets']),
+      s3: {
+        autoImportPolicy: { events: ['NEW', 'CHANGED', 'DELETED'] },
+      },
+      tags: [{ key: 'Name', value: `${p}-DRA-Datasets` }],
+    });
+
+    // checkpoints/ → auto-export to S3
+    new fsx.CfnDataRepositoryAssociation(this, 'DRACheckpoints', {
+      fileSystemId: this.fileSystem.ref,
+      fileSystemPath: '/checkpoints',
+      dataRepositoryPath: cdk.Fn.join('', ['s3://', this.bucket.ref, '/checkpoints']),
+      s3: {
+        autoExportPolicy: { events: ['NEW', 'CHANGED', 'DELETED'] },
+      },
+      tags: [{ key: 'Name', value: `${p}-DRA-Checkpoints` }],
     });
   }
 }

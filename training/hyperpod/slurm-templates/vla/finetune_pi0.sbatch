@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=pi0-finetune
-#SBATCH --partition=train
+#SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-gpu=12
