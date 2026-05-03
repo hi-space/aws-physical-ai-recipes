@@ -15,10 +15,13 @@ export interface NetworkingProps {
 export class NetworkingConstruct extends Construct {
   public readonly vpcId: string;
   public readonly privateSubnetId: string;
+  public readonly publicSubnetId: string;
   public readonly vpc?: ec2.CfnVPC;
   public readonly publicSubnet?: ec2.CfnSubnet;
   public readonly privateSubnet?: ec2.CfnSubnet;
   public readonly privateRouteTable?: ec2.CfnRouteTable;
+  public readonly endpointSG?: ec2.CfnSecurityGroup;
+  public readonly ssmEndpoints: ec2.CfnVPCEndpoint[] = [];
 
   constructor(scope: Construct, id: string, props: NetworkingProps) {
     super(scope, id);
@@ -55,6 +58,23 @@ export class NetworkingConstruct extends Construct {
         policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE }),
       });
       this.privateSubnetId = subnetLookup.getResponseField('Subnets.0.SubnetId');
+
+      const publicSubnetLookup = new cr.AwsCustomResource(this, 'PublicSubnetLookup', {
+        onCreate: {
+          service: 'EC2',
+          action: 'describeSubnets',
+          parameters: {
+            Filters: [
+              { Name: 'vpc-id', Values: [this.vpcId] },
+              { Name: 'tag:Name', Values: ['*Public*'] },
+            ],
+          },
+          physicalResourceId: cr.PhysicalResourceId.of('public-subnet-lookup'),
+        },
+        installLatestAwsSdk: false,
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE }),
+      });
+      this.publicSubnetId = publicSubnetLookup.getResponseField('Subnets.0.SubnetId');
       return;
     }
 
@@ -64,11 +84,16 @@ export class NetworkingConstruct extends Construct {
     const publicSubnetCidr = `${cidrPrefix}.0.0/24`;
     const privateSubnetCidr = `${cidrPrefix}.1.0/24`;
 
+    const vpcTags: { key: string; value: string }[] = [{ key: 'Name', value: `${p}-VPC` }];
+    if (props.userId) {
+      vpcTags.push({ key: 'UserId', value: props.userId });
+    }
+
     const vpc = new ec2.CfnVPC(this, 'VPC', {
       cidrBlock: vpcCidr,
       enableDnsSupport: true,
       enableDnsHostnames: true,
-      tags: [{ key: 'Name', value: `${p}-VPC` }],
+      tags: vpcTags,
     });
     this.vpc = vpc;
     this.vpcId = vpc.ref;
@@ -89,6 +114,7 @@ export class NetworkingConstruct extends Construct {
       tags: [{ key: 'Name', value: `${p}-Public` }],
     });
     this.publicSubnet = publicSubnet;
+    this.publicSubnetId = publicSubnet.ref;
 
     const publicRT = new ec2.CfnRouteTable(this, 'PublicRT', { vpcId: vpc.ref, tags: [{ key: 'Name', value: `${p}-Public-RT` }] });
     const publicRoute = new ec2.CfnRoute(this, 'PublicRoute', { routeTableId: publicRT.ref, destinationCidrBlock: '0.0.0.0/0', gatewayId: igw.ref });
@@ -123,13 +149,37 @@ export class NetworkingConstruct extends Construct {
     });
 
     // SageMaker API Interface Endpoint (for MLflow)
+    const endpointSG = new ec2.CfnSecurityGroup(this, 'EndpointSG', {
+      groupDescription: 'VPC Endpoint access from private subnet',
+      vpcId: vpc.ref,
+      securityGroupIngress: [{ ipProtocol: 'tcp', fromPort: 443, toPort: 443, cidrIp: privateSubnetCidr, description: 'HTTPS from private subnet' }],
+      securityGroupEgress: [{ ipProtocol: '-1', cidrIp: '0.0.0.0/0' }],
+      tags: [{ key: 'Name', value: `${p}-Endpoint-SG` }],
+    });
+
     new ec2.CfnVPCEndpoint(this, 'SageMakerApiEndpoint', {
       vpcId: vpc.ref,
       serviceName: `com.amazonaws.${cdk.Aws.REGION}.sagemaker.api`,
       vpcEndpointType: 'Interface',
       subnetIds: [privateSubnet.ref],
+      securityGroupIds: [endpointSG.ref],
       privateDnsEnabled: true,
     });
+
+    // SSM endpoints for cluster node access (must be ready before cluster boots)
+    for (const svc of ['ssm', 'ssmmessages', 'ec2messages']) {
+      const ep = new ec2.CfnVPCEndpoint(this, `${svc}Endpoint`, {
+        vpcId: vpc.ref,
+        serviceName: `com.amazonaws.${cdk.Aws.REGION}.${svc}`,
+        vpcEndpointType: 'Interface',
+        subnetIds: [privateSubnet.ref],
+        securityGroupIds: [endpointSG.ref],
+        privateDnsEnabled: true,
+      });
+      this.ssmEndpoints.push(ep);
+    }
+
+    this.endpointSG = endpointSG;
 
     // VPC Flow Log
     const logGroup = new logs.CfnLogGroup(this, 'FlowLogGroup', { retentionInDays: 7, tags: [{ key: 'Name', value: `${p}-FlowLog` }] });

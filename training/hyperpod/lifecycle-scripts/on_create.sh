@@ -1,19 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "[on_create] Starting node initialization..."
+echo "[on_create] Instance group: ${SAGEMAKER_INSTANCE_GROUP_NAME:-unknown}"
+echo "[on_create] Hostname: $(hostname)"
 
-# Enroot 설치
+# Detect package manager
+if command -v yum &>/dev/null; then
+  PKG_MGR="yum"
+elif command -v apt-get &>/dev/null; then
+  PKG_MGR="apt-get"
+else
+  echo "[on_create] WARNING: No supported package manager found."
+  PKG_MGR=""
+fi
+
+# Install Enroot (container runtime)
 ENROOT_VERSION="3.5.0"
-curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot_${ENROOT_VERSION}-1_amd64.deb"
-curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot+caps_${ENROOT_VERSION}-1_amd64.deb"
-apt-get update -y
-apt-get install -y ./"enroot_${ENROOT_VERSION}-1_amd64.deb" ./"enroot+caps_${ENROOT_VERSION}-1_amd64.deb"
-rm -f enroot*.deb
+if ! command -v enroot &>/dev/null; then
+  cd /tmp
+  if [ "$PKG_MGR" = "yum" ]; then
+    curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot-${ENROOT_VERSION}-1.el8.x86_64.rpm"
+    curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot+caps-${ENROOT_VERSION}-1.el8.x86_64.rpm"
+    yum install -y ./enroot-${ENROOT_VERSION}-1.el8.x86_64.rpm ./enroot+caps-${ENROOT_VERSION}-1.el8.x86_64.rpm || \
+      echo "[on_create] WARNING: Enroot install failed, continuing..."
+    rm -f /tmp/enroot*.rpm
+  elif [ "$PKG_MGR" = "apt-get" ]; then
+    curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot_${ENROOT_VERSION}-1_amd64.deb"
+    curl -fSsL -O "https://github.com/NVIDIA/enroot/releases/download/v${ENROOT_VERSION}/enroot+caps_${ENROOT_VERSION}-1_amd64.deb"
+    apt-get update -y
+    apt-get install -y ./enroot_${ENROOT_VERSION}-1_amd64.deb ./enroot+caps_${ENROOT_VERSION}-1_amd64.deb || \
+      echo "[on_create] WARNING: Enroot install failed, continuing..."
+    rm -f /tmp/enroot*.deb
+  fi
+fi
 
-# Enroot 설정
-mkdir -p /etc/enroot
-cat > /etc/enroot/enroot.conf <<'ENROOT_CONF'
+# Configure Enroot if installed
+if command -v enroot &>/dev/null; then
+  mkdir -p /etc/enroot
+  cat > /etc/enroot/enroot.conf <<'ENROOT_CONF'
 ENROOT_RUNTIME_PATH=/run/enroot/user-$(id -u)
 ENROOT_CACHE_PATH=/tmp/enroot-cache
 ENROOT_DATA_PATH=/tmp/enroot-data
@@ -22,19 +49,38 @@ ENROOT_MOUNT_HOME=y
 ENROOT_RESTRICT_DEV=y
 ENROOT_ROOTFS_WRITABLE=y
 ENROOT_CONF
+  echo "[on_create] Enroot configured."
+fi
 
-# Pyxis (SLURM container plugin) 설치
-PYXIS_VERSION="0.20.0"
-git clone --depth 1 --branch "v${PYXIS_VERSION}" https://github.com/NVIDIA/pyxis.git /tmp/pyxis
-cd /tmp/pyxis && make install && cd - && rm -rf /tmp/pyxis
+# Ensure SSM agent is running for cluster access
+if command -v amazon-ssm-agent &>/dev/null || [ -f /usr/bin/amazon-ssm-agent ]; then
+  systemctl enable amazon-ssm-agent 2>/dev/null || true
+  systemctl restart amazon-ssm-agent 2>/dev/null || true
+  echo "[on_create] SSM agent restarted."
+elif [ -f /snap/amazon-ssm-agent/current/amazon-ssm-agent ]; then
+  snap start amazon-ssm-agent 2>/dev/null || true
+  echo "[on_create] SSM agent (snap) started."
+else
+  if [ "$PKG_MGR" = "yum" ]; then
+    yum install -y amazon-ssm-agent 2>/dev/null && systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent || \
+      echo "[on_create] WARNING: Could not install/start SSM agent."
+  fi
+fi
 
-mkdir -p /etc/slurm
-echo "required /usr/local/lib/slurm/spank_pyxis.so" > /etc/slurm/plugstack.conf
+# Setup SSH access for jump host
+bash "${SCRIPT_DIR}/setup_ssh_access.sh" || echo "[on_create] SSH setup skipped or failed (non-fatal)."
 
-# FSx 마운트
-bash /opt/ml/scripts/setup_fsx.sh
+# Mount FSx if configured
+bash "${SCRIPT_DIR}/setup_fsx.sh" || echo "[on_create] FSx mount skipped or failed (non-fatal)."
 
-# SLURM 파티션 설정
-bash /opt/ml/scripts/setup_slurm.sh
+# Start SLURM controller on head node
+if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" = "head" ] || [ "$(hostname)" = "$(grep SlurmctldHost /opt/slurm/etc/slurm.conf 2>/dev/null | cut -d= -f2 | cut -d'(' -f1)" ]; then
+  if [ -f /opt/slurm/sbin/slurmctld ]; then
+    systemctl enable slurmctld 2>/dev/null || true
+    systemctl start slurmctld 2>/dev/null || true
+    echo "[on_create] SLURM controller started."
+  fi
+fi
 
 echo "[on_create] Node initialization complete."
+exit 0

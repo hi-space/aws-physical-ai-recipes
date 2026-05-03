@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=rl-learner
-#SBATCH --partition=train
+#SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=4
 #SBATCH --time=48:00:00
