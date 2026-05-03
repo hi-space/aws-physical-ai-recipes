@@ -45,13 +45,14 @@ export class OsmoStack extends cdk.Stack {
       namePrefix,
       vpc: networking.vpc,
       privateSubnets: networking.privateSubnets,
-      eksSecurityGroupId: eksCluster.cluster.clusterSecurityGroupId,
+      eksSecurityGroupId: eksCluster.clusterSecurityGroupId,
     });
 
-    // 4. OSMO Install
+    // 4. OSMO Install (outputs for post-deploy helm/kubectl)
     new OsmoInstallConstruct(this, 'OsmoInstall', {
       namePrefix,
-      cluster: eksCluster.cluster,
+      clusterName: eksCluster.clusterName,
+      secretsCsiAddon: eksCluster.secretsCsiAddon,
       dbEndpoint: dataStores.dbEndpoint,
       dbPort: dataStores.dbPort,
       dbSecretArn: dataStores.dbSecret.ref,

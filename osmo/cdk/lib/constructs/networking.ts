@@ -14,6 +14,7 @@ export class NetworkingConstruct extends Construct {
   public readonly vpc: ec2.CfnVPC;
   public readonly publicSubnets: ec2.CfnSubnet[];
   public readonly privateSubnets: ec2.CfnSubnet[];
+  public readonly publicRouteTable: ec2.CfnRouteTable;
   public readonly privateRouteTable: ec2.CfnRouteTable;
 
   constructor(scope: Construct, id: string, props: NetworkingProps) {
@@ -42,10 +43,11 @@ export class NetworkingConstruct extends Construct {
     });
 
     // Public Route Table
-    const publicRT = new ec2.CfnRouteTable(this, 'PublicRT', {
+    this.publicRouteTable = new ec2.CfnRouteTable(this, 'PublicRT', {
       vpcId: this.vpc.ref,
       tags: [{ key: 'Name', value: `${p}-Public-RT` }],
     });
+    const publicRT = this.publicRouteTable;
     const publicRoute = new ec2.CfnRoute(this, 'PublicRoute', {
       routeTableId: publicRT.ref,
       destinationCidrBlock: '0.0.0.0/0',
