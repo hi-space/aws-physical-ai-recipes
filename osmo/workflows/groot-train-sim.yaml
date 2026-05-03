@@ -1,30 +1,79 @@
-# GR00T Fine-tuning → Isaac Sim Policy 검증 파이프라인
+# GR00T N1.7 Fine-tuning → Isaac Sim Policy 검증 파이프라인
 #
 # 사용법:
-#   osmo workflow submit groot-train-sim.yaml
+#   osmo workflow submit groot-train-sim.yaml --set OSMO_DATA_BUCKET=<bucket-name>
 #
 # 2-stage 파이프라인:
-#   1. finetune: GR00T-N1 모델을 커스텀 데이터셋으로 fine-tuning (4×L40S)
-#   2. verify-in-sim: 학습된 policy를 Isaac Sim 환경에서 자동 검증 (1×L4)
+#   1. finetune: GR00T-N1.7-3B 모델을 demo 데이터셋으로 fine-tuning (1×L40S)
+#   2. verify-in-sim: 학습된 policy를 Isaac Sim 환경에서 자동 검증 (1×A10G)
 #
-# 참고: OSMO 버전에 따라 스펙이 다를 수 있습니다.
-# https://github.com/NVIDIA/OSMO
+# 사전 조건:
+#   - HuggingFace 토큰: nvidia/GR00T-N1.7-3B, nvidia/Cosmos-Reason2-2B 접근 승인
+#   - GPU 할당량: g6e.12xlarge (gpu-train), g5.12xlarge (gpu-sim)
+#
+# GR00T GitHub: https://github.com/NVIDIA/Isaac-GR00T (tag: n1.7-release)
 
 workflow:
   tasks:
     - name: finetune
-      image: nvcr.io/nvidia/gr00t:1.6.0
+      image: nvidia/cuda:12.8.0-devel-ubuntu22.04
       platform: gpu-train
       resources:
         gpu: 4
+      env:
+        - name: HF_TOKEN
+          value: "${HF_TOKEN}"
+        - name: WANDB_MODE
+          value: "disabled"
+        - name: PYTHONPATH
+          value: "/opt/gr00t"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "expandable_segments:True"
       command: |
-        torchrun --nproc_per_node=4 \
-          /opt/gr00t/scripts/train.py \
-          --dataset /data/datasets/groot/aloha \
-          --output-dir /data/checkpoints/groot-aloha \
-          --model gr00t-n1-2b \
-          --epochs 50 \
-          --batch-size 32
+        set -ex
+        apt-get update && apt-get install -y git git-lfs python3-pip curl ffmpeg libgl1
+        ln -sf /usr/bin/python3 /usr/bin/python
+        git lfs install
+
+        # PyTorch (cu128)
+        pip install --no-cache-dir torch==2.7.1 torchvision==0.22.1 \
+          --index-url https://download.pytorch.org/whl/cu128
+
+        # Pre-built flash-attn wheel (avoids 15+ min source compilation)
+        pip install --no-cache-dir \
+          "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+
+        # Clone GR00T N1.7 with LFS data
+        git clone --depth 1 --branch n1.7-release https://github.com/NVIDIA/Isaac-GR00T.git /opt/gr00t
+        cd /opt/gr00t
+        git lfs pull
+
+        # Install dependencies
+        pip install --no-cache-dir \
+          "albumentations==1.4.18" "huggingface-hub[cli]" \
+          "opencv-python-headless>=4.5,<4.13" "av==16.1.0" \
+          "diffusers==0.35.1" "dm-tree" "lmdb==1.7.5" \
+          "msgpack==1.1.0" "msgpack-numpy==0.4.8" "pandas==2.2.3" \
+          "peft==0.17.1" "termcolor==3.2.0" "transformers==4.57.3" \
+          "tyro==0.9.17" "click==8.1.8" "datasets==3.6.0" \
+          "cryptography==42.0.8" "einops==0.8.1" "gitpython==3.1.46" \
+          "jsonlines==4.0.0" "gymnasium==1.2.2" "matplotlib==3.10.1" \
+          "numpy==1.26.4" "omegaconf==2.3.0" "scipy==1.15.3" \
+          "torchcodec==0.4.0" "wandb==0.23.0" "pyzmq==27.0.1" \
+          "deepspeed==0.17.6" accelerate awscli
+
+        huggingface-cli login --token $HF_TOKEN
+
+        # Fine-tune GR00T N1.7
+        NUM_GPUS=4 MAX_STEPS=${MAX_STEPS:-10000} SAVE_STEPS=1000 \
+        USE_WANDB=0 GLOBAL_BATCH_SIZE=32 DATALOADER_NUM_WORKERS=4 \
+          bash examples/finetune.sh \
+            --base-model-path nvidia/GR00T-N1.7-3B \
+            --dataset-path ${DATASET_PATH:-./demo_data/cube_to_bowl_5} \
+            --embodiment-tag ${EMBODIMENT_TAG:-NEW_EMBODIMENT} \
+            --modality-config-path ${MODALITY_CONFIG:-examples/SO100/so100_config.py} \
+            --output-dir /data/checkpoints/groot-n1.7 \
+            --save-only-model
       volumes:
         - s3://${OSMO_DATA_BUCKET}/datasets:/data/datasets
         - s3://${OSMO_DATA_BUCKET}/checkpoints:/data/checkpoints
@@ -38,7 +87,7 @@ workflow:
         - task: finetune
       command: |
         python /opt/scripts/verify_policy.py \
-          --checkpoint /data/checkpoints/groot-aloha/model_final.pt \
+          --checkpoint /data/checkpoints/groot-n1.7/checkpoint-${MAX_STEPS:-10000} \
           --env Isaac-Lift-Franka-v0 \
           --num-episodes 20 \
           --success-threshold 0.8

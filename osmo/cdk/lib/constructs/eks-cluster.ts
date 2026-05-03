@@ -104,14 +104,15 @@ export class EksClusterConstruct extends Construct {
     });
     systemNg.addDependency(cluster);
 
-    // GPU Sim node group (g5.12xlarge, 4×L4)
+    // GPU Sim node group (4×A10G/L4 — fallback across similar GPU instances)
     const gpuSimNg = new eks.CfnNodegroup(this, 'GpuSimNodes', {
       clusterName: this.clusterName,
       nodegroupName: 'gpu-sim',
       nodeRole: nodeRole.attrArn,
       subnets: props.privateSubnets.map(s => s.ref),
-      instanceTypes: ['g5.12xlarge'],
+      instanceTypes: ['g5.12xlarge', 'g6.12xlarge', 'g5.24xlarge'],
       scalingConfig: { minSize: 0, maxSize: gpuSimMax, desiredSize: 0 },
+      diskSize: 200,
       labels: { 'node-role': 'gpu-sim', 'nvidia.com/gpu.product': 'L4' },
       taints: [{
         key: 'nvidia.com/gpu',
@@ -122,14 +123,15 @@ export class EksClusterConstruct extends Construct {
     });
     gpuSimNg.addDependency(cluster);
 
-    // GPU Train node group (g6e.12xlarge, 4×L40S)
+    // GPU Train node group (4×L40S — fallback to larger instances if capacity unavailable)
     const gpuTrainNg = new eks.CfnNodegroup(this, 'GpuTrainNodes', {
       clusterName: this.clusterName,
       nodegroupName: 'gpu-train',
       nodeRole: nodeRole.attrArn,
       subnets: props.privateSubnets.map(s => s.ref),
-      instanceTypes: ['g6e.12xlarge'],
+      instanceTypes: ['g6e.12xlarge', 'g6e.16xlarge', 'g6e.24xlarge'],
       scalingConfig: { minSize: 0, maxSize: gpuTrainMax, desiredSize: 0 },
+      diskSize: 200,
       labels: { 'node-role': 'gpu-train', 'nvidia.com/gpu.product': 'L40S' },
       taints: [{
         key: 'nvidia.com/gpu',

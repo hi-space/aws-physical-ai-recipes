@@ -5,7 +5,7 @@ import { OsmoStack } from '../lib/osmo-stack';
 const app = new cdk.App();
 
 const userId = app.node.tryGetContext('userId') ?? '';
-const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION;
+const region = app.node.tryGetContext('region') ?? 'us-east-1';
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const gpuSimMaxNodes = parseInt(app.node.tryGetContext('gpuSimMaxNodes') ?? '8', 10);
 const gpuTrainMaxNodes = parseInt(app.node.tryGetContext('gpuTrainMaxNodes') ?? '4', 10);

@@ -22,7 +22,7 @@ export class NetworkingConstruct extends Construct {
 
     const p = props.namePrefix;
     const vpcCidr = props.vpcCidr ?? '10.0.0.0/16';
-    const azCount = props.azCount ?? 2;
+    const azCount = props.azCount ?? 3;
     const cidrPrefix = vpcCidr.split('.').slice(0, 2).join('.');
 
     // VPC
