@@ -86,7 +86,7 @@ export class DataStoresConstruct extends Construct {
     const dbInstance = new rds.CfnDBInstance(this, 'PostgresDB', {
       dbInstanceIdentifier: `${p}-postgres`.toLowerCase(),
       engine: 'postgres',
-      engineVersion: '16.4',
+      engineVersion: '16.6',
       dbInstanceClass: 'db.t3.medium',
       allocatedStorage: '20',
       masterUsername: 'osmo',
