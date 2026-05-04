@@ -88,6 +88,22 @@ fi
 
 mkdir -p "${OUTPUT_DIR}" /fsx/scratch/logs
 
+# Remove stale checkpoints that may conflict with optimizer changes (paged_adamw_8bit)
+if ls "${OUTPUT_DIR}"/checkpoint-* &>/dev/null; then
+    echo "Clearing stale checkpoints in ${OUTPUT_DIR} to avoid optimizer mismatch..."
+    rm -rf "${OUTPUT_DIR}"/checkpoint-* "${OUTPUT_DIR}"/training_args.bin
+fi
+
+# Clean up stale GPU processes from previous jobs (e.g. Isaac Sim kit processes)
+if command -v nvidia-smi &>/dev/null; then
+    stale_pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | tr -d ' ')
+    if [ -n "${stale_pids}" ]; then
+        echo "Cleaning stale GPU processes: ${stale_pids}"
+        echo "${stale_pids}" | xargs -r sudo kill -9 2>/dev/null || true
+        sleep 2
+    fi
+fi
+
 source "${GR00T_ENV}/bin/activate"
 cd "${GR00T_REPO}"
 
