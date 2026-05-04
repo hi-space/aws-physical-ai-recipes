@@ -237,6 +237,11 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'Batch Instance Profile ARN',
     });
 
+    new cdk.CfnOutput(this, 'VpcId', {
+      value: networking.vpc.ref,
+      description: 'VPC ID',
+    });
+
     new cdk.CfnOutput(this, 'EfsFileSystemId', {
       value: efsStorage.fileSystem.ref,
       description: 'EFS File System ID',
@@ -245,6 +250,11 @@ export class IsaacLabStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PrivateSubnetId', {
       value: networking.privateSubnet.ref,
       description: 'Private Subnet ID',
+    });
+
+    new cdk.CfnOutput(this, 'EfsSecurityGroupId', {
+      value: efsStorage.securityGroup.ref,
+      description: 'EFS Security Group ID (for NFS access)',
     });
 
     new cdk.CfnOutput(this, 'BatchSecurityGroupId', {
