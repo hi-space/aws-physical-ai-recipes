@@ -53,15 +53,28 @@ echo "=================================================="
 
 mkdir -p "${LOG_DIR}" /fsx/scratch/logs
 
-# If container exists, use it
+# If container exists, use it via enroot
 if [ -f "${CONTAINER_IMAGE}" ]; then
     echo "Using container: ${CONTAINER_IMAGE}"
     CHECKPOINT_ARG=""
     [ -n "${CHECKPOINT}" ] && CHECKPOINT_ARG="--checkpoint ${CHECKPOINT}"
 
-    srun --container-image="${CONTAINER_IMAGE}" \
-        --container-mounts="/fsx:/fsx" \
-        --container-env="ACCEPT_EULA=Y,PRIVACY_CONSENT=Y,PYTHONPATH=${WORKSHOP_PKG}" \
+    CONTAINER_NAME="isaaclab-${SLURM_JOB_ID}"
+
+    # Create container from sqsh (idempotent)
+    if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
+        enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
+    fi
+
+    enroot start --root \
+        --rw \
+        --mount /fsx:/fsx \
+        --env ACCEPT_EULA=Y \
+        --env PRIVACY_CONSENT=Y \
+        --env PYTHONPATH="${WORKSHOP_PKG}" \
+        --env NVIDIA_VISIBLE_DEVICES=all \
+        --env NVIDIA_DRIVER_CAPABILITIES=all \
+        "${CONTAINER_NAME}" \
         python "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \
             --num_envs "${NUM_ENVS}" \
@@ -69,6 +82,9 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
             --log_dir "${LOG_DIR}" \
             ${CHECKPOINT_ARG} \
             --headless
+
+    # Cleanup container after run
+    enroot remove -f "${CONTAINER_NAME}" 2>/dev/null || true
 else
     # Fallback: use venv if Isaac Lab is installed
     echo "Container not found. Attempting venv mode..."

@@ -70,7 +70,7 @@ else
     export ENROOT_DATA_PATH=/fsx/enroot/data
     export TMPDIR=/fsx/enroot/tmp
 
-    enroot import --output "${CONTAINER_IMAGE}" \
+    sudo enroot import --output "${CONTAINER_IMAGE}" \
         "docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}" || {
         echo "  WARNING: Container import failed. Continuing with workspace setup..."
         echo "  Possible causes:"
@@ -78,8 +78,8 @@ else
         echo "    - Insufficient disk space on /fsx (need ~20GB free)"
         echo "    - NGC authentication required (set NGC_API_KEY)"
         echo ""
-        echo "  To import manually later with NGC auth:"
-        echo "    NGC_API_KEY=<your-key> enroot import --output ${CONTAINER_IMAGE} docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}"
+        echo "  To import manually later:"
+        echo "    sudo enroot import --output ${CONTAINER_IMAGE} docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}"
         CONTAINER_IMPORT_FAILED=true
     }
 
