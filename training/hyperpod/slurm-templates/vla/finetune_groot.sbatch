@@ -8,10 +8,15 @@
 #SBATCH --output=/fsx/scratch/logs/groot-%j.out
 #SBATCH --error=/fsx/scratch/logs/groot-%j.err
 
-# GR00T Fine-tuning via Isaac-GR00T launch_finetune.py
+# GR00T Fine-tuning via Isaac-GR00T launch_finetune.py (Container mode)
 # Container: Custom built via container/build_and_push_ecr.sh + import_container.sh
 #
+# NOTE: This script requires the Pyxis SLURM plugin for --container-image support.
+#   HyperPod Managed mode does NOT include Pyxis by default.
+#   Use finetune_groot_venv.sbatch instead (recommended for HyperPod).
+#
 # Prerequisites:
+#   - Pyxis plugin installed (spank plugin for enroot containers)
 #   - Container imported at /fsx/enroot/data/gr00t-train+latest.sqsh
 #   - Dataset prepared at /fsx/datasets/groot/<DATASET>
 #   - mkdir -p /fsx/scratch/logs
