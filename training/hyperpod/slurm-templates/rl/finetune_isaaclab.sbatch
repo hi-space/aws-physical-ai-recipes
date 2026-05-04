@@ -102,6 +102,7 @@ RCEOF
         --env PYTHONPATH="${WORKSHOP_PKG}" \
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
+        --env GIT_PYTHON_REFRESH=quiet \
         "${CONTAINER_NAME}" \
         bash /isaac-sim/python.sh "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \
