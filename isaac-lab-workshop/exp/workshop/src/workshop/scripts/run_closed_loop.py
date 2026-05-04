@@ -93,6 +93,9 @@ class PolicyClient:
         except Exception:
             return False
 
+    def get_modality_config(self):
+        return self._send({"endpoint": "get_modality_config"})
+
     def get_action(self, observation: dict):
         resp = self._send({"endpoint": "get_action", "data": {"observation": observation}})
         return resp[0], resp[1]
@@ -156,9 +159,10 @@ def main():
     wrist_camera = Camera(wrist_camera_cfg)
 
     sim.reset()
-    robot.reset()
-    front_camera.reset()
-    wrist_camera.reset()
+    sim.step()
+    robot.update(sim.get_physics_dt())
+    front_camera.update(sim.get_physics_dt())
+    wrist_camera.update(sim.get_physics_dt())
 
     policy = PolicyClient(host=args.policy_host, port=args.policy_port)
     if policy.ping():
@@ -166,8 +170,21 @@ def main():
     else:
         raise RuntimeError(f"Cannot reach Policy Server at {args.policy_host}:{args.policy_port}")
 
+    modality_cfg = policy.get_modality_config()
+    video_keys = modality_cfg.get("video_keys", ["exterior_image_1_left", "wrist_image_left"])
+    state_keys = modality_cfg.get("state_keys", ["eef_9d", "gripper_position", "joint_position"])
+    action_keys = modality_cfg.get("action_keys", state_keys)
+    language_keys = modality_cfg.get("language_keys", ["annotation.language.language_instruction"])
+    print(f"  Video keys: {video_keys}")
+    print(f"  State keys: {state_keys}")
+    print(f"  Action keys: {action_keys}")
+
+    num_joints = robot.data.joint_pos.shape[1]
+
     action_queue = []
     action_step = 0
+    prev_front_rgb = None
+    prev_wrist_rgb = None
 
     for step in range(args.num_steps):
         sim.step()
@@ -177,35 +194,74 @@ def main():
 
         if not action_queue and step % args.action_repeat == 0:
             joint_pos = robot.data.joint_pos[0].cpu().numpy()
-            front_rgb = front_camera.data.output["rgb"][0].cpu().numpy()
-            wrist_rgb = wrist_camera.data.output["rgb"][0].cpu().numpy()
+            front_rgb = front_camera.data.output["rgb"][0].cpu().numpy()[:, :, :3].astype(np.uint8)
+            wrist_rgb = wrist_camera.data.output["rgb"][0].cpu().numpy()[:, :, :3].astype(np.uint8)
+
+            if prev_front_rgb is None:
+                prev_front_rgb = front_rgb
+            if prev_wrist_rgb is None:
+                prev_wrist_rgb = wrist_rgb
+
+            video_obs = {}
+            frames_front = np.stack([prev_front_rgb, front_rgb], axis=0)
+            video_obs[video_keys[0]] = frames_front.reshape(1, 2, 256, 256, 3)
+            if len(video_keys) > 1:
+                frames_wrist = np.stack([prev_wrist_rgb, wrist_rgb], axis=0)
+                video_obs[video_keys[1]] = frames_wrist.reshape(1, 2, 256, 256, 3)
+
+            prev_front_rgb = front_rgb
+            prev_wrist_rgb = wrist_rgb
+
+            state_obs = {}
+            for sk in state_keys:
+                if "gripper" in sk:
+                    dim = 1
+                    state_obs[sk] = joint_pos[num_joints-1:num_joints].reshape(1, 1, dim).astype(np.float32)
+                elif "joint" in sk:
+                    dim = 7
+                    vals = np.zeros(dim, dtype=np.float32)
+                    vals[:min(num_joints, dim)] = joint_pos[:min(num_joints, dim)]
+                    state_obs[sk] = vals.reshape(1, 1, dim).astype(np.float32)
+                elif "9d" in sk:
+                    # eef_9d: position(3) + 6D rotation(6) — use joint angles as proxy position,
+                    # identity rotation [1,0,0, 0,1,0] to avoid SVD convergence issues
+                    vals = np.array([
+                        joint_pos[0], joint_pos[1], joint_pos[2],
+                        1.0, 0.0, 0.0, 0.0, 1.0, 0.0
+                    ], dtype=np.float32)
+                    state_obs[sk] = vals.reshape(1, 1, 9).astype(np.float32)
+                else:
+                    dim = 7
+                    vals = np.zeros(dim, dtype=np.float32)
+                    vals[:min(dim, num_joints)] = joint_pos[:min(dim, num_joints)]
+                    state_obs[sk] = vals.reshape(1, 1, dim).astype(np.float32)
 
             obs = {
-                "video": {
-                    "front": front_rgb[:, :, :3].reshape(1, 1, 256, 256, 3).astype(np.uint8),
-                    "wrist": wrist_rgb[:, :, :3].reshape(1, 1, 256, 256, 3).astype(np.uint8),
-                },
-                "state": {
-                    "single_arm": joint_pos[:5].reshape(1, 1, 5).astype(np.float32),
-                    "gripper": joint_pos[5:6].reshape(1, 1, 1).astype(np.float32),
-                },
-                "language": {
-                    "annotation.human.task_description": [[args.instruction]],
-                },
+                "video": video_obs,
+                "state": state_obs,
+                "language": {language_keys[0]: [[args.instruction]]},
             }
 
             action_dict, info = policy.get_action(obs)
-            arm_actions = action_dict["single_arm"][0]   # (16, 5)
-            gripper_actions = action_dict["gripper"][0]   # (16, 1)
-            for i in range(arm_actions.shape[0]):
-                action_queue.append(
-                    np.concatenate([arm_actions[i], gripper_actions[i]])  # (6,)
-                )
+
+            first_key = action_keys[0]
+            first_action = np.array(action_dict[first_key])
+            horizon = first_action.shape[1] if first_action.ndim >= 3 else 1
+            for t in range(horizon):
+                combined = []
+                for ak in action_keys:
+                    arr = np.array(action_dict[ak])
+                    if arr.ndim >= 3:
+                        combined.append(arr[0, t, :])
+                    else:
+                        combined.append(arr[0, :])
+                action_queue.append(np.concatenate(combined))
             action_step += 1
 
         if action_queue:
             action = action_queue.pop(0)
-            target_pos = torch.tensor(action, dtype=torch.float32, device=robot.device).unsqueeze(0)
+            target_dims = min(len(action), num_joints)
+            target_pos = torch.tensor(action[:target_dims], dtype=torch.float32, device=robot.device).unsqueeze(0)
             robot.set_joint_position_target(target_pos)
 
         if step % 500 == 0:
