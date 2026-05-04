@@ -11,18 +11,36 @@
       }
     },
     {
-      "InstanceGroupName": "sim",
-      "InstanceType": "ml.g5.12xlarge",
-      "InstanceCount": 16,
+      "InstanceGroupName": "gpu-g6e",
+      "InstanceType": "ml.g6e.12xlarge",
+      "InstanceCount": 0,
       "LifeCycleConfig": {
         "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
         "OnCreate": "on_create.sh"
       }
     },
     {
-      "InstanceGroupName": "train",
-      "InstanceType": "ml.g6e.12xlarge",
-      "InstanceCount": 4,
+      "InstanceGroupName": "gpu-g6",
+      "InstanceType": "ml.g6.12xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g7e",
+      "InstanceType": "ml.g7e.12xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g5",
+      "InstanceType": "ml.g5.12xlarge",
+      "InstanceCount": 0,
       "LifeCycleConfig": {
         "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
         "OnCreate": "on_create.sh"
@@ -31,7 +49,7 @@
     {
       "InstanceGroupName": "debug",
       "InstanceType": "ml.g5.4xlarge",
-      "InstanceCount": 1,
+      "InstanceCount": 0,
       "LifeCycleConfig": {
         "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
         "OnCreate": "on_create.sh"

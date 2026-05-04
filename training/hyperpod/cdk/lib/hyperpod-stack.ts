@@ -5,18 +5,15 @@ import { StorageConstruct } from './constructs/storage';
 import { HyperPodClusterConstruct } from './constructs/hyperpod-cluster';
 import { JumpHostConstruct } from './constructs/jump-host';
 import { MlflowConstruct } from './constructs/mlflow';
-import { DEFAULT_CLUSTER_CONFIG } from './config/cluster-config';
+import { DEFAULT_CLUSTER_CONFIG, buildGpuGroups } from './config/cluster-config';
 
 export interface HyperPodStackProps extends cdk.StackProps {
   userId: string;
   createVpc: boolean;
   vpcCidr: string;
-  simMaxCount: number;
-  trainMaxCount: number;
-  simInstanceType: string;
-  trainInstanceType: string;
+  gpuMaxCountPerType: number;
+  gpuUseSpot: boolean;
   fsxCapacityGiB: number;
-  simUseSpot: boolean;
 }
 
 export class HyperPodStack extends cdk.Stack {
@@ -33,8 +30,7 @@ export class HyperPodStack extends cdk.Stack {
 
     const clusterConfig = {
       head: { ...DEFAULT_CLUSTER_CONFIG.head },
-      sim: { ...DEFAULT_CLUSTER_CONFIG.sim, instanceType: props.simInstanceType, maxCount: props.simMaxCount, useSpot: props.simUseSpot },
-      train: { ...DEFAULT_CLUSTER_CONFIG.train, instanceType: props.trainInstanceType, maxCount: props.trainMaxCount },
+      gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot),
       debug: { ...DEFAULT_CLUSTER_CONFIG.debug },
     };
 
