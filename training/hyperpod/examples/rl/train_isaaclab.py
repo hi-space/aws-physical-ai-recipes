@@ -64,11 +64,10 @@ def main():
     simulation_app = launcher.app
 
     import importlib
-    import importlib.metadata as metadata
 
     import gymnasium as gym
     from rsl_rl.runners import OnPolicyRunner
-    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
     workshop_path = os.environ.get("PYTHONPATH", "/fsx/scratch/isaaclab-workshop/src")
     for p in workshop_path.split(":"):
@@ -89,8 +88,6 @@ def main():
         env_cfg.scene.num_envs = args.num_envs
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
-
-    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
 
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)
