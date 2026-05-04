@@ -1,104 +1,125 @@
-"""IsaacLab RL 학습 (Actor-Learner with Ray).
+"""Isaac Lab RL Training on HyperPod (headless).
+
+Trains SO-101 robot arm with PPO using rsl_rl on Isaac Lab.
+Runs headless on GPU compute nodes — no display needed.
+
+Tasks:
+  Workshop-SO101-Reach-v0  — 5-DOF arm reaches random targets
+  Workshop-SO101-Lift-v0   — 5-DOF arm + gripper lifts object
 
 Usage:
+  # Inside Isaac Lab container on compute node:
   python train_isaaclab.py \
-    --env Isaac-Cartpole-v0 \
-    --num-actors 8 \
-    --checkpoint-dir /fsx/checkpoints/rl/cartpole-001
+    --task Workshop-SO101-Reach-v0 \
+    --num_envs 2048 \
+    --max_iterations 300 \
+    --headless
+
+  # Resume from checkpoint:
+  python train_isaaclab.py \
+    --task Workshop-SO101-Reach-v0 \
+    --checkpoint /fsx/checkpoints/rl/reach/model_150.pt \
+    --headless
 """
+
 import argparse
+import inspect
 import os
+import sys
 
-import mlflow
-import ray
-import torch
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="Isaac-Cartpole-v0")
-    parser.add_argument("--num-actors", type=int, default=8)
-    parser.add_argument("--total-timesteps", type=int, default=10_000_000)
-    parser.add_argument("--checkpoint-dir", type=str, required=True)
-    parser.add_argument("--checkpoint-freq", type=int, default=100_000)
-    parser.add_argument("--experiment", type=str, default="rl-training")
-    return parser.parse_args()
+from isaaclab.app import AppLauncher
 
 
-@ray.remote(num_gpus=1)
-class IsaacLabActor:
-    """IsaacLab 환경을 실행하는 Ray Actor."""
+def _strip_unknown_alg_keys(cfg_dict: dict) -> dict:
+    """Remove algorithm keys the installed rsl_rl version doesn't accept."""
+    from rsl_rl.algorithms import PPO
 
-    def __init__(self, env_name: str, actor_id: int):
-        from omni.isaac.lab.app import AppLauncher
-        app_launcher = AppLauncher(headless=True)
+    valid = set(inspect.signature(PPO.__init__).parameters.keys()) - {"self"}
+    alg = cfg_dict.get("algorithm", {})
+    cfg_dict["algorithm"] = {k: v for k, v in alg.items() if k in valid or k == "class_name"}
+    return cfg_dict
 
-        import omni.isaac.lab_tasks  # noqa: F401
-        import gymnasium as gym
 
-        self.env = gym.make(env_name)
-        self.actor_id = actor_id
-
-    def rollout(self, policy_weights):
-        """하나의 에피소드를 수행하고 trajectory를 반환."""
-        obs, _ = self.env.reset()
-        trajectory = []
-        done = False
-
-        while not done:
-            action = self._get_action(obs, policy_weights)
-            next_obs, reward, terminated, truncated, info = self.env.step(action)
-            trajectory.append((obs, action, reward, next_obs, terminated))
-            obs = next_obs
-            done = terminated or truncated
-
-        return trajectory
-
-    def _get_action(self, obs, policy_weights):
-        import numpy as np
-        # NOTE: 실제 구현에서는 policy network forward pass로 교체
-        return self.env.action_space.sample()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Isaac Lab RL Training on HyperPod")
+    parser.add_argument("--task", type=str, default="Workshop-SO101-Reach-v0",
+                        help="Task ID (Workshop-SO101-Reach-v0 or Workshop-SO101-Lift-v0)")
+    parser.add_argument("--num_envs", type=int, default=2048,
+                        help="Number of parallel environments")
+    parser.add_argument("--max_iterations", type=int, default=300,
+                        help="Training iterations (300 ≈ 15-20 min on A10G)")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Resume from checkpoint path")
+    parser.add_argument("--log_dir", type=str, default="/fsx/checkpoints/rl",
+                        help="Log and checkpoint directory")
+    AppLauncher.add_app_launcher_args(parser)
+    args = parser.parse_args()
+    args.headless = True
+    return args
 
 
 def main():
     args = parse_args()
+    launcher = AppLauncher(args)
+    simulation_app = launcher.app
 
-    ray.init()
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
+    import importlib
+    import importlib.metadata as metadata
 
-    mlflow.set_experiment(args.experiment)
-    mlflow.start_run()
-    mlflow.log_params(vars(args))
+    import gymnasium as gym
+    from rsl_rl.runners import OnPolicyRunner
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
 
-    actors = [IsaacLabActor.remote(args.env, i) for i in range(args.num_actors)]
+    workshop_path = os.environ.get("PYTHONPATH", "/fsx/scratch/isaaclab-workshop/src")
+    for p in workshop_path.split(":"):
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
+    import workshop  # noqa: F401 — registers gym environments
 
-    total_steps = 0
-    episode_count = 0
-    policy_weights = None
+    env_cfg_entry = gym.spec(args.task).kwargs["env_cfg_entry_point"]
+    agent_cfg_entry = gym.spec(args.task).kwargs["rsl_rl_cfg_entry_point"]
 
-    while total_steps < args.total_timesteps:
-        trajectory_futures = [actor.rollout.remote(policy_weights) for actor in actors]
-        trajectories = ray.get(trajectory_futures)
+    module_path, class_name = env_cfg_entry.rsplit(":", 1)
+    env_cfg = getattr(importlib.import_module(module_path), class_name)()
 
-        for traj in trajectories:
-            episode_reward = sum(t[2] for t in traj)
-            episode_length = len(traj)
-            total_steps += episode_length
-            episode_count += 1
+    module_path, class_name = agent_cfg_entry.rsplit(":", 1)
+    agent_cfg = getattr(importlib.import_module(module_path), class_name)()
 
-            mlflow.log_metrics({
-                "reward": episode_reward,
-                "episode_length": episode_length,
-                "total_steps": total_steps,
-            }, step=episode_count)
+    if args.num_envs is not None:
+        env_cfg.scene.num_envs = args.num_envs
+    if args.max_iterations is not None:
+        agent_cfg.max_iterations = args.max_iterations
 
-        if total_steps % args.checkpoint_freq < args.num_actors * 1000:
-            ckpt_path = os.path.join(args.checkpoint_dir, f"step-{total_steps}.pt")
-            torch.save({"step": total_steps, "policy": policy_weights}, ckpt_path)
-            print(f"[Step {total_steps}] Checkpoint saved: {ckpt_path}")
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
 
-    mlflow.end_run()
-    ray.shutdown()
+    env = gym.make(args.task, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env)
+
+    task_short = args.task.split("-")[-2].lower()
+    log_path = f"{args.log_dir}/{task_short}/{agent_cfg.experiment_name}"
+
+    runner = OnPolicyRunner(
+        env,
+        _strip_unknown_alg_keys(agent_cfg.to_dict()),
+        log_dir=log_path,
+        device=agent_cfg.device,
+    )
+
+    if args.checkpoint:
+        runner.load(args.checkpoint)
+        print(f"Resumed from: {args.checkpoint}")
+
+    print(f"Training: {args.task}")
+    print(f"  Envs: {env_cfg.scene.num_envs}")
+    print(f"  Iterations: {agent_cfg.max_iterations}")
+    print(f"  Log dir: {log_path}")
+    print(f"  Device: {agent_cfg.device}")
+
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations)
+
+    print(f"\nTraining complete! Checkpoints at: {log_path}")
+    env.close()
+    simulation_app.close()
 
 
 if __name__ == "__main__":
