@@ -72,15 +72,20 @@ else
 
     enroot import --output "${CONTAINER_IMAGE}" \
         "docker://nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION}" || {
-        echo "ERROR: Container import failed."
+        echo "  WARNING: Container import failed. Continuing with workspace setup..."
         echo "  Possible causes:"
         echo "    - Network access to nvcr.io blocked"
         echo "    - Insufficient disk space on /fsx (need ~20GB free)"
         echo "    - NGC authentication required (set NGC_API_KEY)"
-        exit 1
+        echo ""
+        echo "  To import manually later with NGC auth:"
+        echo "    NGC_API_KEY=<your-key> enroot import --output ${CONTAINER_IMAGE} docker://nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION}"
+        CONTAINER_IMPORT_FAILED=true
     }
 
-    echo "  Container imported successfully: ${CONTAINER_IMAGE}"
+    if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
+        echo "  Container imported successfully: ${CONTAINER_IMAGE}"
+    fi
 fi
 
 # Step 3: Prepare workshop task package
@@ -111,7 +116,14 @@ echo "  Directories ready"
 
 echo ""
 echo "=================================================="
-echo "Setup complete!"
+if [ "${CONTAINER_IMPORT_FAILED:-}" = "true" ]; then
+    echo "Setup partially complete (container import failed — see above)"
+    echo ""
+    echo "Workshop tasks and directories are ready."
+    echo "Import the container manually before submitting RL jobs."
+else
+    echo "Setup complete!"
+fi
 echo ""
 echo "Available tasks:"
 echo "  - Workshop-SO101-Reach-v0 (5-DOF arm reaching)"
