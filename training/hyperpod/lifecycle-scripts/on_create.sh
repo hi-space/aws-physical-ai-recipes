@@ -17,6 +17,16 @@ else
   PKG_MGR=""
 fi
 
+# Install FFmpeg (required by torchcodec for video processing)
+if ! command -v ffmpeg &>/dev/null; then
+  if [ "$PKG_MGR" = "apt-get" ]; then
+    apt-get update -y -qq && apt-get install -y -qq ffmpeg 2>/dev/null || true
+  elif [ "$PKG_MGR" = "yum" ]; then
+    yum install -y ffmpeg 2>/dev/null || true
+  fi
+  echo "[on_create] FFmpeg installed."
+fi
+
 # Install Enroot (container runtime)
 ENROOT_VERSION="3.5.0"
 if ! command -v enroot &>/dev/null; then
@@ -39,11 +49,12 @@ fi
 
 # Configure Enroot if installed
 if command -v enroot &>/dev/null; then
-  mkdir -p /etc/enroot
+  mkdir -p /etc/enroot /run/enroot
+  chmod 777 /run/enroot
   cat > /etc/enroot/enroot.conf <<'ENROOT_CONF'
 ENROOT_RUNTIME_PATH=/run/enroot/user-$(id -u)
-ENROOT_CACHE_PATH=/tmp/enroot-cache
-ENROOT_DATA_PATH=/tmp/enroot-data
+ENROOT_CACHE_PATH=/fsx/enroot
+ENROOT_DATA_PATH=/fsx/enroot/data
 ENROOT_SQUASH_OPTIONS="-noI -noD -noF -noX -no-duplicates"
 ENROOT_MOUNT_HOME=y
 ENROOT_RESTRICT_DEV=y
@@ -73,12 +84,25 @@ bash "${SCRIPT_DIR}/setup_ssh_access.sh" || echo "[on_create] SSH setup skipped 
 # Mount FSx if configured
 bash "${SCRIPT_DIR}/setup_fsx.sh" || echo "[on_create] FSx mount skipped or failed (non-fatal)."
 
-# Start SLURM controller on head node
-if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" = "head" ] || [ "$(hostname)" = "$(grep SlurmctldHost /opt/slurm/etc/slurm.conf 2>/dev/null | cut -d= -f2 | cut -d'(' -f1)" ]; then
+# Configure SLURM (head saves IP, compute connects to head)
+bash "${SCRIPT_DIR}/setup_slurm.sh" || echo "[on_create] SLURM setup skipped or failed (non-fatal)."
+
+# Start SLURM services
+if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" = "head" ]; then
   if [ -f /opt/slurm/sbin/slurmctld ]; then
     systemctl enable slurmctld 2>/dev/null || true
     systemctl start slurmctld 2>/dev/null || true
     echo "[on_create] SLURM controller started."
+  fi
+else
+  # Compute nodes: ensure FSx is mounted then start slurmd
+  if ! mount | grep -q "/fsx"; then
+    mount /fsx 2>/dev/null || echo "[on_create] WARNING: FSx mount retry failed."
+  fi
+  if [ -f /opt/slurm/sbin/slurmd ]; then
+    systemctl enable slurmd 2>/dev/null || true
+    systemctl start slurmd 2>/dev/null || true
+    echo "[on_create] SLURM worker (slurmd) started."
   fi
 fi
 
