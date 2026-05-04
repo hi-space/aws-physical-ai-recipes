@@ -1,0 +1,22 @@
+{
+  "name": "isaac-lab-groot-finetune",
+  "version": "1.0.0",
+  "description": "GR00T VLA fine-tuning infrastructure on AWS Batch (shares DCV/EFS with infra-multiuser-groot)",
+  "scripts": {
+    "cdk": "cdk",
+    "build": "tsc",
+    "test": "jest",
+    "resolve": "ts-node bin/resolve-parent-stack.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1041.0",
+    "@aws-sdk/client-ec2": "^3.1041.0",
+    "aws-cdk-lib": "^2.180.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.180.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.7.3"
+  }
+}
