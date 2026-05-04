@@ -59,11 +59,17 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
     CHECKPOINT_ARG=""
     [ -n "${CHECKPOINT}" ] && CHECKPOINT_ARG="--checkpoint ${CHECKPOINT}"
 
-    CONTAINER_NAME="isaaclab-${SLURM_JOB_ID}"
+    CONTAINER_NAME="isaaclab"
 
-    # Create container from sqsh (idempotent)
+    # Create container from sqsh once (reuse across jobs)
     if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
+        echo "Creating container rootfs (first time only, ~5-10 min on FSx)..."
         enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
+
+        # Install Isaac Lab into the container (one-time)
+        echo "Installing Isaac Lab packages into container..."
+        enroot start --root --rw "${CONTAINER_NAME}" \
+            bash -c "pip install --quiet isaaclab isaaclab_rl rsl-rl-lib gymnasium 2>&1 | tail -5"
     fi
 
     enroot start --root \
@@ -82,9 +88,6 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
             --log_dir "${LOG_DIR}" \
             ${CHECKPOINT_ARG} \
             --headless
-
-    # Cleanup container after run
-    enroot remove -f "${CONTAINER_NAME}" 2>/dev/null || true
 else
     # Fallback: use venv if Isaac Lab is installed
     echo "Container not found. Attempting venv mode..."

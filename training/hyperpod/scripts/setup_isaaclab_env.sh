@@ -85,6 +85,16 @@ else
 
     if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
         echo "  Container imported successfully: ${CONTAINER_IMAGE}"
+
+        # Pre-create container rootfs (avoids slow first-run extraction during training)
+        if ! enroot list 2>/dev/null | grep -q "^isaaclab$"; then
+            echo "  Creating container rootfs (first time, ~5-10 min on FSx)..."
+            enroot create --name isaaclab "${CONTAINER_IMAGE}" || {
+                echo "  WARNING: Container rootfs creation failed. Will be created on first sbatch run."
+            }
+        else
+            echo "  Container rootfs already exists"
+        fi
     fi
 fi
 
