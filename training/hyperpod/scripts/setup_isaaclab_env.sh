@@ -89,11 +89,36 @@ else
         # Pre-create container rootfs (avoids slow first-run extraction during training)
         if ! enroot list 2>/dev/null | grep -q "^isaaclab$"; then
             echo "  Creating container rootfs (first time, ~5-10 min on FSx)..."
-            enroot create --name isaaclab "${CONTAINER_IMAGE}" || {
+            sudo enroot create --name isaaclab "${CONTAINER_IMAGE}" || {
                 echo "  WARNING: Container rootfs creation failed. Will be created on first sbatch run."
             }
         else
             echo "  Container rootfs already exists"
+        fi
+
+        # Patch entrypoint to pass through commands (default always runs runheadless.sh)
+        ROOTFS_PATH="/fsx/enroot/data/isaaclab"
+        if [ -d "${ROOTFS_PATH}" ]; then
+            echo "  Patching container entrypoint for command passthrough..."
+            sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
+mkdir -p "/isaac-sim" 2> /dev/null
+cd "/isaac-sim" && unset OLDPWD || exit 1
+export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
+export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
+export ISAAC_SIM_PATH=/isaac-sim
+if [ -s /etc/rc.local ]; then . /etc/rc.local; fi
+if [ $# -gt 0 ]; then exec "$@"; else exec /bin/sh -c /isaac-sim/runheadless.sh; fi
+RCEOF
+
+            # Install RL packages (uses chroot to avoid 5-min entrypoint startup)
+            echo "  Installing Isaac Lab RL packages..."
+            sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
+            sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
+                "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:\$LD_LIBRARY_PATH && \
+                 /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
+                 isaaclab rsl-rl-lib gymnasium 2>&1 | tail -5" || {
+                echo "  WARNING: Package installation failed. Will retry on first sbatch run."
+            }
         fi
     fi
 fi
