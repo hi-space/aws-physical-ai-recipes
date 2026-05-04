@@ -33,9 +33,8 @@ def validate_dataset(dataset_path: Path) -> list[str]:
         except json.JSONDecodeError as e:
             errors.append(f"meta/info.json is invalid JSON: {e}")
 
-    has_episodes = (
-        (meta_dir / "episodes.jsonl").is_file()
-        or list((meta_dir / "episodes").rglob("*.parquet")) if (meta_dir / "episodes").is_dir() else []
+    has_episodes = (meta_dir / "episodes.jsonl").is_file() or (
+        (meta_dir / "episodes").is_dir() and list((meta_dir / "episodes").rglob("*.parquet"))
     )
     if not has_episodes:
         errors.append("Missing episodes data (meta/episodes.jsonl or meta/episodes/)")
