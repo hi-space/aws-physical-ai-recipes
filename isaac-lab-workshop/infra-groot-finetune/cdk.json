@@ -1,0 +1,21 @@
+{
+  "app": "npx ts-node bin/groot-finetune-app.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "**/*.js",
+      "tsconfig.json",
+      "package*.json",
+      "node_modules",
+      "test",
+      "cdk.out"
+    ]
+  },
+  "context": {
+    "@aws-cdk/core:stackRelativeExports": true,
+    "@aws-cdk/customresources:installLatestAwsSdkDefault": false
+  }
+}
