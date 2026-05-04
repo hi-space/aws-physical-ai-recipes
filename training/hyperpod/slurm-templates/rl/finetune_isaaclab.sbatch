@@ -77,7 +77,7 @@ else
     if [ ! -d "${ISAACLAB_ENV}" ]; then
         echo "ERROR: Neither container (${CONTAINER_IMAGE}) nor venv (${ISAACLAB_ENV}) found."
         echo "  Option A: Import Isaac Lab container:"
-        echo "    enroot import docker://nvcr.io/nvidia/isaac-sim:4.5.0"
+        echo "    enroot import docker://nvcr.io#nvidia/isaac-sim:4.5.0"
         echo "  Option B: Install Isaac Lab in venv (requires CUDA):"
         echo "    See isaac-lab-workshop/README.md"
         exit 1
