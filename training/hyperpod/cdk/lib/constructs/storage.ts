@@ -76,5 +76,16 @@ export class StorageConstruct extends Construct {
       },
       tags: [{ key: 'Name', value: `${p}-DRA-Checkpoints` }],
     });
+
+    // enroot/ → auto-import pre-built container images from S3
+    new fsx.CfnDataRepositoryAssociation(this, 'DRAEnroot', {
+      fileSystemId: this.fileSystem.ref,
+      fileSystemPath: '/enroot',
+      dataRepositoryPath: cdk.Fn.join('', ['s3://', this.bucket.ref, '/enroot']),
+      s3: {
+        autoImportPolicy: { events: ['NEW', 'CHANGED', 'DELETED'] },
+      },
+      tags: [{ key: 'Name', value: `${p}-DRA-Enroot` }],
+    });
   }
 }

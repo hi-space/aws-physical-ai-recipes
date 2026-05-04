@@ -16,8 +16,7 @@ export interface HyperPodClusterProps {
   endpointSG?: ec2.CfnSecurityGroup;
   ssmEndpoints?: ec2.CfnVPCEndpoint[];
   head: InstanceGroupConfig;
-  sim: InstanceGroupConfig;
-  train: InstanceGroupConfig;
+  gpu: InstanceGroupConfig[];
   debug: InstanceGroupConfig;
 }
 
@@ -67,6 +66,21 @@ export class HyperPodClusterConstruct extends Construct {
             Effect: 'Allow',
             Action: ['sagemaker-mlflow:*'],
             Resource: `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:mlflow-tracking-server/*`,
+          }],
+        },
+      }, {
+        policyName: 'ECRAccess',
+        policyDocument: {
+          Version: '2012-10-17',
+          Statement: [{
+            Effect: 'Allow',
+            Action: [
+              'ecr:GetAuthorizationToken',
+              'ecr:BatchCheckLayerAvailability',
+              'ecr:GetDownloadUrlForLayer',
+              'ecr:BatchGetImage',
+            ],
+            Resource: '*',
           }],
         },
       }],
@@ -146,8 +160,7 @@ export class HyperPodClusterConstruct extends Construct {
         },
         InstanceGroups: [
           buildInstanceGroup(props.head),
-          buildInstanceGroup(props.sim),
-          buildInstanceGroup(props.train),
+          ...props.gpu.map(buildInstanceGroup),
           buildInstanceGroup(props.debug),
         ],
         VpcConfig: {
