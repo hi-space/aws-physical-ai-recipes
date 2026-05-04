@@ -93,17 +93,19 @@ def build_finetune_args():
 def main():
     logger.info("Starting GR00T N1.7 fine-tuning...")
 
-    # If RESUME=false, clear stale checkpoints from output_dir to prevent auto-resume
+    # If RESUME=false, use a fresh output directory to avoid auto-resume conflicts
     resume = os.getenv("RESUME", "true").lower()
     output_dir = os.getenv("OUTPUT_DIR", "/workspace/checkpoints")
     if resume == "false" and Path(output_dir).exists():
         import glob
         stale_checkpoints = glob.glob(os.path.join(output_dir, "checkpoint-*"))
         if stale_checkpoints:
-            import shutil
-            for cp in stale_checkpoints:
-                logger.info(f"RESUME=false: removing stale checkpoint {cp}")
-                shutil.rmtree(cp, ignore_errors=True)
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fresh_dir = f"{output_dir}_{timestamp}"
+            logger.info(f"RESUME=false: stale checkpoints found. Using fresh output dir: {fresh_dir}")
+            os.makedirs(fresh_dir, exist_ok=True)
+            os.environ["OUTPUT_DIR"] = fresh_dir
 
     args = build_finetune_args()
     launch_script = "/workspace/gr00t/experiment/launch_finetune.py"

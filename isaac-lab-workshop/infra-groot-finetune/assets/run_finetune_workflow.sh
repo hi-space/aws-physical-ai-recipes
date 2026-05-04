@@ -74,6 +74,13 @@ else
     echo "WARNING: nvidia-smi not found. GPU may not be available."
 fi
 
+# HF_TOKEN is required for gated models (Cosmos-Reason2-2B backbone used by GR00T N1.7)
+if [ -z "$HF_TOKEN" ]; then
+    echo "ERROR: HF_TOKEN is required. GR00T N1.7 depends on nvidia/Cosmos-Reason2-2B which is a gated model."
+    echo "Get your token at https://huggingface.co/settings/tokens and accept the model license at https://huggingface.co/nvidia/Cosmos-Reason2-2B"
+    exit 1
+fi
+
 # If REPORT_TO is 'wandb', ensure WANDB_API_KEY is set
 if [ "$REPORT_TO" = "wandb" ]; then
     if [ -z "$WANDB_API_KEY" ]; then
@@ -114,8 +121,9 @@ case "$UPLOAD_TARGET_LOWER" in
     ;;
 esac
 
-# Authenticate to Hugging Face if HF resources are specified and token is provided
-if [ -n "$HF_TOKEN" ] && { [ -n "$HF_DATASET_ID" ] || [ -n "$HF_MODEL_REPO_ID" ]; }; then
+# Authenticate to Hugging Face if token is provided
+# HF_TOKEN is required for gated models (Cosmos-Reason2-2B backbone used by GR00T N1.7)
+if [ -n "$HF_TOKEN" ]; then
     echo "Authenticating to Hugging Face..."
     HF_CLI=hf
     if ! command -v "$HF_CLI" >/dev/null 2>&1; then
