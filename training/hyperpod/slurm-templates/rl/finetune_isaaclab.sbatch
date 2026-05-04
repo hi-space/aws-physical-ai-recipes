@@ -61,18 +61,27 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
 
     CONTAINER_NAME="isaaclab"
 
-    # Create container from sqsh once (reuse across jobs)
+    # Create container from sqsh once (reuse across jobs, requires sudo)
     if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
         echo "Creating container rootfs (first time only, ~5-10 min on FSx)..."
-        enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
-
-        # Install Isaac Lab into the container (one-time)
-        echo "Installing Isaac Lab packages into container..."
-        enroot start --root --rw "${CONTAINER_NAME}" \
-            bash -c "pip install --quiet isaaclab isaaclab_rl rsl-rl-lib gymnasium 2>&1 | tail -5"
+        sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
     fi
 
-    enroot start --root \
+    # Install Isaac Lab packages if not already present (uses chroot to avoid slow entrypoint)
+    ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
+    [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
+    if ! sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
+        "LD_LIBRARY_PATH=/isaac-sim/kit/python/lib /isaac-sim/kit/python/bin/python3 -c 'import rsl_rl' 2>/dev/null"; then
+        echo "Installing Isaac Lab packages into container..."
+        sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
+        sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
+            "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs && \
+             /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
+             isaaclab rsl-rl-lib gymnasium 2>&1 | tail -5"
+        echo "Isaac Lab packages installed."
+    fi
+
+    sudo enroot start --root \
         --rw \
         --mount /fsx:/fsx \
         --env ACCEPT_EULA=Y \
