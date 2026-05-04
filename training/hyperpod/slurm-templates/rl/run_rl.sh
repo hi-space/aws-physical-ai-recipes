@@ -15,6 +15,7 @@ while [[ $# -gt 0 ]]; do
     --task) TASK="$2"; shift 2;;
     --envs) NUM_ENVS="$2"; shift 2;;
     --iterations) MAX_ITERATIONS="$2"; shift 2;;
+    --help|-h) echo "Usage: $0 [--task TASK_ID] [--envs NUM] [--iterations NUM]"; exit 0;;
     *) echo "Unknown option: $1"; exit 1;;
   esac
 done
