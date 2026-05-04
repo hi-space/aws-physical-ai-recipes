@@ -24,7 +24,9 @@ if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head" ] && [ -n "$SLURMCTLD_HOST" 
   fi
 elif [ -z "$SLURMCTLD_HOST" ] && [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head" ]; then
   # Fallback: discover head node IP from lifecycle bucket
-  LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  if [ -z "${LIFECYCLE_BUCKET:-}" ]; then
+    LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  fi
   if [ -n "$LIFECYCLE_BUCKET" ]; then
     HEAD_IP=$(aws s3 cp "s3://${LIFECYCLE_BUCKET}/config/head_ip.txt" - 2>/dev/null || true)
     if [ -n "$HEAD_IP" ]; then
@@ -38,7 +40,9 @@ elif [ -z "$SLURMCTLD_HOST" ] && [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head
   fi
 else
   # Head node: save IP for compute nodes
-  LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  if [ -z "${LIFECYCLE_BUCKET:-}" ]; then
+    LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  fi
   if [ -n "$LIFECYCLE_BUCKET" ]; then
     hostname -I | awk '{print $1}' | aws s3 cp - "s3://${LIFECYCLE_BUCKET}/config/head_ip.txt" 2>/dev/null || true
     echo "[setup_slurm] Saved head node IP to S3."

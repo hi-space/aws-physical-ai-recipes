@@ -12,8 +12,10 @@ FSX_DNS_NAME="${FSX_DNS_NAME:-}"
 FSX_MOUNT_NAME="${FSX_MOUNT_NAME:-}"
 
 if [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
-  # Try to discover FSx from lifecycle bucket config
-  LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  # Use LIFECYCLE_BUCKET from parent (on_create.sh exports it)
+  if [ -z "${LIFECYCLE_BUCKET:-}" ]; then
+    LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  fi
   if [ -n "$LIFECYCLE_BUCKET" ]; then
     if aws s3 cp "s3://${LIFECYCLE_BUCKET}/config/fsx.env" /tmp/fsx.env 2>/dev/null; then
       source /tmp/fsx.env

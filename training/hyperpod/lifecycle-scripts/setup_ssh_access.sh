@@ -3,9 +3,14 @@ set -euo pipefail
 
 echo "[setup_ssh] Configuring SSH access..."
 
-# Determine lifecycle bucket from known naming pattern
-LIFECYCLE_BUCKET=""
-LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+# Use LIFECYCLE_BUCKET from parent (on_create.sh exports it), or detect from env/S3
+if [ -z "${LIFECYCLE_BUCKET:-}" ]; then
+  if [ -n "${SAGEMAKER_LIFECYCLE_CONFIG_S3_URI:-}" ]; then
+    LIFECYCLE_BUCKET=$(echo "${SAGEMAKER_LIFECYCLE_CONFIG_S3_URI}" | sed 's|^s3://||' | cut -d/ -f1)
+  else
+    LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+  fi
+fi
 
 if [ -z "$LIFECYCLE_BUCKET" ]; then
   echo "[setup_ssh] Could not determine lifecycle bucket. Skipping SSH setup."

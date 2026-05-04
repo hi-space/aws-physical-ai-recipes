@@ -125,10 +125,13 @@ export class HyperPodClusterConstruct extends Construct {
       description: 'Lustre from HyperPod',
     });
 
-    // Upload lifecycle scripts to S3
+    // Upload lifecycle scripts to S3 (include bucket.conf for self-discovery)
     const lifecycleScriptsPath = path.join(__dirname, '..', '..', '..', 'lifecycle-scripts');
     const lifecycleDeploy = new s3deploy.BucketDeployment(this, 'LifecycleScriptsDeploy', {
-      sources: [s3deploy.Source.asset(lifecycleScriptsPath)],
+      sources: [
+        s3deploy.Source.asset(lifecycleScriptsPath),
+        s3deploy.Source.data('bucket.conf', this.lifecycleBucket.ref),
+      ],
       destinationBucket: s3.Bucket.fromBucketName(this, 'LifecycleBucketRef', this.lifecycleBucket.ref),
       destinationKeyPrefix: 'lifecycle-scripts/',
     });

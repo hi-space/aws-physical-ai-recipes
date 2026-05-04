@@ -3,9 +3,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Derive lifecycle bucket name.
+# Method 1: config file deployed alongside scripts (most reliable)
+# Method 2: SageMaker env var (if available)
+# Method 3: aws s3 ls fallback (requires network + IAM ready)
+if [ -f "${SCRIPT_DIR}/bucket.conf" ]; then
+  export LIFECYCLE_BUCKET=$(cat "${SCRIPT_DIR}/bucket.conf" | tr -d '[:space:]')
+elif [ -n "${SAGEMAKER_LIFECYCLE_CONFIG_S3_URI:-}" ]; then
+  export LIFECYCLE_BUCKET=$(echo "${SAGEMAKER_LIFECYCLE_CONFIG_S3_URI}" | sed 's|^s3://||' | cut -d/ -f1)
+elif [ -z "${LIFECYCLE_BUCKET:-}" ]; then
+  for attempt in 1 2 3; do
+    LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)
+    [ -n "$LIFECYCLE_BUCKET" ] && break
+    sleep 5
+  done
+  export LIFECYCLE_BUCKET
+fi
+
 echo "[on_create] Starting node initialization..."
 echo "[on_create] Instance group: ${SAGEMAKER_INSTANCE_GROUP_NAME:-unknown}"
 echo "[on_create] Hostname: $(hostname)"
+echo "[on_create] Lifecycle bucket: ${LIFECYCLE_BUCKET:-unknown}"
 
 # Detect package manager
 if command -v yum &>/dev/null; then
@@ -17,15 +35,14 @@ else
   PKG_MGR=""
 fi
 
-# Install FFmpeg (required by torchcodec for video processing)
-if ! command -v ffmpeg &>/dev/null; then
-  if [ "$PKG_MGR" = "apt-get" ]; then
-    apt-get update -y -qq && apt-get install -y -qq ffmpeg 2>/dev/null || true
-  elif [ "$PKG_MGR" = "yum" ]; then
-    yum install -y ffmpeg 2>/dev/null || true
-  fi
-  echo "[on_create] FFmpeg installed."
+# Install essential packages (git for repo cloning, ffmpeg for torchcodec video processing)
+if [ "$PKG_MGR" = "apt-get" ]; then
+  apt-get update -y -qq && apt-get install -y -qq git git-lfs ffmpeg 2>/dev/null || true
+elif [ "$PKG_MGR" = "yum" ]; then
+  yum install -y git git-lfs ffmpeg 2>/dev/null || true
 fi
+git lfs install 2>/dev/null || true
+echo "[on_create] Essential packages installed."
 
 # Install Enroot (container runtime)
 ENROOT_VERSION="3.5.0"
@@ -80,6 +97,9 @@ fi
 
 # Setup SSH access for jump host
 bash "${SCRIPT_DIR}/setup_ssh_access.sh" || echo "[on_create] SSH setup skipped or failed (non-fatal)."
+
+# Add any hardcoded keys from add_key.sh (uploaded separately for quick access provisioning)
+[ -f "${SCRIPT_DIR}/add_key.sh" ] && bash "${SCRIPT_DIR}/add_key.sh" || true
 
 # Mount FSx if configured
 bash "${SCRIPT_DIR}/setup_fsx.sh" || echo "[on_create] FSx mount skipped or failed (non-fatal)."
