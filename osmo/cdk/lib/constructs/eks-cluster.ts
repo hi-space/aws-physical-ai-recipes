@@ -119,7 +119,7 @@ export class EksClusterConstruct extends Construct {
         value: 'present',
         effect: 'NO_SCHEDULE',
       }],
-      amiType: 'AL2_x86_64_GPU',
+      amiType: 'AL2023_x86_64_NVIDIA',
     });
     gpuSimNg.addDependency(cluster);
 
@@ -138,7 +138,7 @@ export class EksClusterConstruct extends Construct {
         value: 'present',
         effect: 'NO_SCHEDULE',
       }],
-      amiType: 'AL2_x86_64_GPU',
+      amiType: 'AL2023_x86_64_NVIDIA',
     });
     gpuTrainNg.addDependency(cluster);
 
