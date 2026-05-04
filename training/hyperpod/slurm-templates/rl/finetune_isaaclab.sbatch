@@ -103,7 +103,7 @@ RCEOF
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         "${CONTAINER_NAME}" \
-        python3 "${SCRIPT_DIR}/train_isaaclab.py" \
+        bash /isaac-sim/python.sh "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \
             --num_envs "${NUM_ENVS}" \
             --max_iterations "${MAX_ITERATIONS}" \
