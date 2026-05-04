@@ -65,6 +65,19 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
     if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
         echo "Creating container rootfs (first time only, ~5-10 min on FSx)..."
         sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
+
+        # Patch entrypoint to pass through commands (default runs runheadless.sh)
+        ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
+        [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
+        sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
+mkdir -p "/isaac-sim" 2> /dev/null
+cd "/isaac-sim" && unset OLDPWD || exit 1
+export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
+export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
+export ISAAC_SIM_PATH=/isaac-sim
+if [ -s /etc/rc.local ]; then . /etc/rc.local; fi
+if [ $# -gt 0 ]; then exec "$@"; else exec /bin/sh -c /isaac-sim/runheadless.sh; fi
+RCEOF
     fi
 
     # Install Isaac Lab packages if not already present (uses chroot to avoid slow entrypoint)
@@ -90,7 +103,7 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         "${CONTAINER_NAME}" \
-        python "${SCRIPT_DIR}/train_isaaclab.py" \
+        python3 "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \
             --num_envs "${NUM_ENVS}" \
             --max_iterations "${MAX_ITERATIONS}" \
