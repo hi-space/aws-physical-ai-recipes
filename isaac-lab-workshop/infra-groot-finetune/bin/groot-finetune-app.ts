@@ -14,7 +14,7 @@ if (!userId) {
     '  npx cdk deploy\n\n' +
     'Or provide all parameters manually:\n' +
     '  cdk deploy -c userId=alice -c vpcId=vpc-xxx -c efsFileSystemId=fs-xxx \\\n' +
-    '    -c efsSecurityGroupId=sg-xxx -c privateSubnetId=subnet-xxx -c availabilityZone=ap-northeast-2a'
+    '    -c efsSecurityGroupId=sg-xxx -c privateSubnetId=subnet-xxx -c availabilityZone=us-east-1a'
   );
 }
 
@@ -30,13 +30,13 @@ if (!vpcId || !efsFileSystemId || !efsSecurityGroupId || !privateSubnetId || !av
     'Missing infrastructure parameters.\n\n' +
     'Run auto-resolution first:\n' +
     `  npx ts-node bin/resolve-parent-stack.ts ${userId}\n\n` +
-    'This will look up IsaacLab-Latest-' + userId + ' and write parameters to cdk.context.json.'
+    'This will look up IsaacLab-Latest/Stable-' + userId + ' and write parameters to cdk.context.json.'
   );
 }
 
 // Optional parameters
 const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
-const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION ?? 'ap-northeast-2';
+const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 
 const stackName = `GrootFinetune-${userId}`;
 

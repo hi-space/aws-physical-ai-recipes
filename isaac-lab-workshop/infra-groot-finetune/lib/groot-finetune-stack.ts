@@ -94,7 +94,7 @@ export class GrootFinetuneStack extends cdk.Stack {
         `  --job-name groot-finetune`,
         `  --job-queue ${namePrefix}-GrootFinetuneQueue`,
         `  --job-definition ${namePrefix}-GrootFinetuneJob`,
-        `  --container-overrides '{"environment":[{"name":"HF_DATASET_ID","value":"lerobot/aloha_mobile_cabinet"},{"name":"MAX_STEPS","value":"6000"}]}'`,
+        `  --container-overrides '{"environment":[{"name":"HF_TOKEN","value":"<your-hf-token>"},{"name":"MAX_STEPS","value":"6000"}]}'`,
       ].join(' '),
       description: 'Example AWS CLI command to submit a training job',
     });

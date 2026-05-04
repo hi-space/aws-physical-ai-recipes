@@ -16,7 +16,7 @@ import * as path from 'path';
 
 async function main() {
   const userId = process.argv[2];
-  const region = process.argv[3] ?? process.env.CDK_DEFAULT_REGION ?? 'ap-northeast-2';
+  const region = process.argv[3] ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 
   if (!userId) {
     console.error('Usage: npx ts-node bin/resolve-parent-stack.ts <userId> [region]');
@@ -26,17 +26,41 @@ async function main() {
   const cfn = new CloudFormationClient({ region });
   const ec2 = new EC2Client({ region });
 
-  const stackName = `IsaacLab-Latest-${userId}`;
-  console.log(`Looking up parent stack: ${stackName} in ${region}...`);
+  // Try multiple stack name patterns: Latest, Stable
+  const candidates = [
+    `IsaacLab-Latest-${userId}`,
+    `IsaacLab-Stable-${userId}`,
+  ];
 
-  const { Stacks } = await cfn.send(new DescribeStacksCommand({ StackName: stackName }));
-  if (!Stacks || Stacks.length === 0) {
-    console.error(`Parent stack "${stackName}" not found in ${region}`);
-    process.exit(1);
+  let foundStack: string | undefined;
+  let Stacks: any[] | undefined;
+
+  for (const candidate of candidates) {
+    console.log(`Trying parent stack: ${candidate} in ${region}...`);
+    try {
+      const result = await cfn.send(new DescribeStacksCommand({ StackName: candidate }));
+      if (result.Stacks && result.Stacks.length > 0) {
+        foundStack = candidate;
+        Stacks = result.Stacks;
+        break;
+      }
+    } catch (err: any) {
+      if (err.name === 'ValidationError' || err.message?.includes('does not exist')) {
+        continue;
+      }
+      throw err;
+    }
   }
 
+  if (!foundStack || !Stacks || Stacks.length === 0) {
+    console.error(`No parent stack found for userId "${userId}" in ${region}.`);
+    console.error(`Tried: ${candidates.join(', ')}`);
+    process.exit(1);
+  }
+  console.log(`Found parent stack: ${foundStack}`);
+
   const outputs = Stacks[0].Outputs ?? [];
-  const getOutput = (key: string) => outputs.find((o) => o.OutputKey === key)?.OutputValue;
+  const getOutput = (key: string) => outputs.find((o: any) => o.OutputKey === key)?.OutputValue;
 
   const efsFileSystemId = getOutput('EfsFileSystemId');
   const privateSubnetId = getOutput('PrivateSubnetId');
