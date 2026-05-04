@@ -116,7 +116,7 @@ RCEOF
             sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
                 "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:\$LD_LIBRARY_PATH && \
                  /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
-                 isaaclab rsl-rl-lib gymnasium 2>&1 | tail -5" || {
+                 isaaclab rsl-rl-lib gymnasium pyzmq msgpack 2>&1 | tail -5" || {
                 echo "  WARNING: Package installation failed. Will retry on first sbatch run."
             }
         fi
