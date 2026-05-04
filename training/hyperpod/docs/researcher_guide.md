@@ -1,14 +1,33 @@
 # HyperPod 클러스터 리서처 가이드
 
-이 가이드는 SageMaker HyperPod 클러스터를 사용하여 VLA(Vision Language Action) 및 RL 학습을 실행하는 방법을 설명합니다.
+SageMaker HyperPod 클러스터에서 GR00T VLA 모델을 fine-tuning하는 방법을 설명합니다.
 
 ## 1. 클러스터 접속
 
-### SSM Session Manager로 Head-Node 접속
+### Jump Host를 통한 SSH 접속
+
+CDK 배포 시 Jump Host가 생성됩니다. Jump Host를 통해 Head Node에 접속합니다.
+
+```bash
+# Jump Host IP 확인 (CloudFormation Output)
+JUMP_HOST_IP=$(aws cloudformation describe-stacks \
+  --stack-name HyperPod \
+  --query "Stacks[0].Outputs[?OutputKey=='JumpHostPublicIp'].OutputValue" \
+  --output text)
+
+# Jump Host → Head Node SSH
+ssh -i ~/.ssh/hyperpod-key.pem ubuntu@${JUMP_HOST_IP}
+ssh head-node
+```
+
+### SSM Session Manager로 직접 접속
 
 ```bash
 # 클러스터 이름 확인
-CLUSTER_NAME="hyperpod-robotics"
+CLUSTER_NAME=$(aws cloudformation describe-stacks \
+  --stack-name HyperPod \
+  --query "Stacks[0].Outputs[?OutputKey=='ClusterName'].OutputValue" \
+  --output text)
 
 # Head-node 인스턴스 ID 확인
 INSTANCE_ID=$(aws sagemaker list-cluster-nodes \
@@ -17,572 +36,271 @@ INSTANCE_ID=$(aws sagemaker list-cluster-nodes \
   --output text)
 
 # SSM Session Manager로 접속
-aws ssm start-session --target ${INSTANCE_ID}
+aws ssm start-session --target sagemaker-cluster:${CLUSTER_NAME}_${INSTANCE_ID}
 ```
 
 ## 2. 환경 확인
 
-Head-node에 접속한 후 다음 명령어로 클러스터 상태를 확인합니다:
-
 ```bash
-# SLURM 파티션 및 노드 상태 확인
+# SLURM 클러스터 상태 (단일 dev 파티션)
 sinfo
 
-# FSx 디스크 사용량 확인
+# FSx 마운트 확인
 df -h /fsx
 
-# GPU 상태 확인
+# GPU 상태
 nvidia-smi
 
-# SLURM 큐 상태
+# 작업 큐
 squeue
-
-# 모든 노드 상태 상세 조회
-scontrol show nodes
 ```
 
 예상 출력:
 ```
 $ sinfo
 PARTITION AVAIL  TIMELIMIT  NODES  STATE NODELIST
-head*        up   infinite      1   idle head-node-001
-sim          up   infinite      0  alloc sim-node-[001-004]
-train        up   infinite      4   idle train-node-[001-004]
-debug        up   infinite      1   idle debug-node-001
+dev*         up   infinite      1   idle ip-10-0-...
 ```
 
-## 3. 데이터 업로드 및 FSx 동기화
+> **참고**: HyperPod Managed SLURM 모드에서는 단일 `dev` 파티션이 자동 생성됩니다.
 
-### S3 업로드 → FSx 자동 동기화
+## 3. 환경 설정 (최초 1회)
 
-HyperPod은 S3 버킷과 FSx for Lustre를 자동으로 동기화합니다:
+Head Node에 접속 후 환경 설정 스크립트를 실행합니다:
+
+```bash
+bash /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/scripts/setup_environment.sh
+```
+
+이 스크립트는:
+1. 레포지토리를 FSx에 clone
+2. GR00T 학습 컨테이너를 빌드하여 ECR → Enroot로 import
+3. Head node에 Python 패키지 설치 (mlflow, boto3 등)
+4. FSx에 디렉토리 구조 생성
+
+컨테이너 빌드에 20-30분 소요됩니다. 완료 후 `/fsx/enroot/data/gr00t-train+latest.sqsh` 파일이 생성됩니다.
+
+### 수동 컨테이너 빌드 (선택)
+
+setup_environment.sh 대신 단계별로 실행할 수도 있습니다:
+
+```bash
+REPO_DIR="/fsx/scratch/aws-physical-ai-recipes/training/hyperpod"
+
+# 1. Docker 빌드 → ECR 푸시
+bash ${REPO_DIR}/container/build_and_push_ecr.sh
+
+# 2. ECR → Enroot import
+bash ${REPO_DIR}/container/import_container.sh
+```
+
+## 4. 데이터 준비
+
+### S3 → FSx 자동 동기화
+
+HyperPod은 S3 Data Repository Association을 통해 자동 동기화합니다:
+- S3 업로드 → FSx에 자동 반영 (AutoImportPolicy: NEW_CHANGED_DELETED)
 
 ```bash
 # 로컬 데이터를 S3에 업로드
-aws s3 cp ./my_dataset s3://hyperpod-data-ACCOUNT-REGION/datasets/groot/my_dataset --recursive
+aws s3 cp ./my_dataset s3://<DATA_BUCKET>/datasets/groot/my_dataset --recursive
 
-# 또는 ALOHA 데이터세트 다운로드 (예시)
-cd /tmp
-git clone https://github.com/example/aloha-dataset.git
-aws s3 sync ./aloha-dataset s3://hyperpod-data-ACCOUNT-REGION/datasets/groot/aloha/
+# FSx에서 확인
+ls /fsx/datasets/groot/my_dataset
 ```
 
-FSx는 다음 규칙에 따라 자동으로 동기화합니다:
-- **ImportPath**: `s3://hyperpod-data/datasets/` → `/fsx/datasets/` (자동 동기화)
-- **ExportPath**: `/fsx/checkpoints/` → `s3://hyperpod-data/checkpoints/` (자동 내보내기)
-- **AutoImportPolicy**: `NEW_CHANGED_DELETED` (새 파일 및 변경사항 자동 감지)
+### 데이터셋 형식 (LeRobot v2)
 
-### S3 경로 규칙
+GR00T fine-tuning은 LeRobot v2 형식 데이터를 사용합니다:
 
-다음 경로 규칙을 준수하여 데이터를 구성합니다:
+```
+/fsx/datasets/groot/<dataset_name>/
+├── episodes/
+│   ├── episode_000000/
+│   │   ├── data.parquet       # 상태/액션 데이터
+│   │   └── video_*.mp4        # 카메라 영상
+│   └── ...
+├── tasks.parquet              # 태스크 메타데이터
+└── file-000.parquet           # 글로벌 인덱스
+```
 
-| 경로 | 용도 | 예시 |
-|------|------|------|
-| `datasets/groot/` | GR00T 학습 데이터 | `datasets/groot/aloha/`, `datasets/groot/bridge_v2/` |
-| `datasets/pi0/` | π0 학습 데이터 | `datasets/pi0/bridge_v2/`, `datasets/pi0/oxe/` |
-| `checkpoints/vla/` | VLA 체크포인트 | `checkpoints/vla/groot-aloha-20250501/` |
-| `checkpoints/rl/` | RL 체크포인트 | `checkpoints/rl/isaac-humanoid-20250501/` |
-| `mlflow-artifacts/` | MLflow 로그 및 메트릭 | (자동 생성) |
-
-### FSx 동기화 확인
+### 샘플 데이터 다운로드
 
 ```bash
-# FSx 마운트 포인트 확인
-df -h /fsx
-
-# 데이터세트 동기화 확인
-ls -la /fsx/datasets/groot/
-
-# 체크포인트 동기화 확인
-ls -la /fsx/checkpoints/vla/
-
-# S3 업로드 진행 상황 모니터링
-aws s3 ls s3://hyperpod-data-ACCOUNT-REGION/checkpoints/vla/ --recursive --human-readable --summarize
+python /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/examples/vla/download_dataset.py
 ```
 
-## 4. VLA 학습 실행
+## 5. VLA 학습 실행
 
-### 4.1 GR00T 학습
-
-GR00T fine-tuning은 NVIDIA Isaac-GR00T 공식 파이프라인(`Gr00tTrainer` + `TrainingRunner`)을 사용합니다.
-
-#### Step 1: 데이터 준비
-
-데이터셋은 LeRobot v2 형식이어야 합니다:
-
-```
-/fsx/datasets/groot/aloha/
-├── meta/
-│   ├── info.json          # 데이터셋 메타 정보
-│   ├── episodes.jsonl     # 에피소드 목록
-│   ├── tasks.jsonl        # 태스크 설명
-│   └── modality.json      # 센서/액션 매핑 (GR00T 필수)
-├── data/
-│   └── *.parquet          # 상태/액션 데이터
-└── videos/
-    └── *.mp4              # 카메라 영상
-```
-
-데이터셋 검증:
+### 기본 학습 (1 GPU)
 
 ```bash
-python /fsx/scratch/vla/prepare_dataset.py \
-  --dataset-path /fsx/datasets/groot/aloha \
-  --validate
+sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot.sbatch
 ```
 
-#### Step 2: Modality Config 선택
+### 파라미터 커스터마이징
 
-로봇에 맞는 modality config를 선택합니다:
-
-| Config | 로봇 | 설명 |
-|--------|------|------|
-| `aloha` | ALOHA | Bimanual, front camera, 14-DOF |
-| `so100` | SO-100 | Single arm, front+wrist camera, 7-DOF |
-
-커스텀 로봇은 `modality_configs/` 디렉토리에 새 `.py` 파일을 추가하세요.
-
-#### Step 3: 학습 실행
+환경변수로 학습 설정을 변경할 수 있습니다:
 
 ```bash
-# 기본 설정 (ALOHA, 5000 steps)
-sbatch \
-  --export=ALL,DATASET=aloha,MODALITY_CONFIG=aloha \
-  /path/to/finetune_groot.sbatch
-
-# 커스텀 설정
-sbatch \
-  --export=ALL,DATASET=my_robot,MODALITY_CONFIG=/fsx/configs/my_robot.py,EMBODIMENT_TAG=NEW_EMBODIMENT,MAX_STEPS=10000,BATCH_SIZE=16,LR=1e-5 \
-  /path/to/finetune_groot.sbatch
+# 커스텀 데이터셋, 4GPU, 5000 steps
+NUM_GPUS=4 \
+DATASET=aloha \
+EMBODIMENT_TAG=aloha \
+MAX_STEPS=5000 \
+GLOBAL_BATCH_SIZE=64 \
+sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot.sbatch
 ```
 
-#### 멀티노드
+### 주요 환경변수
 
-```bash
-# 4개 노드 (16 GPU) 분산 학습
-sbatch \
-  --nodes=4 \
-  --export=ALL,DATASET=aloha,MAX_STEPS=10000 \
-  /path/to/finetune_groot.sbatch
-```
-
-#### 주요 파라미터
-
-| 파라미터 | 기본값 | 설명 |
-|----------|--------|------|
-| `MAX_STEPS` | 5000 | 총 학습 스텝 수 |
-| `BATCH_SIZE` | 32 | GPU당 배치 크기 |
-| `LR` | 2e-5 | 학습률 |
-| `SAVE_STEPS` | 500 | 체크포인트 저장 간격 |
-| `STATE_DROPOUT` | 0.3 | State dropout 확률 |
-| `MODALITY_CONFIG` | aloha | Modality 설정 (이름 또는 .py 경로) |
-| `EMBODIMENT_TAG` | NEW_EMBODIMENT | 로봇 embodiment 태그 |
-
-#### 작업 모니터링
-
-```bash
-# 작업 상태 확인
-squeue
-
-# 특정 작업 로그 확인
-tail -f /fsx/scratch/logs/groot-<JOB_ID>.out
-
-# 작업 세부 정보 확인
-scontrol show job <JOB_ID>
-```
-
-### 4.2 π0 학습
-
-```bash
-# run_vla.sh로 π0 학습 제출
-bash /path/to/run_vla.sh --model pi0 --dataset bridge_v2 --epochs 100 --nodes 2
-
-# 또는 직접 sbatch 제출
-sbatch \
-  --nodes=2 \
-  --export=ALL,DATASET=bridge_v2,EPOCHS=100 \
-  /path/to/finetune_pi0.sbatch
-```
-
-π0 학습 설정 (기본값):
-- 배치 크기: 16 (GR00T보다 작음)
-- 학습 속도: 5e-5 (GR00T보다 낮음)
-- 시간 제한: 48시간 (GR00T 24시간보다 길음)
-- 데이터세트: bridge_v2
-
-## 5. RL 학습 실행
-
-### Actor-Learner 아키텍처
-
-RL 학습은 두 가지 작업으로 구성됩니다:
-- **Learner**: Train 파티션에서 실행, Ray head로 정책 업데이트
-- **Actor**: Sim 파티션에서 병렬 실행, 시뮬레이션 환경에서 경험 수집
-
-### run_rl.sh 사용법
-
-```bash
-# 기본 설정으로 RL 학습 시작 (8개 actor)
-bash /path/to/run_rl.sh --env Isaac-Humanoid-v0 --num-actors 8
-
-# 16개 actor로 시뮬레이션 수행
-bash /path/to/run_rl.sh --env Isaac-Cartpole-v0 --num-actors 16
-
-# 커스텀 실험 이름 지정
-bash /path/to/run_rl.sh \
-  --env Isaac-Humanoid-v0 \
-  --num-actors 12 \
-  --experiment custom-run-20250501
-```
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `NUM_GPUS` | 1 | GPU 수 |
+| `DATASET` | demo_data | 데이터셋 이름 (/fsx/datasets/groot/ 하위) |
+| `DATASET_PATH` | (DATASET으로 계산) | 전체 데이터셋 경로 (직접 지정 시) |
+| `BASE_MODEL` | nvidia/GR00T-N1.6-3B | 기본 모델 |
+| `EMBODIMENT_TAG` | new_embodiment | 로봇 embodiment 태그 |
+| `MAX_STEPS` | 2000 | 총 학습 스텝 |
+| `GLOBAL_BATCH_SIZE` | 32 | 전체 배치 크기 |
+| `SAVE_STEPS` | 2000 | 체크포인트 저장 간격 |
+| `OUTPUT_DIR` | /fsx/checkpoints/vla/groot-<DATASET> | 체크포인트 저장 경로 |
 
 ### 작업 모니터링
 
 ```bash
-# 모든 RL 작업 확인
-squeue -u $USER
-
-# Learner와 Actor 작업 각각 확인
-squeue | grep learner
-squeue | grep actor
-
-# 특정 작업 상세 정보
-scontrol show job <LEARNER_JOB_ID>
-
-# Learner 로그 실시간 확인
-tail -f /fsx/scratch/logs/learner-<JOB_ID>.out
-
-# Actor 로그 (배열 작업이므로 각 actor 확인)
-tail -f /fsx/scratch/logs/actor-<JOB_ID>-0.out
-tail -f /fsx/scratch/logs/actor-<JOB_ID>-1.out
-```
-
-### Ray 클러스터 확인
-
-```bash
-# Learner 노드 확인
-LEARNER_NODE=$(squeue -j <LEARNER_JOB_ID> -h -o %N)
-
-# Ray status 확인 (Learner 노드에서)
-srun --jobid=<LEARNER_JOB_ID> --nodelist=${LEARNER_NODE} ray status
-
-# Ray 대시보드 접속 (포트포워딩 필요)
-# 로컬 머신에서: ssh -L 8265:<LEARNER_IP>:8265 head-node
-```
-
-## 6. DCV 시각화 검증
-
-### DCV 세션 시작
-
-```bash
-# debug 파티션에서 DCV 세션 시작
-CHECKPOINT="/fsx/checkpoints/vla/groot-aloha-20250501"
-
-sbatch \
-  --export=ALL,CHECKPOINT=${CHECKPOINT} \
-  /path/to/dcv_session.sbatch
-```
-
-### SSM 포트포워딩을 통한 접속
-
-```bash
-# 1. DCV 세션을 실행 중인 노드 확인
-DCV_JOB_ID=$(squeue -u $USER | grep dcv | awk '{print $1}')
-DCV_NODE=$(squeue -j ${DCV_JOB_ID} -h -o %N)
-
-# 2. SSM 포트포워딩 시작 (로컬 머신에서)
-aws ssm start-session \
-  --target <INSTANCE_ID> \
-  --document-name AWS-StartPortForwardingSession \
-  --parameters portNumber=8443,localPortNumber=8443
-
-# 3. 브라우저에서 접속
-# https://localhost:8443
-# (자체 서명 인증서 경고는 무시)
-```
-
-### Isaac Sim에서 모델 검증
-
-DCV 세션이 활성화되면:
-
-```bash
-# Isaac Sim GUI에서 학습된 모델 로드
-python /fsx/scratch/verify_in_sim.py --checkpoint ${CHECKPOINT}
-
-# 모델 정추론 및 시각화
-# - 학습된 policy 실행
-# - 로봇 동작 시각화
-# - 센서 데이터 확인
-```
-
-## 7. MLflow UI 접속
-
-### 7.1 SageMaker Studio에서 확인
-
-```bash
-# SageMaker Studio 노트북에서
-import sagemaker
-session = sagemaker.Session()
-
-# MLflow 추적 URI
-mlflow_uri = f"s3://{session.default_bucket()}/mlflow-artifacts"
-print(f"MLflow Tracking URI: {mlflow_uri}")
-```
-
-### 7.2 클러스터에서 코드로 조회
-
-```bash
-# Head-node에서 MLflow CLI 사용
-mlflow experiments search --output-format json
-
-# 특정 실험의 메트릭 조회
-mlflow runs search --experiment-name "groot-aloha" --output-format json
-```
-
-### 7.3 학습 스크립트에서 MLflow 사용
-
-```python
-import mlflow
-
-# MLflow 추적 시작
-mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
-mlflow.set_experiment("groot-aloha")
-
-with mlflow.start_run():
-    mlflow.log_param("epochs", 50)
-    mlflow.log_param("batch_size", 32)
-    
-    for epoch in range(epochs):
-        loss = train_epoch()
-        mlflow.log_metric("train_loss", loss, step=epoch)
-```
-
-## 8. SLURM 자주 쓰는 명령어
-
-### 클러스터 상태 확인
-
-```bash
-# 파티션 및 노드 상태
-sinfo
-
-# 노드 세부 정보 (메모리, GPU, 상태)
-sinfo -N -l
-
-# 특정 파티션 상태
-sinfo -p train
-
-# 모든 노드 상세 정보
-scontrol show nodes
-```
-
-### 작업 제출 및 모니터링
-
-```bash
-# 작업 제출
-sbatch job.sbatch
-
-# 작업 ID 포함 제출 (파싱 가능)
-JOB_ID=$(sbatch --parsable job.sbatch)
-
-# 대기 중인 작업 확인
+# 작업 상태
 squeue
 
-# 특정 사용자의 작업 확인
-squeue -u $USER
+# 로그 실시간 확인
+tail -f /fsx/scratch/logs/groot-<JOB_ID>.out
 
-# 특정 작업 상태
-squeue -j <JOB_ID>
-
-# 작업 상세 정보
+# 작업 상세
 scontrol show job <JOB_ID>
 
-# 작업 상태 필터링 (RUNNING만 표시)
-squeue -t RUNNING
+# 작업 취소
+scancel <JOB_ID>
 ```
 
-### 작업 취소 및 관리
+## 6. MLflow 추적
+
+CDK 배포 시 SageMaker Managed MLflow가 자동 생성됩니다.
+
+### MLflow URI 확인
 
 ```bash
-# 특정 작업 취소
-scancel <JOB_ID>
+# AWS Console → SageMaker → MLflow Tracking Servers
+# 또는 CloudFormation Output에서 확인
 
-# 사용자의 모든 작업 취소
+export MLFLOW_TRACKING_URI="arn:aws:sagemaker:<REGION>:<ACCOUNT>:mlflow-tracking-server/HyperPod-mlflow"
+```
+
+### MLflow 통합 학습
+
+`train_groot.py`를 사용하면 MLflow가 자동으로 연동됩니다:
+
+```bash
+MLFLOW_TRACKING_URI="<ARN>" \
+sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot.sbatch
+```
+
+### MLflow UI 접속
+
+SageMaker Console → MLflow Tracking Servers → Open UI 에서 확인 가능합니다.
+
+## 7. SLURM 자주 쓰는 명령어
+
+```bash
+# 클러스터 상태
+sinfo
+sinfo -N -l
+
+# 작업 제출
+sbatch job.sbatch
+JOB_ID=$(sbatch --parsable job.sbatch)
+
+# 작업 모니터링
+squeue
+squeue -u $USER
+scontrol show job <JOB_ID>
+
+# 인터랙티브 세션 (GPU 1개)
+srun --partition=dev --gres=gpu:1 --pty bash
+
+# 컨테이너 안에서 인터랙티브
+srun --partition=dev --gres=gpu:1 \
+  --container-image=/fsx/enroot/data/gr00t-train+latest.sqsh \
+  --container-mounts=/fsx:/fsx \
+  --pty bash
+
+# 작업 취소
+scancel <JOB_ID>
 scancel -u $USER
 
-# 작업 배열의 특정 원소 취소
-scancel <JOB_ID>_2
-
-# 작업의 시간 제한 수정
-scontrol update job=<JOB_ID> TimeLimit=10:00:00
-
-# 작업의 우선순위 변경
-scontrol update job=<JOB_ID> Priority=100
-```
-
-### 작업 이력 조회
-
-```bash
-# 완료된 작업 이력
-sacct
-
-# 특정 기간의 작업 이력
-sacct --starttime=2025-05-01 --endtime=2025-05-02
-
-# 작업 세부 통계
+# 이력 조회
 sacct -j <JOB_ID> --format=JobID,JobName,State,Elapsed,MaxRSS
-
-# 완료된 작업의 리소스 사용량
-sacct -j <JOB_ID> --format=JobID,MaxVMSize,MaxRSS,TotalCPU,Elapsed
 ```
 
-### 인터랙티브 세션
+## 8. 트러블슈팅
+
+### 컨테이너 not found
 
 ```bash
-# 인터랙티브 bash 세션 시작 (train 파티션, 4 GPU)
-srun --partition=train --gpus=4 --pty bash
+# 확인
+ls -lh /fsx/enroot/data/gr00t-train+latest.sqsh
 
-# Python 인터랙티브 세션
-srun --partition=train --gpus=2 python
-
-# 시간 지정 (10시간)
-srun --partition=train --gpus=4 --time=10:00:00 --pty bash
+# 없으면 다시 빌드
+bash /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/container/build_and_push_ecr.sh
+bash /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/container/import_container.sh
 ```
 
-### 컨테이너 이미지로 작업 실행
+### 작업이 PENDING 상태
 
 ```bash
-# 특정 컨테이너 이미지로 작업 실행
-srun --container-image=nvcr.io/nvidia/gr00t:1.6.0 \
-     --container-mounts=/fsx:/fsx \
-     python /fsx/script.py
-
-# 여러 컨테이너 마운트
-srun --container-image=nvcr.io/nvidia/pytorch:24.09 \
-     --container-mounts=/fsx:/fsx,/data:/data \
-     python /fsx/train.py
-```
-
-## 9. 트러블슈팅
-
-### 9.1 작업이 PENDING 상태에서 진행 안 됨
-
-```bash
-# 작업 상태 확인
-scontrol show job <JOB_ID>
-
-# 예상되는 원인:
-# 1. 리소스 부족 (GPU 사용 가능 여부 확인)
+# 리소스 부족인지 확인
 sinfo
+scontrol show job <JOB_ID> | grep Reason
 
-# 2. 파티션이 비활성화됨
-sinfo -p <PARTITION>
-
-# 3. 노드 에러 상태
-scontrol show node <NODE_NAME>
-
-# 해결 방법:
-# - 작업 요구사항 조정 (GPU 수, 시간 등)
-# - 다른 파티션에 작업 제출
-# - 노드가 에러 상태면 관리자에 연락
+# Compute 노드가 부족하면 HyperPod Auto-scaling이 노드를 추가합니다 (수 분 소요)
 ```
 
-### 9.2 Out of Memory (OOM) 에러
+### GPU OOM
 
 ```bash
-# 메모리 요구사항 확인
-grep -i "memory" /fsx/scratch/logs/<JOB>.out
-
-# 배치 크기 감소하여 재제출
-sbatch \
-  --export=ALL,BATCH_SIZE=16 \
-  /path/to/training.sbatch
-
-# 노드의 메모리 확인
-free -h
-
-# GPU 메모리 확인
-nvidia-smi
-
-# 데이터로더 workers 수 감소
-# train_script.py에서:
-# DataLoader(dataset, num_workers=0)  # 기본값 4 → 0
+# 배치 크기를 줄여서 재실행
+GLOBAL_BATCH_SIZE=16 sbatch finetune_groot.sbatch
 ```
 
-### 9.3 FSx 동기화 이슈
+### FSx에 데이터가 보이지 않음
 
 ```bash
 # FSx 마운트 확인
 df -h /fsx
-mount | grep fsx
 
-# FSx에 데이터가 없으면 재마운트 필요
-sudo umount /fsx
-sudo mount -t lustre <FSX_DNS>@tcp:/<FSX_MOUNT> /fsx
+# S3에 데이터가 있는지 확인
+aws s3 ls s3://<DATA_BUCKET>/datasets/groot/
 
-# S3에서 FSx로 수동 동기화 (필요한 경우)
-aws s3 sync s3://hyperpod-data-ACCOUNT-REGION/datasets/groot/ /fsx/datasets/groot/
-
-# FSx 상태 및 용량 확인
-df -h /fsx
-lfs df /fsx
+# HSM restore (lazy loading 시)
+lfs hsm_restore /fsx/datasets/groot/<file>
 ```
 
-### 9.4 컨테이너 이미지 풀 실패
+## 9. 인스턴스 타입 참고
 
-```bash
-# 컨테이너 레지스트리 연결 확인
-srun --container-image=nvcr.io/nvidia/gr00t:1.6.0 echo "test"
+HyperPod는 `ml.*` 접두사 인스턴스만 사용 가능합니다 (일반 EC2 인스턴스 불가).
 
-# 이미지 풀 문제 진단
-# - NGC 레지스트리 인증 정보 확인
-# - 이미지 tag 버전 확인
-# - 인터넷 연결 확인
+| 프리셋 | 인스턴스 | GPU | 용도 |
+|--------|----------|-----|------|
+| default | ml.g5.12xlarge | 4× A10G (24GB) | GR00T-3B fine-tuning |
+| light | ml.g5.4xlarge | 1× A10G (24GB) | 소규모 테스트 |
+| perf | ml.g6e.12xlarge | 4× L40S (48GB) | 큰 배치, 빠른 학습 |
+| heavy | ml.p4d.24xlarge | 8× A100 (40GB) | 대규모 분산 학습 |
 
-# 문제 발생 시 로그 확인
-tail -100 /fsx/scratch/logs/<JOB>.err
+> **참고**: 사용 전 해당 리전의 ml 인스턴스 Service Quota를 확인하세요.
+> AWS Console → Service Quotas → Amazon SageMaker에서 조회/요청 가능합니다.
 
-# 대체 이미지 사용
-sbatch \
-  --container-image=docker://pytorch/pytorch:2.0 \
-  /path/to/training.sbatch
-```
+## 참고 문서
 
-### 9.5 NCCL 통신 에러 (멀티노드)
-
-```bash
-# 멀티노드 작업 로그 확인
-tail -f /fsx/scratch/logs/groot-<JOB>.out
-
-# 노드 간 네트워크 연결 테스트
-srun -N 2 ping -c 3 <OTHER_NODE_IP>
-
-# NCCL 디버깅 활성화
-export NCCL_DEBUG=INFO
-
-# 작업 다시 제출
-sbatch \
-  --export=ALL,NCCL_DEBUG=INFO \
-  /path/to/training.sbatch
-```
-
-### 9.6 Enroot 컨테이너 마운트 이슈
-
-```bash
-# Pyxis 상태 확인
-srun --container-image=nvcr.io/nvidia/pytorch:24.09 echo "ok"
-
-# 컨테이너 마운트 포인트 확인
-srun --container-image=nvcr.io/nvidia/pytorch:24.09 mount
-
-# 마운트 경로가 /fsx 외부면 에러 발생 가능
-# 해결: 스크립트를 /fsx/scratch로 복사
-
-# 컨테이너 캐시 초기화 (문제 해결 후)
-find ~/.cache -name "*container*" -type d -exec rm -rf {} + 2>/dev/null
-```
-
-## 참고
-
-- **공식 문서**: [AWS SageMaker HyperPod](https://docs.aws.amazon.com/sagemaker/latest/dg/hyperpod-overview.html)
-- **SLURM**: [SLURM Documentation](https://slurm.schedmd.com/)
-- **Enroot/Pyxis**: [NVIDIA Enroot](https://github.com/NVIDIA/enroot)
-- **MLflow**: [MLflow Documentation](https://mlflow.org/docs/)
-- **클러스터 로그**: `/fsx/scratch/logs/`에서 모든 작업 로그 확인 가능
+- [AWS SageMaker HyperPod](https://docs.aws.amazon.com/sagemaker/latest/dg/hyperpod-overview.html)
+- [SLURM Documentation](https://slurm.schedmd.com/)
+- [NVIDIA Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T)
+- [NVIDIA Enroot](https://github.com/NVIDIA/enroot)
