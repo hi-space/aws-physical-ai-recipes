@@ -33,37 +33,33 @@ echo "OUTPUT_DIR: ${OUTPUT_DIR}"
 echo "MAX_STEPS: ${MAX_STEPS}"
 echo "SAVE_STEPS: ${SAVE_STEPS}"
 echo "NUM_GPUS: ${NUM_GPUS}"
-echo "DATA_CONFIG: ${DATA_CONFIG}"
-echo "VIDEO_BACKEND: ${VIDEO_BACKEND}"
-echo "BATCH_SIZE: ${BATCH_SIZE}"
+echo "GLOBAL_BATCH_SIZE: ${GLOBAL_BATCH_SIZE:-${BATCH_SIZE}}"
 echo "LEARNING_RATE: ${LEARNING_RATE}"
 echo "BASE_MODEL_PATH: ${BASE_MODEL_PATH}"
 echo "EMBODIMENT_TAG: ${EMBODIMENT_TAG}"
-echo "REPORT_TO: ${REPORT_TO}"
+echo "MODALITY_CONFIG_PATH: ${MODALITY_CONFIG_PATH}"
+echo "REPORT_TO: ${REPORT_TO:-tensorboard}"
 echo ""
 echo "Training Configuration:"
 echo "TUNE_LLM: ${TUNE_LLM}"
 echo "TUNE_VISUAL: ${TUNE_VISUAL}"
 echo "TUNE_PROJECTOR: ${TUNE_PROJECTOR}"
 echo "TUNE_DIFFUSION_MODEL: ${TUNE_DIFFUSION_MODEL}"
-echo "LORA_RANK: ${LORA_RANK}"
-echo "LORA_ALPHA: ${LORA_ALPHA}"
-echo "LORA_DROPOUT: ${LORA_DROPOUT}"
-echo "LORA_FULL_MODEL: ${LORA_FULL_MODEL}"
 echo "WEIGHT_DECAY: ${WEIGHT_DECAY}"
 echo "WARMUP_RATIO: ${WARMUP_RATIO}"
+echo "GRADIENT_ACCUMULATION_STEPS: ${GRADIENT_ACCUMULATION_STEPS}"
 echo "DATALOADER_NUM_WORKERS: ${DATALOADER_NUM_WORKERS}"
-echo "DATALOADER_PREFETCH_FACTOR: ${DATALOADER_PREFETCH_FACTOR}"
-echo ""
-echo "Dataset Configuration:"
-echo "BALANCE_DATASET_WEIGHTS: ${BALANCE_DATASET_WEIGHTS}"
-echo "BALANCE_TRAJECTORY_WEIGHTS: ${BALANCE_TRAJECTORY_WEIGHTS}"
 echo ""
 echo "Workflow Configuration:"
 echo "RESUME: ${RESUME}"
 echo "CLEANUP_DATASET: ${CLEANUP_DATASET}"
 echo "CLEANUP_CHECKPOINTS: ${CLEANUP_CHECKPOINTS}"
 echo "=========================================="
+
+# W&B offline mode (only active when REPORT_TO=wandb)
+if [ "${REPORT_TO}" = "wandb" ]; then
+    export WANDB_MODE=${WANDB_MODE:-offline}
+fi
 
 # Check if GPU is available
 if command -v nvidia-smi &> /dev/null; then
@@ -74,18 +70,30 @@ else
     echo "WARNING: nvidia-smi not found. GPU may not be available."
 fi
 
-# HF_TOKEN is required for gated models (Cosmos-Reason2-2B backbone used by GR00T N1.7)
-if [ -z "$HF_TOKEN" ]; then
-    echo "ERROR: HF_TOKEN is required. GR00T N1.7 depends on nvidia/Cosmos-Reason2-2B which is a gated model."
-    echo "Get your token at https://huggingface.co/settings/tokens and accept the model license at https://huggingface.co/nvidia/Cosmos-Reason2-2B"
-    exit 1
+# Multi-node distributed training setup (AWS Batch injects these env vars)
+NUM_NODES=${NUM_NODES:-1}
+if [ "$NUM_NODES" -gt 1 ]; then
+    echo "Multi-node training detected: NUM_NODES=$NUM_NODES"
+    # AWS Batch sets AWS_BATCH_JOB_MAIN_NODE_INDEX (hostname of node 0)
+    # and AWS_BATCH_JOB_NODE_INDEX (0-based index of this node)
+    if [ -n "$AWS_BATCH_JOB_MAIN_NODE_INDEX" ]; then
+        export MASTER_ADDR="$AWS_BATCH_JOB_MAIN_NODE_INDEX"
+    else
+        export MASTER_ADDR="${MASTER_ADDR:-localhost}"
+    fi
+    export MASTER_PORT="${MASTER_PORT:-29500}"
+    export NODE_RANK="${AWS_BATCH_JOB_NODE_INDEX:-0}"
+    echo "MASTER_ADDR: $MASTER_ADDR"
+    echo "MASTER_PORT: $MASTER_PORT"
+    echo "NODE_RANK: $NODE_RANK"
+    echo "=========================================="
 fi
 
-# If REPORT_TO is 'wandb', ensure WANDB_API_KEY is set
-if [ "$REPORT_TO" = "wandb" ]; then
+# Warn if using W&B in online mode without an API key
+if [ "${REPORT_TO}" = "wandb" ] && [ "${WANDB_MODE}" != "offline" ]; then
     if [ -z "$WANDB_API_KEY" ]; then
-        echo "ERROR: WANDB_API_KEY environment variable is required when REPORT_TO=wandb"
-        exit 1
+        echo "WARNING: WANDB_API_KEY not set. W&B logging may fail."
+        echo "  Set WANDB_API_KEY, or set REPORT_TO=tensorboard to use TensorBoard instead."
     fi
 fi
 
@@ -121,9 +129,8 @@ case "$UPLOAD_TARGET_LOWER" in
     ;;
 esac
 
-# Authenticate to Hugging Face if token is provided
-# HF_TOKEN is required for gated models (Cosmos-Reason2-2B backbone used by GR00T N1.7)
-if [ -n "$HF_TOKEN" ]; then
+# Authenticate to Hugging Face if HF resources are specified and token is provided
+if [ -n "$HF_TOKEN" ] && { [ -n "$HF_DATASET_ID" ] || [ -n "$HF_MODEL_REPO_ID" ]; }; then
     echo "Authenticating to Hugging Face..."
     HF_CLI=hf
     if ! command -v "$HF_CLI" >/dev/null 2>&1; then
@@ -134,7 +141,7 @@ if [ -n "$HF_TOKEN" ]; then
             exit 1
         fi
     fi
-    
+
     if [ "$HF_CLI" = "hf" ]; then
         hf auth login --token "$HF_TOKEN" --non-interactive || true
     else
@@ -151,7 +158,17 @@ else
     echo "WARNING: EFS default mount not detected at $DEFAULT_EFS_BASE. Writing outputs to container-local storage."
     export OUTPUT_DIR=${OUTPUT_DIR:-"/workspace/checkpoints"}
 fi
+# Create a unique subdirectory per job to avoid checkpoint collisions.
+# AWS_BATCH_JOB_ID is set automatically in Batch containers; fall back to timestamp.
+JOB_RUN_ID="${AWS_BATCH_JOB_ID:-local-$(date +%Y%m%d-%H%M%S)}"
+export OUTPUT_DIR="${OUTPUT_DIR}/${JOB_RUN_ID}"
+echo "Job output directory: $OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR" || true
+
+# Write wandb run data inside the job output dir so it persists on EFS (only for wandb)
+if [ "${REPORT_TO}" = "wandb" ]; then
+    export WANDB_DIR=${WANDB_DIR:-$OUTPUT_DIR}
+fi
 
 # Resolve dataset source according to priority and ensure accessibility
 SAMPLE_REPO_DIR="/workspace/sample-embodied-ai-platform"
@@ -256,102 +273,18 @@ fi
 # Export back so Python workflow picks up the resolved dataset dir
 export DATASET_LOCAL_DIR="$RESOLVED_DATASET_DIR"
 
-# Ensure modality config Python module is available
-# launch_finetune.py requires a .py file that calls register_modality_config()
-if [ -z "${MODALITY_CONFIG_PATH:-}" ]; then
-    DATA_CFG="${DATA_CONFIG:-so100_dualcam}"
-    BUNDLED_CFG="/workspace/scripts/modality_configs/${DATA_CFG}.py"
-    if [ -f "$BUNDLED_CFG" ]; then
-        export MODALITY_CONFIG_PATH="$BUNDLED_CFG"
-        echo "Using modality config: $MODALITY_CONFIG_PATH"
-    else
-        echo "WARNING: No bundled modality config for '$DATA_CFG' at $BUNDLED_CFG"
-        echo "Training may fail if embodiment is not pre-registered."
-    fi
-fi
-
-# Ensure dataset has meta/modality.json (required by data loader)
-DATASET_META_DIR="$RESOLVED_DATASET_DIR/meta"
-DATASET_MODALITY_JSON="$DATASET_META_DIR/modality.json"
-if [ ! -f "$DATASET_MODALITY_JSON" ]; then
-    echo "[Step] Creating meta/modality.json for dataset..."
-    mkdir -p "$DATASET_META_DIR"
-    cat > "$DATASET_MODALITY_JSON" <<'MODALITY_EOF'
-{
-    "state": {
-        "single_arm": {"start": 0, "end": 5},
-        "gripper": {"start": 5, "end": 6}
-    },
-    "action": {
-        "single_arm": {"start": 0, "end": 5},
-        "gripper": {"start": 5, "end": 6}
-    },
-    "video": {
-        "front": {"original_key": "observation.images.front"},
-        "wrist": {"original_key": "observation.images.wrist"}
-    },
-    "annotation": {
-        "human.task_description": {"original_key": "task_index"}
-    }
-}
-MODALITY_EOF
-    echo "Created modality.json at $DATASET_MODALITY_JSON"
-fi
-
-# Cache model on EFS to avoid re-downloading on subsequent runs
-EFS_MODEL_CACHE="/mnt/efs/gr00t/models"
-BASE_MODEL="${BASE_MODEL_PATH:-nvidia/GR00T-N1.7-3B}"
-if [[ "$BASE_MODEL" == *"/"* ]] && [[ "$BASE_MODEL" != /* ]]; then
-    MODEL_NAME="${BASE_MODEL##*/}"
-    CACHED_MODEL_PATH="$EFS_MODEL_CACHE/$MODEL_NAME"
-    if [ -d "$CACHED_MODEL_PATH" ] && [ -f "$CACHED_MODEL_PATH/config.json" ]; then
-        echo "[Step] Using cached model from EFS: $CACHED_MODEL_PATH"
-        export BASE_MODEL_PATH="$CACHED_MODEL_PATH"
-    else
-        echo "[Step] Model not cached on EFS. Will download from HuggingFace and cache..."
-        mkdir -p "$EFS_MODEL_CACHE"
-        HF_CLI=hf
-        if ! command -v "$HF_CLI" >/dev/null 2>&1; then
-            HF_CLI=huggingface-cli
-        fi
-        echo "Downloading $BASE_MODEL to $CACHED_MODEL_PATH ..."
-        if $HF_CLI download "$BASE_MODEL" --local-dir "$CACHED_MODEL_PATH"; then
-            echo "Model cached at: $CACHED_MODEL_PATH"
-            export BASE_MODEL_PATH="$CACHED_MODEL_PATH"
-        else
-            echo "WARNING: Failed to cache model. Will download directly during training."
-        fi
-    fi
-fi
-
-# Pre-cache Cosmos-Reason2-2B backbone (required by GR00T N1.7 during model init)
-COSMOS_MODEL="nvidia/Cosmos-Reason2-2B"
-COSMOS_CACHED_PATH="$EFS_MODEL_CACHE/Cosmos-Reason2-2B"
-if [ -d "$COSMOS_CACHED_PATH" ] && [ -f "$COSMOS_CACHED_PATH/config.json" ]; then
-    echo "[Step] Using cached Cosmos backbone from EFS: $COSMOS_CACHED_PATH"
-else
-    echo "[Step] Caching Cosmos-Reason2-2B backbone to EFS..."
-    mkdir -p "$EFS_MODEL_CACHE"
-    HF_CLI=hf
-    if ! command -v "$HF_CLI" >/dev/null 2>&1; then
-        HF_CLI=huggingface-cli
-    fi
-    if $HF_CLI download "$COSMOS_MODEL" --local-dir "$COSMOS_CACHED_PATH"; then
-        echo "Cosmos backbone cached at: $COSMOS_CACHED_PATH"
-    else
-        echo "WARNING: Failed to cache Cosmos backbone. Training will attempt direct download."
-    fi
-fi
-
 # Set PYTHONPATH to ensure proper imports
-export PYTHONPATH="/workspace:${PYTHONPATH}"
+export PYTHONPATH="/workspace/gr00t-repo:/workspace:${PYTHONPATH}"
 
 # Change to GR00T directory
-cd /workspace
+cd /workspace/gr00t-repo
 
 # Run the Python finetune script
 echo "Starting Python finetune script..."
-python scripts/finetune_gr00t.py
+python /workspace/scripts/finetune_gr00t.py
+
+# Make output files accessible to non-root users (Batch runs as root, DCV user is ubuntu)
+chmod -R a+rw "$OUTPUT_DIR" 2>/dev/null || true
 
 echo "[Step] Post-training: model upload and cleanup"
 
@@ -436,4 +369,4 @@ fi
 
 echo "=========================================="
 echo "Fine-tuning Workflow Completed Successfully!"
-echo "==========================================" 
+echo "=========================================="

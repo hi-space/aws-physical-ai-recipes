@@ -14,7 +14,7 @@ export interface BatchJobDefinitionProps {
 
 export class BatchJobDefinition extends Construct {
   public readonly jobQueue: batch.JobQueue;
-  public readonly jobDefinition: batch.EcsJobDefinition;
+  public readonly jobDefinition: batch.MultiNodeJobDefinition;
 
   constructor(scope: Construct, id: string, props: BatchJobDefinitionProps) {
     super(scope, id);
@@ -38,7 +38,7 @@ export class BatchJobDefinition extends Construct {
       ],
     });
 
-    // Container definition (without EFS volume at L2 - will add via escape hatch)
+    // Container definition for each node (1 GPU per node)
     const container = new batch.EcsEc2ContainerDefinition(this, 'Container', {
       image: ecs.ContainerImage.fromEcrRepository(props.repository, 'latest'),
       memory: cdk.Size.gibibytes(64),
@@ -46,36 +46,40 @@ export class BatchJobDefinition extends Construct {
       gpu: 1,
       jobRole,
       environment: {
-        OUTPUT_DIR: '/mnt/efs/gr00t/checkpoints',
-        MAX_STEPS: '10000',
+        MAX_STEPS: '6000',
         SAVE_STEPS: '2000',
         NUM_GPUS: '1',
-        BATCH_SIZE: '64',
+        NUM_NODES: '2',
+        GLOBAL_BATCH_SIZE: '32',
         LEARNING_RATE: '1e-4',
-        DATA_CONFIG: 'so100_dualcam',
+        GRADIENT_ACCUMULATION_STEPS: '1',
         BASE_MODEL_PATH: 'nvidia/GR00T-N1.7-3B',
         EMBODIMENT_TAG: 'new_embodiment',
+        MODALITY_CONFIG_PATH: '/workspace/scripts/so101_modality_config.py',
         TUNE_LLM: 'false',
         TUNE_VISUAL: 'false',
         TUNE_PROJECTOR: 'true',
         TUNE_DIFFUSION_MODEL: 'true',
-        LORA_RANK: '0',
         UPLOAD_TARGET: 'none',
         REPORT_TO: 'tensorboard',
+        NCCL_SOCKET_IFNAME: 'eth0',
       },
     });
 
-    this.jobDefinition = new batch.EcsJobDefinition(this, 'JobDef', {
+    this.jobDefinition = new batch.MultiNodeJobDefinition(this, 'JobDef', {
       jobDefinitionName: `${props.namePrefix}-GrootFinetuneJob`,
-      container,
+      mainNode: 0,
+      containers: [
+        { startNode: 0, endNode: 1, container },
+      ],
       timeout: cdk.Duration.hours(6),
       retryAttempts: 1,
     });
 
-    // Add EFS volume + mount via L1 escape hatch
+    // Add EFS volume + mount + shared memory via L1 escape hatch
     const cfnJobDef = this.jobDefinition.node.defaultChild as cdk.CfnResource;
     cfnJobDef.addPropertyOverride(
-      'ContainerProperties.Volumes',
+      'NodeProperties.NodeRangeProperties.0.Container.Volumes',
       [
         {
           Name: 'efs-volume',
@@ -88,7 +92,7 @@ export class BatchJobDefinition extends Construct {
       ],
     );
     cfnJobDef.addPropertyOverride(
-      'ContainerProperties.MountPoints',
+      'NodeProperties.NodeRangeProperties.0.Container.MountPoints',
       [
         {
           SourceVolume: 'efs-volume',
@@ -97,9 +101,8 @@ export class BatchJobDefinition extends Construct {
         },
       ],
     );
-    // Shared memory for PyTorch DataLoader workers
     cfnJobDef.addPropertyOverride(
-      'ContainerProperties.LinuxParameters',
+      'NodeProperties.NodeRangeProperties.0.Container.LinuxParameters',
       { SharedMemorySize: 65536 },
     );
   }
