@@ -142,9 +142,38 @@ else
     echo "  You can still use built-in Isaac Lab tasks (e.g., Isaac-Cartpole-v0)"
 fi
 
-# Step 4: Create directories
+# Step 4: Install LeIsaac for closed-loop evaluation
 echo ""
-echo "[4/4] Creating directories..."
+echo "[4/5] Setting up LeIsaac (closed-loop evaluation)..."
+
+LEISAAC_DIR="/fsx/scratch/leisaac"
+
+if [ -d "${LEISAAC_DIR}" ]; then
+    echo "  LeIsaac already exists at ${LEISAAC_DIR}, updating..."
+    cd "${LEISAAC_DIR}" && git pull 2>/dev/null || true
+else
+    echo "  Cloning LeIsaac..."
+    git clone --depth 1 https://github.com/lightwheelai/leisaac.git "${LEISAAC_DIR}"
+fi
+
+# Install LeIsaac into container rootfs if available
+ROOTFS_PATH="/fsx/enroot/data/isaaclab"
+if [ -d "${ROOTFS_PATH}" ]; then
+    echo "  Installing LeIsaac into container rootfs..."
+    sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
+    sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
+        "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:\$LD_LIBRARY_PATH && \
+         /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
+         -e /fsx/scratch/leisaac 2>&1 | tail -5" || {
+        echo "  WARNING: LeIsaac installation in container failed. Will use PYTHONPATH mount."
+    }
+fi
+
+echo "  LeIsaac ready at ${LEISAAC_DIR}"
+
+# Step 5: Create directories
+echo ""
+echo "[5/5] Creating directories..."
 mkdir -p /fsx/checkpoints/rl /fsx/scratch/logs
 chmod 777 /fsx/checkpoints/rl 2>/dev/null || true
 echo "  Directories ready"
@@ -170,4 +199,7 @@ echo "  sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-temp
 echo ""
 echo "Or with custom settings:"
 echo "  TASK=Workshop-SO101-Lift-v0 MAX_ITERATIONS=500 sbatch finetune_isaaclab.sbatch"
+echo ""
+echo "Closed-loop evaluation (LeIsaac):"
+echo "  sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/eval_closed_loop.sbatch"
 echo "=================================================="
