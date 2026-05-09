@@ -41,7 +41,17 @@ def validate_dataset(dataset_path: Path) -> list[str]:
 
     has_tasks = (meta_dir / "tasks.jsonl").is_file() or (meta_dir / "tasks.parquet").is_file()
     if not has_tasks:
-        errors.append("Missing tasks data (meta/tasks.jsonl or meta/tasks.parquet)")
+        info_file = meta_dir / "info.json"
+        has_task_in_features = False
+        if info_file.is_file():
+            try:
+                info = json.loads(info_file.read_text())
+                features = info.get("features", {})
+                has_task_in_features = "task_index" in features
+            except json.JSONDecodeError:
+                pass
+        if not has_task_in_features:
+            errors.append("Missing tasks data (meta/tasks.jsonl, meta/tasks.parquet, or task_index in features)")
 
     data_dir = dataset_path / "data"
     if not data_dir.is_dir():
@@ -93,12 +103,36 @@ def print_dataset_summary(dataset_path: Path) -> None:
         print(f"  Video files: {len(video_files)}")
 
 
+def upload_to_s3(dataset_path: Path, bucket: str, prefix: str = "datasets/groot") -> None:
+    """Upload dataset to S3 for FSx DRA auto-import."""
+    import subprocess
+
+    dataset_name = dataset_path.name
+    s3_path = f"s3://{bucket}/{prefix}/{dataset_name}/"
+
+    print(f"Uploading {dataset_path} → {s3_path}")
+    result = subprocess.run(
+        ["aws", "s3", "sync", str(dataset_path), s3_path, "--quiet"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"ERROR: S3 upload failed: {result.stderr}")
+        sys.exit(1)
+    print(f"Upload complete. FSx will auto-import to /fsx/{prefix}/{dataset_name}/")
+
+
 def main():
     parser = argparse.ArgumentParser(description="GR00T dataset preparation tool")
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--validate", action="store_true", help="Validate dataset format")
     parser.add_argument(
         "--generate-tasks", type=str, default=None, help="Generate tasks.jsonl with given description"
+    )
+    parser.add_argument(
+        "--upload-s3", type=str, default=None,
+        metavar="BUCKET",
+        help="Upload dataset to S3 bucket for FSx DRA import"
     )
     args = parser.parse_args()
 
@@ -111,6 +145,9 @@ def main():
 
     if args.generate_tasks:
         generate_tasks_jsonl(dataset_path, args.generate_tasks)
+
+    if args.upload_s3:
+        upload_to_s3(dataset_path, args.upload_s3)
 
     if args.validate:
         print("Validating LeRobot v2 format...")
