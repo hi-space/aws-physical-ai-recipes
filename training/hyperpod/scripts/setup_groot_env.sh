@@ -16,6 +16,8 @@
 set -e
 
 export PATH="$HOME/.local/bin:$PATH"
+export UV_CACHE_DIR="/fsx/scratch/.cache/uv"
+mkdir -p "${UV_CACHE_DIR}" 2>/dev/null || true
 
 GROOT_VERSION="${GROOT_VERSION:-n1.6}"
 ENVS_DIR="/fsx/envs"
