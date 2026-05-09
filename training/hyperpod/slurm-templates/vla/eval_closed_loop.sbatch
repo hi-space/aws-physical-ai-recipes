@@ -3,46 +3,51 @@
 #SBATCH --partition=dev
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --time=1:00:00
 #SBATCH --output=/fsx/scratch/logs/closed-loop-%j.out
 #SBATCH --error=/fsx/scratch/logs/closed-loop-%j.err
 
-# GR00T Closed-loop Evaluation in Isaac Sim
+# GR00T Closed-loop Evaluation with LeIsaac PickOrange
 #
-# Runs two processes on the same GPU node:
-#   1. GR00T Policy Server (ZMQ on port 5555) — serves fine-tuned model
-#   2. Isaac Sim client (run_closed_loop.py) — sends observations, receives actions
+# Runs on a single HyperPod compute node (ml.g6e.12xlarge, 4x L40S):
+#   GPU 0: GR00T Policy Server (ZMQ on configurable port)
+#   GPU 1-3: Isaac Sim with LeIsaac PickOrange environment (headless)
 #
 # Prerequisites:
-#   - Isaac Sim container imported: /fsx/enroot/data/isaaclab+latest.sqsh
-#   - GR00T venv with trained checkpoint
-#   - Workshop task package at /fsx/scratch/isaaclab-workshop/src
+#   - GR00T venv with trained checkpoint at /fsx/envs/gr00t
+#   - Isaac Sim container: /fsx/enroot/data/isaaclab+latest.sqsh
+#   - LeIsaac installed in container rootfs
 #
 # Usage:
 #   sbatch eval_closed_loop.sbatch
-#   MODEL_PATH=/fsx/checkpoints/vla/groot-demo_data/checkpoint-10 sbatch eval_closed_loop.sbatch
+#   MODEL_PATH=/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000 sbatch eval_closed_loop.sbatch
 #
 # Environment Variables:
-#   MODEL_PATH: GR00T checkpoint path (default: /fsx/checkpoints/vla/groot-demo_data/checkpoint-2000)
-#   EMBODIMENT_TAG: Embodiment tag (default: NEW_EMBODIMENT)
-#   INSTRUCTION: Language instruction (default: "pick up the cube")
-#   NUM_STEPS: Simulation steps (default: 3000)
-#   POLICY_PORT: ZMQ port (default: 5555)
+#   MODEL_PATH: GR00T checkpoint path (default: /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000)
+#   EMBODIMENT_TAG: Embodiment tag (default: new_embodiment)
+#   MODALITY_CONFIG: Modality config path
+#   INSTRUCTION: Language instruction (default: "pick up the orange")
+#   NUM_EPISODES: Number of evaluation episodes (default: 10)
+#   MAX_STEPS_PER_EPISODE: Steps per episode before timeout (default: 1000)
+#   POLICY_PORT: ZMQ port (default: 5556)
 
 set -e
 
-MODEL_PATH="${MODEL_PATH:-/fsx/checkpoints/vla/groot-demo_data/checkpoint-2000}"
-EMBODIMENT_TAG="${EMBODIMENT_TAG:-OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT}"
-INSTRUCTION="${INSTRUCTION:-pick up the cube}"
-NUM_STEPS="${NUM_STEPS:-3000}"
+MODEL_PATH="${MODEL_PATH:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-new_embodiment}"
+MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py}"
+INSTRUCTION="${INSTRUCTION:-pick up the orange}"
+NUM_EPISODES="${NUM_EPISODES:-10}"
+MAX_STEPS_PER_EPISODE="${MAX_STEPS_PER_EPISODE:-1000}"
 POLICY_PORT="${POLICY_PORT:-5556}"
 
 GROOT_ENV="/fsx/envs/gr00t"
-CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
 CONTAINER_NAME="isaaclab"
-SCRIPT_DIR="/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/examples/vla"
-WORKSHOP_PKG="/fsx/scratch/isaaclab-workshop/src"
+CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
+LEISAAC_PKG="/fsx/scratch/leisaac"
+METRICS_DIR="$(dirname "${MODEL_PATH}")"
+METRICS_FILE="${METRICS_DIR}/metrics.json"
 
 # HuggingFace token
 if [ -z "${HF_TOKEN:-}" ] && [ -f /fsx/scratch/.hf_token ]; then
@@ -50,24 +55,26 @@ if [ -z "${HF_TOKEN:-}" ] && [ -f /fsx/scratch/.hf_token ]; then
 fi
 
 echo "=================================================="
-echo "GR00T Closed-loop Evaluation in Isaac Sim"
+echo "GR00T Closed-loop Evaluation — LeIsaac PickOrange"
 echo "=================================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: $(hostname)"
 echo "Model: ${MODEL_PATH}"
 echo "Embodiment: ${EMBODIMENT_TAG}"
+echo "Modality Config: ${MODALITY_CONFIG}"
 echo "Instruction: ${INSTRUCTION}"
-echo "Steps: ${NUM_STEPS}"
+echo "Episodes: ${NUM_EPISODES}"
+echo "Max Steps/Episode: ${MAX_STEPS_PER_EPISODE}"
 echo "Port: ${POLICY_PORT}"
 echo "Start: $(date)"
 echo "=================================================="
 
 mkdir -p /fsx/scratch/logs
 
-# Validate prerequisites
+# --- Validate prerequisites ---
 if [ ! -d "${MODEL_PATH}" ]; then
     echo "ERROR: Model checkpoint not found: ${MODEL_PATH}"
-    echo "  Run training first or set MODEL_PATH to a valid checkpoint."
+    echo "  Run VLA training first or set MODEL_PATH."
     exit 1
 fi
 
@@ -83,27 +90,32 @@ if [ ! -d "${GROOT_ENV}" ]; then
     exit 1
 fi
 
-# --- Step 1: Start GR00T Policy Server in background ---
-echo ""
-echo "[1/3] Starting GR00T Policy Server (port ${POLICY_PORT})..."
+if [ ! -d "${LEISAAC_PKG}" ]; then
+    echo "ERROR: LeIsaac not found at ${LEISAAC_PKG}"
+    echo "  Run setup_isaaclab_env.sh to install LeIsaac."
+    exit 1
+fi
 
-# Kill any leftover processes from previous runs
+# --- Step 1: Start GR00T Policy Server (GPU 0) ---
+echo ""
+echo "[1/4] Starting GR00T Policy Server (port ${POLICY_PORT}, GPU 0)..."
+
 fuser -k "${POLICY_PORT}/tcp" 2>/dev/null || true
-sudo pkill -9 -f "isaac-sim/kit/python" 2>/dev/null || true
-sudo pkill -9 -f "policy_server.py" 2>/dev/null || true
-sleep 2
+sleep 1
 
 source "${GROOT_ENV}/bin/activate"
 
-python "${SCRIPT_DIR}/policy_server.py" \
+CUDA_VISIBLE_DEVICES=0 python -m gr00t.eval.service \
     --model-path "${MODEL_PATH}" \
     --embodiment-tag "${EMBODIMENT_TAG}" \
+    --modality-config-path "${MODALITY_CONFIG}" \
     --port "${POLICY_PORT}" \
     --device cuda:0 &
 POLICY_PID=$!
 
-# Wait for server to be ready (model + Cosmos vision encoder loading takes ~2-3 min)
-echo "  Waiting for policy server to load model (PID: ${POLICY_PID})..."
+# --- Step 2: Wait for server readiness (health check) ---
+echo "  Waiting for policy server (PID: ${POLICY_PID})..."
+SERVER_READY=false
 for i in $(seq 1 180); do
     if ! kill -0 ${POLICY_PID} 2>/dev/null; then
         echo "  ERROR: Policy server crashed during startup."
@@ -122,55 +134,57 @@ r = msgpack.unpackb(s.recv())
 sys.exit(0 if r.get(b'status') == b'ok' or r.get('status') == 'ok' else 1)
 " 2>/dev/null; then
         echo "  Policy server ready! (took ${i}s)"
+        SERVER_READY=true
         break
     fi
     sleep 1
 done
 
-if ! kill -0 ${POLICY_PID} 2>/dev/null; then
-    echo "  ERROR: Policy server is not running."
+if [ "${SERVER_READY}" != "true" ]; then
+    echo "  ERROR: Policy server not ready after 180s. Killing."
+    kill ${POLICY_PID} 2>/dev/null
     exit 1
 fi
 
-# --- Step 2: Run Isaac Sim closed-loop evaluation ---
+# --- Step 3: Run LeIsaac PickOrange closed-loop evaluation (GPU 1-3) ---
 echo ""
-echo "[2/3] Running Isaac Sim closed-loop evaluation..."
+echo "[3/4] Running LeIsaac PickOrange closed-loop evaluation..."
 
 # Create container rootfs if needed
 if ! enroot list 2>/dev/null | grep -q "^${CONTAINER_NAME}$"; then
-    echo "  Creating container rootfs (first time, ~5-10 min)..."
+    echo "  Creating container rootfs..."
     sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
 fi
 
-ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
-
-# Run closed-loop client inside Isaac Sim container
 sudo enroot start --root \
     --rw \
     --mount /fsx:/fsx \
     --env ACCEPT_EULA=Y \
     --env PRIVACY_CONSENT=Y \
-    --env PYTHONPATH="${WORKSHOP_PKG}" \
-    --env NVIDIA_VISIBLE_DEVICES=all \
+    --env NVIDIA_VISIBLE_DEVICES=1,2,3 \
     --env NVIDIA_DRIVER_CAPABILITIES=all \
-    --env GIT_PYTHON_REFRESH=quiet \
-    --env PYTHONUNBUFFERED=1 \
     --env DISPLAY="" \
+    --env PYTHONUNBUFFERED=1 \
+    --env PYTHONPATH="${LEISAAC_PKG}/source:${LEISAAC_PKG}" \
     "${CONTAINER_NAME}" \
-    bash /isaac-sim/python.sh \
-        "${WORKSHOP_PKG}/workshop/scripts/run_closed_loop.py" \
-        --policy_host localhost \
-        --policy_port "${POLICY_PORT}" \
-        --instruction "${INSTRUCTION}" \
-        --num_steps "${NUM_STEPS}" \
-        --headless \
-        --enable_cameras
+    bash -c "
+cd ${LEISAAC_PKG}
+python scripts/evaluation/run_groot_closed_loop.py \
+    --task LeIsaac-SO101-PickOrange-v0 \
+    --policy_host localhost \
+    --policy_port ${POLICY_PORT} \
+    --instruction '${INSTRUCTION}' \
+    --num_episodes ${NUM_EPISODES} \
+    --max_steps_per_episode ${MAX_STEPS_PER_EPISODE} \
+    --headless \
+    --metrics_output ${METRICS_FILE}
+"
 
 SIM_EXIT=$?
 
-# --- Step 3: Cleanup ---
+# --- Step 4: Cleanup and report ---
 echo ""
-echo "[3/3] Stopping policy server..."
+echo "[4/4] Stopping policy server..."
 kill ${POLICY_PID} 2>/dev/null
 wait ${POLICY_PID} 2>/dev/null || true
 
@@ -178,9 +192,15 @@ echo ""
 echo "=================================================="
 if [ ${SIM_EXIT} -eq 0 ]; then
     echo "Closed-loop evaluation completed successfully!"
+    if [ -f "${METRICS_FILE}" ]; then
+        echo ""
+        echo "Results (${METRICS_FILE}):"
+        cat "${METRICS_FILE}"
+    fi
 else
     echo "Closed-loop evaluation failed (exit code: ${SIM_EXIT})"
 fi
+echo ""
 echo "End: $(date)"
 echo "=================================================="
 
