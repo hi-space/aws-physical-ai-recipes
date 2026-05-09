@@ -126,5 +126,8 @@ else
   fi
 fi
 
+# Setup DCV for remote desktop (GPU nodes only, runs after Slurm is up)
+bash "${SCRIPT_DIR}/setup_dcv.sh" || echo "[on_create] DCV setup skipped or failed (non-fatal)."
+
 echo "[on_create] Node initialization complete."
 exit 0
