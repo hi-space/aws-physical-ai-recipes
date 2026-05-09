@@ -6,7 +6,8 @@
 # that is shared across all nodes via FSx.
 #
 # Usage:
-#   bash setup_groot_env.sh
+#   bash setup_groot_env.sh                    # Default: N1.6 (no HF token needed)
+#   GROOT_VERSION=n1.7 HF_TOKEN=hf_xxx bash setup_groot_env.sh  # N1.7 (gated)
 #
 # After setup:
 #   source /fsx/envs/gr00t/bin/activate
@@ -16,13 +17,40 @@ set -e
 
 export PATH="$HOME/.local/bin:$PATH"
 
+GROOT_VERSION="${GROOT_VERSION:-n1.6}"
 ENVS_DIR="/fsx/envs"
 GR00T_ENV="${ENVS_DIR}/gr00t"
 GR00T_REPO="/fsx/scratch/Isaac-GR00T"
 
 echo "=================================================="
 echo "GR00T Training Environment Setup (uv venv)"
+echo "  Version: ${GROOT_VERSION}"
 echo "=================================================="
+
+# Resolve model name from version
+case "${GROOT_VERSION}" in
+    n1.6)
+        BASE_MODEL="nvidia/GR00T-N1.6-3B"
+        echo "  Model: ${BASE_MODEL} (open — no HF token required)"
+        ;;
+    n1.7)
+        BASE_MODEL="nvidia/GR00T-N1.7-3B"
+        echo "  Model: ${BASE_MODEL} (gated — HF token required)"
+        if [ -z "${HF_TOKEN:-}" ] && [ ! -f /fsx/scratch/.hf_token ]; then
+            echo ""
+            echo "  WARNING: HF_TOKEN not set and /fsx/scratch/.hf_token not found."
+            echo "  N1.7 is a gated model. You need:"
+            echo "    1. Request access: https://huggingface.co/nvidia/GR00T-N1.7-3B"
+            echo "    2. Request access: https://huggingface.co/nvidia/Cosmos-Reason2-2B"
+            echo "    3. Set token: export HF_TOKEN=hf_xxx"
+            echo ""
+        fi
+        ;;
+    *)
+        echo "ERROR: Unknown GROOT_VERSION='${GROOT_VERSION}'. Use 'n1.6' or 'n1.7'."
+        exit 1
+        ;;
+esac
 
 # Step 0: Install system dependencies
 echo "[0/4] Checking system dependencies..."
@@ -77,8 +105,8 @@ source "${GR00T_ENV}/bin/activate"
 python -c "import gr00t; print(f'  GR00T version: {gr00t.__version__}')" 2>/dev/null || \
     python -c "import gr00t; print('  GR00T package OK')"
 
-# Setup HuggingFace token if provided
-if [ -n "${HF_TOKEN:-}" ]; then
+# Setup HuggingFace token if provided (only needed for N1.7)
+if [ "${GROOT_VERSION}" = "n1.7" ] && [ -n "${HF_TOKEN:-}" ]; then
     python -c "from huggingface_hub import HfApi; HfApi().set_access_token('${HF_TOKEN}')" 2>/dev/null || true
     echo "  HuggingFace token configured"
 fi
@@ -86,9 +114,14 @@ deactivate
 
 echo ""
 echo "=================================================="
-echo "Setup complete!"
+echo "Setup complete! (GR00T ${GROOT_VERSION})"
 echo ""
 echo "Usage:"
 echo "  source /fsx/envs/gr00t/bin/activate"
-echo "  sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot_venv.sbatch"
+if [ "${GROOT_VERSION}" = "n1.7" ]; then
+    echo "  export GROOT_VERSION=n1.7"
+    echo "  HF_TOKEN=hf_xxx sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot_venv.sbatch"
+else
+    echo "  sbatch /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/slurm-templates/vla/finetune_groot_venv.sbatch"
+fi
 echo "=================================================="
