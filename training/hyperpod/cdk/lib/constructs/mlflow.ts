@@ -33,10 +33,11 @@ export class MlflowConstruct extends Construct {
       },
     });
 
+    const serverName = `${p}-mlflow`.toLowerCase();
     this.trackingServerArn = trackingServer.getAtt('TrackingServerArn').toString();
-    this.trackingUri = cdk.Fn.join('', ['https://', cdk.Aws.REGION, '.experiments.sagemaker.aws/mlflow/', `${p}-mlflow`.toLowerCase()]);
+    this.trackingUri = `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:mlflow-tracking-server/${serverName}`;
 
-    new cdk.CfnOutput(this, 'MlflowTrackingUri', { value: this.trackingUri, description: 'MLflow UI URL (browser)' });
-    new cdk.CfnOutput(this, 'MlflowTrackingArn', { value: `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:mlflow-tracking-server/${`${p}-mlflow`.toLowerCase()}`, description: 'MLflow Tracking ARN (for Python SDK)' });
+    new cdk.CfnOutput(this, 'MlflowTrackingArn', { value: this.trackingUri, description: 'MLflow Tracking ARN (for Python SDK: mlflow.set_tracking_uri)' });
+    new cdk.CfnOutput(this, 'MlflowPresignedUrlCommand', { value: `aws sagemaker create-presigned-mlflow-tracking-server-url --tracking-server-name ${serverName} --region ${cdk.Aws.REGION}`, description: 'Run this command to get MLflow UI URL (browser)' });
   }
 }
