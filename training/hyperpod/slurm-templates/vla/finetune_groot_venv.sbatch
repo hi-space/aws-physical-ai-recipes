@@ -128,11 +128,10 @@ cd "${GR00T_REPO}"
 
 GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 
-# Memory optimizations (optional, uncomment for single-GPU A10G 24GB)
-# For multi-GPU (4x A10G = 96GB) or L40S: not needed
-# NOTE: load_bf16=True is NOT compatible with N1.6
-# sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
-#     gr00t/experiment/launch_finetune.py
+# Fix: launch_finetune.py overrides load_bf16=False but flash_attn requires bf16/fp16.
+# Restore the default (True) so flash attention works.
+sed -i 's/config.model.load_bf16 = False/config.model.load_bf16 = True/' \
+    gr00t/experiment/launch_finetune.py
 
 python -m gr00t.experiment.launch_finetune \
     --base-model-path "${BASE_MODEL}" \
