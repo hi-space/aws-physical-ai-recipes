@@ -129,11 +129,9 @@ cd "${GR00T_REPO}"
 GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 
 # Apply memory optimizations for single-GPU training (A10G 24GB)
-# - load_bf16: load model weights in bf16 (halves memory from ~12GB to ~6GB)
-# - gradient_checkpointing: trade compute for memory on activations
 # - paged_adamw_8bit: reduces optimizer state memory (~12GB to ~3GB)
-sed -i 's/config.model.load_bf16 = False/config.model.load_bf16 = True/' \
-    gr00t/experiment/launch_finetune.py
+# - gradient_checkpointing: trade compute for memory on activations
+# NOTE: load_bf16=True is NOT compatible with N1.6 model loading
 sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
     gr00t/experiment/launch_finetune.py
 grep -q "config.training.gradient_checkpointing" gr00t/experiment/launch_finetune.py || \
@@ -141,8 +139,6 @@ grep -q "config.training.gradient_checkpointing" gr00t/experiment/launch_finetun
     gr00t/experiment/launch_finetune.py
 
 # Verify memory optimizations were applied
-grep -q "config.model.load_bf16 = True" gr00t/experiment/launch_finetune.py || \
-    echo "WARNING: bf16 loading patch failed - training may OOM"
 grep -q "paged_adamw_8bit" gr00t/experiment/launch_finetune.py || \
     echo "WARNING: 8-bit optimizer patch failed - training may OOM"
 
