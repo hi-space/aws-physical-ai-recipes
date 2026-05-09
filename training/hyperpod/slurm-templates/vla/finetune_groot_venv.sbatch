@@ -64,7 +64,7 @@ fi
 NUM_GPUS="${NUM_GPUS:-1}"
 DATASET="${DATASET:-so101-place-orange}"
 DATASET_PATH="${DATASET_PATH:-/fsx/datasets/groot/${DATASET}}"
-EMBODIMENT_TAG="${EMBODIMENT_TAG:-new_embodiment}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
