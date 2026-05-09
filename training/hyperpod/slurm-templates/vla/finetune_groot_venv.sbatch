@@ -13,21 +13,23 @@
 # Prerequisites:
 #   - Run setup_groot_env.sh first to create /fsx/envs/gr00t
 #   - Dataset prepared at /fsx/datasets/groot/<DATASET>
-#   - HuggingFace token with access to nvidia/GR00T-N1.7-3B (gated model)
+#   - For N1.7 only: HuggingFace token with access to nvidia/GR00T-N1.7-3B
 #     Set via: export HF_TOKEN=hf_xxx or huggingface-cli login
 #   - mkdir -p /fsx/scratch/logs
 #
 # Usage:
-#   HF_TOKEN=hf_xxx sbatch finetune_groot_venv.sbatch
-#   NUM_GPUS=1 DATASET=droid_sample EMBODIMENT_TAG=oxe_droid_relative_eef_relative_joint sbatch finetune_groot_venv.sbatch
+#   sbatch finetune_groot_venv.sbatch                          # Default: N1.6
+#   GROOT_VERSION=n1.7 HF_TOKEN=hf_xxx sbatch finetune_groot_venv.sbatch  # N1.7
+#   NUM_GPUS=1 DATASET=droid_sample sbatch finetune_groot_venv.sbatch
 #
 # Environment Variables:
-#   HF_TOKEN: HuggingFace token (required for gated models)
+#   GROOT_VERSION: Model version - n1.6 (default, open) or n1.7 (gated)
+#   HF_TOKEN: HuggingFace token (required for N1.7 only)
 #   NUM_GPUS: Number of GPUs (default: 1)
 #   DATASET: Dataset name under /fsx/datasets/groot/ (default: demo_data)
 #   DATASET_PATH: Full dataset path, overrides DATASET
 #   EMBODIMENT_TAG: Robot embodiment tag (default: oxe_droid_relative_eef_relative_joint)
-#   BASE_MODEL: Base model path (default: nvidia/GR00T-N1.7-3B)
+#   BASE_MODEL: Base model path (default: derived from GROOT_VERSION)
 #   MAX_STEPS: Training steps (default: 2000)
 #   SAVE_STEPS: Save every N steps (default: 2000)
 #   GLOBAL_BATCH_SIZE: Global batch size (default: 2)
@@ -35,20 +37,34 @@
 
 set -e
 
-if [ -z "${HF_TOKEN}" ] && [ -f /fsx/scratch/.hf_token ]; then
-    export HF_TOKEN=$(cat /fsx/scratch/.hf_token)
+GROOT_VERSION="${GROOT_VERSION:-n1.6}"
+
+# Resolve BASE_MODEL from version (can be overridden explicitly)
+case "${GROOT_VERSION}" in
+    n1.6) BASE_MODEL="${BASE_MODEL:-nvidia/GR00T-N1.6-3B}" ;;
+    n1.7) BASE_MODEL="${BASE_MODEL:-nvidia/GR00T-N1.7-3B}" ;;
+    *)
+        echo "ERROR: Unknown GROOT_VERSION='${GROOT_VERSION}'. Use 'n1.6' or 'n1.7'."
+        exit 1
+        ;;
+esac
+
+# HF_TOKEN handling (only required for N1.7)
+if [ "${GROOT_VERSION}" = "n1.7" ]; then
+    if [ -z "${HF_TOKEN}" ] && [ -f /fsx/scratch/.hf_token ]; then
+        export HF_TOKEN=$(cat /fsx/scratch/.hf_token)
+    fi
+    if [ -z "${HF_TOKEN}" ]; then
+        echo "WARNING: HF_TOKEN not set. N1.7 is a gated model — download may fail."
+        echo "  Set via: export HF_TOKEN=hf_xxx  OR  echo hf_xxx > /fsx/scratch/.hf_token"
+    fi
+    export HF_TOKEN="${HF_TOKEN:-}"
 fi
-if [ -z "${HF_TOKEN}" ]; then
-    echo "WARNING: HF_TOKEN not set. Model download may fail for gated repos."
-    echo "  Set via: export HF_TOKEN=hf_xxx  OR  echo hf_xxx > /fsx/scratch/.hf_token"
-fi
-export HF_TOKEN="${HF_TOKEN:-}"
 
 NUM_GPUS="${NUM_GPUS:-1}"
 DATASET="${DATASET:-demo_data}"
 DATASET_PATH="${DATASET_PATH:-/fsx/datasets/groot/${DATASET}}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-oxe_droid_relative_eef_relative_joint}"
-BASE_MODEL="${BASE_MODEL:-nvidia/GR00T-N1.7-3B}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-5}"
@@ -64,6 +80,7 @@ echo "GR00T Fine-tuning Job (venv mode)"
 echo "=================================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
+echo "Version: ${GROOT_VERSION}"
 echo "Environment: ${GR00T_ENV}"
 echo "Base Model: ${BASE_MODEL}"
 echo "Dataset: ${DATASET_PATH}"
