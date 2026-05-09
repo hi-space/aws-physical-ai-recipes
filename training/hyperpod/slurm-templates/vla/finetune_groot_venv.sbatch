@@ -18,21 +18,21 @@
 #   - mkdir -p /fsx/scratch/logs
 #
 # Usage:
-#   sbatch finetune_groot_venv.sbatch                          # Default: N1.6
-#   GROOT_VERSION=n1.7 HF_TOKEN=hf_xxx sbatch finetune_groot_venv.sbatch  # N1.7
-#   NUM_GPUS=1 DATASET=droid_sample sbatch finetune_groot_venv.sbatch
+#   sbatch finetune_groot_venv.sbatch                          # Default: N1.6 + so101-place-orange
+#   DATASET=my_data EMBODIMENT_TAG=OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT sbatch finetune_groot_venv.sbatch
 #
 # Environment Variables:
 #   GROOT_VERSION: Model version - n1.6 (default, open) or n1.7 (gated)
 #   HF_TOKEN: HuggingFace token (required for N1.7 only)
 #   NUM_GPUS: Number of GPUs (default: 1)
-#   DATASET: Dataset name under /fsx/datasets/groot/ (default: demo_data)
+#   DATASET: Dataset name under /fsx/datasets/groot/ (default: so101-place-orange)
 #   DATASET_PATH: Full dataset path, overrides DATASET
-#   EMBODIMENT_TAG: Robot embodiment tag (default: oxe_droid_relative_eef_relative_joint)
+#   EMBODIMENT_TAG: Robot embodiment tag (default: new_embodiment)
+#   MODALITY_CONFIG: Path to modality config (default: .../configs/so101_modality.py)
 #   BASE_MODEL: Base model path (default: derived from GROOT_VERSION)
 #   MAX_STEPS: Training steps (default: 2000)
 #   SAVE_STEPS: Save every N steps (default: 2000)
-#   GLOBAL_BATCH_SIZE: Global batch size (default: 2)
+#   GLOBAL_BATCH_SIZE: Global batch size (default: 32)
 #   OUTPUT_DIR: Checkpoint output (default: /fsx/checkpoints/vla/groot-<DATASET>)
 
 set -e
@@ -62,14 +62,15 @@ if [ "${GROOT_VERSION}" = "n1.7" ]; then
 fi
 
 NUM_GPUS="${NUM_GPUS:-1}"
-DATASET="${DATASET:-demo_data}"
+DATASET="${DATASET:-so101-place-orange}"
 DATASET_PATH="${DATASET_PATH:-/fsx/datasets/groot/${DATASET}}"
-EMBODIMENT_TAG="${EMBODIMENT_TAG:-oxe_droid_relative_eef_relative_joint}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-new_embodiment}"
+MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-5}"
-GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-2}"
-DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-2}"
+GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
+DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 OUTPUT_DIR="${OUTPUT_DIR:-/fsx/checkpoints/vla/groot-${DATASET}}"
 
 GR00T_ENV="/fsx/envs/gr00t"
@@ -88,6 +89,7 @@ echo "Output: ${OUTPUT_DIR}"
 echo "GPUs: ${NUM_GPUS}"
 echo "Max Steps: ${MAX_STEPS}"
 echo "Batch Size: ${GLOBAL_BATCH_SIZE}"
+echo "Modality Config: ${MODALITY_CONFIG}"
 echo "Start: $(date)"
 echo "=================================================="
 
@@ -148,6 +150,7 @@ python -m gr00t.experiment.launch_finetune \
     --base-model-path "${BASE_MODEL}" \
     --dataset-path "${DATASET_PATH}" \
     --embodiment-tag "${EMBODIMENT_TAG}" \
+    --modality-config-path "${MODALITY_CONFIG}" \
     --num-gpus "${NUM_GPUS}" \
     --output-dir "${OUTPUT_DIR}" \
     --save-total-limit "${SAVE_TOTAL_LIMIT}" \
