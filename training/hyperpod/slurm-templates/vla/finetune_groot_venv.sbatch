@@ -27,12 +27,12 @@
 #   NUM_GPUS: Number of GPUs (default: 1)
 #   DATASET: Dataset name under /fsx/datasets/groot/ (default: so101-place-orange)
 #   DATASET_PATH: Full dataset path, overrides DATASET
-#   EMBODIMENT_TAG: Robot embodiment tag (default: new_embodiment)
+#   EMBODIMENT_TAG: Robot embodiment tag (default: NEW_EMBODIMENT)
 #   MODALITY_CONFIG: Path to modality config (default: .../configs/so101_modality.py)
 #   BASE_MODEL: Base model path (default: derived from GROOT_VERSION)
 #   MAX_STEPS: Training steps (default: 2000)
 #   SAVE_STEPS: Save every N steps (default: 2000)
-#   GLOBAL_BATCH_SIZE: Global batch size (default: 32)
+#   GLOBAL_BATCH_SIZE: Global batch size (default: 2)
 #   OUTPUT_DIR: Checkpoint output (default: /fsx/checkpoints/vla/groot-<DATASET>)
 
 set -e
@@ -128,10 +128,55 @@ cd "${GR00T_REPO}"
 
 GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 
-# Fix: launch_finetune.py overrides load_bf16=False but flash_attn requires bf16/fp16.
-# Restore the default (True) so flash attention works.
+# Patches for GR00T N1.6 fine-tuning compatibility:
+# 1. Enable bf16 model loading (required for flash_attn in Eagle backbone)
+# 2. Disable backbone_trainable_params_fp32 (prevents fp32 cast that breaks flash_attn)
+# 3. Cast full model to bf16 after loading (ensures consistent dtypes)
+# 4. Fix all StopIteration bugs in device/dtype properties across model files
 sed -i 's/config.model.load_bf16 = False/config.model.load_bf16 = True/' \
     gr00t/experiment/launch_finetune.py
+sed -i 's/config.model.backbone_trainable_params_fp32 = True/config.model.backbone_trainable_params_fp32 = False/' \
+    gr00t/experiment/launch_finetune.py
+sed -i 's/gradient_checkpointing: bool = False/gradient_checkpointing: bool = True/' \
+    gr00t/configs/training/training_config.py
+sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
+    gr00t/experiment/launch_finetune.py
+
+python3 << 'PATCH'
+import re
+
+# Fix setup.py: cast entire model to bf16 after from_pretrained
+code = open('gr00t/model/gr00t_n1d6/setup.py').read()
+code = code.replace(
+    '            missing_keys = loading_info.get("missing_keys", [])',
+    '            import torch as _torch\n            model = model.to(_torch.bfloat16)\n            missing_keys = loading_info.get("missing_keys", [])'
+)
+open('gr00t/model/gr00t_n1d6/setup.py', 'w').write(code)
+
+# Helper: safe device/dtype that doesn't crash on empty params or during __init__
+safe_device = "(lambda s: next((p.device for m in s.modules() for p in m.parameters()), __import__('torch').device('cuda')))(self)"
+safe_dtype = "(lambda s: next((p.dtype for m in s.modules() for p in m.parameters()), __import__('torch').bfloat16))(self)"
+
+# Fix gr00t_n1d6.py
+code = open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py').read()
+code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.device', safe_device, code)
+code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.dtype', safe_dtype, code)
+code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
+code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
+open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py', 'w').write(code)
+
+# Fix dit.py
+code = open('gr00t/model/modules/dit.py').read()
+code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
+code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
+open('gr00t/model/modules/dit.py', 'w').write(code)
+
+# Fix eagle_backbone.py
+code = open('gr00t/model/modules/eagle_backbone.py').read()
+code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
+code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
+open('gr00t/model/modules/eagle_backbone.py', 'w').write(code)
+PATCH
 
 python -m gr00t.experiment.launch_finetune \
     --base-model-path "${BASE_MODEL}" \
