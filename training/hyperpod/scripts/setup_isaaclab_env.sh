@@ -109,6 +109,7 @@ cd /isaac-sim || exit 1
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
 export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
 export ISAAC_SIM_PATH=/isaac-sim
+source /isaac-sim/setup_python_env.sh
 exec "$@"
 RCEOF
         chmod +x /fsx/scratch/isaaclab_rc.sh
