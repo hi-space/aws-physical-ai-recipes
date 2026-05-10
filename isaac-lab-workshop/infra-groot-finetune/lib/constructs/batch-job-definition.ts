@@ -14,7 +14,7 @@ export interface BatchJobDefinitionProps {
 
 export class BatchJobDefinition extends Construct {
   public readonly jobQueue: batch.JobQueue;
-  public readonly jobDefinition: batch.MultiNodeJobDefinition;
+  public readonly jobDefinition: batch.EcsJobDefinition;
 
   constructor(scope: Construct, id: string, props: BatchJobDefinitionProps) {
     super(scope, id);
@@ -49,11 +49,11 @@ export class BatchJobDefinition extends Construct {
         MAX_STEPS: '6000',
         SAVE_STEPS: '2000',
         NUM_GPUS: '1',
-        NUM_NODES: '2',
+        NUM_NODES: '1',
         GLOBAL_BATCH_SIZE: '32',
         LEARNING_RATE: '1e-4',
         GRADIENT_ACCUMULATION_STEPS: '1',
-        BASE_MODEL_PATH: 'nvidia/GR00T-N1.7-3B',
+        BASE_MODEL_PATH: 'nvidia/GR00T-N1.6-3B',
         EMBODIMENT_TAG: 'new_embodiment',
         MODALITY_CONFIG_PATH: '/workspace/scripts/so101_modality_config.py',
         TUNE_LLM: 'false',
@@ -66,12 +66,9 @@ export class BatchJobDefinition extends Construct {
       },
     });
 
-    this.jobDefinition = new batch.MultiNodeJobDefinition(this, 'JobDef', {
+    this.jobDefinition = new batch.EcsJobDefinition(this, 'JobDef', {
       jobDefinitionName: `${props.namePrefix}-GrootFinetuneJob`,
-      mainNode: 0,
-      containers: [
-        { startNode: 0, endNode: 1, container },
-      ],
+      container,
       timeout: cdk.Duration.hours(6),
       retryAttempts: 1,
     });
@@ -79,7 +76,7 @@ export class BatchJobDefinition extends Construct {
     // Add EFS volume + mount + shared memory via L1 escape hatch
     const cfnJobDef = this.jobDefinition.node.defaultChild as cdk.CfnResource;
     cfnJobDef.addPropertyOverride(
-      'NodeProperties.NodeRangeProperties.0.Container.Volumes',
+      'ContainerProperties.Volumes',
       [
         {
           Name: 'efs-volume',
@@ -92,7 +89,7 @@ export class BatchJobDefinition extends Construct {
       ],
     );
     cfnJobDef.addPropertyOverride(
-      'NodeProperties.NodeRangeProperties.0.Container.MountPoints',
+      'ContainerProperties.MountPoints',
       [
         {
           SourceVolume: 'efs-volume',
@@ -102,7 +99,7 @@ export class BatchJobDefinition extends Construct {
       ],
     );
     cfnJobDef.addPropertyOverride(
-      'NodeProperties.NodeRangeProperties.0.Container.LinuxParameters',
+      'ContainerProperties.LinuxParameters',
       { SharedMemorySize: 65536 },
     );
   }

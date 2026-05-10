@@ -25,7 +25,13 @@ phases:
       # Login to ECR
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
 
+      # Set GR00T version (default to n1.6 if not provided by CodeBuild env)
+      - "export GROOT_VERSION=${GROOT_VERSION:-n1.6}"
+      - "export USE_STABLE=${USE_STABLE:-true}"
+      - 'echo "GR00T Version: $GROOT_VERSION"'
+
       # Set image variables
+      - "export GROOT_VERSION=${GROOT_VERSION:-n1.6}"
       - "export IMAGE_REPO_NAME=${ECR_REPOSITORY_NAME:-gr00t-finetune}"
       - "export IMAGE_TAG=${IMAGE_TAG:-latest}"
       - "export IMAGE_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG"

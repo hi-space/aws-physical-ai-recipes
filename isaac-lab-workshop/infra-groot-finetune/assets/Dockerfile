@@ -38,10 +38,16 @@ RUN pip install imageio h5py boto3 transformers[torch] deepspeed timm peft \
     diffusers wandb tianshou dm_tree openai \
     albumentations==1.4.18 decord==0.6.0 torchcodec==0.4.0
 
-# PyTorch3D from source
-# MAX_JOBS=2 limits parallel C++ compilation to avoid OOM in memory-constrained build envs
-RUN cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git && \
-    cd pytorch3d && MAX_JOBS=2 pip install .
+# PyTorch3D — pre-built wheel (fast) with source fallback
+RUN PYTHON_VER="py3$(python -c 'import sys; print(sys.version_info.minor)')" && \
+    TORCH_VER="pyt$(python -c 'import torch; print("".join(torch.__version__.split(".")[:2]))')" && \
+    CUDA_VER="cu$(python -c 'import torch; print(torch.version.cuda.replace(".","")[:3])')" && \
+    WHEEL_URL="https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/${PYTHON_VER}_${CUDA_VER}_${TORCH_VER}/download.html" && \
+    echo "Trying pre-built PyTorch3D: ${WHEEL_URL}" && \
+    pip install pytorch3d -f "${WHEEL_URL}" 2>/dev/null || \
+    (echo "Pre-built wheel not available, building from source..." && \
+     cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git && \
+     cd pytorch3d && MAX_JOBS=4 pip install .)
 
 # Clone Isaac-GR00T
 RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \
@@ -62,9 +68,17 @@ RUN cd /workspace/gr00t-repo && uv sync && uv pip install -e .
 ENV VIRTUAL_ENV="/workspace/gr00t-repo/.venv"
 ENV PATH="/workspace/gr00t-repo/.venv/bin:${PATH}"
 
-# flash-attn (required by GR00T; in pyproject.toml but needs explicit install)
-# Use uv pip to bypass /etc/pip/constraint.txt which pins an older flash-attn version
-RUN uv pip install flash-attn==2.7.4.post1 --no-build-isolation
+# flash-attn — pre-built wheel from GitHub releases (avoids 30+ min source build)
+RUN PYTHON_VER="cp$(python -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')" && \
+    TORCH_VER=$(python -c "import torch; print(torch.__version__.split('+')[0])") && \
+    CUDA_VER=$(python -c "import torch; print(torch.version.cuda.replace('.','')[:3])") && \
+    FLASH_VER="2.7.4.post1" && \
+    WHEEL_NAME="flash_attn-${FLASH_VER}+${PYTHON_VER}torch${TORCH_VER}cxx11abiFALSE-${PYTHON_VER}-${PYTHON_VER}-linux_x86_64.whl" && \
+    WHEEL_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v${FLASH_VER}/${WHEEL_NAME}" && \
+    echo "Trying pre-built flash-attn: ${WHEEL_URL}" && \
+    uv pip install "${WHEEL_URL}" 2>/dev/null || \
+    (echo "Pre-built wheel not available, building from source..." && \
+     uv pip install flash-attn==2.7.4.post1 --no-build-isolation)
 
 # EGL/Vulkan setup
 RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \

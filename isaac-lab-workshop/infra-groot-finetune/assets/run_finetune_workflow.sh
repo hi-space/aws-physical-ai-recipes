@@ -74,10 +74,10 @@ fi
 NUM_NODES=${NUM_NODES:-1}
 if [ "$NUM_NODES" -gt 1 ]; then
     echo "Multi-node training detected: NUM_NODES=$NUM_NODES"
-    # AWS Batch sets AWS_BATCH_JOB_MAIN_NODE_INDEX (hostname of node 0)
+    # AWS Batch sets AWS_BATCH_JOB_MAIN_NODE_PRIVATE_IPV4_ADDRESS (IP of node 0)
     # and AWS_BATCH_JOB_NODE_INDEX (0-based index of this node)
-    if [ -n "$AWS_BATCH_JOB_MAIN_NODE_INDEX" ]; then
-        export MASTER_ADDR="$AWS_BATCH_JOB_MAIN_NODE_INDEX"
+    if [ -n "$AWS_BATCH_JOB_MAIN_NODE_PRIVATE_IPV4_ADDRESS" ]; then
+        export MASTER_ADDR="$AWS_BATCH_JOB_MAIN_NODE_PRIVATE_IPV4_ADDRESS"
     else
         export MASTER_ADDR="${MASTER_ADDR:-localhost}"
     fi
