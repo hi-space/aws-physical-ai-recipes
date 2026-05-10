@@ -10,14 +10,15 @@
 
 # GR00T Closed-loop Evaluation with LeIsaac PickOrange
 #
-# Runs on a single HyperPod compute node (ml.g6e.12xlarge, 4x L40S):
-#   GPU 0: GR00T Policy Server (ZMQ on configurable port)
+# Runs on a single HyperPod compute node (4x GPU):
+#   GPU 0: GR00T Policy Server (ZMQ, gr00t.eval.run_gr00t_server)
 #   GPU 1-3: Isaac Sim with LeIsaac PickOrange environment (headless)
 #
 # Prerequisites:
-#   - GR00T venv with trained checkpoint at /fsx/envs/gr00t
-#   - Isaac Sim container: /fsx/enroot/data/isaaclab+latest.sqsh
-#   - LeIsaac installed in container rootfs
+#   - GR00T venv at /fsx/envs/gr00t (run setup_groot_env.sh)
+#   - Isaac Sim container: /fsx/enroot/data/isaaclab+latest.sqsh (run setup_isaaclab_env.sh)
+#   - LeIsaac at /fsx/scratch/leisaac
+#   - Trained GR00T checkpoint
 #
 # Usage:
 #   sbatch eval_closed_loop.sbatch
@@ -28,31 +29,22 @@
 #   EMBODIMENT_TAG: Embodiment tag (default: new_embodiment)
 #   MODALITY_CONFIG: Modality config path
 #   INSTRUCTION: Language instruction (default: "pick up the orange")
-#   NUM_EPISODES: Number of evaluation episodes (default: 10)
-#   MAX_STEPS_PER_EPISODE: Steps per episode before timeout (default: 1000)
-#   POLICY_PORT: ZMQ port (default: 5556)
+#   EVAL_ROUNDS: Number of evaluation episodes (default: 10)
+#   POLICY_PORT: ZMQ port for policy server (default: 5555)
 
 set -e
 
 MODEL_PATH="${MODEL_PATH:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}"
-EMBODIMENT_TAG="${EMBODIMENT_TAG:-new_embodiment}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py}"
 INSTRUCTION="${INSTRUCTION:-pick up the orange}"
-NUM_EPISODES="${NUM_EPISODES:-10}"
-MAX_STEPS_PER_EPISODE="${MAX_STEPS_PER_EPISODE:-1000}"
-POLICY_PORT="${POLICY_PORT:-5556}"
+EVAL_ROUNDS="${EVAL_ROUNDS:-10}"
+POLICY_PORT="${POLICY_PORT:-5555}"
 
 GROOT_ENV="/fsx/envs/gr00t"
-CONTAINER_NAME="isaaclab"
+GROOT_REPO="/fsx/scratch/Isaac-GR00T"
 CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
 LEISAAC_PKG="/fsx/scratch/leisaac"
-METRICS_DIR="$(dirname "${MODEL_PATH}")"
-METRICS_FILE="${METRICS_DIR}/metrics.json"
-
-# HuggingFace token
-if [ -z "${HF_TOKEN:-}" ] && [ -f /fsx/scratch/.hf_token ]; then
-    export HF_TOKEN=$(cat /fsx/scratch/.hf_token)
-fi
 
 echo "=================================================="
 echo "GR00T Closed-loop Evaluation — LeIsaac PickOrange"
@@ -63,9 +55,8 @@ echo "Model: ${MODEL_PATH}"
 echo "Embodiment: ${EMBODIMENT_TAG}"
 echo "Modality Config: ${MODALITY_CONFIG}"
 echo "Instruction: ${INSTRUCTION}"
-echo "Episodes: ${NUM_EPISODES}"
-echo "Max Steps/Episode: ${MAX_STEPS_PER_EPISODE}"
-echo "Port: ${POLICY_PORT}"
+echo "Eval Rounds: ${EVAL_ROUNDS}"
+echo "Policy Port: ${POLICY_PORT}"
 echo "Start: $(date)"
 echo "=================================================="
 
@@ -80,32 +71,33 @@ fi
 
 if [ ! -f "${CONTAINER_IMAGE}" ]; then
     echo "ERROR: Isaac Sim container not found: ${CONTAINER_IMAGE}"
-    echo "  Run setup_isaaclab_env.sh first."
+    echo "  Run: bash /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/scripts/setup_isaaclab_env.sh"
     exit 1
 fi
 
 if [ ! -d "${GROOT_ENV}" ]; then
     echo "ERROR: GR00T venv not found: ${GROOT_ENV}"
-    echo "  Run setup_groot_env.sh first."
+    echo "  Run: bash /fsx/scratch/aws-physical-ai-recipes/training/hyperpod/scripts/setup_groot_env.sh"
     exit 1
 fi
 
 if [ ! -d "${LEISAAC_PKG}" ]; then
     echo "ERROR: LeIsaac not found at ${LEISAAC_PKG}"
-    echo "  Run setup_isaaclab_env.sh to install LeIsaac."
+    echo "  Run: git clone https://github.com/lightwheelai/leisaac.git ${LEISAAC_PKG}"
     exit 1
 fi
 
 # --- Step 1: Start GR00T Policy Server (GPU 0) ---
 echo ""
-echo "[1/4] Starting GR00T Policy Server (port ${POLICY_PORT}, GPU 0)..."
+echo "[1/3] Starting GR00T Policy Server (port ${POLICY_PORT}, GPU 0)..."
 
 fuser -k "${POLICY_PORT}/tcp" 2>/dev/null || true
 sleep 1
 
 source "${GROOT_ENV}/bin/activate"
+cd "${GROOT_REPO}"
 
-CUDA_VISIBLE_DEVICES=0 python -m gr00t.eval.service \
+CUDA_VISIBLE_DEVICES=0 python -m gr00t.eval.run_gr00t_server \
     --model-path "${MODEL_PATH}" \
     --embodiment-tag "${EMBODIMENT_TAG}" \
     --modality-config-path "${MODALITY_CONFIG}" \
@@ -113,7 +105,7 @@ CUDA_VISIBLE_DEVICES=0 python -m gr00t.eval.service \
     --device cuda:0 &
 POLICY_PID=$!
 
-# --- Step 2: Wait for server readiness (health check) ---
+# --- Step 2: Wait for server readiness (ZMQ ping) ---
 echo "  Waiting for policy server (PID: ${POLICY_PID})..."
 SERVER_READY=false
 for i in $(seq 1 180); do
@@ -148,12 +140,12 @@ fi
 
 # --- Step 3: Run LeIsaac PickOrange closed-loop evaluation (GPU 1-3) ---
 echo ""
-echo "[3/4] Running LeIsaac PickOrange closed-loop evaluation..."
+echo "[3/3] Running LeIsaac PickOrange closed-loop evaluation..."
 
 # Create container rootfs if needed
-if ! enroot list 2>/dev/null | grep -q "^${CONTAINER_NAME}$"; then
-    echo "  Creating container rootfs..."
-    sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
+if ! sudo enroot list 2>/dev/null | grep -q "^isaaclab$"; then
+    echo "  Creating container rootfs from ${CONTAINER_IMAGE}..."
+    sudo enroot create --name isaaclab "${CONTAINER_IMAGE}"
 fi
 
 sudo enroot start --root \
@@ -165,26 +157,28 @@ sudo enroot start --root \
     --env NVIDIA_DRIVER_CAPABILITIES=all \
     --env DISPLAY="" \
     --env PYTHONUNBUFFERED=1 \
-    --env PYTHONPATH="${LEISAAC_PKG}/source:${LEISAAC_PKG}" \
-    "${CONTAINER_NAME}" \
+    isaaclab \
     bash -c "
-cd ${LEISAAC_PKG}
-python scripts/evaluation/run_groot_closed_loop.py \
+cd /fsx/scratch/leisaac
+pip install -e source/leisaac 2>&1 | tail -3
+
+python scripts/evaluation/policy_inference.py \
     --task LeIsaac-SO101-PickOrange-v0 \
+    --policy_type gr00tn1.6 \
     --policy_host localhost \
     --policy_port ${POLICY_PORT} \
-    --instruction '${INSTRUCTION}' \
-    --num_episodes ${NUM_EPISODES} \
-    --max_steps_per_episode ${MAX_STEPS_PER_EPISODE} \
+    --policy_language_instruction '${INSTRUCTION}' \
+    --policy_action_horizon 16 \
+    --eval_rounds ${EVAL_ROUNDS} \
     --headless \
-    --metrics_output ${METRICS_FILE}
+    --enable_cameras
 "
 
 SIM_EXIT=$?
 
-# --- Step 4: Cleanup and report ---
+# --- Cleanup ---
 echo ""
-echo "[4/4] Stopping policy server..."
+echo "Stopping policy server..."
 kill ${POLICY_PID} 2>/dev/null
 wait ${POLICY_PID} 2>/dev/null || true
 
@@ -192,15 +186,9 @@ echo ""
 echo "=================================================="
 if [ ${SIM_EXIT} -eq 0 ]; then
     echo "Closed-loop evaluation completed successfully!"
-    if [ -f "${METRICS_FILE}" ]; then
-        echo ""
-        echo "Results (${METRICS_FILE}):"
-        cat "${METRICS_FILE}"
-    fi
 else
     echo "Closed-loop evaluation failed (exit code: ${SIM_EXIT})"
 fi
-echo ""
 echo "End: $(date)"
 echo "=================================================="
 
