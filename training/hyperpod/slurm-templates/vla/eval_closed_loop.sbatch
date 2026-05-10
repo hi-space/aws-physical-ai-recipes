@@ -34,7 +34,8 @@
 
 set -e
 
-MODEL_PATH="${MODEL_PATH:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}"
+DEFAULT_CKPT=$(ls -td /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-* 2>/dev/null | head -1)
+MODEL_PATH="${MODEL_PATH:-${DEFAULT_CKPT:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py}"
 INSTRUCTION="${INSTRUCTION:-pick up the orange}"

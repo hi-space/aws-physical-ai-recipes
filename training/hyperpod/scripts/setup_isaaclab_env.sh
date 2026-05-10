@@ -162,21 +162,31 @@ if [ -d "${LEISAAC_DIR}" ]; then
     echo "  LeIsaac already exists at ${LEISAAC_DIR}, updating..."
     cd "${LEISAAC_DIR}" && git pull 2>/dev/null || true
 else
-    echo "  Cloning LeIsaac..."
-    git clone --depth 1 https://github.com/lightwheelai/leisaac.git "${LEISAAC_DIR}"
+    echo "  Cloning LeIsaac (with LFS assets)..."
+    git clone https://github.com/lightwheelai/leisaac.git "${LEISAAC_DIR}"
 fi
 
-# Install LeIsaac into container rootfs if available
-ROOTFS_PATH="/fsx/enroot/data/isaaclab"
-if [ -d "${ROOTFS_PATH}" ]; then
-    echo "  Installing LeIsaac into container rootfs..."
-    sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
-    sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
-        "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:\$LD_LIBRARY_PATH && \
-         /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
-         -e /fsx/scratch/leisaac 2>&1 | tail -5" || {
-        echo "  WARNING: LeIsaac installation in container failed. Will use PYTHONPATH mount."
-    }
+# Ensure Git LFS assets are downloaded (USD scenes for simulation)
+cd "${LEISAAC_DIR}"
+if ! find assets/scenes -name "*.usd" 2>/dev/null | grep -q .; then
+    echo "  Downloading LFS assets (USD scenes)..."
+    git lfs install
+    git lfs pull
+    # If assets were removed in latest commit, restore from history
+    if ! find assets/scenes -name "*.usd" 2>/dev/null | grep -q .; then
+        ASSET_COMMIT=$(git log --all --oneline -- assets/scenes/ | grep -v "clean" | head -1 | cut -d' ' -f1)
+        if [ -n "${ASSET_COMMIT}" ]; then
+            git checkout "${ASSET_COMMIT}" -- assets/scenes/ assets/robots/ 2>/dev/null || true
+            git lfs checkout assets/ 2>/dev/null || true
+        fi
+    fi
+fi
+
+# Disable monkey_patch if isaaclab >= 2.1 (already has the termination fix)
+if grep -q "^monkey_patch()" "${LEISAAC_DIR}/source/leisaac/leisaac/utils/monkey_patch.py" 2>/dev/null; then
+    sed -i 's/^monkey_patch()$/# monkey_patch()  # disabled: isaaclab 2.1 already has this fix/' \
+        "${LEISAAC_DIR}/source/leisaac/leisaac/utils/monkey_patch.py"
+    echo "  Disabled monkey_patch (not needed with isaaclab 2.1+)"
 fi
 
 echo "  LeIsaac ready at ${LEISAAC_DIR}"
