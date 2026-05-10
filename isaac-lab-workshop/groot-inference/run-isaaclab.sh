@@ -4,7 +4,7 @@ set -euo pipefail
 # ─── Configuration ───────────────────────────────────────────────────────────
 CONTAINER_IMAGE="${ISAAC_LAB_IMAGE:-nvcr.io/nvidia/isaac-lab:2.3.0}"
 SESSION_NAME="isaac-lab"
-LEISAAC_COMMIT="ef16f985e3bb2bf6f3012d0a40c2ca5c17c31cb6"
+LEISAAC_COMMIT="24d3bcd6a877f60b08cac71b3c84259bf03b42bc"
 PKGS_DIR="$HOME/isaaclab-pkgs"
 MARKER="$PKGS_DIR/.leisaac-installed"
 ASSETS_DIR="$HOME/leisaac-assets"
@@ -30,6 +30,87 @@ if [[ ! -f "$MARKER" ]]; then
   echo ">>> leisaac installation complete."
 else
   echo ">>> leisaac already installed (skipping)."
+fi
+
+# ─── Step 1a: Patch leisaac for GR00T N1.6 dynamic language key ──────────────
+# leisaac upstream hardcodes the language key, but GR00T N1.6 checkpoints differ:
+# - base model:       'annotation.human.action.task_description'
+# - finetuned models: 'annotation.human.task_description'
+# Fix 1: service_policy_clients.py — query server's modality config at init
+# Fix 2: gr00t/serialization.py ModalityConfig — allow extra fields so server's
+#         richer ModalityConfig deserializes correctly in the IsaacLab environment
+POLICY_CLIENT="$PKGS_DIR/leisaac/policy/service_policy_clients.py"
+SERIALIZATION="$PKGS_DIR/leisaac/policy/gr00t/serialization.py"
+PATCH_MARKER="$PKGS_DIR/.gr00t16-language-key-patched"
+if [[ ! -f "$PATCH_MARKER" ]]; then
+  echo ">>> Patching leisaac for GR00T N1.6 dynamic language key..."
+  python3 - "$POLICY_CLIENT" "$SERIALIZATION" << 'PATCH_EOF'
+import sys
+
+# --- Patch 1: service_policy_clients.py ---
+path = sys.argv[1]
+with open(path) as f:
+    src = f.read()
+
+old = '''\
+        super().__init__(host=host, port=port, timeout_ms=timeout_ms, ping_endpoint="ping")
+        self.camera_keys = camera_keys
+        self.modality_keys = modality_keys'''
+
+new = '''\
+        super().__init__(host=host, port=port, timeout_ms=timeout_ms, ping_endpoint="ping")
+        self.camera_keys = camera_keys
+        self.modality_keys = modality_keys
+        try:
+            modality_config = self.call_endpoint("get_modality_config", requires_input=False)
+            self.language_key = modality_config["language"].modality_keys[0]
+        except Exception:
+            self.language_key = "annotation.human.action.task_description"'''
+
+old_lang = '"annotation.human.task_description": [[observation_dict["task_description"]]],'
+new_lang = 'self.language_key: [[observation_dict["task_description"]]],'
+
+if old in src and old_lang in src:
+    src = src.replace(old, new).replace(old_lang, new_lang)
+    with open(path, "w") as f:
+        f.write(src)
+    print("Patch 1 applied: dynamic language key.")
+elif old_lang not in src:
+    print("Patch 1: already patched or structure changed — skipping.")
+else:
+    print("WARNING: Patch 1 could not be applied.")
+
+# --- Patch 2: gr00t/serialization.py ---
+path2 = sys.argv[2]
+with open(path2) as f:
+    src2 = f.read()
+
+old2_model = 'class ModalityConfig(BaseModel):'
+new2_model = 'class ModalityConfig(BaseModel):\n    model_config = {"extra": "ignore"}'
+
+old2_decode = '            obj = ModalityConfig(**json.loads(obj["as_json"]))'
+new2_decode = '''\
+            as_json = obj["as_json"]
+            data = as_json if isinstance(as_json, dict) else json.loads(as_json)
+            obj = ModalityConfig(**data)'''
+
+patched = False
+if old2_model in src2 and 'model_config' not in src2:
+    src2 = src2.replace(old2_model, new2_model)
+    patched = True
+if old2_decode in src2:
+    src2 = src2.replace(old2_decode, new2_decode)
+    patched = True
+if patched:
+    with open(path2, "w") as f:
+        f.write(src2)
+    print("Patch 2 applied: ModalityConfig deserialization fixed.")
+elif 'model_config' in src2 and 'isinstance(as_json, dict)' in src2:
+    print("Patch 2: already patched — skipping.")
+else:
+    print("WARNING: Patch 2 could not be applied.")
+PATCH_EOF
+  touch "$PATCH_MARKER"
 fi
 
 # ─── Step 2: Download scene assets ───────────────────────────────────────────
