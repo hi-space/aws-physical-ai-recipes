@@ -166,6 +166,11 @@ exec "$@"
 RCEOF
 chmod +x /tmp/isaaclab_rc.sh
 
+# Install missing dependencies (protobuf for gRPC, openpi deps)
+sudo enroot start --root --rw --rc /tmp/isaaclab_rc.sh \
+    --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
+    isaaclab python3 -m pip install --quiet "protobuf>=5.26" grpcio 2>&1 | tail -3
+
 sudo enroot start --root \
     --rw \
     --rc /tmp/isaaclab_rc.sh \
