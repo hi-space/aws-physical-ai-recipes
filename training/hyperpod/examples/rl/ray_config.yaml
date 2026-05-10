@@ -1,0 +1,25 @@
+# Ray on SLURM 설정
+
+cluster_name: isaaclab-rl
+
+head:
+  partition: train
+  resources:
+    gpus: 4
+    cpus: 48
+
+workers:
+  partition: sim
+  min_workers: 1
+  max_workers: 16
+  resources_per_worker:
+    gpus: 4
+    cpus: 48
+
+env_vars:
+  NCCL_DEBUG: INFO
+  RAY_DEDUP_LOGS: "0"
+
+autoscaler:
+  target_utilization_fraction: 0.8
+  idle_timeout_minutes: 10

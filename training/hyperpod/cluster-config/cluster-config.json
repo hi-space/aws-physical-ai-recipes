@@ -1,0 +1,99 @@
+{
+  "ClusterName": "hyperpod-robotics",
+  "InstanceGroups": [
+    {
+      "InstanceGroupName": "head",
+      "InstanceType": "ml.m5.xlarge",
+      "InstanceCount": 1,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "debug",
+      "InstanceType": "ml.g6e.4xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6e-12x",
+      "InstanceType": "ml.g6e.12xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6e-24x",
+      "InstanceType": "ml.g6e.24xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6e-48x",
+      "InstanceType": "ml.g6e.48xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6-12x",
+      "InstanceType": "ml.g6.12xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6-24x",
+      "InstanceType": "ml.g6.24xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-g6-48x",
+      "InstanceType": "ml.g6.48xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-p4d",
+      "InstanceType": "ml.p4d.24xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    },
+    {
+      "InstanceGroupName": "gpu-p5",
+      "InstanceType": "ml.p5.48xlarge",
+      "InstanceCount": 0,
+      "LifeCycleConfig": {
+        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
+        "OnCreate": "on_create.sh"
+      }
+    }
+  ],
+  "VpcConfig": {
+    "SecurityGroupIds": ["sg-REPLACE"],
+    "Subnets": ["subnet-REPLACE"]
+  }
+}
