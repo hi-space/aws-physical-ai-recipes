@@ -36,6 +36,7 @@ if (!vpcId || !efsFileSystemId || !efsSecurityGroupId || !privateSubnetId || !av
 
 // Optional parameters
 const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
+const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
 const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 
 const stackName = `GrootFinetune-${userId}`;
@@ -53,4 +54,5 @@ new GrootFinetuneStack(app, stackName, {
   availabilityZone,
   userId,
   useStableGroot,
+  grootVersion,
 });

@@ -7,6 +7,7 @@ class ReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1000
     save_interval = 100
+    log_interval = 10
     experiment_name = "reach_so101"
     run_name = ""
     logger = "tensorboard"

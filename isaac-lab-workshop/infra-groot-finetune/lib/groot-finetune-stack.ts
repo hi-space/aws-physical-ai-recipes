@@ -14,6 +14,7 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
   availabilityZone: string;
   userId?: string;
   useStableGroot?: boolean;
+  grootVersion?: string;
 }
 
 export class GrootFinetuneStack extends cdk.Stack {
@@ -44,6 +45,7 @@ export class GrootFinetuneStack extends cdk.Stack {
     const codeBuild = new CodeBuildInfra(this, 'CodeBuild', {
       repository: ecrRepo.repository,
       useStableGroot: props.useStableGroot,
+      grootVersion: props.grootVersion,
     });
 
     // [4] Batch Compute Environment

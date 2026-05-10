@@ -73,12 +73,34 @@ so101-place-orange/
 **변경:**
 - GR00T N1.6 고정 (N1.7 언급은 참고 정보로만)
 - DATASET 기본값: `/fsx/datasets/groot/so101-place-orange`
-- embodiment_tag: `new_embodiment` (so101_follower 6-DOF, Isaac-GR00T 기본값)
+- embodiment_tag: `new_embodiment` (커스텀 로봇이므로 modality config 필수)
+- modality config 파일 필요: SO101 6-DOF 관절 매핑 정의
 - `finetune_groot_venv.sbatch` 파라미터 정리:
   - GROOT_VERSION=nvidia/GR00T-N1.6-3B
   - DATASET_PATH=/fsx/datasets/groot/so101-place-orange
+  - EMBODIMENT_TAG=new_embodiment
+  - MODALITY_CONFIG=/fsx/scratch/aws-physical-ai-recipes/training/hyperpod/configs/so101_modality.py
   - MAX_STEPS=2000
   - BATCH_SIZE=32
+
+**SO101 Modality Config (`configs/so101_modality.py`):**
+```python
+# SO101 follower arm: 6-DOF joint position control
+MODALITY_CONFIG = {
+    "state": {
+        "keys": ["observation.state"],
+        "dim": 6,  # shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper
+    },
+    "action": {
+        "keys": ["action"],
+        "dim": 6,  # same 6 joints as target positions
+    },
+    "video": {
+        "keys": ["observation.images.front", "observation.images.wrist"],
+    },
+}
+```
+- 이 파일은 레포에 `configs/so101_modality.py`로 포함
 
 **출력:**
 - Checkpoint: `/fsx/checkpoints/vla/groot-so101-place-orange/`
@@ -161,6 +183,7 @@ HyperPod Compute Node (ml.g6e.12xlarge, headless)
 | `scripts/setup_groot_env.sh` | so101-place-orange 데이터셋 경로 기본값 |
 | `scripts/setup_isaaclab_env.sh` | LeIsaac 환경 설치 추가 (closed-loop eval용) |
 | `examples/vla/prepare_dataset.py` | S3 업로드 헬퍼 또는 가이드 추가 |
+| `configs/so101_modality.py` | **신규** — SO101 6-DOF state/action/video modality 매핑 |
 
 ### SLURM Templates
 

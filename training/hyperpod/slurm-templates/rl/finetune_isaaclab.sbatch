@@ -100,6 +100,7 @@ RCEOF
         --env ACCEPT_EULA=Y \
         --env PRIVACY_CONSENT=Y \
         --env PYTHONPATH="${WORKSHOP_PKG}" \
+        --env PYTHONUNBUFFERED=1 \
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         --env GIT_PYTHON_REFRESH=quiet \
@@ -126,6 +127,7 @@ else
     fi
 
     source "${ISAACLAB_ENV}/bin/activate"
+    export PYTHONUNBUFFERED=1
 
     CHECKPOINT_ARG=""
     [ -n "${CHECKPOINT}" ] && CHECKPOINT_ARG="--checkpoint ${CHECKPOINT}"

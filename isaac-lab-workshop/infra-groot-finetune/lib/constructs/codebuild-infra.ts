@@ -10,6 +10,7 @@ import { Construct } from 'constructs';
 export interface CodeBuildInfraProps {
   repository: ecr.IRepository;
   useStableGroot?: boolean;
+  grootVersion?: string;
 }
 
 export class CodeBuildInfra extends Construct {
@@ -19,6 +20,7 @@ export class CodeBuildInfra extends Construct {
     super(scope, id);
 
     const useStable = props.useStableGroot ?? true;
+    const grootVersion = props.grootVersion ?? 'n1.6';
 
     const sourceAsset = new s3_assets.Asset(this, 'SourceAsset', {
       path: path.join(__dirname, '../../assets'),
@@ -40,6 +42,7 @@ export class CodeBuildInfra extends Construct {
       environmentVariables: {
         ECR_REPOSITORY_NAME: { value: props.repository.repositoryName },
         USE_STABLE: { value: useStable ? 'true' : 'false' },
+        GROOT_VERSION: { value: grootVersion },
         IMAGE_TAG: { value: 'latest' },
       },
       buildSpec: codebuild.BuildSpec.fromSourceFilename('buildspec.yml'),

@@ -26,6 +26,7 @@ import argparse
 import inspect
 import os
 import sys
+import time
 
 from isaaclab.app import AppLauncher
 
@@ -112,7 +113,38 @@ def main():
     print(f"  Log dir: {log_path}")
     print(f"  Device: {agent_cfg.device}")
 
-    runner.learn(num_learning_iterations=agent_cfg.max_iterations)
+    log_interval = getattr(agent_cfg, "log_interval", 10)
+    _original_learn = runner.learn
+    _start_time = time.time()
+
+    def _learn_with_logging(num_learning_iterations, init_at_random_ep_len=False):
+        original_update = runner.alg.update
+        _step = {"iter": 0}
+
+        def _update_with_log(*a, **kw):
+            result = original_update(*a, **kw)
+            _step["iter"] += 1
+            it = _step["iter"]
+            if it % log_interval == 0 or it == num_learning_iterations:
+                elapsed = time.time() - _start_time
+                mean_reward = runner.rewbuffer.mean() if hasattr(runner, "rewbuffer") and len(runner.rewbuffer) > 0 else 0.0
+                mean_ep_len = runner.lenbuffer.mean() if hasattr(runner, "lenbuffer") and len(runner.lenbuffer) > 0 else 0.0
+                fps = (it * env.num_envs * agent_cfg.num_steps_per_env) / elapsed if elapsed > 0 else 0
+                print(
+                    f"[INFO] Iteration {it}/{num_learning_iterations}"
+                    f" — reward: {mean_reward:.2f}"
+                    f", ep_len: {mean_ep_len:.0f}"
+                    f", fps: {fps:.0f}"
+                    f", elapsed: {elapsed:.0f}s",
+                    flush=True,
+                )
+            return result
+
+        runner.alg.update = _update_with_log
+        _original_learn(num_learning_iterations, init_at_random_ep_len)
+        runner.alg.update = original_update
+
+    _learn_with_logging(agent_cfg.max_iterations)
 
     print(f"\nTraining complete! Checkpoints at: {log_path}")
     env.close()

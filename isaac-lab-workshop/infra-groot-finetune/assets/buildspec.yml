@@ -46,7 +46,7 @@ phases:
       - chmod +x build_container.sh
 
       # Build with the script, passing appropriate flags
-      - 'if [ "${USE_STABLE}" = "true" ]; then ./build_container.sh --test -n $IMAGE_REPO_NAME -t $IMAGE_TAG; else ./build_container.sh --test --latest -n $IMAGE_REPO_NAME -t $IMAGE_TAG; fi'
+      - 'if [ "${USE_STABLE}" = "true" ]; then ./build_container.sh --test --version $GROOT_VERSION -n $IMAGE_REPO_NAME -t $IMAGE_TAG; else ./build_container.sh --test --latest --version $GROOT_VERSION -n $IMAGE_REPO_NAME -t $IMAGE_TAG; fi'
 
       # Tag the image with build number for versioning
       - "docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$CODEBUILD_BUILD_NUMBER"

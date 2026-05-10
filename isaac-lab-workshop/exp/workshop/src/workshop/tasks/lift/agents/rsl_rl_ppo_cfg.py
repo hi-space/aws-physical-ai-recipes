@@ -7,6 +7,7 @@ class LiftPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
+    log_interval = 10
     experiment_name = "lift_so101"
     run_name = ""
     logger = "tensorboard"

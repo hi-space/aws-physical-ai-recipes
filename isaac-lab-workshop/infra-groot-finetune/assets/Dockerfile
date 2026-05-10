@@ -1,103 +1,96 @@
-# Alternative Dockerfile from the GR00T repo: https://github.com/NVIDIA/Isaac-GR00T/blob/main/Dockerfile
-# Optimized Dockerfile for Isaac-GR00T using UV package manager
-FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+# Isaac-GR00T Fine-tuning Container (N1.6 / N1.7)
+# Based on upstream: https://github.com/NVIDIA/Isaac-GR00T/blob/main/Dockerfile
+FROM nvcr.io/nvidia/pytorch:25.04-py3
 
-# Build argument to control GR00T version (stable vs latest)
+ARG GROOT_VERSION=n1.6
 ARG USE_STABLE=true
-ARG STABLE_COMMIT=4b1dca9d88d2a0b9ea5a65aa61c82ff89f5c4f0e
+# n1.6: https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6.1-release
+# n1.7: https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.7-release
+ARG STABLE_COMMIT=5dc80c4afd726b34faad1d8f7e007a13b34e4c88
+ARG BASE_MODEL_PATH=nvidia/GR00T-N1.6-3B
 
-# Setting the frontend to be non-interactive
-# This is to avoid any user input required during the installation of packages
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
 
-# System dependencies - consolidated for better layer caching
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core utilities
-    wget curl ca-certificates unzip \
-    # Git and version control
-    git git-lfs \
-    # Build essentials
-    build-essential cmake \
-    # Media processing
-    ffmpeg \
-    # OpenCV dependencies
-    libopencv-dev libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    # Python development
-    python3.10 python3.10-dev python3.10-distutils python3-pip \
-    # Utilities for debugging
-    vim less htop \
+# System deps (upstream + our additions: aws-cli, git-lfs, vim/htop)
+RUN apt-get update && apt-get install -y \
+    build-essential yasm cmake libtool git git-lfs pkg-config \
+    libass-dev libfreetype6-dev libvorbis-dev \
+    autoconf automake texinfo ffmpeg \
+    wget curl ca-certificates unzip vim less htop \
+    libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install AWS CLI v2 (official AWS method)
+# AWS CLI v2 (needed for S3 integration)
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf awscliv2.zip aws && \
-    rm -rf /usr/local/aws-cli/v2/*/dist/awscli/examples
+    unzip awscliv2.zip && ./aws/install && rm -rf awscliv2.zip aws
 
-# Set Python 3.10 as default
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+# UV package manager
+RUN pip install uv
 
-# Install UV package manager (much faster than pip/conda)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Upstream dep fixes
+RUN sed -i s/dill==0.3.9/dill==0.3.8/g /etc/pip/constraint.txt && \
+    sed -i s/scipy==1.15.2/scipy==1.15.3/g /etc/pip/constraint.txt && \
+    sed -i '/flash.attn/d' /etc/pip/constraint.txt
 
-# Configure UV to use system Python
-ENV UV_SYSTEM_PYTHON=1
-ENV PYTHONPATH=/workspace
+# pip deps (from upstream Dockerfile)
+RUN pip install imageio h5py boto3 transformers[torch] deepspeed timm peft \
+    diffusers wandb tianshou dm_tree openai \
+    albumentations==1.4.18 decord==0.6.0 torchcodec==0.4.0
 
-# ============================================================================
-# Clone Isaac-GR00T repository
-# This layer changes when using --latest
-# ============================================================================
-RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace && \
-    cd /workspace && \
+# PyTorch3D from source
+# MAX_JOBS=2 limits parallel C++ compilation to avoid OOM in memory-constrained build envs
+RUN cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git && \
+    cd pytorch3d && MAX_JOBS=2 pip install .
+
+# Clone Isaac-GR00T
+RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \
+    cd /workspace/gr00t-repo && \
     if [ "${USE_STABLE}" = "true" ]; then \
-    echo "Using stable commit: ${STABLE_COMMIT} (default)"; \
-    git checkout ${STABLE_COMMIT}; \
+        echo "Using stable commit: ${STABLE_COMMIT}"; \
+        git checkout ${STABLE_COMMIT}; \
     else \
-    echo "Using latest version from main branch"; \
+        echo "Using latest version from main branch"; \
     fi && \
     echo "GR00T version info:" && \
     git log -1 --format="%H %ai %s"
 
-# Set working directory
-WORKDIR /workspace
+# Install gr00t package
+RUN cd /workspace/gr00t-repo && uv sync && uv pip install -e .
 
-# Upgrade pip and setuptools using UV
-RUN uv pip install --upgrade pip setuptools wheel
+# Activate the uv venv so all subsequent python/pip commands use it
+ENV VIRTUAL_ENV="/workspace/gr00t-repo/.venv"
+ENV PATH="/workspace/gr00t-repo/.venv/bin:${PATH}"
 
-# Install GR00T base dependencies using UV (faster resolution and installation)
-RUN uv pip install --no-cache -e .[base]
+# flash-attn (required by GR00T; in pyproject.toml but needs explicit install)
+# Use uv pip to bypass /etc/pip/constraint.txt which pins an older flash-attn version
+RUN uv pip install flash-attn==2.7.4.post1 --no-build-isolation
 
-# Install flash-attention from pre-built wheel (avoids 30+ min source compilation)
-RUN uv pip install --no-cache "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3%2Bcu12torch2.7cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+# EGL/Vulkan setup
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+    > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+RUN mkdir -p /usr/share/vulkan/icd.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.2.140"}}' \
+    > /usr/share/vulkan/icd.d/nvidia_icd.json
 
 # Install additional utilities
-RUN uv pip install --no-cache notebook gpustat wandb
+RUN pip install notebook gpustat
 
-# Install HuggingFace CLI and additional dependencies if necessary
-# RUN pip install huggingface_hub[cli] datasets
-
-# Copy the workflow scripts and modality configs
+# Copy workflow scripts + modality config
 COPY finetune_gr00t.py /workspace/scripts/
 COPY run_finetune_workflow.sh /workspace/scripts/
-COPY modality_configs/ /workspace/scripts/modality_configs/
+COPY so101_modality_config.py /workspace/scripts/
 RUN chmod +x /workspace/scripts/run_finetune_workflow.sh
 
-# Set environment variables with defaults
+WORKDIR /workspace/gr00t-repo
+
+ENV PYTHONPATH="/workspace/gr00t-repo:/workspace"
 ENV DATASET_LOCAL_DIR="/workspace/train"
 ENV OUTPUT_DIR="/workspace/checkpoints"
+ENV BASE_MODEL_PATH="${BASE_MODEL_PATH}"
 
-# If there is issue with the latest version, use tested checkpoint by commenting out the following two lines
-# RUN hf download nvidia/GR00T-N1.7-3B --revision <tested-revision> --local-dir ./GR00T-N1.7-3B
-# ENV BASE_MODEL_PATH="./GR00T-N1.7-3B"
-
-# Create directories using environment variables
 RUN mkdir -p ${DATASET_LOCAL_DIR} ${OUTPUT_DIR}
 
-# Setting the Entrypoint and Command to /bin/bash whenever executed
 ENTRYPOINT ["/bin/bash"]
-# Default command to run the workflow, but can be overridden
 CMD ["/workspace/scripts/run_finetune_workflow.sh"]
-# CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
