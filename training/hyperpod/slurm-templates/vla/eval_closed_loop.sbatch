@@ -92,6 +92,8 @@ echo ""
 echo "[1/3] Starting GR00T Policy Server (port ${POLICY_PORT}, GPU 0)..."
 
 fuser -k "${POLICY_PORT}/tcp" 2>/dev/null || true
+sleep 2
+fuser -k -9 "${POLICY_PORT}/tcp" 2>/dev/null || true
 sleep 1
 
 source "${GROOT_ENV}/bin/activate"
