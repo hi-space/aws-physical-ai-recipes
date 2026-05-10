@@ -65,12 +65,18 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
 else
     echo "  Importing nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION} (~20GB, may take 10-15 min)..."
 
-    mkdir -p /fsx/enroot/data /fsx/enroot/tmp
+    mkdir -p /fsx/enroot/data
     export ENROOT_CACHE_PATH=/fsx/enroot
     export ENROOT_DATA_PATH=/fsx/enroot/data
-    export TMPDIR=/fsx/enroot/tmp
 
-    sudo enroot import --output "${CONTAINER_IMAGE}" \
+    # Use NVMe for temp (FSx/Lustre doesn't support overlayfs whiteouts)
+    NVME_TMP="/opt/dlami/nvme/enroot-tmp"
+    sudo mkdir -p "${NVME_TMP}" 2>/dev/null || mkdir -p /tmp/enroot-tmp
+    IMPORT_TMPDIR="${NVME_TMP:-/tmp/enroot-tmp}"
+
+    sudo ENROOT_CACHE_PATH=/fsx/enroot ENROOT_DATA_PATH=/fsx/enroot/data \
+        ENROOT_TEMP_PATH="${IMPORT_TMPDIR}" TMPDIR="${IMPORT_TMPDIR}" \
+        enroot import --output "${CONTAINER_IMAGE}" \
         "docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}" || {
         echo "  WARNING: Container import failed. Continuing with workspace setup..."
         echo "  Possible causes:"
@@ -96,30 +102,30 @@ else
             echo "  Container rootfs already exists"
         fi
 
-        # Patch entrypoint to pass through commands (default always runs runheadless.sh)
-        ROOTFS_PATH="/fsx/enroot/data/isaaclab"
-        if [ -d "${ROOTFS_PATH}" ]; then
-            echo "  Patching container entrypoint for command passthrough..."
-            sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
-mkdir -p "/isaac-sim" 2> /dev/null
-cd "/isaac-sim" && unset OLDPWD || exit 1
+        # Create pass-through rc script (Isaac Sim default runs runheadless.sh)
+        cat > /fsx/scratch/isaaclab_rc.sh << 'RCEOF'
+#!/bin/bash
+cd /isaac-sim || exit 1
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
 export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
 export ISAAC_SIM_PATH=/isaac-sim
-if [ -s /etc/rc.local ]; then . /etc/rc.local; fi
-if [ $# -gt 0 ]; then exec "$@"; else exec /bin/sh -c /isaac-sim/runheadless.sh; fi
+exec "$@"
 RCEOF
+        chmod +x /fsx/scratch/isaaclab_rc.sh
+        echo "  Created pass-through rc script at /fsx/scratch/isaaclab_rc.sh"
 
-            # Install RL packages (uses chroot to avoid 5-min entrypoint startup)
-            echo "  Installing Isaac Lab RL packages..."
-            sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
-            sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
-                "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:\$LD_LIBRARY_PATH && \
-                 /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
-                 isaaclab rsl-rl-lib gymnasium pyzmq msgpack 2>&1 | tail -5" || {
-                echo "  WARNING: Package installation failed. Will retry on first sbatch run."
-            }
-        fi
+        # Install packages via enroot start (avoids chroot FSx access issues)
+        echo "  Installing Isaac Lab + LeIsaac packages..."
+        sudo enroot start --root --rw --rc /fsx/scratch/isaaclab_rc.sh \
+            --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
+            isaaclab bash -c "
+                python3 -m pip install setuptools wheel 2>&1 | tail -1
+                python3 -m pip install isaaclab rsl-rl-lib gymnasium pyzmq msgpack 2>&1 | tail -3
+                python3 -m pip install -e /fsx/scratch/IsaacLab/source/isaaclab_tasks --no-deps 2>&1 | tail -3
+                python3 -m pip install /fsx/scratch/leisaac/source/leisaac --no-deps 2>&1 | tail -3
+            " || {
+            echo "  WARNING: Package installation failed. Will retry on first sbatch run."
+        }
     fi
 fi
 

@@ -45,6 +45,7 @@ GROOT_ENV="/fsx/envs/gr00t"
 GROOT_REPO="/fsx/scratch/Isaac-GR00T"
 CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
 LEISAAC_PKG="/fsx/scratch/leisaac"
+ISAACLAB_SRC="/fsx/scratch/IsaacLab"
 
 echo "=================================================="
 echo "GR00T Closed-loop Evaluation — LeIsaac PickOrange"
@@ -150,8 +151,20 @@ if ! sudo enroot list 2>/dev/null | grep -q "^isaaclab$"; then
     sudo enroot create --name isaaclab "${CONTAINER_IMAGE}"
 fi
 
+# Write pass-through entrypoint (Isaac Sim container default runs runheadless.sh)
+cat > /tmp/isaaclab_rc.sh << 'RCEOF'
+#!/bin/bash
+cd /isaac-sim || exit 1
+export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
+export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
+export ISAAC_SIM_PATH=/isaac-sim
+exec "$@"
+RCEOF
+chmod +x /tmp/isaaclab_rc.sh
+
 sudo enroot start --root \
     --rw \
+    --rc /tmp/isaaclab_rc.sh \
     --mount /fsx:/fsx \
     --env ACCEPT_EULA=Y \
     --env PRIVACY_CONSENT=Y \
@@ -159,22 +172,18 @@ sudo enroot start --root \
     --env NVIDIA_DRIVER_CAPABILITIES=all \
     --env DISPLAY="" \
     --env PYTHONUNBUFFERED=1 \
+    --env PYTHONPATH="/fsx/scratch/leisaac/source/leisaac:/fsx/scratch/IsaacLab/source/isaaclab_tasks" \
     isaaclab \
-    bash -c "
-cd /fsx/scratch/leisaac
-pip install -e source/leisaac 2>&1 | tail -3
-
-python scripts/evaluation/policy_inference.py \
-    --task LeIsaac-SO101-PickOrange-v0 \
-    --policy_type gr00tn1.6 \
-    --policy_host localhost \
-    --policy_port ${POLICY_PORT} \
-    --policy_language_instruction '${INSTRUCTION}' \
-    --policy_action_horizon 16 \
-    --eval_rounds ${EVAL_ROUNDS} \
-    --headless \
-    --enable_cameras
-"
+    python3 /fsx/scratch/leisaac/scripts/evaluation/policy_inference.py \
+        --task LeIsaac-SO101-PickOrange-v0 \
+        --policy_type gr00tn1.6 \
+        --policy_host localhost \
+        --policy_port "${POLICY_PORT}" \
+        --policy_language_instruction "${INSTRUCTION}" \
+        --policy_action_horizon 16 \
+        --eval_rounds "${EVAL_ROUNDS}" \
+        --headless \
+        --enable_cameras
 
 SIM_EXIT=$?
 
