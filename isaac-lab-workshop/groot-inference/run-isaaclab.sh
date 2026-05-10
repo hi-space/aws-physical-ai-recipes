@@ -4,7 +4,7 @@ set -euo pipefail
 # ─── Configuration ───────────────────────────────────────────────────────────
 CONTAINER_IMAGE="${ISAAC_LAB_IMAGE:-nvcr.io/nvidia/isaac-lab:2.3.0}"
 SESSION_NAME="isaac-lab"
-LEISAAC_COMMIT="ef16f985e3bb2bf6f3012d0a40c2ca5c17c31cb6"
+LEISAAC_COMMIT="24d3bcd6a877f60b08cac71b3c84259bf03b42bc"
 PKGS_DIR="$HOME/isaaclab-pkgs"
 MARKER="$PKGS_DIR/.leisaac-installed"
 ASSETS_DIR="$HOME/leisaac-assets"
@@ -30,6 +30,16 @@ if [[ ! -f "$MARKER" ]]; then
   echo ">>> leisaac installation complete."
 else
   echo ">>> leisaac already installed (skipping)."
+fi
+
+# ─── Step 1a: Patch Gr00t16ServicePolicyClient language key bug ──────────────
+# upstream leisaac@ef16f98 sends 'annotation.human.task_description' but
+# GR00T N1.6 NEW_EMBODIMENT expects 'annotation.human.action.task_description'
+POLICY_CLIENT="$PKGS_DIR/leisaac/policy/service_policy_clients.py"
+if [[ -f "$POLICY_CLIENT" ]] && grep -q '"annotation.human.task_description": \[\[' "$POLICY_CLIENT"; then
+  echo ">>> Patching Gr00t16ServicePolicyClient language key..."
+  sed -i 's/"annotation.human.task_description": \[\[/"annotation.human.action.task_description": [[/g' "$POLICY_CLIENT"
+  echo ">>> Patch applied."
 fi
 
 # ─── Step 2: Download scene assets ───────────────────────────────────────────
