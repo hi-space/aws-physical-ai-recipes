@@ -109,6 +109,9 @@ cd /isaac-sim || exit 1
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
 export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
 export ISAAC_SIM_PATH=/isaac-sim
+export ISAAC_PATH=/isaac-sim
+export CARB_APP_PATH=/isaac-sim/kit
+export EXP_PATH=/isaac-sim/apps
 source /isaac-sim/setup_python_env.sh
 exec "$@"
 RCEOF
