@@ -62,17 +62,45 @@ def _detect_gpu_count() -> str:
 
 
 def parse_sagemaker_env() -> dict:
-    """SageMaker 환경변수를 파싱하여 설정 딕셔너리로 반환합니다."""
-    # num_gpus: 하이퍼파라미터 → 자동 감지 순서로 결정
+    """SageMaker 환경변수를 파싱하여 설정 딕셔너리로 반환합니다.
+
+    base_model_path 결정 우선순위:
+        1. SM_HP_BASE_MODEL_PATH (사용자가 hyperparameter로 명시)
+        2. SM_CHANNEL_MODEL (사용자가 S3 채널로 베이스 모델 제공)
+        3. BASE_MODEL_PATH 환경변수 (Dockerfile ARG에서 build 시 결정)
+        4. GROOT_VERSION 환경변수에서 유추 (n1.6 → nvidia/GR00T-N1.6-3B)
+    """
     num_gpus = _get_hyperparameter("num_gpus")
     if not num_gpus:
         num_gpus = _detect_gpu_count()
         print(f"num_gpus 하이퍼파라미터 미설정 → 자동 감지: {num_gpus}개 GPU")
 
+    groot_version = (
+        _get_hyperparameter("groot_version")
+        or os.environ.get("GROOT_VERSION", "n1.6")
+    ).lower()
+
+    # base_model_path 결정
+    hp_base_model = _get_hyperparameter("base_model_path")
+    if hp_base_model:
+        base_model_path = hp_base_model
+    elif os.environ.get("SM_CHANNEL_MODEL"):
+        base_model_path = os.environ["SM_CHANNEL_MODEL"]
+    elif os.environ.get("BASE_MODEL_PATH"):
+        base_model_path = os.environ["BASE_MODEL_PATH"]
+    else:
+        # GROOT_VERSION에서 유추
+        version_map = {
+            "n1.6": "nvidia/GR00T-N1.6-3B",
+            "n1.7": "nvidia/GR00T-N1.7-3B",
+        }
+        base_model_path = version_map.get(groot_version, "nvidia/GR00T-N1.6-3B")
+
     return {
-        "model_dir": os.environ.get("SM_CHANNEL_MODEL", "/opt/ml/input/data/model"),
+        "model_dir": base_model_path,
         "dataset_dir": os.environ.get("SM_CHANNEL_DATASET", "/opt/ml/input/data/dataset"),
         "output_dir": os.environ.get("SM_MODEL_DIR", "/opt/ml/model"),
+        "groot_version": groot_version,
         "embodiment_tag": _get_hyperparameter("embodiment_tag", "NEW_EMBODIMENT"),
         "max_steps": _get_hyperparameter("max_steps", "10000"),
         "global_batch_size": _get_hyperparameter("global_batch_size", "32"),
@@ -82,6 +110,8 @@ def parse_sagemaker_env() -> dict:
         "state_key": _get_hyperparameter("state_key", "state.single_arm"),
         "action_dim": _get_hyperparameter("action_dim", "7"),
         "wandb_api_key": _get_hyperparameter("wandb_api_key", ""),
+        "hf_token": _get_hyperparameter("hf_token", ""),
+        "hf_dataset_id": _get_hyperparameter("hf_dataset_id", ""),
     }
 
 
@@ -112,6 +142,55 @@ def setup_wandb(env: dict) -> None:
     else:
         os.environ["WANDB_DISABLED"] = "true"
         print("wandb 비활성화됨 (키 없음).")
+
+
+def setup_huggingface(env: dict) -> None:
+    """HF 토큰을 환경변수로 설정합니다 (필요 시 SSM에서 읽음)."""
+    token = env.get("hf_token", "")
+    if token.startswith("ssm:"):
+        try:
+            import boto3
+            ssm = boto3.client("ssm")
+            param_name = token[4:]
+            response = ssm.get_parameter(Name=param_name, WithDecryption=True)
+            token = response["Parameter"]["Value"]
+            print(f"SSM에서 HF 토큰 로드 완료: {param_name}")
+        except Exception as e:
+            print(f"경고: SSM에서 HF 토큰 로드 실패: {e}.")
+            token = ""
+    if token:
+        os.environ["HF_TOKEN"] = token
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = token
+
+
+def maybe_download_hf_dataset(env: dict) -> None:
+    """SM_CHANNEL_DATASET이 비어 있고 HF_DATASET_ID가 주어지면 HF에서 다운로드합니다."""
+    dataset_dir = env["dataset_dir"]
+    hf_id = env.get("hf_dataset_id", "")
+    if os.path.isdir(dataset_dir) and os.listdir(dataset_dir):
+        return  # 이미 채널로 받음
+    if not hf_id:
+        return  # 채널도 HF id도 없음 → 호출자 검증에 맡김
+
+    print(f"SM_CHANNEL_DATASET 비어있음 → HF에서 다운로드: {hf_id}")
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        # 컨테이너에 huggingface_hub가 없으면 설치
+        subprocess.run([sys.executable, "-m", "pip", "install", "huggingface_hub"], check=True)
+        from huggingface_hub import snapshot_download
+
+    os.makedirs(dataset_dir, exist_ok=True)
+    kwargs = {
+        "repo_id": hf_id,
+        "repo_type": "dataset",
+        "local_dir": dataset_dir,
+    }
+    if os.environ.get("HF_TOKEN"):
+        kwargs["token"] = os.environ["HF_TOKEN"]
+    snapshot_download(**kwargs)
+    env["dataset_dir"] = dataset_dir
+    print(f"HF 데이터셋 다운로드 완료: {dataset_dir}")
 
 
 # -------------------------------------------------------------------------------
@@ -289,13 +368,14 @@ def copy_artifacts(env: dict) -> None:
 
 def main() -> None:
     print("=" * 60)
-    print("GR00T-N1.6 SageMaker 학습 시작")
+    print("GR00T SageMaker 학습 시작")
     print("=" * 60)
 
     env = parse_sagemaker_env()
 
     print(f"설정:")
-    print(f"  모델 경로:       {env['model_dir']}")
+    print(f"  GR00T 버전:      {env['groot_version']}")
+    print(f"  베이스 모델:     {env['model_dir']}")
     print(f"  데이터셋 경로:   {env['dataset_dir']}")
     print(f"  출력 경로:       {env['output_dir']}")
     print(f"  embodiment tag: {env['embodiment_tag']}")
@@ -304,6 +384,8 @@ def main() -> None:
     print(f"  GPU 수:         {env['num_gpus']}")
 
     setup_wandb(env)
+    setup_huggingface(env)
+    maybe_download_hf_dataset(env)
     run_gr00t_training(env)
     save_inference_metadata(env)
     copy_artifacts(env)
