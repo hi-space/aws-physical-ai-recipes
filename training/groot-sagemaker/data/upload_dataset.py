@@ -197,13 +197,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  # 로컬 데이터셋 업로드 (v3이면 자동 변환):
-  python data/upload_dataset.py --local-path ./my-dataset
-  python data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot-v1
+  # SO-101 leisaac-pick-orange 다운로드 후 업로드:
+  python data/upload_dataset.py --hf-dataset-id LightwheelAI/leisaac-pick-orange
 
-  # HuggingFace 실제 로봇 데이터셋 다운로드 후 업로드:
-  python data/upload_dataset.py --hf-dataset-id lerobot/aloha_static_screw_driver
-  python data/upload_dataset.py --hf-dataset-id lerobot/aloha_static_screw_driver --hf-token hf_xxxx
+  # 비공개 데이터셋 (SSM에 토큰 저장한 경우 자동 사용):
+  python data/upload_dataset.py --hf-dataset-id my-org/private-dataset
+
+  # 로컬 데이터셋 업로드 (v3이면 자동 변환):
+  python data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot
         """,
     )
 
@@ -214,7 +215,10 @@ def main() -> None:
     )
     source_group.add_argument(
         "--hf-dataset-id",
-        help="HuggingFace 데이터셋 ID (예: lerobot/aloha_sim_transfer_cube_human)",
+        help=(
+            "HuggingFace 데이터셋 ID. SO-101/leisaac-pick-orange 예: "
+            "'LightwheelAI/leisaac-pick-orange'"
+        ),
     )
     parser.add_argument(
         "--bucket",
@@ -223,13 +227,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--prefix",
-        default=config.get("dataset", {}).get("s3_prefix", "datasets/my-robot"),
-        help="S3 키 접두사 (기본값: datasets/my-robot)",
+        default=config.get("dataset", {}).get("s3_prefix", "datasets/leisaac-pick-orange"),
+        help="S3 키 접두사 (기본값: datasets/leisaac-pick-orange)",
     )
     parser.add_argument(
         "--region",
-        default=config.get("aws", {}).get("region", "ap-northeast-2"),
-        help="AWS 리전 (기본값: ap-northeast-2)",
+        default=config.get("aws", {}).get("region", "us-east-1"),
+        help="AWS 리전 (기본값: us-east-1)",
     )
     parser.add_argument(
         "--hf-token",
