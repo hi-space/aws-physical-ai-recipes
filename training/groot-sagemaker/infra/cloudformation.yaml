@@ -254,6 +254,14 @@ Resources:
             Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
           - Name: AWS_DEFAULT_REGION
             Value: !Ref AWS::Region
+          - Name: GROOT_VERSION
+            Value: n1.6
+          - Name: USE_STABLE
+            Value: "true"
+          - Name: BASE_MODEL_PATH
+            Value: nvidia/GR00T-N1.6-3B
+          - Name: IMAGE_TAG
+            Value: latest
       Source:
         Type: !If [HasRepositoryUrl, GITHUB, NO_SOURCE]
         Location: !If [HasRepositoryUrl, !Ref RepositoryUrl, !Ref AWS::NoValue]
