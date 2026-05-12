@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""GR00T-N1.6 SageMaker Endpoint 추론 호출 스크립트.
+"""GR00T SageMaker Endpoint 추론 호출 스크립트.
 
 이미지 파일을 base64로 인코딩하고 배포된 SageMaker 엔드포인트에
 추론 요청을 전송합니다.
 
-사용법:
+사용법 (SO-101 + leisaac-pick-orange):
     python scripts/invoke_endpoint.py \\
         --endpoint-name groot-n16-endpoint \\
         --image-path /path/to/image.png \\
-        --proprioception 0.1,0.2,0.3,0.4,0.5,0.6,0.7 \\
-        --instruction "pick up the red block"
+        --proprioception "single_arm:0.1,0.2,0.3,0.4,0.5;gripper:0.0" \\
+        --instruction "pick up the orange"
+
+실제 차원은 학습한 데이터셋의 meta/modality.json과 statistics.json에 따라
+자동 감지됩니다. 잘못된 차원으로 호출하면 모델이 기대하는 형식이 에러 메시지에
+출력됩니다.
 """
 
 import argparse
@@ -158,13 +162,14 @@ def main() -> None:
         "--proprioception", required=True,
         help=(
             "로봇 관절 상태 벡터. 두 가지 형식 지원:\n"
-            "  Flat: 0.1,0.2,...,0.14 (단일 state 키 모델용)\n"
-            "  Keyed: dual_arm:v1,...,v12;gripper:v1,v2 (다중 state 키 모델용)"
+            "  Keyed (권장): single_arm:0.1,...,0.5;gripper:0.0\n"
+            "  Flat:        0.1,0.2,0.3,0.4,0.5,0.0\n"
+            "값 개수와 키는 학습한 데이터셋의 meta/modality.json에 맞춰야 합니다."
         ),
     )
     parser.add_argument(
         "--instruction", required=True,
-        help="자연어 작업 지시 (예: 'pick up the red block')",
+        help="자연어 작업 지시 (예: 'pick up the orange')",
     )
     parser.add_argument(
         "--region",
