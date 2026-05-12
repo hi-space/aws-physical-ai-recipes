@@ -62,10 +62,13 @@ def load_model() -> None:
         logger.warning(
             f"inference_metadata.json 없음: {metadata_path}. 기본값 사용."
         )
+        # 폴백 디폴트: NEW_EMBODIMENT + SO-101 (single_arm + gripper) 형태 가정.
+        # 실제 모델은 train.py가 SM_MODEL_DIR에 inference_metadata.json을 저장하므로
+        # 이 폴백은 거의 사용되지 않는다.
         _metadata = {
             "embodiment_tag": os.environ.get("GROOT_EMBODIMENT_TAG", "new_embodiment"),
-            "video_key": "video.webcam",
-            "state_key": "state.single_arm",
+            "video_keys": ["front", "wrist"],
+            "state_keys": ["single_arm", "gripper"],
             "action_dim": 7,
         }
 
