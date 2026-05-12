@@ -173,12 +173,7 @@ def maybe_download_hf_dataset(env: dict) -> None:
         return  # 채널도 HF id도 없음 → 호출자 검증에 맡김
 
     print(f"SM_CHANNEL_DATASET 비어있음 → HF에서 다운로드: {hf_id}")
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        # 컨테이너에 huggingface_hub가 없으면 설치
-        subprocess.run([sys.executable, "-m", "pip", "install", "huggingface_hub"], check=True)
-        from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download
 
     os.makedirs(dataset_dir, exist_ok=True)
     kwargs = {
@@ -189,7 +184,6 @@ def maybe_download_hf_dataset(env: dict) -> None:
     if os.environ.get("HF_TOKEN"):
         kwargs["token"] = os.environ["HF_TOKEN"]
     snapshot_download(**kwargs)
-    env["dataset_dir"] = dataset_dir
     print(f"HF 데이터셋 다운로드 완료: {dataset_dir}")
 
 
