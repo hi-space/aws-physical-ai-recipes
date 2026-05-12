@@ -147,11 +147,12 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
     print(f"  GR00T 버전:      {args.groot_version or '(빌드 디폴트)'}")
     print(f"  학습 이미지:     {training_image_uri}")
 
-    inputs = {}
     if args.dataset_s3_uri:
-        inputs["dataset"] = TrainingInput(s3_data=args.dataset_s3_uri)
+        inputs = {"dataset": TrainingInput(s3_data=args.dataset_s3_uri)}
         print(f"  데이터셋:        {args.dataset_s3_uri} (S3 채널)")
     else:
+        # SageMaker는 빈 InputDataConfig를 거부하므로 None으로 fit 호출
+        inputs = None
         print(f"  데이터셋:        HF/{args.hf_dataset_id} (컨테이너 내 다운로드)")
 
     try:

@@ -156,14 +156,16 @@ def build_pipeline(config: dict, args: argparse.Namespace):
 
     estimator = Estimator(**estimator_kwargs)
 
-    inputs = {}
+    # SageMaker는 빈 InputDataConfig를 거부하므로 dataset_s3_uri 없을 땐 None
     if args.dataset_s3_uri:
-        inputs["dataset"] = TrainingInput(s3_data=p_dataset_s3_uri)
+        training_inputs = {"dataset": TrainingInput(s3_data=p_dataset_s3_uri)}
+    else:
+        training_inputs = None
 
     training_step = TrainingStep(
         name="GR00TFinetune",
         estimator=estimator,
-        inputs=inputs,
+        inputs=training_inputs,
     )
 
     # -----------------------------------------------------------------------
