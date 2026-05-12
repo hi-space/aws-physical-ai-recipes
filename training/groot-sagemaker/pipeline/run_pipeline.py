@@ -259,7 +259,7 @@ def main() -> None:
                         help="학습 인스턴스 타입 (기본 ml.g5.2xlarge)")
     parser.add_argument("--max-steps", type=int, default=int(train_cfg.get("max_steps", 6000)),
                         help="최대 학습 스텝")
-    parser.add_argument("--global-batch-size", type=int, default=train_cfg.get("global_batch_size", 32),
+    parser.add_argument("--global-batch-size", type=int, default=int(train_cfg.get("global_batch_size", 32)),
                         help="글로벌 배치 크기")
     parser.add_argument("--num-gpus", type=int, default=int(train_cfg.get("num_gpus", 1)),
                         help="GPU 수 (기본 1)")
