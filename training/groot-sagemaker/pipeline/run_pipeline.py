@@ -91,21 +91,17 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         name="EmbodimentTag",
         default_value=args.embodiment_tag,
     )
-    p_base_model_s3_uri = ParameterString(
-        name="BaseModelS3Uri",
-        default_value=args.base_model_s3_uri,
-    )
     p_dataset_s3_uri = ParameterString(
         name="DatasetS3Uri",
         default_value=args.dataset_s3_uri,
     )
     p_instance_type = ParameterString(
         name="InstanceType",
-        default_value=args.instance_type or train_cfg.get("instance_type", "ml.p4d.24xlarge"),
+        default_value=args.instance_type or train_cfg.get("instance_type", "ml.g5.2xlarge"),
     )
     p_max_steps = ParameterInteger(
         name="MaxSteps",
-        default_value=args.max_steps or train_cfg.get("max_steps", 10000),
+        default_value=args.max_steps or train_cfg.get("max_steps", 6000),
     )
     p_global_batch_size = ParameterInteger(
         name="GlobalBatchSize",
@@ -113,7 +109,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     )
     p_num_gpus = ParameterInteger(
         name="NumGpus",
-        default_value=args.num_gpus or train_cfg.get("num_gpus", 8),
+        default_value=args.num_gpus or train_cfg.get("num_gpus", 1),
     )
 
     # -----------------------------------------------------------------------
@@ -139,6 +135,9 @@ def build_pipeline(config: dict, args: argparse.Namespace):
             "global_batch_size": p_global_batch_size,
             "save_steps": str(train_cfg.get("save_steps", 2000)),
             "num_gpus": p_num_gpus,
+            **({"hf_dataset_id": args.hf_dataset_id} if args.hf_dataset_id else {}),
+            **({"hf_token": args.hf_token} if args.hf_token else {}),
+            **({"groot_version": args.groot_version} if args.groot_version else {}),
         },
         sagemaker_session=sagemaker_session,
         environment={
@@ -157,13 +156,14 @@ def build_pipeline(config: dict, args: argparse.Namespace):
 
     estimator = Estimator(**estimator_kwargs)
 
+    inputs = {}
+    if args.dataset_s3_uri:
+        inputs["dataset"] = TrainingInput(s3_data=p_dataset_s3_uri)
+
     training_step = TrainingStep(
         name="GR00TFinetune",
         estimator=estimator,
-        inputs={
-            "model": TrainingInput(s3_data=p_base_model_s3_uri),
-            "dataset": TrainingInput(s3_data=p_dataset_s3_uri),
-        },
+        inputs=inputs,
     )
 
     # -----------------------------------------------------------------------
@@ -200,7 +200,6 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         name="groot-n16-finetuning",
         parameters=[
             p_embodiment_tag,
-            p_base_model_s3_uri,
             p_dataset_s3_uri,
             p_instance_type,
             p_max_steps,
@@ -224,19 +223,18 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  # 파이프라인 실행 (기본값 사용)
+  # SO-101 leisaac-pick-orange 파이프라인 실행 (S3 채널):
   python pipeline/run_pipeline.py \\
-      --embodiment-tag my_robot \\
-      --dataset-s3-uri s3://my-bucket/datasets/my-robot
+      --dataset-s3-uri s3://my-bucket/datasets/leisaac-pick-orange
 
-  # Spot Instance 비활성화
+  # HF 직접 다운로드 + N1.7:
   python pipeline/run_pipeline.py \\
-      --embodiment-tag my_robot \\
-      --dataset-s3-uri s3://my-bucket/datasets/my-robot \\
-      --no-spot
+      --hf-dataset-id LightwheelAI/leisaac-pick-orange \\
+      --hf-token ssm:/groot/hf-token \\
+      --groot-version n1.7
 
-  # 파이프라인 정의만 업서트 (실행 안 함)
-  python pipeline/run_pipeline.py --embodiment-tag my_robot --upsert-only
+  # 파이프라인 정의만 업서트:
+  python pipeline/run_pipeline.py --upsert-only
         """,
     )
 
@@ -245,14 +243,11 @@ def main() -> None:
                         help="로봇 embodiment 식별자 (기본값: NEW_EMBODIMENT)")
     parser.add_argument("--dataset-s3-uri", default="",
                         help="데이터셋 S3 URI (s3://bucket/prefix)")
-    parser.add_argument("--base-model-s3-uri",
-                        default=f"s3://{aws_cfg.get('bucket_name', 'my-bucket')}/{config.get('model', {}).get('s3_prefix', 'models/groot-n16')}",
-                        help="베이스 모델 S3 URI")
 
     # 선택 인수 (config.yaml 기본값 사용)
     parser.add_argument("--bucket", default=aws_cfg.get("bucket_name", ""),
                         help="S3 버킷 이름")
-    parser.add_argument("--region", default=aws_cfg.get("region", "ap-northeast-2"),
+    parser.add_argument("--region", default=aws_cfg.get("region", "us-east-1"),
                         help="AWS 리전")
     parser.add_argument("--role-arn", default=aws_cfg.get("role_arn", ""),
                         help="SageMaker 실행 역할 ARN")
@@ -260,14 +255,20 @@ def main() -> None:
                         help="학습 컨테이너 ECR URI")
     parser.add_argument("--inference-image-uri", default=config.get("ecr", {}).get("inference_uri", ""),
                         help="추론 컨테이너 ECR URI (미지정 시 학습 URI 사용)")
-    parser.add_argument("--instance-type", default=train_cfg.get("instance_type", "ml.p4d.24xlarge"),
-                        help="학습 인스턴스 타입")
-    parser.add_argument("--max-steps", type=int, default=train_cfg.get("max_steps", 10000),
+    parser.add_argument("--instance-type", default=train_cfg.get("instance_type", "ml.g5.2xlarge"),
+                        help="학습 인스턴스 타입 (기본 ml.g5.2xlarge)")
+    parser.add_argument("--max-steps", type=int, default=int(train_cfg.get("max_steps", 6000)),
                         help="최대 학습 스텝")
     parser.add_argument("--global-batch-size", type=int, default=train_cfg.get("global_batch_size", 32),
                         help="글로벌 배치 크기")
-    parser.add_argument("--num-gpus", type=int, default=train_cfg.get("num_gpus", 8),
-                        help="GPU 수")
+    parser.add_argument("--num-gpus", type=int, default=int(train_cfg.get("num_gpus", 1)),
+                        help="GPU 수 (기본 1)")
+    parser.add_argument("--hf-dataset-id", default="",
+                        help="HF 데이터셋 ID (지정 시 컨테이너에서 직접 다운로드, --dataset-s3-uri 대신 사용)")
+    parser.add_argument("--hf-token", default="",
+                        help="HF 토큰 또는 'ssm:/groot/hf-token'")
+    parser.add_argument("--groot-version", choices=["n1.6", "n1.7"], default=None,
+                        help="ECR 이미지 태그 (:n1.6 / :n1.7)")
     parser.add_argument("--use-spot", dest="use_spot", action="store_true", default=None,
                         help="Spot Instance 사용 (기본값: config.yaml의 training.use_spot)")
     parser.add_argument("--no-spot", dest="use_spot", action="store_false",
@@ -279,8 +280,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if not args.dataset_s3_uri and not args.upsert_only:
-        print("오류: --dataset-s3-uri가 필요합니다.")
+    if not args.dataset_s3_uri and not args.hf_dataset_id and not args.upsert_only:
+        print("오류: --dataset-s3-uri 또는 --hf-dataset-id 중 하나가 필요합니다.")
         sys.exit(1)
 
     print("파이프라인 빌드 중...")
@@ -297,7 +298,6 @@ def main() -> None:
             parameters={
                 "EmbodimentTag": args.embodiment_tag,
                 "DatasetS3Uri": args.dataset_s3_uri,
-                "BaseModelS3Uri": args.base_model_s3_uri,
             }
         )
         print(f"\n파이프라인 실행 시작!")
