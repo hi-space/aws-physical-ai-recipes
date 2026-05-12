@@ -25,8 +25,8 @@ phases:
       - USE_STABLE=${USE_STABLE:-true}
       - BASE_MODEL_PATH=${BASE_MODEL_PATH:-nvidia/GR00T-N1.6-3B}
       - IMAGE_TAG=${IMAGE_TAG:-latest}
-      - echo "GR00T_VERSION=${GROOT_VERSION}, USE_STABLE=${USE_STABLE}, BASE_MODEL_PATH=${BASE_MODEL_PATH}"
-      - echo "빌드 시작 - ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} (+ :${GROOT_VERSION}, :${IMAGE_TAG_VERSIONED})"
+      - 'echo "GR00T_VERSION=${GROOT_VERSION}, USE_STABLE=${USE_STABLE}, BASE_MODEL_PATH=${BASE_MODEL_PATH}"'
+      - 'echo "빌드 시작 - ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} (+ :${GROOT_VERSION}, :${IMAGE_TAG_VERSIONED})"'
 
   build:
     commands:
@@ -43,7 +43,7 @@ phases:
       - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
       - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
       - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${GROOT_VERSION}
-      - echo "빌드 완료. 푸시된 태그: ${IMAGE_TAG}, ${GROOT_VERSION}, ${IMAGE_TAG_VERSIONED}"
+      - 'echo "빌드 완료. 푸시된 태그=${IMAGE_TAG}, ${GROOT_VERSION}, ${IMAGE_TAG_VERSIONED}"'
       - printf '{"TrainingImageUri":"%s/%s:%s","GrootVersion":"%s"}' "$ECR_REGISTRY" "$IMAGE_REPO" "$IMAGE_TAG" "$GROOT_VERSION" > image_uri.json
 
 artifacts:
