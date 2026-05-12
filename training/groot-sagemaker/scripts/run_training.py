@@ -121,9 +121,14 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         # SSM 참조도 그대로 통과
         hyperparameters["hf_token"] = args.hf_token
 
+    # Script Mode: train.py를 컨테이너에 런타임에 주입 (Docker 재빌드 없이 수정 반영)
+    train_source_dir = str(Path(__file__).resolve().parents[1] / "container" / "training")
+
     estimator_kwargs = dict(
         image_uri=training_image_uri,
         role=role_arn,
+        entry_point="train.py",
+        source_dir=train_source_dir,
         instance_type=args.instance_type,
         instance_count=1,
         output_path=f"s3://{bucket}/output",
