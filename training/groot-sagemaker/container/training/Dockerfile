@@ -8,6 +8,16 @@
 
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
+# ---------------------------------------------------------------------------
+# 빌드 시점 선택: GR00T 버전과 stable commit 핀
+# ---------------------------------------------------------------------------
+ARG GROOT_VERSION=n1.6
+ARG USE_STABLE=true
+# n1.6: https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6.1-release
+# n1.7: https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.7-release
+ARG STABLE_COMMIT=5dc80c4afd726b34faad1d8f7e007a13b34e4c88
+ARG BASE_MODEL_PATH=nvidia/GR00T-N1.6-3B
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH="/opt/gr00t:/opt/ml/code" \
@@ -77,7 +87,16 @@ RUN pip install --no-cache-dir psutil && \
 # Isaac-GR00T 클론 및 학습 의존성 설치
 # ---------------------------------------------------------------------------
 WORKDIR /opt/gr00t
-RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
+RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git . && \
+    if [ "${USE_STABLE}" = "true" ]; then \
+        echo "Using stable commit: ${STABLE_COMMIT}" && \
+        git checkout ${STABLE_COMMIT} && \
+        git submodule update --init --recursive; \
+    else \
+        echo "Using latest from main branch"; \
+    fi && \
+    echo "GR00T version info:" && \
+    git log -1 --format="%H %ai %s"
 
 RUN uv pip install --system -e ".[train]"
 
@@ -99,3 +118,7 @@ RUN pip install --no-cache-dir sagemaker-training
 RUN mkdir -p /opt/ml/model /opt/ml/input/data /opt/ml/output /opt/ml/code
 
 WORKDIR /opt/ml/code
+
+# Default base model path (overridable by SM_HP_BASE_MODEL_PATH at runtime)
+ENV BASE_MODEL_PATH=${BASE_MODEL_PATH}
+ENV GROOT_VERSION=${GROOT_VERSION}
