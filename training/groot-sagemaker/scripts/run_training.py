@@ -171,13 +171,16 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         raise
 
     job_name = estimator.latest_training_job.name
-    model_artifacts = estimator.model_data
 
-    print(f"\n학습 완료!")
+    print(f"\n작업 시작/완료!")
     print(f"  작업 이름:       {job_name}")
-    print(f"  모델 아티팩트:   {model_artifacts}")
-    print(f"\n다음 단계:")
-    print(f"  python scripts/deploy_endpoint.py --model-s3-uri {model_artifacts}")
+    if not args.no_wait:
+        model_artifacts = estimator.model_data
+        print(f"  모델 아티팩트:   {model_artifacts}")
+        print(f"\n다음 단계:")
+        print(f"  python scripts/deploy_endpoint.py --model-s3-uri {model_artifacts}")
+    else:
+        print(f"  학습 중... 완료 후 model.tar.gz는 s3://<bucket>/output/{job_name}/output/ 에 생성됩니다.")
 
     return job_name
 
