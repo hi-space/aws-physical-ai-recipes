@@ -105,6 +105,10 @@ def load_model() -> None:
                 logger.info(f"병합된 모델 경로: {effective_model_dir}")
                 break
 
+    # Import gr00t.model.* modules to register model_type (e.g., 'Gr00tN1d6')
+    # with HuggingFace transformers AutoModel mapping. Without this, AutoModel
+    # raises "model type Gr00tN1d6 not recognized".
+    import gr00t.model.gr00t_n1d6  # noqa: F401  (registers Gr00tN1d6 with AutoConfig)
     from gr00t.policy.gr00t_policy import Gr00tPolicy
     from gr00t.data.embodiment_tags import EmbodimentTag
 
