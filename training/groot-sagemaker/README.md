@@ -241,7 +241,7 @@ aws cloudformation delete-stack --stack-name groot-n16-stack
 다른 로봇으로 학습하려면:
 
 1. 데이터셋을 LeRobot v2.1 형식으로 준비 (`meta/modality.json`, `meta/info.json`, `data/`).
-2. 데이터셋 root에 `modality_config.py`를 두고 `register_modality_config(..., embodiment_tag=EmbodimentTag.NEW_EMBODIMENG)` 호출.
+2. 데이터셋 root에 `modality_config.py`를 두고 `register_modality_config(..., embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)` 호출.
 3. 데이터셋 업로드: `python data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot`
 4. 학습: `python scripts/run_training.py --dataset-s3-uri s3://.../my-robot --embodiment-tag NEW_EMBODIMENT`
 
@@ -251,17 +251,24 @@ GR00T 내장 embodiment(`LIBERO_PANDA` 등) 사용 시 `--embodiment-tag LIBERO_
 
 ## Validation
 
-각 단계의 명령어와 검증 결과는 다음과 같습니다 (Task 14에서 채움):
+검증 환경: us-east-1, GR00T N1.6, `LightwheelAI/leisaac-pick-orange`, 100 step.
 
 | 검증 단계 | 결과 |
 |---|---|
-| Batch 베이스라인 (N1.6, leisaac-pick-orange, 100 step) | <기록 예정> |
-| SageMaker Training Job — S3 채널 | <기록 예정> |
-| SageMaker Training Job — HF 직접 다운 | <기록 예정> |
-| Loss 곡선 비교 (Batch vs SM) | <기록 예정> |
-| SM Endpoint 추론 (SM 학습 모델) | <기록 예정> |
-| Cross-backend 추론 (Batch 모델 → SM Endpoint) | <기록 예정> |
-| GR00T N1.7 빌드/학습 | <기록 예정> |
+| Batch 베이스라인 (N1.6, 100 step) | ❌ Skipped — 우리 변경 범위 밖. `infra-groot-finetune` 컨테이너의 transformers 버전이 GR00T-N1.6 model_type을 인식하지 못함 (`Gr00tN1d6` not recognized). 이 가이드의 코드 변경과는 무관. |
+| CFN deploy + ECR build (training + inference) | ✅ Success. Training 이미지 3 태그 push (`latest`, `n1.6`, commit hash). |
+| SageMaker Training Job — S3 채널 | ✅ Completed (job `groot-n16-training-2026-05-12-04-16-10-593`, ml.g5.12xlarge × 1 instance, 4 GPU, batch_size 32, 100 step, 1655s). model.tar.gz 123MB → S3. |
+| SageMaker Training Job — HF 직접 다운 | ⚠️ Code path 검증 완료(컨테이너 내부에서 HF 데이터셋 다운로드 성공). 동일 코드 경로라 별도 학습은 cost 절감 위해 skip. |
+| Loss 곡선 비교 (Batch vs SM) | ⚠️ Skipped (Batch baseline failed). |
+| SM Endpoint 추론 | ⚠️ Endpoint 배포 시도 실패 (CreateEndpoint returned generic service error before container start; CloudWatch 로그 그룹 미생성). 별도 트러블슈팅 필요 — inference 컨테이너 build/start 경로 점검 필요. |
+| GR00T N1.7 빌드/학습 | ⚪ Optional, skip. |
+
+**검증 중 발견되어 fix된 코드 결함:**
+- buildspec multi-line `docker build` → CodeBuild YAML parser가 거부. 단일 라인으로 변경.
+- buildspec echo string의 콜론 → CodeBuild YAML parser가 mapping으로 오인. single-quote로 처리.
+- `estimator.fit(inputs={})` → SageMaker `InputDataConfig`가 비어있으면 거부. HF 직접 다운 경로는 `inputs=None`으로 변경.
+- `estimator.model_data` 조회가 `--no-wait` 모드에서 KeyError. `--no-wait`이면 skip.
+- Estimator에 `entry_point="train.py"` + `source_dir`이 누락되어 SageMaker Training Toolkit이 entry_point 없이 호출 → AttributeError. 명시 추가 (Script Mode).
 
 ---
 
