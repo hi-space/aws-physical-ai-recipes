@@ -1,0 +1,18 @@
+[project]
+name = "groot-sagemaker"
+version = "0.1.0"
+description = "GR00T-N1.6 fine-tuning and real-time inference on AWS SageMaker (local-side scripts)"
+requires-python = ">=3.10"
+# 로컬 스크립트(infra/, scripts/, pipeline/, data/) 실행에 필요한 패키지.
+# 학습/추론 컨테이너 내부 패키지는 container/*/Dockerfile에서 별도로 관리.
+dependencies = [
+    "boto3>=1.34.0",
+    "botocore>=1.34.0",
+    "sagemaker>=2.220.0,<3",
+    "pyyaml>=6.0",
+    "huggingface_hub>=0.23.0",
+    "tqdm>=4.66.0",
+]
+
+[tool.uv]
+package = false

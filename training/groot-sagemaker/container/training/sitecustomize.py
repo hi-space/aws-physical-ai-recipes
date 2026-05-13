@@ -1,0 +1,41 @@
+"""Python startup hook — GR00T가 TrainingArguments(report_to=...)에 mlflow를
+끼울 자리를 만들지 않으므로, transformers TrainingArguments.__post_init__에서
+report_to를 후처리하여 MLFLOW_TRACKING_URI가 설정된 경우 'mlflow'를 추가합니다.
+
+PYTHONPATH=/opt/ml/code 위에 위치하므로 train.py가 실행하는 모든 자식 Python
+프로세스(torchrun, launch_finetune.py, DDP rank들)가 자동으로 import합니다.
+"""
+
+import os
+
+
+def _enable_mlflow_in_transformers() -> None:
+    if not os.environ.get("MLFLOW_TRACKING_URI"):
+        return  # MLflow 미설정 — 아무것도 하지 않음
+    try:
+        from transformers import TrainingArguments
+    except Exception:
+        return  # transformers 미설치 (다른 컨텍스트) — skip
+
+    original_post_init = TrainingArguments.__post_init__
+
+    def patched_post_init(self):
+        original_post_init(self)
+        # report_to 정규화: 'none' / [] / None / 'wandb' 등을 받아서 mlflow를 추가
+        rt = getattr(self, "report_to", None)
+        if isinstance(rt, str):
+            rt = [] if rt.lower() in ("none", "all") and rt.lower() == "none" else [rt]
+        elif rt is None:
+            rt = []
+        # 중복 제거하면서 mlflow 추가
+        rt = [x for x in rt if x and x.lower() != "none"]
+        if "mlflow" not in [x.lower() for x in rt]:
+            rt.append("mlflow")
+        self.report_to = rt
+
+    TrainingArguments.__post_init__ = patched_post_init
+    # 한 번만 패치 — sitecustomize는 import당 1회 실행되지만 안전하게 표식
+    TrainingArguments._mlflow_report_patched = True
+
+
+_enable_mlflow_in_transformers()

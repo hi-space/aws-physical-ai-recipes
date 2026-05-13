@@ -16,7 +16,7 @@
 
 참고:
     - GR00T-N1.6-3B 모델은 약 6GB입니다. 업로드에 수 분이 소요될 수 있습니다.
-    - 다운로드에는 huggingface_hub 라이브러리가 필요합니다 (requirements-dev.txt).
+    - 다운로드에는 huggingface_hub 라이브러리가 필요합니다 (pyproject.toml `dependencies` 참고).
     - HuggingFace 계정이 없어도 공개 모델은 다운로드 가능합니다.
 """
 

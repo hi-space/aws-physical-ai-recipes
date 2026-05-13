@@ -38,12 +38,6 @@ from botocore.exceptions import ClientError
 PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
-# CodeBuild 프로젝트 이름
-PROJECT_NAMES = {
-    "training": "groot-n16-training-build",
-    "inference": "groot-n16-inference-build",
-}
-
 # CodeBuild 프로젝트별 buildspec 경로
 BUILDSPEC_PATHS = {
     "training": "container/training/buildspec.yml",
@@ -55,6 +49,21 @@ def load_config() -> dict:
     if CONFIG_PATH.exists():
         return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     return {}
+
+
+def resolve_project_names(config: dict) -> dict:
+    """config.yaml에서 CodeBuild 프로젝트 이름을 읽음. alias가 적용된 이름이 저장돼 있음.
+
+    deploy_stack.py가 alias 기반 이름을 config.yaml에 기록하므로,
+    여기서는 단순히 그 값을 사용한다. 누락 시 디폴트로 폴백.
+    """
+    cb = config.get("codebuild", {}) or {}
+    alias = (config.get("aws", {}) or {}).get("alias", "") or ""
+    suffix = f"-{alias}" if alias else ""
+    return {
+        "training": cb.get("training_project") or f"groot-n16-training-build{suffix}",
+        "inference": cb.get("inference_project") or f"groot-n16-inference-build{suffix}",
+    }
 
 
 def upload_source_to_s3(bucket: str, region: str) -> str:
@@ -102,6 +111,7 @@ def start_build(
     source_s3_bucket: str = "",
     source_s3_key: str = "",
     buildspec_path: str = "",
+    environment_overrides: list = None,
 ) -> str:
     """CodeBuild 빌드를 시작합니다.
 
@@ -111,6 +121,7 @@ def start_build(
         source_s3_bucket: S3 소스 버킷 (S3 소스 방식 사용 시).
         source_s3_key: S3 소스 키 (S3 소스 방식 사용 시).
         buildspec_path: buildspec 파일 경로 (S3 소스 내 상대 경로).
+        environment_overrides: [{"name": "...", "value": "...", "type": "PLAINTEXT"}] 형태.
 
     Returns:
         CodeBuild 빌드 ID.
@@ -125,6 +136,9 @@ def start_build(
         if buildspec_path:
             kwargs["buildspecOverride"] = buildspec_path
 
+    if environment_overrides:
+        kwargs["environmentVariablesOverride"] = environment_overrides
+
     try:
         response = cb.start_build(**kwargs)
     except ClientError as e:
@@ -135,6 +149,9 @@ def start_build(
 
     build_id = response["build"]["id"]
     print(f"빌드 시작: {project_name} (ID: {build_id})")
+    if environment_overrides:
+        for ev in environment_overrides:
+            print(f"  override: {ev['name']}={ev['value']}")
     return build_id
 
 
@@ -187,11 +204,13 @@ def update_config_with_ecr_uris(config: dict, region: str) -> None:
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
 
+    alias = (config.get("aws", {}) or {}).get("alias", "") or ""
+    suffix = f"-{alias}" if alias else ""
     config["ecr"]["training_uri"] = (
-        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-n16-training:latest"
+        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-n16-training{suffix}:latest"
     )
     config["ecr"]["inference_uri"] = (
-        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-n16-inference:latest"
+        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-n16-inference{suffix}:latest"
     )
 
     CONFIG_PATH.write_text(
@@ -223,7 +242,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--region",
-        default=aws_cfg.get("region", "ap-northeast-2"),
+        default=aws_cfg.get("region", "us-east-1"),
         help="AWS 리전",
     )
     parser.add_argument(
@@ -240,6 +259,12 @@ def main() -> None:
         "--no-update-config",
         action="store_true",
         help="빌드 완료 후 config.yaml ECR URI 업데이트 건너뜀",
+    )
+    parser.add_argument(
+        "--groot-version",
+        choices=["n1.6", "n1.7"],
+        default=None,
+        help="학습 컨테이너에 사용할 GR00T 버전. 미지정 시 CodeBuild 프로젝트 디폴트(n1.6) 사용.",
     )
 
     args = parser.parse_args()
@@ -260,10 +285,24 @@ def main() -> None:
     source_s3_bucket = args.bucket
 
     # 빌드 시작
+    project_names = resolve_project_names(config)
     build_ids = {}
     for build_type in build_types:
-        project_name = PROJECT_NAMES[build_type]
+        project_name = project_names[build_type]
         buildspec_path = BUILDSPEC_PATHS.get(build_type, "")
+
+        # GROOT_VERSION override는 학습 빌드에만 적용
+        env_overrides = None
+        if build_type == "training" and args.groot_version:
+            base_model = (
+                "nvidia/GR00T-N1.6-3B" if args.groot_version == "n1.6"
+                else "nvidia/GR00T-N1.7-3B"
+            )
+            env_overrides = [
+                {"name": "GROOT_VERSION", "value": args.groot_version, "type": "PLAINTEXT"},
+                {"name": "BASE_MODEL_PATH", "value": base_model, "type": "PLAINTEXT"},
+            ]
+
         try:
             build_id = start_build(
                 project_name,
@@ -271,6 +310,7 @@ def main() -> None:
                 source_s3_bucket,
                 source_s3_key,
                 buildspec_path,
+                environment_overrides=env_overrides,
             )
             build_ids[build_type] = build_id
         except ClientError as e:

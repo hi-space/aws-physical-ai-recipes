@@ -55,9 +55,25 @@ RUN pip install --no-cache-dir \
 
 # ---------------------------------------------------------------------------
 # Isaac-GR00T 클론 및 설치 (먼저 설치하여 의존성 확보)
+#
+# 학습 컨테이너와 같은 stable commit으로 pin하지 않으면
+# gr00t.model.gr00t_n1d6 등 N1.6 모듈이 main branch에서 사라지거나
+# 이름이 바뀌어 ModuleNotFoundError 가 발생합니다.
 # ---------------------------------------------------------------------------
+ARG GROOT_VERSION=n1.6
+ARG USE_STABLE=true
+ARG STABLE_COMMIT=5dc80c4afd726b34faad1d8f7e007a13b34e4c88
+
 WORKDIR /opt/gr00t
-RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git .
+RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git . && \
+    if [ "${USE_STABLE}" = "true" ]; then \
+        echo "Using stable commit: ${STABLE_COMMIT}" && \
+        git checkout ${STABLE_COMMIT} && \
+        git submodule update --init --recursive; \
+    else \
+        echo "Using latest from main branch"; \
+    fi && \
+    git log -1 --format="%H %ai %s"
 
 RUN uv pip install --system -e .
 

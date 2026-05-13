@@ -8,10 +8,10 @@ version: 0.2
 # 환경변수 (CloudFormation에서 자동 설정):
 #   ECR_REGISTRY:       예) 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
 #   AWS_DEFAULT_REGION: 예) ap-northeast-2
+#   IMAGE_REPO:         예) groot-n16-inference-<alias>
 
 env:
   variables:
-    IMAGE_REPO: groot-n16-inference
     IMAGE_TAG: latest
 
 phases:
@@ -21,6 +21,7 @@ phases:
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-8)
       - IMAGE_TAG_VERSIONED=${COMMIT_HASH:-latest}
+      - IMAGE_REPO=${IMAGE_REPO:-groot-n16-inference}
       - echo "빌드 시작 - 이미지:${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}"
 
   build:

@@ -44,11 +44,13 @@ usage() {
   --type        빌드 타입: training, inference, all (필수)
   --region      AWS 리전 (기본값: aws configure에서 자동 감지)
   --account-id  AWS 계정 ID (기본값: 자동 감지)
+  --alias       리소스 이름 postfix (config.yaml의 aws.alias와 동일)
   -h, --help    도움말 출력
 
 예시:
   $(basename "$0") --type training
-  $(basename "$0") --type all --region ap-northeast-2
+  $(basename "$0") --type all --region us-east-1
+  $(basename "$0") --type training --alias alice
 EOF
     exit 0
 }
@@ -59,12 +61,14 @@ EOF
 TYPE=""
 REGION=""
 ACCOUNT_ID=""
+ALIAS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --type)         TYPE="$2";       shift 2 ;;
         --region)       REGION="$2";     shift 2 ;;
         --account-id)   ACCOUNT_ID="$2"; shift 2 ;;
+        --alias)        ALIAS="$2";      shift 2 ;;
         -h|--help)      usage ;;
         *) error "알 수 없는 옵션: $1. --help 참고" ;;
     esac
@@ -108,7 +112,9 @@ success "ECR 인증 완료."
 # ---------------------------------------------------------------------------
 build_and_push() {
     local build_type="$1"
-    local repo_name="groot-n16-${build_type}"
+    local suffix=""
+    [[ -n "$ALIAS" ]] && suffix="-${ALIAS}"
+    local repo_name="groot-n16-${build_type}${suffix}"
     local dockerfile="container/${build_type}/Dockerfile"
     local full_uri="${ECR_REGISTRY}/${repo_name}:latest"
 
@@ -155,6 +161,12 @@ if [[ ! -f "${PROJECT_DIR}/config.yaml" ]]; then
 fi
 
 cd "$PROJECT_DIR"
+
+# --alias 미지정 시 config.yaml 의 aws.alias 자동 사용
+if [[ -z "$ALIAS" && -f "config.yaml" ]]; then
+    ALIAS="$(awk -F': ' '/^aws:/{flag=1; next} /^[a-zA-Z]/{flag=0} flag && /alias:/{gsub(/['\''\" ]/, "", $2); print $2; exit}' config.yaml || true)"
+fi
+[[ -n "$ALIAS" ]] && info "Alias: ${ALIAS}"
 
 case "$TYPE" in
     training)

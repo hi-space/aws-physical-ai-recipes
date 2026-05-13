@@ -23,10 +23,21 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 
 CHUNKS_SIZE_DEFAULT = 1000
+
+
+def _require_pyarrow():
+    """pyarrow는 v3 → v2 변환에만 필요한 옵셔널 의존성이므로 호출 시점에만 import."""
+    try:
+        import pyarrow.parquet as pq
+        return pq
+    except ImportError as e:
+        raise ImportError(
+            "v3 → v2 변환에는 pyarrow가 필요합니다.\n"
+            "  uv pip install 'pyarrow>=15.0.0' 또는 pip install 'pyarrow>=15.0.0' 로 설치하세요.\n"
+            f"원인: {e}"
+        ) from e
 
 
 def ensure_tasks_jsonl(dataset_path: str) -> bool:
@@ -114,6 +125,8 @@ def convert_v3_to_v2(dataset_path: str) -> None:
 
 def _load_episodes_parquet(root: Path) -> list[dict]:
     """meta/episodes/ 디렉토리의 parquet 파일들을 읽어 에피소드 메타데이터를 반환합니다."""
+    pq = _require_pyarrow()
+
     episodes_dir = root / "meta" / "episodes"
     pq_files = sorted(episodes_dir.glob("chunk-*/file-*.parquet"))
     if not pq_files:
@@ -131,6 +144,8 @@ def _load_episodes_parquet(root: Path) -> list[dict]:
 
 def _convert_data(root: Path, episodes: list[dict], chunks_size: int) -> None:
     """통합 parquet 파일을 에피소드별 parquet으로 분리합니다."""
+    pq = _require_pyarrow()
+
     print("  data/ 변환 중...")
 
     # 파일별 에피소드 그룹핑
@@ -314,6 +329,8 @@ def _convert_tasks_to_jsonl(root: Path) -> None:
     tasks_pq = root / "meta" / "tasks.parquet"
 
     if tasks_pq.exists():
+        pq = _require_pyarrow()
+
         print("  tasks.parquet → tasks.jsonl 변환 중...")
         table = pq.read_table(tasks_pq)
         df = table.to_pandas()
