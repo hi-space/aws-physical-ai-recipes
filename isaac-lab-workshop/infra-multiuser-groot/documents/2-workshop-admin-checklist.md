@@ -120,7 +120,7 @@ AWS CloudShell에는 Node.js, AWS CLI, IAM 자격 증명이 사전 설정되어 
 ```bash
 # 1. 리포지토리 클론 및 의존성 설치
 git clone <리포지토리 URL>
-cd isaac-lab-infra-templates-multiuser
+cd infra-multiuser-groot
 npm install
 
 # 2. 배포 (nohup으로 세션 끊김 방지)
@@ -130,7 +130,7 @@ nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval n
 tail -f deploy.log
 ```
 
-> **주의: CloudShell은 20분 비활성 시 세션이 종료된다.** `cdk deploy`는 UserData 완료까지 최대 60분 대기하므로, 반드시 `nohup &`으로 백그라운드 실행해야 한다. 세션이 끊겨도 배포는 계속 진행되며, 재접속 후 `tail -f deploy.log`로 확인하거나 CloudFormation 콘솔에서 스택 상태를 확인할 수 있다.
+> **주의: CloudShell은 20분 비활성 시 세션이 종료된다.** `cdk deploy`는 UserData 완료까지 최대 90분 대기하므로, 반드시 `nohup &`으로 백그라운드 실행해야 한다. 세션이 끊겨도 배포는 계속 진행되며, 재접속 후 `tail -f deploy.log`로 확인하거나 CloudFormation 콘솔에서 스택 상태를 확인할 수 있다.
 
 CloudShell 배포 완료 후 결과 확인:
 

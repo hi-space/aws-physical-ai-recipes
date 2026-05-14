@@ -320,7 +320,7 @@ ls /home/ubuntu/environment/groot_docker
 
 문제가 있으면 UserData 로그 확인:
 ```bash
-sudo tail -100 /var/log/cloud-init-output.log
+sudo tail -100 /var/log/user-data.log
 ```
 
 ### Step 6. code-server (VSCode) 접속
@@ -335,18 +335,26 @@ sudo tail -100 /var/log/cloud-init-output.log
 DCV 또는 code-server 터미널에서:
 
 ```bash
-# Docker 컨테이너 접속
-docker exec -it $(docker ps -q) bash
+# Docker 컨테이너 실행
+cd ~/environment/IsaacLab && xhost +
+docker run --shm-size=60g --name isaac-lab \
+  --entrypoint bash -it --gpus all --rm --network=host \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
+  isaaclab-batch:latest
+```
 
-# 학습 실행 (headless, 빠른 학습)
-cd /workspace/IsaacLab
-python source/standalone/workflows/skrl/train.py \
+```bash
+# 컨테이너 내부에서 headless 학습 (렌더링 없이 빠름, 워크숍 권장)
+cd /workspace/IsaacLab && \
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
   --task Isaac-Velocity-Rough-H1-v0 \
   --num_envs 2048 \
   --headless
+```
 
-# TensorBoard 모니터링 (새 터미널에서)
-docker exec -it $(docker ps -q) bash
+TensorBoard 모니터링 (새 터미널에서):
+```bash
+docker exec -it isaac-lab bash
 tensorboard --logdir /workspace/IsaacLab/logs --host 0.0.0.0 --port 6006
 # DCV 브라우저에서 http://localhost:6006 접속
 ```
@@ -394,7 +402,7 @@ sudo ~/aws-physical-ai-recipes/isaac-lab-workshop/infra-multiuser-groot/scripts/
 | CloudShell 세션 끊김 | 배포는 계속 진행됨. 재접속 후 `source` 실행 → `tail -f deploy.log` 또는 CloudFormation 콘솔 확인 |
 | 배포 실패 | `cat deploy.log \| grep -i "error\|fail"` 로 원인 확인 → `cdk destroy` 후 재배포 |
 | DCV 접속 불가 | CloudFormation 스택 상태가 `CREATE_COMPLETE`인지 확인. 브라우저 인증서 경고 허용 필요 |
-| Docker 컨테이너 없음 | UserData 실행 중일 수 있음. `sudo tail -f /var/log/cloud-init-output.log`로 진행 상황 확인 |
+| Docker 컨테이너 없음 | UserData 실행 중일 수 있음. `sudo tail -f /var/log/user-data.log`로 진행 상황 확인 |
 
 ### 배포 파라미터 요약
 

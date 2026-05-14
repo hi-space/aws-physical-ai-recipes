@@ -124,6 +124,64 @@ export class DcvInstanceConstruct extends Construct {
             ],
           },
         },
+        {
+          policyName: 'SageMakerCodeBuildCfnPolicy',
+          policyDocument: {
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: [
+                  'sagemaker:CreateTrainingJob',
+                  'sagemaker:DescribeTrainingJob',
+                  'sagemaker:CreateModel',
+                  'sagemaker:CreateEndpoint',
+                  'sagemaker:CreateEndpointConfig',
+                  'sagemaker:InvokeEndpoint',
+                ],
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: [
+                  'ecr:DescribeRepositories',
+                  'codebuild:StartBuild',
+                  'codebuild:BatchGetBuilds',
+                ],
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 's3:GetObject',
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 's3:PutObject',
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 'cloudformation:*',
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 'iam:PassRole',
+                Resource: '*',
+                Condition: {
+                  StringEquals: {
+                    'iam:PassedToService': [
+                      'sagemaker.amazonaws.com',
+                      'codebuild.amazonaws.com',
+                      'cloudformation.amazonaws.com',
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
       ],
       tags: [{ key: 'Name', value: `${p}-Role` }],
     });

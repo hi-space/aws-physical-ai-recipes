@@ -12,7 +12,7 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | 버전 관리 | 고정 | Version Profile 기반 (stable / latest) |
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
 | 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge 자동 fallback |
-| UserData | 모놀리식 | 6개 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션) |
+| UserData | 모놀리식 | 7개 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, groot.sh, code-server.sh는 옵션) |
 | Batch 지원 | 미포함 | Launch Template + IAM 자동화 |
 | 보안 | 미흡 | allowedCidr, EFS SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
@@ -201,6 +201,9 @@ cdk destroy -c userId=alice
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
 | `region` | 리전 코드 | CDK 기본 리전 | 배포 대상 리전 (멀티리전 배포용) |
 | `userId` | 영문소문자·숫자·하이픈 | (없음) | 멀티 사용자 배포 시 사용자 식별자 |
+| `vpcCidr` | CIDR 문자열 | `10.0.0.0/16` | VPC 네트워크 대역. 멀티 사용자 시 참가자별 고유 CIDR 지정 |
+| `grootRepoUrl` | `string` | `https://github.com/NVIDIA/Isaac-GR00T.git` | GR00T 리포지토리 URL. 빈 문자열(`""`)이면 GR00T 미설치 |
+| `grootBranch` | `string` | `n1.6-release` | GR00T 리포지토리 브랜치 |
 | `enableCloudWatch` | `true` \| `false` | `false` | CloudWatch Agent 설치 여부 (GPU/CPU/메모리/디스크 모니터링) |
 | `enableCodeServer` | `true` \| `false` | `true` | code-server (VSCode) 설치 여부. `false` 시 code-server, CloudFront, SG 포트 8888 모두 생략 |
 | `isaacSimVersion` | `string` | (프로필 기본값) | Isaac Sim 버전 오버라이드. 지정 시 프로필 기본값 대신 사용 (예: `5.1.0`) |
@@ -308,6 +311,56 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs' --output table
 ```
 
+### DCV 접속
+
+1. 브라우저에서 `DcvUrl` 열기 (예: `https://<PublicIP>:8443`)
+2. 인증서 경고 → "고급" → "계속 진행"
+3. 로그인: username `ubuntu`, password는 Secrets Manager에서 확인
+
+```bash
+# 비밀번호 조회 (deploy.log에서 SecretArn 추출)
+aws secretsmanager get-secret-value \
+  --secret-id $(cat deploy.log | grep SecretArn | awk -F= '{print $2}' | tr -d ' ') \
+  --region us-east-1 \
+  --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
+```
+
+또는 AWS 콘솔 → Secrets Manager → `InstanceCredentials-*` → "Retrieve secret value"에서 확인.
+
+### code-server (VSCode) 접속
+
+`enableCodeServer=true` (기본값)로 배포한 경우, CloudFront를 통해 브라우저 VSCode에 접속할 수 있다.
+
+- 브라우저에서 `CodeServerUrl` 열기 (CloudFront HTTPS URL)
+- Password: DCV와 동일 (같은 Secrets Manager 시크릿)
+
+### 환경 설치 확인
+
+DCV 접속 후 터미널에서 아래 명령으로 정상 설치 여부를 확인한다:
+
+```bash
+# GPU 드라이버 확인 (L40S 또는 L4 출력)
+nvidia-smi
+
+# Isaac Lab Docker 이미지 확인
+docker images | grep isaaclab
+
+# EFS 마운트 확인
+df -h | grep efs
+
+# code-server 상태 확인
+systemctl status code-server
+
+# GR00T 설치 확인 (grootRepoUrl 지정 시)
+ls /home/ubuntu/environment/groot_docker
+```
+
+문제가 있으면 UserData 로그를 확인한다:
+
+```bash
+sudo tail -100 /var/log/user-data.log
+```
+
 ### 스택 삭제
 
 ```bash
@@ -368,60 +421,6 @@ Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적�
 - `systemd-networkd-wait-online` 비활성화: GNOME 데스크톱의 NetworkManager와 충돌 방지
 - Isaac Sim 5.1.0 EULA: Dockerfile에 `ENV ACCEPT_EULA=Y` + `USER root` 자동 추가 (4.x에서는 불필요했으나 5.x부터 필수)
 
-### legacy (제거됨)
-
-Ubuntu 20.04(2025-04 EOL)와 ROS2 Foxy(2023-06 EOL)를 사용하며 Isaac Sim/Lab이 미포함되어 워크숍 실행이 불가능하므로 제거되었다. 원본 reference 템플릿은 `reference/IsaacLabEnvSetup.yml`에 보존되어 있다.
-
-### 향후 계획: Isaac Sim 6.0 + Isaac Lab 3.0
-
-Isaac Sim 6.0.0 Early Developer Release(2026-01)가 공개되었으나, 현 시점에서 프로필로 추가하지 않는다:
-
-- NGC Docker 이미지(`nvcr.io/nvidia/isaac-sim:6.0.0`)가 아직 제공되지 않아 워크숍 Docker 빌드 불가
-- Isaac Lab 2.3.2와의 호환성이 검증되지 않음 (Isaac Lab 3.0 develop 브랜치에서 지원 예정)
-- Early Developer Preview로 API가 GA 전에 변경될 수 있음
-
-Isaac Sim 6.0 GA + NGC Docker 이미지 제공 + Isaac Lab 3.0 릴리즈 시점에 `preview` 프로필을 추가할 예정이다.
-
-> Isaac Sim 6.0.0은 Early Developer Release(2026-01)로, 시스템 요구사항 미확정이며 RT Core 없는 GPU(A100/H100)를 미지원하여 프로필에 포함하지 않았다.
-
-## Isaac Sim ↔ Isaac Lab 버전 호환성
-
-| Isaac Lab | Isaac Sim | 비고 |
-|-----------|-----------|------|
-| 2.0.x | 4.5 전용 | |
-| 2.1.x | 4.5 전용 | |
-| 2.2.x | 5.0 (4.5 하위 호환) | |
-| 2.3.x | 5.1 | 2.3.0 릴리즈 노트에 "built on Isaac Sim 5.1" 명시 |
-| 2.3.2 | 4.5.0 | 워크숍에서 sed로 Dockerfile 패치하여 동작 확인 |
-
-> 워크숍 원본 Dockerfile은 Isaac Sim 5.0.0을 사용하지만, Isaac Lab이 `isaacsim.asset.importer.urdf 2.4.31`을 요구하여 호환성 에러 발생 → Isaac Sim 4.5.0으로 패치 필요.
-
-### Isaac Sim 5.0.0 + Isaac Lab 2.3.2 URDF 호환성 문제
-
-Isaac Lab 2.3.2는 `isaacsim.asset.importer.urdf` 확장의 버전 `2.4.31`을 요구한다. 그러나 Isaac Sim 5.0.0에는 `2.4.19` 버전만 포함되어 있어 다음과 같은 에러가 발생한다:
-
-```
-[Error] [omni.ext.plugin] Failed to resolve extension dependencies. Failure hints:
-  [isaaclab.python-2.3.2] dependency: 'isaacsim.asset.importer.urdf' = { version='=2.4.31' }
-  can't be satisfied. Available versions:
-   - [isaacsim.asset.importer.urdf-2.4.19+107.3.1.lx64.r.cp311]
-```
-
-이 문제는 Isaac Sim **5.0.0**에서만 발생하며, **5.1.0에서는 해결**되었다:
-
-- Isaac Lab v2.3.0 릴리즈 노트에 "built on Isaac Sim 5.1"이 명시됨
-- Isaac Lab v2.3.1에서 Isaac Sim 5.1의 URDF importer merge_joints 변경에 대한 패치가 적용되어 `isaacsim.asset.importer.urdf`가 2.4.31로 업데이트됨
-- Isaac Lab v2.3.2는 이 패치를 포함
-
-따라서 이 프로젝트에서는:
-- **stable**: Isaac Sim 4.5.0 + Isaac Lab 2.3.2 (워크숍 검증 완료, 안정)
-- **latest**: Isaac Sim 5.1.0 + Isaac Lab 2.3.2 (공식 호환, URDF 패치 포함)
-
-| 조합 | 호환성 | 비고 |
-|------|:------:|------|
-| Isaac Lab 2.3.2 + Isaac Sim 4.5.0 | ✅ | stable에서 사용, 워크숍 검증 완료 |
-| Isaac Lab 2.3.2 + Isaac Sim 5.0.0 | ❌ | URDF 2.4.31 미포함 → 에러 발생 |
-| Isaac Lab 2.3.2 + Isaac Sim 5.1.0 | ✅ | latest에서 사용, v2.3.0이 5.1 기반으로 개발 |
 
 ## CfnOutput 설명
 
@@ -451,37 +450,142 @@ aws secretsmanager get-secret-value \
   --output text
 ```
 
-## AWS Batch CE/JQ/JD 콘솔 수동 생성 가이드
+## AWS Batch 분산 학습 환경 설정
 
-AWS Batch의 Compute Environment, Job Queue, Job Definition은 자동화 범위 밖이며, CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
+AWS Batch의 Compute Environment, Job Queue, Job Definition은 워크숍 참가자가 직접 학습하며 구성하는 영역이므로 CDK 자동화 범위 밖이다. CDK는 Launch Template, IAM, Security Group 등 기반 리소스만 생성하며, 나머지는 CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
 
-### 필요한 CfnOutput 값
+> **단일 AZ 제약**: Batch 노드는 CDK가 선택한 AZ의 프라이빗 서브넷에서만 실행된다. 해당 AZ에 GPU capacity가 부족하면 Job이 RUNNABLE 상태에서 대기한다. 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
 
-- `BatchLaunchTemplateId` — Launch Template ID
-- `BatchInstanceProfileArn` — Instance Profile ARN
-- `PrivateSubnetId` — 프라이빗 서브넷 ID
-- `BatchSecurityGroupId` — Batch 보안 그룹 ID
-- `EfsFileSystemId` — EFS 파일 시스템 ID
+### CDK가 생성한 Batch 리소스
 
-### 1단계: Compute Environment 생성
+| CfnOutput Key | 설명 | 용도 |
+|---------------|------|------|
+| `BatchLaunchTemplateId` | EC2 Launch Template ID | CE 생성 시 참조 |
+| `BatchInstanceProfileArn` | Instance Profile ARN | CE 생성 시 Instance role |
+| `PrivateSubnetId` | 프라이빗 서브넷 ID | CE 네트워크 설정 |
+| `BatchSecurityGroupId` | Batch 보안 그룹 ID | CE 네트워크 설정 |
+| `EfsFileSystemId` | EFS 파일 시스템 ID | JD에서 EFS 볼륨 설정 |
 
-1. AWS Batch 콘솔 → Compute environments → Create
-2. Type: Managed, Provisioning model: On-Demand
-3. Instance types: `g6.12xlarge`, Launch template: `BatchLaunchTemplateId`
-4. Instance role: `BatchInstanceProfileArn`
-5. VPC subnets: `PrivateSubnetId`, Security groups: `BatchSecurityGroupId`
+**Launch Template 구성:**
 
-### 2단계: Job Queue 생성
+| 항목 | 값 | 설명 |
+|------|---|------|
+| AMI | ECS Optimized GPU AMI (Amazon Linux 2) | NVIDIA 드라이버, ECS Agent, Docker 사전 설치 |
+| EBS | 250GB gp3, 암호화 | Isaac Sim 이미지(~50GB)와 학습 임시 데이터용 |
 
-1. AWS Batch 콘솔 → Job queues → Create
-2. Name: `isaac-lab-jq`, Priority: 1
-3. Connected compute environments: 1단계에서 생성한 CE
+**Instance Profile IAM 권한:**
 
-### 3단계: Job Definition 생성
+| 관리형 정책 | 용도 |
+|-------------|------|
+| `AmazonS3ReadOnlyAccess` | S3에서 데이터셋/모델 다운로드 |
+| `AmazonEC2ContainerServiceforEC2Role` | ECR 이미지 풀, CloudWatch 로그 전송 |
+| `AmazonElasticFileSystemFullAccess` | EFS 마운트 및 읽기/쓰기 |
+| `AmazonSSMManagedInstanceCore` | SSM을 통한 인스턴스 접속 (디버깅) |
 
-1. Platform type: EC2, Container image: ECR의 Isaac Lab Docker 이미지 URI
-2. EFS 마운트: Volume name `efs-volume`, EFS file system ID: `EfsFileSystemId`
-3. Mount point: Container path `/home/ubuntu/environment/efs`
+**Batch Security Group 규칙:**
+
+| 방향 | 프로토콜 | 소스/대상 | 용도 |
+|------|----------|-----------|------|
+| Inbound | 전체 (자기 참조) | Batch SG 자신 | 노드 간 NCCL 통신, PyTorch distributed rendezvous |
+| Outbound | 전체 | 0.0.0.0/0 | ECR 이미지 풀, NAT 경유 인터넷 접근 |
+
+EFS Security Group에도 Batch SG를 소스로 하는 NFS(TCP 2049) 인그레스 규칙이 자동 추가된다.
+
+### Batch CE / JQ / JD 수동 생성
+
+Compute Environment, Job Queue, Job Definition의 상세 생성 절차는 `documents/batch-distributed-training.md`를 참고한다. CfnOutput에서 출력된 값을 콘솔에 입력하여 구성한다.
+
+> 2노드 × 4GPU에서 100 iteration 완료까지 약 12분 소요. GPU 할당 대기로 시작이 지연될 수 있다.
+
+## 배포 후 주요 작업 흐름
+
+배포 완료 후 DCV에 접속하여 아래 순서로 작업을 진행한다. 각 단계의 상세 가이드는 별도 문서를 참고한다.
+
+### Isaac Lab 강화학습 실행
+
+DCV 터미널에서 Docker 컨테이너를 실행하고 Isaac Lab 학습을 수행한다:
+
+```bash
+# 컨테이너 실행
+cd ~/environment/IsaacLab && xhost +
+docker run --shm-size=60g --name isaac-lab \
+  --entrypoint bash -it --gpus all --rm --network=host \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
+  isaaclab-batch:latest
+```
+
+```bash
+# 컨테이너 내부에서 headless 학습 (렌더링 없이 빠름, 워크숍 권장)
+cd /workspace/IsaacLab && \
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+  --task Isaac-Velocity-Rough-H1-v0 \
+  --num_envs 2048 \
+  --headless
+```
+
+| 모드 | 명령 | 특징 |
+|------|------|------|
+| GUI | `torch.distributed.run` + `train.py` (headless 미지정) | DCV에서 시뮬레이션 시각화 가능. 렌더링 오버헤드로 학습 느림 |
+| Headless | `isaaclab.sh -p train.py --headless` | 렌더링 없이 학습에 집중. 워크숍에서 권장 |
+
+학습 로그와 체크포인트는 컨테이너 내부 `/workspace/IsaacLab/logs/skrl/h1_rough/`에 저장된다.
+
+### 모델 추론 (IsaacSim에서 시각화)
+
+학습된 체크포인트를 로드하여 로봇 동작을 시각적으로 확인한다:
+
+```bash
+# EFS를 마운트한 컨테이너에서 실행
+docker run --shm-size=60g --name isaac-lab \
+  --entrypoint bash -it --gpus all --rm --network=host \
+  -v /home/ubuntu/environment/efs:/workspace/IsaacLab/TrainedModel \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
+  isaaclab-batch:latest
+```
+
+```bash
+# 컨테이너 내부에서 추론 실행
+cd /workspace/IsaacLab && \
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
+  --task=Isaac-Velocity-Rough-H1-v0 \
+  --num_envs 25 \
+  --checkpoint=/workspace/IsaacLab/TrainedModel/agent_72000.pt
+```
+
+| 체크포인트 | 경로 | 설명 |
+|------------|------|------|
+| 사전 학습 완료 | `/workspace/IsaacLab/TrainedModel/agent_72000.pt` | EFS에 자동 배치 (72,000 iteration) |
+| Batch 학습 결과 | `/workspace/IsaacLab/TrainedModel/models/h1_rough/{timestamp}_ppo_torch/checkpoints/best_agent.pt` | 분산 학습 최고 성능 시점 |
+
+### GR00T N1 추론 테스트
+
+`grootRepoUrl`을 지정하여 배포한 경우, GR00T 추론 서버가 systemd로 자동 실행된다:
+
+```bash
+# 서비스 상태 확인
+sudo systemctl status groot-inference.service
+
+# 빌드 완료 확인 (Docker 빌드 5~10분 소요)
+sudo systemctl status groot-docker-build.service
+
+# 포트 확인
+ss -tlnp | grep 5555
+```
+
+Ping 테스트:
+
+```bash
+cd /home/ubuntu/environment/groot_docker/gr00t
+PYTHONPATH=$(pwd) python3 -c "
+from gr00t.policy.server_client import PolicyClient
+policy = PolicyClient(host='localhost', port=5555)
+print('SUCCESS' if policy.ping() else 'FAILED')
+"
+```
+
+정상 응답: `SUCCESS`
+
+외부에서 접속 시 EC2 퍼블릭 IP의 TCP 5555 포트를 사용한다 (Security Group에서 자동 허용). 상세 테스트 방법은 `documents/groot-zmq-test-guide.md`를 참고한다.
 
 ## 커스터마이징 가이드
 
@@ -534,7 +638,7 @@ cdk deploy
 
 ### 배포가 오래 걸릴 때 (UserData 진행 상황 확인)
 
-`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 60분) 대기한다.
+`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 90분) 대기한다.
 
 진행 상황을 실시간으로 확인하려면:
 
@@ -606,7 +710,7 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
 - EFS 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
 - Batch와 단일 AZ 제약: 현재 구조는 AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 EFS Mount Target이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없지만, Batch Job은 나중에 실행되므로 해당 AZ에 GPU capacity가 없으면 Job이 실행되지 않는다. 다른 AZ에 capacity가 있어도 서브넷과 Mount Target이 없어 fallback할 수 없다. 이를 해결하려면 여러 AZ에 프라이빗 서브넷과 EFS Mount Target을 미리 생성해야 하나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다. Batch Job 실행 시 capacity 부족이 발생하면 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
-- CreationPolicy 타임아웃: 60분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
+- CreationPolicy 타임아웃: 90분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
 - Ubuntu 24.04 (latest) 고유 제한:
   - External Script `install-dcv.sh`, `install-desktop.sh`가 24.04를 완전히 지원하지 않아 자체 로직으로 대체
@@ -636,8 +740,10 @@ isaac-lab-golden-template/
 │   ├── userdata/
 │   │   ├── common.sh              # 시스템 업데이트, DCV, ROS, Docker 설치
 │   │   ├── nvidia-driver.sh       # NVIDIA 드라이버 + container-toolkit (DLAMI 스킵)
+│   │   ├── cloudwatch-agent.sh    # CloudWatch Agent 설치 (옵션, enableCloudWatch=true 시)
 │   │   ├── isaac-lab.sh           # Isaac Lab Docker 빌드 + ECR 푸시
 │   │   ├── efs-mount.sh           # EFS 마운트 + 모델 다운로드
+│   │   ├── groot.sh               # GR00T 추론 서버 설치 (옵션, grootRepoUrl 지정 시)
 │   │   └── code-server.sh         # code-server + Claude Code 설치 (옵션)
 │   └── workshop/
 │       ├── Dockerfile             # Isaac Lab Docker 이미지 빌드용
@@ -652,60 +758,3 @@ isaac-lab-golden-template/
 └── README.md                      # 이 문서
 ```
 
-## 원본 CloudFormation 템플릿과의 상세 비교
-
-원본 워크숍 템플릿(`reference/IsaacLabEnvSetupHumble.yaml`)과 CDK 버전의 차이를 정리한다.
-
-### 그대로 유지한 내용
-
-| 항목 | 설명 |
-|------|------|
-| VPC 구조 | 10.0.0.0/16 CIDR, 퍼블릭(10.0.0.0/24) + 프라이빗(10.0.1.0/24) 서브넷 |
-| 네트워크 | IGW + NAT Gateway + EIP, S3 VPC Endpoint (Gateway) |
-| DCV SG 포트 | SSH:22, DCV HTTP:8080, DCV HTTPS:8443, code-server:8888 (옵션, CloudFront origin만 허용) |
-| EFS | generalPurpose 성능 모드, 프라이빗 서브넷 Mount Target |
-| Batch Launch Template | ECS Optimized AMI, 250GB EBS gp3, EBS 암호화 |
-| Batch IAM Role | S3 읽기, ECS 컨테이너 서비스, EFS 전체, SSM |
-| DCV Instance | 200GB EBS, CreationPolicy |
-| DCV IAM Role | S3 읽기, ECR 전체, EFS 전체, SSM, Secrets Manager (ARN 제한) |
-| Secrets Manager | 32자, 구두점 제외, ubuntu 사용자 |
-| VPC Flow Log | CloudWatch Logs, RetentionInDays: 1 |
-| UserData 흐름 | Desktop → DCV → ROS → Docker → NVIDIA → EFS → IsaacLab → cfn-signal → reboot |
-| External Scripts | aws-samples/robotics-boilerplate에서 스크립트 다운로드 |
-| Workshop Assets | Dockerfile, distributed_run.bash 다운로드, Dockerfile sed 패치 |
-| ECR 푸시 | isaaclab-batch:latest 이미지 빌드 및 푸시 |
-
-### 변경(개선) 사항
-
-| 항목 | 원본 | CDK | 변경 이유 |
-|------|------|-----|-----------|
-| 파라미터 | 3개 (ROSVersion, Simulator, InstanceType) | 5개 (versionProfile, instanceType, preferredAZ, allowedCidr, region) | Version Profile 통합, AZ/CIDR/리전 제어 추가 |
-| 버전 관리 | Humble, nvidia-550 하드코딩 | VERSION_PROFILES 객체 (확장 가능) | 다중 버전 지원 |
-| AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 | GPU capacity 부족 자동 대응 |
-| 리전 지원 | 3개 | 12개 + 멀티리전 배포 | 글로벌 배포 |
-| AMI 매핑 | 3단계 중첩 FindInMap | 2단계 (리전→Ubuntu버전) | 단순화 |
-| EBS | gp2, 암호화 없음 | gp3, encrypted: true | 성능/보안 개선 |
-| DCV SG 소스 | 0.0.0.0/0 하드코딩 | allowedCidr Props | 접근 제한 가능 |
-| EFS SG 소스 | 0.0.0.0/0 | VPC CIDR (10.0.0.0/16) | 보안 강화 |
-| UserData 구조 | 모놀리식 (~150줄) | 4개 모듈 분리 | 디버깅/유지보수 용이 |
-| dpkg lock 대기 | sleep 120 | dpkg lock 폴링 + unattended-upgrades 비활성화 | 안정성 개선 |
-| NVIDIA 드라이버 | 일반 AMI + UserData 설치 | 구 DLAMI(550 사전 설치) + 570 자연 업그레이드 | 드라이버 교체 시간 절약 |
-| DCV 설치 | install-dcv.sh (22.04/18.04만 지원) | Ubuntu 24.04 자체 설치 로직 추가 (DCV GL 포함) | latest 프로필 지원 |
-| Wayland | 해당 없음 (22.04는 X11 기본) | Ubuntu 24.04에서 Wayland 비활성화 + nvidia-xconfig 스킵 | DCV X11 호환성 |
-| Isaac Sim EULA | 해당 없음 (4.x는 EULA 불필요) | 5.x Dockerfile에 ACCEPT_EULA=Y + USER root 자동 추가 | Isaac Sim 5.x 호환성 |
-| Docker 권한 | ubuntu 사용자 docker 그룹 미추가 | usermod -aG docker ubuntu 추가 | sudo 없이 docker 사용 |
-| CreationPolicy | 60분, 항상 성공 | 60분, 에러 시 즉시 실패 보고 | `trap ERR`로 에러 감지, cfn-signal에 실제 종료 코드 전달 |
-| Outputs | 4개 | 12개 | Batch CE 수동 생성 지원, CodeServerUrl 추가 |
-| IaC 도구 | CloudFormation YAML | CDK TypeScript (L1 Construct) | 타입 안전성, Construct 캡슐화 |
-
-### 원본에 있었지만 의도적으로 제거/변경한 항목
-
-| 항목 | 이유 |
-|------|------|
-| ROSVersion/Simulator 파라미터 | Version Profile에 통합 |
-| install-simulators.sh | Isaac Lab에 불필요 |
-| sleep 120 | dpkg lock 폴링으로 대체 |
-| docker run nvidia-smi | 검증 단계, 배포 시간 단축 |
-| Monitoring: true | CloudWatch Agent로 대체 (`-c enableCloudWatch=true`), 기본 비활성 |
-| code-server | CloudFront + code-server + Claude Code 옵션으로 추가 (`-c enableCodeServer=true`, 기본 활성). 비활성화 시 관련 인프라 전체 생략 |
-| 커널 업그레이드 후 reboot | 최종 reboot으로 대체 |
