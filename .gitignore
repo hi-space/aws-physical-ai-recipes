@@ -209,6 +209,16 @@ __marimo__/
 # Claude Code
 .claude/
 
+# CDK projects use lib/ for source code — unignore them so the Python lib/ rule above doesn't swallow them
+!isaac-lab-workshop/*/lib/
+!isaac-lab-workshop/*/lib/**
+!osmo/cdk/lib/
+!osmo/cdk/lib/**
+!training/*/cdk/lib/
+!training/*/cdk/lib/**
+!training/*/infra/lib/
+!training/*/infra/lib/**
+
 # Docs artifacts
 VERIFICATION_NOTES.md
 docs/superpowers/

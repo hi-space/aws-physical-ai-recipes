@@ -1,0 +1,53 @@
+version: 0.2
+# =============================================================================
+# GR00T 학습 컨테이너 CodeBuild 빌드 스펙
+# =============================================================================
+# CodeBuild 환경변수 (CloudFormation에서 주입):
+#   ECR_REGISTRY        예) 123456789012.dkr.ecr.us-east-1.amazonaws.com
+#   AWS_DEFAULT_REGION  예) us-east-1
+#   IMAGE_REPO          예) groot-sm-training-<alias>
+#   GROOT_VERSION       n1.6 | n1.7
+#   USE_STABLE          true | false
+#   BASE_MODEL_PATH     예) nvidia/GR00T-N1.6-3B
+#   IMAGE_TAG           기본 latest
+
+phases:
+  pre_build:
+    commands:
+      - echo "ECR 인증 중..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - COMMIT_HASH=$(echo ${CODEBUILD_RESOLVED_SOURCE_VERSION:-local} | cut -c 1-8)
+      - IMAGE_TAG_VERSIONED=${COMMIT_HASH:-latest}
+      - IMAGE_REPO=${IMAGE_REPO:-groot-sm-training}
+      - GROOT_VERSION=${GROOT_VERSION:-n1.6}
+      - USE_STABLE=${USE_STABLE:-true}
+      - BASE_MODEL_PATH=${BASE_MODEL_PATH:-nvidia/GR00T-N1.6-3B}
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
+      - 'echo "GR00T_VERSION=${GROOT_VERSION}, USE_STABLE=${USE_STABLE}, BASE_MODEL_PATH=${BASE_MODEL_PATH}"'
+      - 'echo "빌드 시작 - ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} (+ :${GROOT_VERSION}, :${IMAGE_TAG_VERSIONED})"'
+
+  build:
+    commands:
+      - echo "Docker 이미지 빌드 중..."
+      - export DOCKER_BUILDKIT=1
+      - docker build --no-cache --file container/training/Dockerfile --build-arg GROOT_VERSION=${GROOT_VERSION} --build-arg USE_STABLE=${USE_STABLE} --build-arg BASE_MODEL_PATH=${BASE_MODEL_PATH} --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} .
+      - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
+      - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+      - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${GROOT_VERSION}
+
+  post_build:
+    commands:
+      - echo "ECR에 이미지 푸시 중..."
+      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
+      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${GROOT_VERSION}
+      - 'echo "빌드 완료. 푸시된 태그=${IMAGE_TAG}, ${GROOT_VERSION}, ${IMAGE_TAG_VERSIONED}"'
+      - printf '{"TrainingImageUri":"%s/%s:%s","GrootVersion":"%s"}' "$ECR_REGISTRY" "$IMAGE_REPO" "$IMAGE_TAG" "$GROOT_VERSION" > image_uri.json
+
+artifacts:
+  files:
+    - image_uri.json
+
+cache:
+  paths:
+    - /root/.docker/**/*

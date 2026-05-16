@@ -129,7 +129,6 @@ OFFICIAL_PLUGINS=(
     "stripe"
     "linear"
     "supabase"
-    "serena"
     "github"
     "gitlab"
     "asana"

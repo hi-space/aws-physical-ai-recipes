@@ -1,0 +1,30 @@
+aws:
+  account_id: ''
+  alias: ''
+  bucket_name: ''
+  region: us-east-1
+  role_arn: ''
+codebuild:
+  inference_project: groot-sm-inference-build
+  training_project: groot-sm-training-build
+dataset:
+  s3_prefix: datasets/leisaac-pick-orange
+ecr:
+  inference_uri: ''
+  training_uri: ''
+inference:
+  endpoint_name: groot-sm-endpoint
+  instance_type: ml.g5.2xlarge
+  model_package_group: groot-sm-models
+model:
+  hf_model_id: nvidia/GR00T-N1.6-3B
+  s3_prefix: models/groot-sm
+  groot_version: n1.6
+training:
+  global_batch_size: 32
+  instance_type: ml.g5.2xlarge
+  max_steps: 100
+  save_steps: 50
+  max_wait_seconds: 86400
+  num_gpus: 1
+  use_spot: true

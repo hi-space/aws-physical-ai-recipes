@@ -8,8 +8,9 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 
 | Category | Recipe | 설명 | 주요 AWS 서비스 | 상태 |
 |----------|--------|------|-----------------|------|
-| Training | [groot-sagemaker](./training/groot-sagemaker/) | GR00T-N1.6-3B VLA 모델 SageMaker 파인튜닝 및 실시간 추론 배포 | SageMaker, ECR, CodeBuild, S3 | Available |
-| Simulation | [isaac-lab-workshop](./isaac-lab-workshop/) | Isaac Lab 시뮬레이션 환경 구축, 멀티유저 인프라, 학습 모니터링 | EC2 (GPU), CDK, Batch, EFS | Available |
+| End-to-End Workshop | [e2e-workshop](./e2e-workshop/) | Isaac Lab 시뮬레이션 + GR00T 파인튜닝 + 추론 + 모니터링 통합 워크숍 | EC2 (GPU), CDK, Batch, SageMaker, EFS | Available |
+| Distributed Training | [hyperpod-training](./hyperpod-training/) | SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라 (SLURM, FSx, MLflow) | SageMaker HyperPod, FSx for Lustre, S3 | Available |
+| Orchestration | [osmo](./osmo/) | NVIDIA OSMO on EKS — Kubernetes 기반 Physical AI 워크플로 오케스트레이션 | EKS, RDS, ElastiCache, S3 | Available |
 | Tools | [tools](./tools/) | EC2 개발 환경 설정 (SSH, Bedrock, Claude Code, 플러그인) | EC2, CloudFront, CloudFormation | Available |
 
 ## Repository Structure
@@ -17,23 +18,34 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 ```
 aws-physical-ai-recipes/
 │
-├── training/                          # 모델 학습 & 배포 레시피
-│   └── groot-sagemaker/               #   GR00T-N1.6-3B VLA 파인튜닝 (SageMaker)
-│       ├── infra/                     #     CloudFormation 인프라 (S3, IAM, ECR, CodeBuild)
-│       ├── container/                 #     학습/추론 Docker 컨테이너
-│       ├── data/                      #     모델 다운로드, 데이터셋 업로드
-│       ├── pipeline/                  #     SageMaker Pipeline (학습 + 모델 등록)
-│       ├── scripts/                   #     빌드, 학습, 배포, 추론 스크립트
-│       └── config.yaml                #     중앙 설정 파일
+├── e2e-workshop/                      # End-to-End 워크숍 (시뮬레이션 → 학습 → 추론)
+│   ├── infra/                         #   CDK 인프라 (배포 단위)
+│   │   ├── isaaclab/                  #     멀티유저 GPU 환경 원클릭 배포 (DCV, EFS, Batch)
+│   │   └── groot-finetune/            #     GR00T VLA fine-tuning (Batch + SageMaker 통합)
+│   ├── apps/                          #   사용자가 실행하는 애플리케이션
+│   │   └── mlops-dashboard/           #     RL 학습 Fleet 모니터링 대시보드 (Next.js)
+│   ├── scripts/                       #   셋업/검증 스크립트
+│   │   ├── groot-inference/           #     GR00T N1 추론 서버 테스트 클라이언트 (ZMQ)
+│   │   └── isaaclab-local-setup/      #     IsaacLab 로컬 수동 셋업 가이드
+│   └── training/                      #   학습 레시피
+│       └── groot-sagemaker/           #     GR00T-N1.6-3B SageMaker 파인튜닝 파이프라인
 │
-├── isaac-lab-workshop/                # Isaac Lab 시뮬레이션 환경 레시피
-│   ├── newton-setup/                  #   Newton 물리엔진 수동 셋업 (가이드 + 스크립트)
-│   ├── infra-multiuser-groot/         #   멀티유저 GPU 환경 CDK 프로젝트
-│   ├── exp/mlops-dashboard/           #   분산 학습 모니터링 대시보드 (Next.js)
-│   └── assets/                        #   시각화 스크린샷
+├── hyperpod-training/                 # SageMaker HyperPod 분산 학습 인프라
+│   ├── infra/                         #   CDK 스택 (Networking, Storage, HyperPod, MLflow)
+│   ├── lifecycle-scripts/             #   클러스터 lifecycle (FSx, SLURM, SSH, DCV)
+│   ├── slurm-templates/               #   SLURM job 템플릿 (RL, VLA, debug)
+│   ├── examples/                      #   VLA/RL/MLflow 예시 코드
+│   ├── scripts/                       #   환경 셋업 스크립트
+│   └── container/                     #   학습 컨테이너 정의
+│
+├── osmo/                              # NVIDIA OSMO on EKS
+│   ├── cdk/                           #   EKS + 인프라 CDK 프로젝트
+│   ├── workflows/                     #   OSMO workflow YAML 예시
+│   └── docs/                          #   설계 / 워크숍 가이드
 │
 └── tools/                             # EC2 개발 환경 설정
-    ├── 01-setup-ssh-client.sh         #   SSH 키 생성 + config 설정
+    ├── 01-setup-ssh-client.sh         #   SSH 키 생성 + config 설정 (macOS/Linux)
+    ├── 01-setup-ssh-client.ps1        #   SSH 키 생성 + config 설정 (Windows)
     ├── 02-setup-bedrock-env.sh        #   Node.js/Claude/Kiro 설치 + Bedrock 환경변수
     ├── 03-setup-plugins-and-mcp.sh    #   플러그인 + MCP 서버 설치
     ├── cloudformation.yaml            #   CloudFront + EC2 인프라
@@ -50,7 +62,7 @@ graph TB
 
     subgraph TRAIN ["Training"]
         B["<b>SageMaker</b><br/>GR00T VLA 파인튜닝<br/>Spot Instance"]
-        C["<b>Batch + DDP</b><br/>멀티노드 분산 학습"]
+        C["<b>Batch / HyperPod</b><br/>멀티노드 분산 학습"]
     end
 
     subgraph DEPLOY ["Deployment"]
@@ -59,12 +71,15 @@ graph TB
 
     subgraph MONITOR ["Monitoring"]
         E["<b>MLOps Dashboard</b><br/>Fleet / Rerun / TensorBoard"]
+        F["<b>MLflow</b><br/>Experiment Tracking"]
     end
 
     A -->|"데이터셋<br/>LeRobot v2"| B
     A -->|"학습 환경"| C
     B -->|"모델 배포"| D
     C -.->|"실시간 모니터링"| E
+    B -.->|"실험 추적"| F
+    C -.->|"실험 추적"| F
 
     style SIM fill:#e3f2fd,stroke:#1976d2,color:#333
     style TRAIN fill:#fff3e0,stroke:#f57c00,color:#333
@@ -74,34 +89,43 @@ graph TB
 
 ## Recipe Details
 
-### Training / GR00T SageMaker
+### End-to-End Workshop
 
-NVIDIA GR00T-N1.6-3B VLA 모델을 SageMaker에서 파인튜닝하고 실시간 추론 엔드포인트로 배포하는 end-to-end 파이프라인입니다.
-
-- **모델**: [GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) — RGB + 자연어 + 고유수용감각 → 로봇 액션
-- **데이터**: LeRobot v2 형식 (ALOHA, Spot 등 다양한 로봇 데이터셋 지원)
-- **인프라**: CloudFormation 원클릭 배포 (S3, IAM, ECR, CodeBuild, SSM)
-- **학습**: SageMaker Pipeline + Spot Instance (최대 90% 비용 절감)
-- **배포**: SageMaker Endpoint (Model Registry 승인 → 배포)
-
-```bash
-cd training/groot-sagemaker/
-cat README.md
-```
-
-### Simulation / Isaac Lab Workshop
-
-NVIDIA Isaac Lab 시뮬레이션 환경 구축, 멀티유저 GPU 인프라 배포, 분산 학습 모니터링을 위한 통합 워크스페이스입니다. 두 가지 접근 방식을 제공합니다:
-
-- **CDK 인프라 배포** — 멀티유저 워크숍/데모용. DCV 원격 데스크탑 + Batch 분산 학습
-- **수동 셋업** — 기존 GPU 인스턴스에서 Newton 물리엔진으로 직접 학습
+Isaac Lab 시뮬레이션 환경 구축부터 GR00T VLA 모델 파인튜닝, 추론 검증, 모니터링까지 전체 파이프라인을 한 워크스페이스에서 실습합니다.
 
 | 구성 요소 | 설명 |
 |-----------|------|
-| [Isaac Lab Workshop README](./isaac-lab-workshop/) | 전체 개요 및 접근 방식 비교 |
-| [Newton Setup Guide](./isaac-lab-workshop/newton-setup/) | Newton 물리엔진 수동 셋업 가이드 |
-| [Infra CDK](./isaac-lab-workshop/infra-multiuser-groot/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (AZ 자동 탐색, DCV, Batch) |
-| [MLOps Dashboard](./isaac-lab-workshop/exp/mlops-dashboard/) | RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
+| [infra/isaaclab](./e2e-workshop/infra/isaaclab/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (DCV, EFS, AZ 자동 탐색) |
+| [infra/groot-finetune](./e2e-workshop/infra/groot-finetune/) | Batch + SageMaker 통합 GR00T fine-tuning CDK 프로젝트 |
+| [training/groot-sagemaker](./e2e-workshop/training/groot-sagemaker/) | GR00T-N1.6-3B SageMaker Pipeline (학습 + Endpoint 자동 배포) |
+| [apps/mlops-dashboard](./e2e-workshop/apps/mlops-dashboard/) | RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
+| [scripts/groot-inference](./e2e-workshop/scripts/groot-inference/) | GR00T N1 추론 서버 테스트 클라이언트 (ZMQ) |
+| [scripts/isaaclab-local-setup](./e2e-workshop/scripts/isaaclab-local-setup/) | 기존 GPU 인스턴스에서 IsaacLab 수동 셋업 |
+
+### Distributed Training (HyperPod)
+
+SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라입니다. SLURM 관리 클러스터에 FSx for Lustre 스토리지와 MLflow 트래킹 서버를 결합해 데이터 준비부터 분산 학습, 실험 추적까지 통합 환경을 제공합니다.
+
+- **클러스터**: head (m5.xlarge) + sim (g5.12xlarge) + train (g6e.12xlarge) + debug (g5.4xlarge)
+- **스토리지**: FSx for Lustre (1.2TB) ↔ S3 자동 동기화
+- **트래킹**: SageMaker Managed MLflow
+
+```bash
+cd hyperpod-training/
+cat README.md
+```
+
+### OSMO on EKS
+
+NVIDIA OSMO를 EKS 위에서 운영하기 위한 CDK 레시피입니다. Kubernetes 기반으로 시뮬레이션 → 학습 → 추론 워크플로를 오케스트레이션합니다.
+
+- **인프라**: VPC + EKS (system + GPU node groups) + RDS PostgreSQL + ElastiCache Redis + S3
+- **워크플로 예시**: GR00T Train→Sim, Sim DataGen
+
+```bash
+cd osmo/
+cat README.md
+```
 
 ### Tools / EC2 개발 환경
 
@@ -109,7 +133,8 @@ EC2 GPU 인스턴스에서 Claude Code + Bedrock 연동 개발 환경을 설정�
 
 ```bash
 cd tools/
-bash 01-setup-ssh-client.sh <PUBLIC_IP>   # 로컬 → EC2 SSH 설정
+bash 01-setup-ssh-client.sh <PUBLIC_IP>   # 로컬 → EC2 SSH 설정 (macOS/Linux)
+# Windows 사용자는 01-setup-ssh-client.ps1 사용
 bash 02-setup-bedrock-env.sh              # Node.js, Claude, Kiro 설치 + Bedrock 설정
 bash 03-setup-plugins-and-mcp.sh          # 플러그인 + MCP 서버 설치
 ```
