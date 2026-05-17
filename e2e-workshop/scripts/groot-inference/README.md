@@ -26,9 +26,9 @@ graph TB
     Server -->|"Action (16-step horizon)"| Remote
 ```
 
-### 서버 배포 흐름 (워크숍)
+### 서버 배포 흐름
 
-1. Module 5에서 CodeBuild로 GR00T 추론 컨테이너 이미지를 ECR에 빌드
+1. CodeBuild로 GR00T 컨테이너 이미지를 ECR에 빌드 (`infra/groot-finetune/` CDK 배포 시 생성)
 2. GPU 인스턴스에서 ECR 이미지를 pull
 3. `docker run`으로 추론 서버 실행 (ZMQ, 포트 5555)
 
