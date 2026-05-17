@@ -26,15 +26,11 @@ graph TB
     Server -->|"Action (16-step horizon)"| Remote
 ```
 
-### 서버 배포 흐름
+### 서버 배포 흐름 (워크숍)
 
-`infra/isaaclab/assets/userdata/groot.sh` 스크립트를 수동 실행하면:
-
-1. HuggingFace에서 `nvidia/GR00T-N1.6-3B` 모델 가중치를 EFS에 다운로드
-2. NVIDIA gr00t 리포지토리를 클론하고 Docker 이미지 빌드
-3. systemd 서비스로 등록하여 부팅 시 자동 실행
-
-> NOTE: `groot.sh`는 CDK UserData에서 자동 실행되지 않습니다. 워크숍에서는 사용자가 직접 docker build/run을 수행합니다.
+1. Module 5에서 CodeBuild로 GR00T 추론 컨테이너 이미지를 ECR에 빌드
+2. GPU 인스턴스에서 ECR 이미지를 pull
+3. `docker run`으로 추론 서버 실행 (ZMQ, 포트 5555)
 
 | 항목 | 값 |
 |------|-----|
@@ -68,7 +64,7 @@ sequenceDiagram
 
 | 프로세스 | 역할 | 실행 방식 |
 |---------|------|----------|
-| `run_gr00t_server.py` | 모델 추론 (ZMQ 서버) | 수동 docker run 또는 systemd (groot.sh 실행 시) |
+| `run_gr00t_server.py` | 모델 추론 (ZMQ 서버) | docker run (ECR 이미지) |
 | `rollout_policy.py` | 시뮬레이션 루프 + 서버 호출 | 사용자가 직접 실행 |
 
 `rollout_policy.py`가 하나의 스크립트 안에서 **Isaac Sim 환경 생성 + 매 스텝 추론 서버 호출**을 모두 처리합니다.
