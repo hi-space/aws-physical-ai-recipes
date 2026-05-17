@@ -97,7 +97,7 @@ uv run python gr00t/eval/rollout_policy.py \
 | BEHAVIOR (50개 가정 태스크) | Galaxea R1 Pro | 체크포인트 제공 | 중간 |
 | G1 WholeBodyControl | Unitree G1 | 체크포인트 제공 | 중간 |
 
-> 상세 가이드: [`infra/isaaclab/documents/groot-isaac-sim-integration-test.md`](../infra/isaaclab/documents/groot-isaac-sim-integration-test.md)
+> 상세 가이드: [워크숍 Module 8 - Closed-loop Evaluation](https://hi-space.gitbook.io/physical-ai-on-aws/physical-ai-on-aws-guide/physical-ai-e2e-workshop/8.-evaluation)
 
 ### 이 클라이언트의 위치
 
