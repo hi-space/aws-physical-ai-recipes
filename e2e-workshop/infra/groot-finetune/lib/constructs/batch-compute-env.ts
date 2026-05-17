@@ -52,7 +52,7 @@ export class BatchComputeEnv extends Construct {
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
       managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonS3ReadOnlyAccess'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonS3FullAccess'),
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonEC2ContainerServiceforEC2Role'),
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonElasticFileSystemFullAccess'),
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),

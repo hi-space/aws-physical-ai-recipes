@@ -1,5 +1,7 @@
 # Isaac Lab on AWS
 
+> 워크숍 실습 가이드: https://hi-space.gitbook.io/physical-ai-on-aws
+
 NVIDIA Isaac Lab 강화학습 시뮬레이션 환경을 AWS에서 구축하고 운영하기 위한 레시피입니다.
 
 ## 구성 요소
