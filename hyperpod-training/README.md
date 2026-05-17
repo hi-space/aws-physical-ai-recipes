@@ -207,7 +207,7 @@ S3에 데이터를 업로드하면 FSx `/fsx/datasets/`에 자동으로 동기�
 
 ```bash
 # 로컬에서 S3로 데이터 업로드
-BUCKET="hyperpod-data-hyperpod-<userId>-913524902871-us-west-2"
+BUCKET="hyperpod-data-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2"
 
 aws s3 cp ./my-dataset/ s3://${BUCKET}/datasets/groot/my-robot/ --recursive
 
@@ -351,7 +351,7 @@ cd hyperpod-training/infra
 npx cdk destroy -c userId=<your-name> -c region=us-west-2 --force
 
 # 삭제 실패 시 (S3 버킷 비어있지 않음):
-aws s3 rm s3://hyperpod-lifecycle-hyperpod-<userId>-913524902871-us-west-2 --recursive
+aws s3 rm s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2 --recursive
 aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-west-2
 ```
 
