@@ -2,7 +2,7 @@
 
 Isaac Lab `develop` 브랜치를 기존 GPU EC2 인스턴스에 직접 설치하는 가이드입니다. Newton 물리엔진을 포함한 전체 의존성을 Python 3.11 venv 위에 자동 설치합니다.
 
-> CDK 기반 멀티유저 환경이 필요하다면 → [infra/isaaclab/](../infra/isaaclab/)
+> CDK 기반 멀티유저 환경이 필요하다면 → [infra/isaaclab/](../../infra/isaaclab/)
 
 ## 환경 정보
 
@@ -115,7 +115,7 @@ python scripts/reinforcement_learning/rsl_rl/train.py \
 
 OpenGL 기반 경량 뷰어. DCV 등 원격 데스크탑 환경에서 확인합니다.
 
-![newton-visualizer](../assets/newton-visualizer.png)
+![newton-visualizer](../../assets/newton-visualizer.png)
 
 ### Rerun Visualizer (원격 브라우저)
 
@@ -139,7 +139,7 @@ http://<EC2_PUBLIC_IP>:9090/?url=rerun%2Bhttp%3A%2F%2F<EC2_PUBLIC_IP>%3A9876%2Fp
 
 `<EC2_PUBLIC_IP>`를 실제 퍼블릭 IP로 치환합니다.
 
-![rerun-visualizer](../assets/rerun-visualizer.png)
+![rerun-visualizer](../../assets/rerun-visualizer.png)
 
 **Rerun 뷰어 기능:**
 - 실시간 3D 시각화 (로봇 자세, 관절 각도)

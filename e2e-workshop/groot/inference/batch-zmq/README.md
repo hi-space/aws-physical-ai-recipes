@@ -99,11 +99,11 @@ uv run python gr00t/eval/rollout_policy.py \
 | BEHAVIOR (50개 가정 태스크) | Galaxea R1 Pro | 체크포인트 제공 | 중간 |
 | G1 WholeBodyControl | Unitree G1 | 체크포인트 제공 | 중간 |
 
-> 상세 가이드: [`infra/isaaclab/documents/groot-isaac-sim-integration-test.md`](../infra/isaaclab/documents/groot-isaac-sim-integration-test.md)
+> Isaac Sim closed-loop 평가는 워크숍 가이드 [Module 8](https://github.com/hi-space/physical-ai-aws-docs/blob/main/physical-ai-on-aws-guide/e2e-workshop/8.-evaluation.md) 참고.
 
 ### 이 클라이언트의 위치
 
-이 프로젝트(`gr00t-inference/`)는 `rollout_policy.py` 없이 **추론 서버만 단독 테스트**하기 위한 경량 클라이언트입니다.
+이 프로젝트(`groot/inference/batch-zmq/`)는 `rollout_policy.py` 없이 **추론 서버만 단독 테스트**하기 위한 경량 클라이언트입니다.
 시뮬레이션 환경 설치 없이 서버가 정상 동작하는지 빠르게 확인할 수 있습니다.
 
 ## 구조

@@ -75,10 +75,10 @@ async function main() {
   const sharedStackName = args.sharedStackName ?? 'GrootFinetuneShared';
   const userStackName = args.userStackName ?? `GrootFinetuneSagemaker${suffix}`;
 
-  // 기본 config.yaml 위치: 옛 groot-sagemaker/config.yaml 그대로(스크립트들이 거기서 읽음).
+  // config.yaml 위치: e2e-workshop/groot/config.yaml (모든 SM 스크립트가 여기서 읽음).
   const configPath =
     args.configPath ??
-    path.resolve(__dirname, '..', '..', '..', 'training', 'groot-sagemaker', 'config.yaml');
+    path.resolve(__dirname, '..', '..', '..', 'groot', 'config.yaml');
 
   if (!fs.existsSync(configPath)) {
     throw new Error(`config.yaml not found: ${configPath}`);

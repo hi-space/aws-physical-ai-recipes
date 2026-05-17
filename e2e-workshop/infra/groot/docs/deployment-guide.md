@@ -2,7 +2,7 @@
 
 ## 개요
 
-이 가이드는 `infra/groot-finetune` CDK 스택을 배포하고, AWS Batch에서 NVIDIA GR00T VLA 모델을 fine-tuning하는 방법을 설명합니다.
+이 가이드는 `infra/groot` CDK 스택을 배포하고, AWS Batch에서 NVIDIA GR00T VLA 모델을 fine-tuning하는 방법을 설명합니다.
 
 ### 아키텍처
 
@@ -75,7 +75,7 @@ aws cloudformation describe-stacks \
 ECR repo `groot-batch-train` 와 CodeBuild project `groot-batch-train-build` 를 만들고 컨테이너 이미지를 자동 빌드합니다. 이미 만들어진 경우 멱등하게 통과합니다 (재배포 안전).
 
 ```bash
-cd infra/groot-finetune
+cd infra/groot
 npm install
 
 CDK_DEFAULT_REGION=ap-northeast-2 npx cdk deploy GrootBatchTrainShared

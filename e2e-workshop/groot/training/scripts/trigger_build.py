@@ -35,13 +35,14 @@ import boto3
 import yaml
 from botocore.exceptions import ClientError
 
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+DOMAIN_ROOT = Path(__file__).resolve().parents[2]      # groot/
+TRAINING_ROOT = Path(__file__).resolve().parents[1]    # groot/training/
+CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 
-# CodeBuild 프로젝트별 buildspec 경로
+# CodeBuild 프로젝트별 buildspec 경로 (DOMAIN_ROOT 기준 상대 경로)
 BUILDSPEC_PATHS = {
-    "training": "container/training/buildspec.yml",
-    "inference": "container/inference/buildspec.yml",
+    "training": "training/container/buildspec.yml",
+    "inference": "inference/sagemaker/container/buildspec.yml",
 }
 
 
@@ -87,17 +88,18 @@ def upload_source_to_s3(bucket: str, region: str) -> str:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         include_paths = [
-            PROJECT_ROOT / "container",
-            PROJECT_ROOT / "config.yaml",
+            DOMAIN_ROOT / "training" / "container",
+            DOMAIN_ROOT / "inference" / "sagemaker" / "container",
+            DOMAIN_ROOT / "config.yaml",
         ]
         for include_path in include_paths:
             if include_path.is_dir():
                 for file_path in include_path.rglob("*"):
                     if file_path.is_file():
-                        arcname = file_path.relative_to(PROJECT_ROOT)
+                        arcname = file_path.relative_to(DOMAIN_ROOT)
                         zf.write(file_path, arcname)
             elif include_path.is_file():
-                zf.write(include_path, include_path.relative_to(PROJECT_ROOT))
+                zf.write(include_path, include_path.relative_to(DOMAIN_ROOT))
 
     buffer.seek(0)
     s3.put_object(Bucket=bucket, Key=s3_key, Body=buffer.getvalue())

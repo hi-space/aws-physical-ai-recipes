@@ -24,8 +24,8 @@ from pathlib import Path
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+DOMAIN_ROOT = Path(__file__).resolve().parents[2]      # groot/
+CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 
 
 def load_config() -> dict:

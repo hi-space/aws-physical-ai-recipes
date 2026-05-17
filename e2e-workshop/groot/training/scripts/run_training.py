@@ -28,8 +28,9 @@ from pathlib import Path
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+DOMAIN_ROOT = Path(__file__).resolve().parents[2]      # groot/
+TRAINING_ROOT = Path(__file__).resolve().parents[1]    # groot/training/
+CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 
 
 def load_config() -> dict:
@@ -123,7 +124,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         hyperparameters["hf_token"] = args.hf_token
 
     # Script Mode: train.py를 컨테이너에 런타임에 주입 (Docker 재빌드 없이 수정 반영)
-    train_source_dir = str(Path(__file__).resolve().parents[1] / "container" / "training")
+    train_source_dir = str(TRAINING_ROOT / "container")
 
     # HF Trainer가 stdout으로 출력하는 dict 로그를 SageMaker CloudWatch metric으로 발행
     # 예: {'loss': 0.63, 'grad_norm': 1.2, 'learning_rate': 5e-5, 'epoch': 0.01}

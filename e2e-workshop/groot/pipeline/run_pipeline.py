@@ -31,8 +31,9 @@ from pathlib import Path
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+DOMAIN_ROOT = Path(__file__).resolve().parents[1]      # groot/
+TRAINING_ROOT = DOMAIN_ROOT / "training"               # groot/training/
+CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 
 
 def load_config() -> dict:
@@ -134,7 +135,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     max_wait = train_cfg.get("max_wait_seconds", 86400) if use_spot else None
 
     # Script Mode: train.py를 런타임에 주입 (Docker 재빌드 없이 스크립트 수정 반영)
-    train_source_dir = str(PROJECT_ROOT / "container" / "training")
+    train_source_dir = str(TRAINING_ROOT / "container")
 
     # HF Trainer stdout dict 로그 → CloudWatch metric
     metric_definitions = [

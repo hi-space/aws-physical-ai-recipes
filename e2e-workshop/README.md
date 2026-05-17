@@ -1,111 +1,149 @@
-# Isaac Lab on AWS
+# Physical AI End-to-End on AWS
 
-NVIDIA Isaac Lab 강화학습 시뮬레이션 환경을 AWS에서 구축하고 운영하기 위한 레시피입니다.
+AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번에 굴려볼 수 있는 레시피 모음입니다. NVIDIA Isaac Lab으로 휴머노이드 로봇의 강화학습 정책(RL Policy)을 학습하고, NVIDIA GR00T로 자연어를 이해하는 Vision-Language-Action(VLA) 모델을 fine-tuning한 뒤, 시뮬레이션 환경에서 실제로 로봇을 움직여 검증합니다.
 
-## 구성 요소
+> 단계별 실습 가이드는 별도 문서로 제공됩니다 → **[Physical AI on AWS — End-to-End 워크숍](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)**
+
+## Overview
+
+실제 로봇으로 AI를 학습시키려면 수백만 번의 시행착오가 필요합니다. 이걸 진짜 로봇으로 하면 시간·비용·안전 모두 부담이 큽니다. 시뮬레이션을 활용하는 **Sim-to-Real** 접근이 표준이지만, GPU 인프라를 직접 세팅하고, 분산 학습 클러스터를 띄우고, 모델을 추론 환경에 배포하는 일은 여전히 무겁습니다.
+
+이 저장소는 그 인프라와 학습/추론 코드를 한 번의 명령으로 띄울 수 있게 묶어둔 것입니다. AWS CDK로 GPU 인스턴스 · EFS · Batch · SageMaker를 자동 배포하고, GR00T 학습 컨테이너와 추론 엔드포인트까지 표준화된 형태로 제공합니다.
+
+두 가지 학습 트랙을 다룹니다.
+
+| 트랙 | 설명 | 결과물 |
+|------|------|--------|
+| **RL Policy** (Isaac Lab) | 휴머노이드 로봇이 거친 지형에서 걷도록 PPO로 학습. 단일 GPU에서 2,048개의 가상 로봇을 동시에 시뮬레이션 | `.pt` 체크포인트 |
+| **VLA Foundation Model** (GR00T) | 카메라 영상 + 자연어 명령을 받아 로봇 관절 명령을 직접 생성하는 3B 파라미터 모델을 커스텀 데이터셋으로 fine-tune | SageMaker Endpoint 또는 EFS의 fine-tuned 모델 |
+
+두 트랙 모두 같은 AWS 인프라(VPC · GPU EC2 · EFS · Batch)를 공유합니다.
+
+## Features
+
+- **원클릭 배포** — VPC, GPU EC2(DCV), EFS, ECR, Batch, SageMaker Studio, MLflow까지 CDK 한 번에 생성
+- **멀티 사용자 격리** — `userId`만 다르게 주면 한 계정에서 여러 명이 충돌 없이 동시 사용
+- **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
+- **분산 학습 지원** — AWS Batch Multi-Node Parallel Jobs로 NCCL AllReduce 기반 멀티 노드 학습
+- **MLOps 통합** — SageMaker Model Registry 등록 → Lambda로 Endpoint 자동 배포까지 Pipeline 한 줄로
+- **두 가지 추론 백엔드** — SageMaker HTTPS Endpoint(운영용)와 ZMQ Policy Server(시뮬레이션 closed-loop용)
+- **Fleet 모니터링** — 분산 학습 워커들의 Rerun 3D 뷰어와 TensorBoard를 한 화면에서 확인하는 Next.js 대시보드
+
+## Prerequisites
+
+- AWS 계정 (관리자 또는 동등 권한)
+- GPU 인스턴스 서비스 할당량 — 배포 리전의 G6/G5 vCPU 한도 확인
+- Node.js 18+, AWS CDK CLI
+- Python 3.10+ (GR00T 학습 스크립트용 — `uv` 권장)
+
+CloudShell을 사용하면 위 환경이 거의 다 준비되어 있어 가장 편합니다.
+
+## Getting Started
+
+### 1) IsaacLab 인프라 배포
+
+```bash
+git clone https://github.com/hi-space/aws-physical-ai-recipes.git
+cd aws-physical-ai-recipes/e2e-workshop/infra/isaaclab
+npm install
+
+cdk deploy \
+  -c userId=<본인 이름> \
+  -c vpcCidr=10.<번호>.0.0/16 \
+  -c region=us-east-1
+```
+
+배포에 30~60분 정도 걸립니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
+
+### 2) RL 학습 — Isaac Lab으로 휴머노이드 보행
+
+DCV 데스크탑에 접속해서:
+
+```bash
+docker run --shm-size=60g --gpus all --rm -it --network=host \
+  -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y -e DISPLAY \
+  isaaclab-batch-<userId>:latest bash
+
+# 컨테이너 안에서
+cd /workspace/IsaacLab
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+  --task Isaac-Velocity-Rough-H1-v0 --num_envs 2048 --headless
+```
+
+대규모 분산 학습은 AWS Batch로 — 자세한 절차는 워크숍 가이드의 RL 트랙 참조.
+
+### 3) VLA 학습 — GR00T fine-tuning
+
+```bash
+# GR00T용 인프라 추가 배포
+cd ../../infra/groot
+npm install
+npm run deploy:shared                 # 관리자 1회 (account-wide)
+npm run deploy -- -c userId=<본인>    # 사용자별
+
+# 학습 코드 환경
+cd ../../groot
+uv sync && source .venv/bin/activate
+npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
+    --user-id <본인> --region us-east-1
+
+# 학습 실행
+python training/scripts/run_training.py \
+    --hf-dataset-id LightwheelAI/leisaac-pick-orange \
+    --max-steps 100 --save-steps 50
+
+# Endpoint 배포 + 호출
+python inference/sagemaker/deploy_endpoint.py
+python inference/sagemaker/invoke_endpoint.py \
+    --image-path inference/sagemaker/sample/test.png \
+    --proprioception "single_arm:0.1,0.2,0.3,0.4,0.5;gripper:0.0" \
+    --instruction "pick up the orange"
+```
+
+## Project Structure
 
 ```
 e2e-workshop/
-├── infra/                       # CDK 인프라 (배포 단위)
-│   ├── isaaclab/                #   멀티유저 GPU 환경 원클릭 배포
-│   └── groot-finetune/          #   GR00T VLA fine-tuning (Batch + SageMaker)
-├── apps/                        # 사용자가 실행하는 애플리케이션
-│   └── mlops-dashboard/         #   RL 학습 Fleet 모니터링 대시보드 (Next.js)
-├── scripts/                     # 셋업/검증 스크립트
-│   ├── groot-inference/         #   GR00T N1 추론 서버 테스트 클라이언트 (ZMQ)
-│   └── isaaclab-local-setup/    #   수동 셋업 — IsaacLab develop 브랜치 로컬 설치
-└── assets/                      # 시각화 스크린샷
+├── infra/
+│   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + EFS + ECR + Batch)
+│   └── groot/                 GR00T VLA CDK 3-stack (ECR + CodeBuild + Batch + SageMaker + MLflow)
+├── groot/                     GR00T 학습/추론 코드 (uv venv)
+│   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
+│   ├── pipeline/              학습 → 등록 → 배포 자동화 Pipeline
+│   └── inference/
+│       ├── sagemaker/         FastAPI 기반 SageMaker Endpoint
+│       └── batch-zmq/         GR00T base 모델 ZMQ ping 클라이언트
+├── apps/
+│   └── mlops-dashboard/       RL Fleet 모니터링 대시보드 (Next.js)
+├── scripts/
+│   └── isaaclab-local-setup/  로컬 IsaacLab + Newton 설치 스크립트
+└── assets/                    스크린샷
 ```
 
-## 두 가지 접근 방식
+각 하위 디렉토리에 자체 README가 있어 더 자세한 사용법과 옵션을 설명합니다.
 
-사용 목적에 따라 선택합니다.
+## Workshop Modules
 
-### Option A. CDK 인프라 배포 (멀티유저 / 워크숍)
+[워크숍 가이드](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)가 이 코드베이스를 8개 모듈로 나눠 따라할 수 있게 안내합니다.
 
-> **언제**: 팀원 여러 명이 각자 GPU 환경이 필요하거나, 워크숍/데모를 운영할 때
+| 모듈 | 다루는 내용 | 주로 사용하는 디렉토리 |
+|------|-------------|------------------------|
+| 1. 인프라 준비 | CDK로 GPU 데스크탑 띄우기 | `infra/isaaclab/` |
+| 2-3. RL 학습 | 휴머노이드 보행 학습 (단일 GPU → AWS Batch 분산) | `infra/isaaclab/assets/workshop/` |
+| 4. RL 시각화 | 학습된 정책으로 시뮬레이션 재생 | (DCV에서 IsaacSim) |
+| 5. VLA 인프라 | GR00T용 Batch + SageMaker 배포, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` |
+| 6. Batch fine-tuning | AWS Batch에서 GR00T fine-tune | `infra/groot/assets/` |
+| 7. SageMaker 파이프라인 | Train → Registry → Endpoint 자동화 | `groot/training/`, `groot/pipeline/`, `groot/inference/sagemaker/` |
+| 8. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` |
 
-AWS CDK로 VPC, GPU EC2 (DCV 원격 데스크탑), EFS, Batch를 한 번에 배포합니다. Isaac Sim + Isaac Lab이 DLAMI에 사전 설치되어 있어 별도 환경 셋업 없이 DCV 접속 후 바로 학습을 시작할 수 있습니다.
+## License
 
-**주요 특징:**
-- GPU 인스턴스 타입 자동 탐색 (g6.12xlarge → g5.12xlarge → fallback)
-- AZ별 GPU 가용량 자동 탐지 + 리전 12개 지원
-- NICE DCV 원격 데스크탑 (`https://<IP>:8443`)
-- AWS Batch 분산 학습 인프라 포함
-- 사용자별 격리된 VPC/EFS/IAM
+이 프로젝트의 라이선스는 저장소 루트 LICENSE 파일을 따릅니다. 사용된 외부 모델·데이터셋(NVIDIA GR00T, Isaac Lab, Cosmos-Reason2-2B, leisaac-pick-orange 등)은 각자의 라이선스를 따릅니다.
 
-```bash
-cd e2e-workshop/infra/isaaclab/
-cat README.md          # 상세 배포 가이드
-```
+## References
 
-| 버전 프로파일 | OS | Isaac Sim | Isaac Lab |
-|---------------|-----|-----------|-----------|
-| stable | Ubuntu 22.04 | 4.5.0 | 2.3.2 |
-| latest | Ubuntu 24.04 | 5.1.0 | 2.3.2 |
-
-### Option B. 수동 셋업 (Newton 물리엔진)
-
-> **언제**: 이미 GPU EC2 인스턴스가 있고, Isaac Lab `develop` 브랜치에서 Newton 물리엔진으로 학습할 때
-
-기존 EC2 인스턴스에 git clone + 스크립트로 환경을 직접 구성합니다. Newton 물리엔진(경량 시뮬레이터)을 사용하므로 Isaac Sim 전체 스택 없이도 빠르게 RL 학습을 돌릴 수 있습니다.
-
-**주요 특징:**
-- `setup.sh` 원클릭 설치 (Python 3.11 + venv + 의존성)
-- Isaac Sim 5.1.0 + Newton 물리엔진 (`beta-0.2.1`)
-- 3가지 시각화 백엔드 (Omniverse / Newton / Rerun)
-- DCV 없이 Rerun 웹 뷰어로 원격 모니터링 가능
-
-```bash
-# 빠른 시작
-cd scripts/isaaclab-local-setup
-bash setup.sh
-source ~/.bashrc
-cd ~/environment/IsaacLab
-python scripts/reinforcement_learning/skrl/train.py --task=Isaac-Ant-v0
-```
-
-상세 가이드: **[scripts/isaaclab-local-setup/](./scripts/isaaclab-local-setup/)**
-
-## 시각화 옵션
-
-학습 중 시뮬레이션을 시각화하는 3가지 방법을 제공합니다.
-
-| Visualizer | 특징 | 접속 방식 | 적합한 상황 |
-|------------|------|-----------|-------------|
-| **Omniverse** | High-fidelity USD 렌더링 | Isaac Sim UI / `--livestream` | 고품질 시각화, 데모 |
-| **Newton** | 경량 OpenGL 뷰어 | DCV 등 원격 데스크탑 | 빠른 반복 학습 |
-| **Rerun** | 웹 브라우저 뷰어, 타임라인 리플레이 | `http://<IP>:9090` | 원격 모니터링 (DCV 불필요) |
-
-```bash
-# 시각화 백엔드 선택
-python scripts/reinforcement_learning/rsl_rl/train.py \
-  --task Isaac-Humanoid-v0 \
-  --visualizer newton    # newton | rerun | omniverse
-```
-
-| Newton Visualizer | Rerun Visualizer |
-|:-:|:-:|
-| ![newton](./assets/newton-visualizer.png) | ![rerun](./assets/rerun-visualizer.png) |
-
-## MLOps Dashboard
-
-분산 학습 Fleet의 상태를 실시간으로 모니터링하는 Next.js 대시보드입니다. Rerun 뷰어와 TensorBoard를 통합하여 학습 진행 상황을 한 곳에서 확인할 수 있습니다.
-
-```bash
-cd e2e-workshop/apps/mlops-dashboard/
-cat README.md
-```
-
-## 환경 요약
-
-| 항목 | Option A (CDK) | Option B (수동 셋업) |
-|------|----------------|----------------------|
-| 배포 방식 | `cdk deploy` | `bash setup.sh` |
-| OS | Ubuntu 22.04 / 24.04 (DLAMI) | Ubuntu 22.04 |
-| Python | AMI 내장 | 3.11 (deadsnakes PPA) |
-| Isaac Sim | 4.5.0 또는 5.1.0 | 5.1.0 |
-| 물리 엔진 | Isaac Sim 기본 | Newton (beta-0.2.1) |
-| GPU | g6/g5 자동 탐색 | 기존 인스턴스 활용 |
-| 원격 접속 | DCV (포트 8443) | DCV 또는 Rerun 웹 뷰어 |
-| 멀티유저 | userId별 격리 배포 | 단일 사용자 |
+- [NVIDIA Isaac Lab](https://isaac-sim.github.io/IsaacLab/)
+- [NVIDIA GR00T Foundation Model](https://developer.nvidia.com/gr00t)
+- [Isaac-GR00T (GitHub)](https://github.com/NVIDIA/Isaac-GR00T)
+- [LeIsaac — Closed-loop 평가 프레임워크](https://github.com/LightwheelAI/leisaac)
+- [Scale RL with AWS Batch Multi-Node Parallel Jobs (AWS Blog)](https://aws.amazon.com/blogs/hpc/scale-reinforcement-learning-with-aws-batch-multi-node-parallel-jobs/)
