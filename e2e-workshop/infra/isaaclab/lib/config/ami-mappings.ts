@@ -14,7 +14,7 @@
  *
  * Batch AMI: SSM Parameter /aws/service/ecs/optimized-ami/amazon-linux-2/gpu/recommended/image_id
  *
- * 지원 리전: 13개 (g6.12xlarge 슬롯 존재 확인, Baywatch 2026-03-07 기준)
+ * 지원 리전: 12개 (g6.12xlarge 슬롯 존재 확인, Baywatch 2026-03-07 기준)
  */
 
 /** 지원 리전 목록 (g6+g5 모두 지원하는 12개 리전, Baywatch 2026-03-07 기준) */

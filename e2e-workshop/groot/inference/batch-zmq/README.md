@@ -99,7 +99,7 @@ uv run python gr00t/eval/rollout_policy.py \
 | BEHAVIOR (50개 가정 태스크) | Galaxea R1 Pro | 체크포인트 제공 | 중간 |
 | G1 WholeBodyControl | Unitree G1 | 체크포인트 제공 | 중간 |
 
-> Isaac Sim closed-loop 평가는 워크숍 가이드 [Module 8](https://github.com/hi-space/physical-ai-aws-docs/blob/main/physical-ai-on-aws-guide/e2e-workshop/8.-evaluation.md) 참고.
+> Isaac Sim closed-loop 평가는 워크숍 가이드 [Module 8 - Closed-loop Evaluation](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop/8.-evaluation) 참고.
 
 ### 이 클라이언트의 위치
 
