@@ -31,7 +31,7 @@
 #   INSTRUCTION: Language instruction (default: "pick up the orange")
 #   EVAL_ROUNDS: Number of evaluation episodes (default: 10)
 #   GROOT_VERSION: Model version n1.6 or n1.7 (default: n1.6)
-#   POLICY_PORT: ZMQ port for policy server (default: 5555)
+#   POLICY_PORT: ZMQ port for policy server (default: 5556)
 
 set -e
 
@@ -43,7 +43,7 @@ EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/configs/so101_modality.py}"
 INSTRUCTION="${INSTRUCTION:-pick up the orange}"
 EVAL_ROUNDS="${EVAL_ROUNDS:-10}"
-POLICY_PORT="${POLICY_PORT:-5555}"
+POLICY_PORT="${POLICY_PORT:-5556}"
 
 GROOT_ENV="/fsx/envs/gr00t"
 GROOT_REPO="/fsx/scratch/Isaac-GR00T"
@@ -101,6 +101,9 @@ echo "[1/3] Starting GR00T Policy Server (port ${POLICY_PORT}, GPU 0)..."
 nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 fuser -k "${POLICY_PORT}/tcp" 2>/dev/null || true
 sleep 2
+
+export HF_HOME="/fsx/scratch/.cache/huggingface"
+mkdir -p "${HF_HOME}"
 
 source "${GROOT_ENV}/bin/activate"
 cd "${GROOT_REPO}"
@@ -160,12 +163,13 @@ fi
 cat > /tmp/isaaclab_rc.sh << 'RCEOF'
 #!/bin/bash
 cd /isaac-sim || exit 1
+export CARB_APP_PATH=/isaac-sim/kit
+export ISAAC_PATH=/isaac-sim
+export EXP_PATH=/isaac-sim/apps
+export ISAAC_SIM_PATH=/isaac-sim
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
 export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
-export ISAAC_SIM_PATH=/isaac-sim
-export ISAAC_PATH=/isaac-sim
-export CARB_APP_PATH=/isaac-sim/kit
-export EXP_PATH=/isaac-sim/apps
+export LD_PRELOAD=/isaac-sim/kit/libcarb.so
 source /isaac-sim/setup_python_env.sh
 exec "$@"
 RCEOF

@@ -74,7 +74,14 @@ def main():
     for p in workshop_path.split(":"):
         if p and p not in sys.path:
             sys.path.insert(0, p)
-    import workshop  # noqa: F401 — registers gym environments
+    try:
+        import isaaclab_tasks  # noqa: F401 — registers Isaac Lab gym environments
+    except ImportError:
+        pass
+    try:
+        import workshop  # noqa: F401 — registers custom workshop environments
+    except ImportError:
+        pass
 
     env_cfg_entry = gym.spec(args.task).kwargs["env_cfg_entry_point"]
     agent_cfg_entry = gym.spec(args.task).kwargs["rsl_rl_cfg_entry_point"]

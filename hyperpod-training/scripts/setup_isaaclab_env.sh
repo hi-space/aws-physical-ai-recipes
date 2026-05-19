@@ -22,7 +22,7 @@ set -e
 
 ISAAC_SIM_VERSION="${ISAAC_SIM_VERSION:-4.5.0}"
 CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
-WORKSHOP_SRC="/fsx/scratch/aws-physical-ai-recipes/isaac-lab-workshop/exp/workshop"
+WORKSHOP_SRC="/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/isaac-lab-workshop"
 WORKSHOP_DST="/fsx/scratch/isaaclab-workshop"
 
 echo "=================================================="
@@ -33,7 +33,7 @@ echo "Container Target: ${CONTAINER_IMAGE}"
 
 # Step 1: Check prerequisites
 echo ""
-echo "[1/4] Checking prerequisites..."
+echo "[1/6] Checking prerequisites..."
 
 if ! command -v enroot &>/dev/null; then
     echo "ERROR: enroot not found. This script must run on a HyperPod node."
@@ -57,7 +57,7 @@ echo "  Prerequisites OK"
 
 # Step 2: Import Isaac Sim container via Enroot
 echo ""
-echo "[2/4] Setting up Isaac Sim container..."
+echo "[2/6] Setting up Isaac Sim container..."
 
 if [ -f "${CONTAINER_IMAGE}" ]; then
     echo "  Container already exists at ${CONTAINER_IMAGE}"
@@ -135,7 +135,7 @@ fi
 
 # Step 3: Prepare workshop task package
 echo ""
-echo "[3/4] Setting up workshop task package (SO-101 Reach/Lift)..."
+echo "[3/6] Setting up workshop task package (SO-101 Reach/Lift)..."
 
 if [ -d "${WORKSHOP_SRC}" ]; then
     mkdir -p "${WORKSHOP_DST}"
@@ -152,9 +152,24 @@ else
     echo "  You can still use built-in Isaac Lab tasks (e.g., Isaac-Cartpole-v0)"
 fi
 
-# Step 4: Install LeIsaac for closed-loop evaluation
+# Step 4: Clone IsaacLab source (needed for isaaclab_rl.rsl_rl on PYTHONPATH)
 echo ""
-echo "[4/5] Setting up LeIsaac (closed-loop evaluation)..."
+echo "[4/6] Setting up IsaacLab source..."
+
+ISAACLAB_DIR="/fsx/scratch/IsaacLab"
+if [ -d "${ISAACLAB_DIR}/source/isaaclab_rl" ]; then
+    echo "  IsaacLab source already exists at ${ISAACLAB_DIR}"
+else
+    echo "  Cloning IsaacLab source (sparse checkout, source/ only)..."
+    git clone --depth 1 --filter=blob:none --sparse \
+        https://github.com/isaac-sim/IsaacLab.git "${ISAACLAB_DIR}" 2>/dev/null || true
+    cd "${ISAACLAB_DIR}" && git sparse-checkout set source/ 2>/dev/null || true
+    echo "  IsaacLab source ready at ${ISAACLAB_DIR}"
+fi
+
+# Step 5: Install LeIsaac for closed-loop evaluation
+echo ""
+echo "[5/6] Setting up LeIsaac (closed-loop evaluation)..."
 
 LEISAAC_DIR="/fsx/scratch/leisaac"
 
@@ -191,9 +206,9 @@ fi
 
 echo "  LeIsaac ready at ${LEISAAC_DIR}"
 
-# Step 5: Create directories
+# Step 6: Create directories
 echo ""
-echo "[5/5] Creating directories..."
+echo "[6/6] Creating directories..."
 mkdir -p /fsx/checkpoints/rl /fsx/scratch/logs
 chmod 777 /fsx/checkpoints/rl 2>/dev/null || true
 echo "  Directories ready"

@@ -37,6 +37,7 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-/fsx/enroot/data/isaaclab+latest.sqsh}"
 WORKSHOP_PKG="/fsx/scratch/isaaclab-workshop/src"
+ISAACLAB_SRC="/fsx/scratch/IsaacLab/source"
 SCRIPT_DIR="/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl"
 
 echo "=================================================="
@@ -65,20 +66,25 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
     if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
         echo "Creating container rootfs (first time only, ~5-10 min on FSx)..."
         sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
+    fi
 
-        # Patch entrypoint to pass through commands (default runs runheadless.sh)
-        ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
-        [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
-        sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
+    # Patch entrypoint to pass through commands (default runs runheadless.sh)
+    ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
+    [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
+    sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
 mkdir -p "/isaac-sim" 2> /dev/null
 cd "/isaac-sim" && unset OLDPWD || exit 1
+export CARB_APP_PATH=/isaac-sim/kit
+export ISAAC_PATH=/isaac-sim
+export EXP_PATH=/isaac-sim/apps
+export ISAAC_SIM_PATH=/isaac-sim
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
 export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs:$LD_LIBRARY_PATH
-export ISAAC_SIM_PATH=/isaac-sim
+export LD_PRELOAD=/isaac-sim/kit/libcarb.so
+source /isaac-sim/setup_python_env.sh
 if [ -s /etc/rc.local ]; then . /etc/rc.local; fi
 if [ $# -gt 0 ]; then exec "$@"; else exec /bin/sh -c /isaac-sim/runheadless.sh; fi
 RCEOF
-    fi
 
     # Install Isaac Lab packages if not already present (uses chroot to avoid slow entrypoint)
     ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
@@ -99,13 +105,13 @@ RCEOF
         --mount /fsx:/fsx \
         --env ACCEPT_EULA=Y \
         --env PRIVACY_CONSENT=Y \
-        --env PYTHONPATH="${WORKSHOP_PKG}" \
+        --env PYTHONPATH="${WORKSHOP_PKG}:${ISAACLAB_SRC}/isaaclab_rl:${ISAACLAB_SRC}/isaaclab_tasks" \
         --env PYTHONUNBUFFERED=1 \
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         --env GIT_PYTHON_REFRESH=quiet \
         "${CONTAINER_NAME}" \
-        bash /isaac-sim/python.sh "${SCRIPT_DIR}/train_isaaclab.py" \
+        /isaac-sim/kit/python/bin/python3 "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \
             --num_envs "${NUM_ENVS}" \
             --max_iterations "${MAX_ITERATIONS}" \
