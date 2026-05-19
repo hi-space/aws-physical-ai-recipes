@@ -69,7 +69,15 @@ def main():
     from gr00t.policy.gr00t_policy import Gr00tPolicy
     from gr00t.data.embodiment_tags import EmbodimentTag
 
-    tag = EmbodimentTag.resolve(args.embodiment_tag)
+    tag_str = args.embodiment_tag
+    try:
+        tag = EmbodimentTag.resolve(tag_str)
+    except AttributeError:
+        try:
+            tag = EmbodimentTag[tag_str.upper()]
+        except KeyError:
+            print(f"WARNING: '{tag_str}' not found, falling back to NEW_EMBODIMENT")
+            tag = EmbodimentTag.NEW_EMBODIMENT
 
     policy_kwargs = dict(
         embodiment_tag=tag,

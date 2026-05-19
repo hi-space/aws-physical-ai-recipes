@@ -78,6 +78,9 @@ fi
 
 mkdir -p "${OUTPUT_DIR}" /fsx/scratch/logs
 
+GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
+
+set +e
 srun --container-image="${CONTAINER_IMAGE}" \
     --container-mounts="/fsx:/fsx" \
     --container-workdir="${GR00T_HOME}" \
@@ -86,6 +89,7 @@ srun --container-image="${CONTAINER_IMAGE}" \
     --base-model-path "${BASE_MODEL}" \
     --dataset-path "${DATASET_PATH}" \
     --embodiment-tag "${EMBODIMENT_TAG}" \
+    --modality-config-path "${MODALITY_CONFIG}" \
     --num-gpus "${NUM_GPUS}" \
     --output-dir "${OUTPUT_DIR}" \
     --save-total-limit "${SAVE_TOTAL_LIMIT}" \
@@ -93,9 +97,10 @@ srun --container-image="${CONTAINER_IMAGE}" \
     --max-steps "${MAX_STEPS}" \
     --no-use-wandb \
     --global-batch-size "${GLOBAL_BATCH_SIZE}" \
+    --gradient-accumulation-steps "${GRAD_ACCUM}" \
     --dataloader-num-workers "${DATALOADER_NUM_WORKERS}"
-
 EXIT_CODE=$?
+set -e
 
 echo ""
 echo "=================================================="

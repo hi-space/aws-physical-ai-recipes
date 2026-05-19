@@ -18,10 +18,16 @@ from pathlib import Path
 
 
 def parse_args():
+    _groot_version = os.environ.get("GROOT_VERSION", "n1.6")
+    _model_map = {"n1.6": "nvidia/GR00T-N1.6-3B", "n1.7": "nvidia/GR00T-N1.7-3B"}
+    _default_model = _model_map.get(_groot_version, "nvidia/GR00T-N1.6-3B")
+
     parser = argparse.ArgumentParser(description="GR00T fine-tuning with MLflow")
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--embodiment-tag", type=str, required=True)
-    parser.add_argument("--base-model-path", type=str, default="nvidia/GR00T-N1.7-3B")
+    parser.add_argument("--base-model-path", type=str, default=_default_model)
+    parser.add_argument("--modality-config-path", type=str, default=None,
+                        help="Path to modality config (required for NEW_EMBODIMENT)")
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--global-batch-size", type=int, default=2)
@@ -89,6 +95,8 @@ def main():
         "--gradient-accumulation-steps", str(args.gradient_accumulation_steps),
         "--dataloader-num-workers", str(args.dataloader_num_workers),
     ]
+    if args.modality_config_path:
+        cmd.extend(["--modality-config-path", args.modality_config_path])
 
     print(f"Launching: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=gr00t_home)

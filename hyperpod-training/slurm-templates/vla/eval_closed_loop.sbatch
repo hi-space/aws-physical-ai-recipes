@@ -30,9 +30,12 @@
 #   MODALITY_CONFIG: Modality config path
 #   INSTRUCTION: Language instruction (default: "pick up the orange")
 #   EVAL_ROUNDS: Number of evaluation episodes (default: 10)
+#   GROOT_VERSION: Model version n1.6 or n1.7 (default: n1.6)
 #   POLICY_PORT: ZMQ port for policy server (default: 5555)
 
 set -e
+
+GROOT_VERSION="${GROOT_VERSION:-n1.6}"
 
 DEFAULT_CKPT=$(ls -td /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-* 2>/dev/null | head -1)
 MODEL_PATH="${MODEL_PATH:-${DEFAULT_CKPT:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}}"
@@ -53,6 +56,7 @@ echo "GR00T Closed-loop Evaluation — LeIsaac PickOrange"
 echo "=================================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: $(hostname)"
+echo "GR00T Version: ${GROOT_VERSION}"
 echo "Model: ${MODEL_PATH}"
 echo "Embodiment: ${EMBODIMENT_TAG}"
 echo "Modality Config: ${MODALITY_CONFIG}"
@@ -172,6 +176,7 @@ sudo enroot start --root --rw --rc /tmp/isaaclab_rc.sh \
     --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
     isaaclab python3 -m pip install --quiet "protobuf>=5.26" grpcio 2>&1 | tail -3
 
+set +e
 sudo enroot start --root \
     --rw \
     --rc /tmp/isaaclab_rc.sh \
@@ -186,7 +191,7 @@ sudo enroot start --root \
     isaaclab \
     python3 /fsx/scratch/leisaac/scripts/evaluation/policy_inference.py \
         --task LeIsaac-SO101-PickOrange-v0 \
-        --policy_type gr00tn1.6 \
+        --policy_type "gr00t${GROOT_VERSION}" \
         --policy_host localhost \
         --policy_port "${POLICY_PORT}" \
         --policy_language_instruction "${INSTRUCTION}" \
@@ -194,8 +199,8 @@ sudo enroot start --root \
         --eval_rounds "${EVAL_ROUNDS}" \
         --headless \
         --enable_cameras
-
 SIM_EXIT=$?
+set -e
 
 # --- Cleanup ---
 echo ""

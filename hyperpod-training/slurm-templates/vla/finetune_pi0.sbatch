@@ -15,17 +15,17 @@ EPOCHS="${EPOCHS:-100}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 LR="${LR:-5e-5}"
 EXPERIMENT="${EXPERIMENT:-pi0-${DATASET}-$(date +%Y%m%d-%H%M%S)}"
-MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:?Set MLflow tracking URI}"
+MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
 CHECKPOINT_DIR="/fsx/checkpoints/vla/${EXPERIMENT}"
 
-export MLFLOW_TRACKING_URI
+[ -n "${MLFLOW_TRACKING_URI}" ] && export MLFLOW_TRACKING_URI
 
 mkdir -p "${CHECKPOINT_DIR}" /fsx/scratch/logs
 
 srun --container-image=docker://ghcr.io/physical-intelligence/openpi:latest \
      --container-mounts=/fsx:/fsx \
      torchrun --nproc_per_node=4 \
-       /fsx/scratch/train_pi0.py \
+       /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/vla/train_pi0.py \
        --dataset-path "/fsx/datasets/pi0/${DATASET}" \
        --output-dir "${CHECKPOINT_DIR}" \
        --epochs "${EPOCHS}" \

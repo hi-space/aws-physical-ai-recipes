@@ -60,7 +60,16 @@ class LocalGR00TPolicy:
         from gr00t.policy.gr00t_policy import Gr00tPolicy
         from gr00t.data.embodiment_tags import EmbodimentTag
 
-        tag = EmbodimentTag.resolve(embodiment_tag)
+        tag_str = embodiment_tag
+        try:
+            tag = EmbodimentTag.resolve(tag_str)
+        except AttributeError:
+            try:
+                tag = EmbodimentTag[tag_str.upper()]
+            except KeyError:
+                print(f"WARNING: '{tag_str}' not found, falling back to NEW_EMBODIMENT")
+                tag = EmbodimentTag.NEW_EMBODIMENT
+
         self.policy = Gr00tPolicy(
             embodiment_tag=tag,
             model_path=model_path,
@@ -157,7 +166,13 @@ def evaluate_open_loop_with_dataset(policy, dataset_path: str, embodiment_tag: s
         return []
 
     inner_policy = policy.policy if hasattr(policy, "policy") else policy
-    tag = EmbodimentTag.resolve(embodiment_tag)
+    try:
+        tag = EmbodimentTag.resolve(embodiment_tag)
+    except AttributeError:
+        try:
+            tag = EmbodimentTag[embodiment_tag.upper()]
+        except KeyError:
+            tag = EmbodimentTag.NEW_EMBODIMENT
     loader = LeRobotEpisodeLoader(dataset_path=dataset_path, modality_configs=modality_config)
     num_available = len(loader)
     num_eval = min(num_episodes, num_available)
@@ -228,6 +243,12 @@ def evaluate_closed_loop_dummy(policy, args):
     For real evaluation, replace create_dummy_observation() with
     Isaac Sim camera + joint sensor readings.
     """
+    if not hasattr(policy, "modality_config"):
+        print("  Skipping dummy eval: remote policy has no modality_config.")
+        print("  Use --dataset-path for open-loop eval or run full closed-loop with Isaac Sim.")
+        return []
+
+    inner_policy = policy.policy if hasattr(policy, "policy") else policy
     results = []
 
     for ep in range(args.num_episodes):
@@ -239,7 +260,7 @@ def evaluate_closed_loop_dummy(policy, args):
             if not action_queue:
                 obs = create_dummy_observation(policy, step, args.instruction)
                 try:
-                    action_chunk, _ = policy.policy.get_action(obs)
+                    action_chunk, _ = inner_policy.get_action(obs)
                 except (AssertionError, IndexError) as e:
                     if step == 0 and ep == 0:
                         print(f"  WARNING: Synthetic observations incompatible with model: {e}")

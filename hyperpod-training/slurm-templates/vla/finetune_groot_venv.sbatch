@@ -32,7 +32,7 @@
 #   BASE_MODEL: Base model path (default: derived from GROOT_VERSION)
 #   MAX_STEPS: Training steps (default: 2000)
 #   SAVE_STEPS: Save every N steps (default: 2000)
-#   GLOBAL_BATCH_SIZE: Global batch size (default: 2)
+#   GLOBAL_BATCH_SIZE: Global batch size (default: 32)
 #   OUTPUT_DIR: Checkpoint output (default: /fsx/checkpoints/vla/groot-<DATASET>)
 
 set -e
@@ -69,7 +69,7 @@ MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/hyperpo
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-5}"
-GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-2}"
+GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 OUTPUT_DIR="${OUTPUT_DIR:-/fsx/checkpoints/vla/groot-${DATASET}}"
 
@@ -128,56 +128,90 @@ cd "${GR00T_REPO}"
 
 GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 
-# Patches for GR00T N1.6 fine-tuning compatibility:
-# 1. Enable bf16 model loading (required for flash_attn in Eagle backbone)
-# 2. Disable backbone_trainable_params_fp32 (prevents fp32 cast that breaks flash_attn)
-# 3. Cast full model to bf16 after loading (ensures consistent dtypes)
-# 4. Fix all StopIteration bugs in device/dtype properties across model files
+# Patches for GR00T fine-tuning compatibility (N1.6 and N1.7):
+# - Enable bf16 model loading (required for flash_attn in Eagle/Qwen3 backbone)
+# - Disable backbone_trainable_params_fp32 (prevents fp32 cast that breaks flash_attn)
+# - Enable gradient checkpointing to reduce VRAM usage
+# - Fix StopIteration bugs in device/dtype properties across model files
+# - N1.6 only: flash_attention_2 inject, VideoInput fix, paged_adamw_8bit
 sed -i 's/config.model.load_bf16 = False/config.model.load_bf16 = True/' \
     gr00t/experiment/launch_finetune.py
 sed -i 's/config.model.backbone_trainable_params_fp32 = True/config.model.backbone_trainable_params_fp32 = False/' \
     gr00t/experiment/launch_finetune.py
 sed -i 's/gradient_checkpointing: bool = False/gradient_checkpointing: bool = True/' \
     gr00t/configs/training/training_config.py
-sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
-    gr00t/experiment/launch_finetune.py
 
+if [ "${GROOT_VERSION}" = "n1.6" ]; then
+    sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
+        gr00t/experiment/launch_finetune.py
+fi
+
+export GROOT_VERSION="${GROOT_VERSION}"
 python3 << 'PATCH'
+import os
 import re
 
-# Fix setup.py: cast entire model to bf16 after from_pretrained
-code = open('gr00t/model/gr00t_n1d6/setup.py').read()
-code = code.replace(
-    '            missing_keys = loading_info.get("missing_keys", [])',
-    '            import torch as _torch\n            model = model.to(_torch.bfloat16)\n            missing_keys = loading_info.get("missing_keys", [])'
-)
-open('gr00t/model/gr00t_n1d6/setup.py', 'w').write(code)
+GROOT_VERSION = os.environ.get("GROOT_VERSION", "n1.6")
 
 # Helper: safe device/dtype that doesn't crash on empty params or during __init__
 safe_device = "(lambda s: next((p.device for m in s.modules() for p in m.parameters()), __import__('torch').device('cuda')))(self)"
 safe_dtype = "(lambda s: next((p.dtype for m in s.modules() for p in m.parameters()), __import__('torch').bfloat16))(self)"
 
-# Fix gr00t_n1d6.py
-code = open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py').read()
-code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.device', safe_device, code)
-code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.dtype', safe_dtype, code)
-code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
-code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
-open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py', 'w').write(code)
-
-# Fix dit.py
+# Fix dit.py (common to both N1.6 and N1.7)
 code = open('gr00t/model/modules/dit.py').read()
 code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
 code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
 open('gr00t/model/modules/dit.py', 'w').write(code)
 
-# Fix eagle_backbone.py
-code = open('gr00t/model/modules/eagle_backbone.py').read()
-code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
-code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
-open('gr00t/model/modules/eagle_backbone.py', 'w').write(code)
+if GROOT_VERSION == "n1.6":
+    # Fix setup.py: cast entire model to bf16 after from_pretrained
+    code = open('gr00t/model/gr00t_n1d6/setup.py').read()
+    code = code.replace(
+        '            missing_keys = loading_info.get("missing_keys", [])',
+        '            import torch as _torch\n            model = model.to(_torch.bfloat16)\n            missing_keys = loading_info.get("missing_keys", [])'
+    )
+    open('gr00t/model/gr00t_n1d6/setup.py', 'w').write(code)
+
+    # Fix gr00t_n1d6.py
+    code = open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py').read()
+    code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.device', safe_device, code)
+    code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.dtype', safe_dtype, code)
+    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
+    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
+    open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py', 'w').write(code)
+
+    # Fix eagle_backbone.py
+    code = open('gr00t/model/modules/eagle_backbone.py').read()
+    code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
+    code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
+    code = code.replace(
+        'self.model = AutoModel.from_config(config, trust_remote_code=True)',
+        'config._attn_implementation = "flash_attention_2"\n            self.model = AutoModel.from_config(config, trust_remote_code=True)'
+    )
+    open('gr00t/model/modules/eagle_backbone.py', 'w').write(code)
+
+    # Fix VideoInput import in Eagle processor (not available in transformers<5.0)
+    eagle_proc = 'gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2/processing_eagle3_vl.py'
+    if os.path.exists(eagle_proc):
+        code = open(eagle_proc).read()
+        if 'VideoInput' in code:
+            code = code.replace(
+                'from transformers.image_utils import (\n    ImageInput,\n    VideoInput,',
+                'from transformers.image_utils import (\n    ImageInput,'
+            )
+            code = 'from typing import Any\nVideoInput = Any\n' + code
+            open(eagle_proc, 'w').write(code)
+
+elif GROOT_VERSION == "n1.7":
+    # Fix gr00t_n1d7.py
+    code = open('gr00t/model/gr00t_n1d7/gr00t_n1d7.py').read()
+    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
+    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
+    open('gr00t/model/gr00t_n1d7/gr00t_n1d7.py', 'w').write(code)
+
 PATCH
 
+set +e
 python -m gr00t.experiment.launch_finetune \
     --base-model-path "${BASE_MODEL}" \
     --dataset-path "${DATASET_PATH}" \
@@ -192,8 +226,8 @@ python -m gr00t.experiment.launch_finetune \
     --global-batch-size "${GLOBAL_BATCH_SIZE}" \
     --gradient-accumulation-steps "${GRAD_ACCUM}" \
     --dataloader-num-workers "${DATALOADER_NUM_WORKERS}"
-
 EXIT_CODE=$?
+set -e
 
 echo ""
 echo "=================================================="

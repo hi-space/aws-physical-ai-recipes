@@ -22,6 +22,8 @@ def parse_args():
                         help="Dataset path for evaluation (default: demo_data from repo)")
     parser.add_argument("--embodiment-tag", type=str,
                         default="OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT")
+    parser.add_argument("--modality-config-path", type=str, default=None,
+                        help="Path to modality config (required for NEW_EMBODIMENT)")
     parser.add_argument("--traj-ids", type=int, nargs="+", default=[0, 1],
                         help="Trajectory IDs to evaluate")
     parser.add_argument("--steps-per-traj", type=int, default=100,
@@ -47,7 +49,17 @@ def main():
         repo_root = Path(gr00t.__file__).parent.parent
         dataset_path = str(repo_root / "demo_data" / "droid_sample")
 
-    embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
+    tag_str = args.embodiment_tag
+    try:
+        embodiment_tag = EmbodimentTag.resolve(tag_str)
+    except AttributeError:
+        try:
+            embodiment_tag = EmbodimentTag[tag_str.upper()]
+        except KeyError:
+            available = list(EmbodimentTag.__members__.keys())
+            print(f"WARNING: '{tag_str}' not found. Available: {available}")
+            print(f"  Falling back to NEW_EMBODIMENT (use --modality-config-path)")
+            embodiment_tag = EmbodimentTag.NEW_EMBODIMENT
 
     print(f"Model: {args.model_path}")
     print(f"Dataset: {dataset_path}")
@@ -55,6 +67,12 @@ def main():
     print(f"Trajectories: {args.traj_ids}")
     print(f"Action horizon: {args.action_horizon}")
     print()
+
+    if args.modality_config_path:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("modality_config", args.modality_config_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
 
     print("Loading model...")
     policy = Gr00tPolicy(
