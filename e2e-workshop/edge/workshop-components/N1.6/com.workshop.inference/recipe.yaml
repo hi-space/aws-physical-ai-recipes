@@ -64,11 +64,11 @@ Manifests:
             -v /opt/groot/trt_n16:/opt/groot/trt_n16 \
             -v /home/ubuntu/.cache/huggingface:/root/.cache/huggingface \
             "$ECR_IMAGE" \
-            -c "cd /workspace/gr00t-repo && python -m gr00t.eval.run_gr00t_server \   
+            -c "cd /workspace/gr00t-repo && python -m gr00t.eval.run_gr00t_server \
               --model-path $MODEL_PATH \
               --embodiment-tag $EMBODIMENT \
-              --host $POLICY_HOST \ 
-              --port $POLICY_PORT" 
+              --host $POLICY_HOST \
+              --port $POLICY_PORT"
 
           echo "Waiting for Policy Server (up to 15 min)..."
           for i in $(seq 1 180); do
