@@ -1,0 +1,174 @@
+---
+RecipeFormatVersion: "2020-01-25"
+ComponentName: com.workshop.benchmark
+ComponentVersion: "1.0.0"
+ComponentDescription: "GR00T N1.6 PyTorch vs TRT (DiT Action Head) 벤치마크 비교"
+ComponentPublisher: Custom
+ComponentDependencies:
+  com.workshop.setup:
+    VersionRequirement: ">=1.0.0"
+    DependencyType: HARD
+ComponentConfiguration:
+  DefaultConfiguration:
+    ecrImage: "007023064118.dkr.ecr.us-east-1.amazonaws.com/groot-n16-inference-jinseony:latest"
+    modelPath: "/opt/groot/models/GR00T-N1.6-3B-Pick-Orange"
+    embodimentTag: "NEW_EMBODIMENT"
+    trtEnginePath: "/opt/groot/trt_n16"
+    numWarmup: "5"
+    numIterations: "50"
+Manifests:
+  - Platform:
+      os: linux
+      architecture: amd64
+    Lifecycle:
+      run:
+        RequiresPrivilege: true
+        Script: |
+          set -e
+          ECR_IMAGE="{configuration:/ecrImage}"
+          MODEL_PATH="{configuration:/modelPath}"
+          EMBODIMENT="{configuration:/embodimentTag}"
+          TRT_ENGINE_PATH="{configuration:/trtEnginePath}"
+          NUM_WARMUP="{configuration:/numWarmup}"
+          NUM_ITER="{configuration:/numIterations}"
+
+          cat > /tmp/workshop_benchmark_n16.py << 'PYEOF'
+          import time, json, os, sys
+          import numpy as np
+
+          # Pre-initialize TRT before PyTorch touches CUDA
+          import tensorrt as trt
+          print(f"TRT version: {trt.__version__}")
+          _trt_logger = trt.Logger(trt.Logger.WARNING)
+          _trt_runtime = trt.Runtime(_trt_logger)
+          print("TRT Runtime pre-initialized OK")
+
+          NUM_WARMUP = int(os.environ.get("NUM_WARMUP", 5))
+          NUM_ITER = int(os.environ.get("NUM_ITER", 50))
+          EMBODIMENT = os.environ.get("EMBODIMENT", "NEW_EMBODIMENT")
+          MODEL_PATH = os.environ.get("MODEL_PATH", "/opt/groot/models/GR00T-N1.6-3B-Pick-Orange")
+          TRT_ENGINE_PATH = os.environ.get("TRT_ENGINE_PATH", "/opt/groot/trt_n16")
+
+          from gr00t.data.embodiment_tags import EmbodimentTag
+          from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+          def make_dummy_obs():
+              return {
+                  'video': {
+                      'front': np.random.randint(0, 255, (1, 1, 224, 224, 3), dtype=np.uint8),
+                      'wrist': np.random.randint(0, 255, (1, 1, 224, 224, 3), dtype=np.uint8)
+                  },
+                  'state': {
+                      'single_arm': np.random.rand(1, 1, 5).astype(np.float32) * 100 - 50,
+                      'gripper': np.random.rand(1, 1, 1).astype(np.float32) * 90
+                  },
+                  'language': {
+                      'annotation.human.task_description': [['pick orange']]
+                  }
+              }
+
+          def benchmark_mode(policy, mode_name):
+              print(f'\n{"="*60}')
+              print(f'  Benchmark: {mode_name}')
+              print(f'{"="*60}')
+              obs = make_dummy_obs()
+              for i in range(NUM_WARMUP):
+                  policy.get_action(obs)
+              print(f'  Warmup: {NUM_WARMUP} iterations done')
+
+              latencies = []
+              for i in range(NUM_ITER):
+                  t0 = time.perf_counter()
+                  policy.get_action(obs)
+                  latencies.append((time.perf_counter() - t0) * 1000)
+
+              avg = np.mean(latencies)
+              p50 = np.percentile(latencies, 50)
+              p95 = np.percentile(latencies, 95)
+              p99 = np.percentile(latencies, 99)
+              std = np.std(latencies)
+
+              print(f'  Avg: {avg:.1f}ms | Std: {std:.1f}ms')
+              print(f'  P50: {p50:.1f}ms | P95: {p95:.1f}ms | P99: {p99:.1f}ms')
+              print(f'  Frequency: {1000/avg:.1f} Hz')
+              return {
+                  'mode': mode_name, 'avg_ms': round(avg, 2),
+                  'p50_ms': round(p50, 2), 'p95_ms': round(p95, 2),
+                  'p99_ms': round(p99, 2), 'std_ms': round(std, 2),
+                  'hz': round(1000/avg, 2), 'iterations': NUM_ITER
+              }
+
+          results = []
+
+          # [1/2] PyTorch 벤치마크
+          print('\n[1/2] Loading PyTorch model...')
+          policy_pt = Gr00tPolicy(
+              embodiment_tag=getattr(EmbodimentTag, EMBODIMENT),
+              model_path=MODEL_PATH, device='cuda:0'
+          )
+          results.append(benchmark_mode(policy_pt, 'pytorch'))
+          del policy_pt
+          import torch; torch.cuda.empty_cache()
+
+          # [2/2] TRT 벤치마크 (DiT Action Head)
+          trt_engine_file = os.path.join(TRT_ENGINE_PATH, 'dit_model_bf16.trt')
+          if os.path.isfile(trt_engine_file):
+              print('\n[2/2] Loading TRT model (DiT Action Head)...')
+              policy_trt = Gr00tPolicy(
+                  embodiment_tag=getattr(EmbodimentTag, EMBODIMENT),
+                  model_path=MODEL_PATH, device='cuda:0'
+              )
+              # N1.6 TRT: DiT action head만 TRT로 교체
+              try:
+                  sys.path.insert(0, '/workspace/gr00t-repo/scripts/deployment')
+                  from standalone_inference_script import replace_dit_with_tensorrt
+                  replace_dit_with_tensorrt(policy_trt, trt_engine_file)
+                  results.append(benchmark_mode(policy_trt, 'trt_dit_action_head'))
+              except Exception as e:
+                  print(f'  TRT setup failed: {e}')
+                  import traceback; traceback.print_exc()
+                  results.append({'mode': 'trt_dit_action_head', 'status': 'failed', 'error': str(e)})
+          else:
+              print(f'\n[2/2] TRT engine not found ({trt_engine_file}), skipping')
+              results.append({'mode': 'trt_dit_action_head', 'status': 'skipped', 'reason': 'engine not found'})
+
+          # 결과 요약
+          print('\n' + '='*60)
+          print('  N1.6 BENCHMARK RESULTS SUMMARY')
+          print('='*60)
+          for r in results:
+              if 'avg_ms' in r:
+                  print(f"  {r['mode']:25s} | {r['avg_ms']:7.1f}ms avg | {r['hz']:6.1f} Hz")
+              else:
+                  print(f"  {r['mode']:25s} | {r.get('status','?')} ({r.get('reason', r.get('error',''))})")
+          if len(results) == 2 and 'avg_ms' in results[0] and 'avg_ms' in results[1]:
+              speedup = results[0]['avg_ms'] / results[1]['avg_ms']
+              print(f"\n  TRT Speedup: {speedup:.2f}x faster than PyTorch")
+          print('='*60)
+          print(json.dumps(results, indent=2))
+          PYEOF
+
+          echo "=== N1.6 Benchmark: PyTorch vs TRT (DiT) ==="
+          docker run --rm --gpus all --ipc=host --network=host --entrypoint /bin/bash \
+            -v /opt/groot/models:/opt/groot/models \
+            -v /opt/groot/trt_n16:/opt/groot/trt_n16 \
+            -v /root/.cache/huggingface:/root/.cache/huggingface \
+            -v /tmp/workshop_benchmark_n16.py:/tmp/workshop_benchmark_n16.py \
+            -e NUM_WARMUP="$NUM_WARMUP" \
+            -e NUM_ITER="$NUM_ITER" \
+            -e EMBODIMENT="$EMBODIMENT" \
+            -e MODEL_PATH="$MODEL_PATH" \
+            -e TRT_ENGINE_PATH="$TRT_ENGINE_PATH" \
+            "$ECR_IMAGE" \
+            -c '
+          VENV_SP=/workspace/gr00t-repo/.venv/lib/python3.12/site-packages
+          SYS_SP=/usr/local/lib/python3.12/dist-packages
+          rm -rf $VENV_SP/tensorrt $VENV_SP/tensorrt_libs $VENV_SP/tensorrt_bindings $VENV_SP/tensorrt_cu12* $VENV_SP/tensorrt-* $VENV_SP/tensorrt_*.dist-info 2>/dev/null
+          ln -sf $SYS_SP/tensorrt $VENV_SP/tensorrt
+          [ -d $SYS_SP/tensorrt_libs ] && ln -sf $SYS_SP/tensorrt_libs $VENV_SP/tensorrt_libs
+          [ -d $SYS_SP/tensorrt_bindings ] && ln -sf $SYS_SP/tensorrt_bindings $VENV_SP/tensorrt_bindings
+          for f in $SYS_SP/tensorrt-10.7*.dist-info $SYS_SP/tensorrt_*10.7*.dist-info; do [ -e "$f" ] && ln -sf "$f" "$VENV_SP/$(basename $f)"; done
+          cd /workspace/gr00t-repo && source .venv/bin/activate && python /tmp/workshop_benchmark_n16.py
+          '
+          echo "=== Benchmark Complete ==="
+        Timeout: 1800

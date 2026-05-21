@@ -1,0 +1,114 @@
+---
+RecipeFormatVersion: "2020-01-25"
+ComponentName: com.workshop.setup
+ComponentVersion: "1.0.0"
+ComponentDescription: "GR00T N1.6 Pick-Orange 모델 다운로드 + TRT 엔진 빌드 (DiT Action Head)"
+ComponentPublisher: Custom
+ComponentDependencies:
+  com.workshop.docker-build:
+    VersionRequirement: ">=1.0.0"
+    DependencyType: HARD
+ComponentConfiguration:
+  DefaultConfiguration:
+    modelUrl: "s3://S3_BUCKET_PLACEHOLDER/workshop/GR00T-N1.6-3B-Pick-Orange.tar.gz"
+    datasetUrl: "https://d3ru2qz80ictoo.cloudfront.net/workshop/leisaac-pick-orange.tar.gz"
+    modelDir: "/opt/groot/models"
+    modelName: "GR00T-N1.6-3B-Pick-Orange"
+    buildTrt: "true"
+    trtEngineDir: "/opt/groot/trt_n16"
+    precision: "bf16"
+    embodimentTag: "new_embodiment"
+    region: "us-east-1"
+Manifests:
+  - Platform:
+      os: linux
+      architecture: amd64
+    Lifecycle:
+      run:
+        RequiresPrivilege: true
+        Script: |
+          set -e
+          export AWS_DEFAULT_REGION="{configuration:/region}"
+          MODEL_DIR="{configuration:/modelDir}"
+          MODEL_NAME="{configuration:/modelName}"
+          MODEL_URL="{configuration:/modelUrl}"
+          BUILD_TRT="{configuration:/buildTrt}"
+          TRT_DIR="{configuration:/trtEngineDir}"
+          PRECISION="{configuration:/precision}"
+          EMBODIMENT="{configuration:/embodimentTag}"
+          DATASET_URL="{configuration:/datasetUrl}"
+
+          # === Step 1: 모델 다운로드 (이미 있으면 스킵) ===
+          if [ -d "$MODEL_DIR/$MODEL_NAME" ] && [ $(find "$MODEL_DIR/$MODEL_NAME" -name "*.safetensors" 2>/dev/null | wc -l) -ge 2 ]; then
+            echo "Model $MODEL_NAME already exists ($(du -sh $MODEL_DIR/$MODEL_NAME | cut -f1)), skipping"
+          else
+            echo "=== Downloading GR00T-N1.6-3B-Pick-Orange ==="
+            mkdir -p "$MODEL_DIR"
+            CACHE_FILE="/tmp/${MODEL_NAME}.tar.gz"
+            if echo "$MODEL_URL" | grep -q "^s3://"; then
+              aws s3 cp "$MODEL_URL" "$CACHE_FILE" --region "$AWS_DEFAULT_REGION"
+            else
+              wget -q --show-progress -O "$CACHE_FILE" "$MODEL_URL"
+            fi
+            tar -xzf "$CACHE_FILE" -C "$MODEL_DIR/"
+            rm -f "$CACHE_FILE"
+            echo "Model ready: $MODEL_DIR/$MODEL_NAME ($(du -sh $MODEL_DIR/$MODEL_NAME | cut -f1))"
+          fi
+
+          # === Step 2: TRT 엔진 빌드 (DiT Action Head only) ===
+          if [ "$BUILD_TRT" = "true" ]; then
+            if [ -f "$TRT_DIR/dit_model_${PRECISION}.trt" ]; then
+              echo "TRT engine already exists: $TRT_DIR/dit_model_${PRECISION}.trt, skipping"
+            else
+              echo "=== Building TRT engine (N1.6 DiT Action Head) ==="
+              ECR_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "groot-n16-inference" | head -1)
+              if [ -z "$ECR_IMAGE" ]; then
+                echo "ERROR: groot-n16-inference image not found"
+                exit 1
+              fi
+
+              # 데이터셋 다운로드 (TRT export에 필요)
+              LOCAL_DATASET="/opt/groot/datasets/leisaac-pick-orange"
+              if [ ! -d "$LOCAL_DATASET" ] || [ $(find "$LOCAL_DATASET" -type f | wc -l) -lt 10 ]; then
+                echo "Downloading dataset from CloudFront..."
+                mkdir -p /opt/groot/datasets
+                wget -q --show-progress -O /tmp/leisaac-pick-orange.tar.gz "$DATASET_URL"
+                tar -xzf /tmp/leisaac-pick-orange.tar.gz -C /opt/groot/datasets/
+                rm -f /tmp/leisaac-pick-orange.tar.gz
+              fi
+
+              mkdir -p "$TRT_DIR"
+
+              # Step 2a: ONNX export (DiT만)
+              echo "  [1/2] Exporting DiT to ONNX..."
+              docker run --rm --gpus all --entrypoint /bin/bash \
+                -v /opt/groot/models:/opt/groot/models \
+                -v /opt/groot/datasets:/opt/groot/datasets \
+                -v "$TRT_DIR":/opt/groot/trt_n16 \
+                "$ECR_IMAGE" \
+                -c "cd /workspace/gr00t-repo && python scripts/deployment/export_onnx_n1d6.py \
+                  --model_path /opt/groot/models/$MODEL_NAME \
+                  --dataset_path /opt/groot/datasets/leisaac-pick-orange \
+                  --embodiment_tag $EMBODIMENT \
+                  --output_dir /opt/groot/trt_n16"
+
+              # Step 2b: TRT 엔진 빌드 (base image 사용 — venv CUDA 호환성 이슈)
+              echo "  [2/2] Building TensorRT engine..."
+              docker run --rm --gpus all --ipc=host --entrypoint /bin/bash \
+                -v "$TRT_DIR":/opt/groot/trt_n16 \
+                -w /opt/groot/trt_n16 \
+                "$ECR_IMAGE" \
+                -c "/usr/bin/python3 /workspace/gr00t-repo/scripts/deployment/build_tensorrt_engine.py \
+                  --onnx /opt/groot/trt_n16/dit_model.onnx \
+                  --engine /opt/groot/trt_n16/dit_model_${PRECISION}.trt \
+                  --precision $PRECISION"
+
+              echo "=== TRT 빌드 완료: $TRT_DIR/dit_model_${PRECISION}.trt ==="
+              ls -lh "$TRT_DIR/"
+            fi
+          else
+            echo "TRT build skipped (buildTrt=false)"
+          fi
+
+          echo "=== Setup Complete (N1.6 + TRT) ==="
+        Timeout: 3600

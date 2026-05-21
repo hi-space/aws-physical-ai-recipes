@@ -1,0 +1,90 @@
+---
+RecipeFormatVersion: "2020-01-25"
+ComponentName: com.workshop.inference
+ComponentVersion: "1.0.0"
+ComponentDescription: "GR00T N1.6 Pick-Orange Policy Server (PyTorch 또는 TRT)"
+ComponentPublisher: Custom
+ComponentDependencies:
+  com.workshop.setup:
+    VersionRequirement: ">=1.0.0"
+    DependencyType: HARD
+ComponentConfiguration:
+  DefaultConfiguration:
+    ecrImage: "007023064118.dkr.ecr.us-east-1.amazonaws.com/groot-n16-inference-jinseony:latest"
+    modelPath: "/opt/groot/models/GR00T-N1.6-3B-Pick-Orange"
+    embodimentTag: "NEW_EMBODIMENT"
+    inferenceMode: "tensorrt"
+    trtEnginePath: "/opt/groot/trt_n16/dit_model_bf16.trt"
+    policyHost: "0.0.0.0"
+    policyPort: "5555"
+Manifests:
+  - Platform:
+      os: linux
+      architecture: amd64
+    Lifecycle:
+      run:
+        RequiresPrivilege: true
+        Script: |
+          set -e
+          ECR_IMAGE="{configuration:/ecrImage}"
+          MODEL_PATH="{configuration:/modelPath}"
+          EMBODIMENT="{configuration:/embodimentTag}"
+          INFERENCE_MODE="{configuration:/inferenceMode}"
+          TRT_ENGINE="{configuration:/trtEnginePath}"
+          POLICY_HOST="{configuration:/policyHost}"
+          POLICY_PORT="{configuration:/policyPort}"
+
+          docker stop groot-workshop-inference 2>/dev/null || true
+          docker rm groot-workshop-inference 2>/dev/null || true
+
+          echo "=== GR00T N1.6 Policy Server ==="
+          echo "Model: $MODEL_PATH"
+          echo "Embodiment: $EMBODIMENT"
+          echo "Mode: $INFERENCE_MODE"
+          echo "Listen: $POLICY_HOST:$POLICY_PORT"
+
+          # TRT 엔진이 없으면 PyTorch fallback
+          TRT_ARGS=""
+          if [ "$INFERENCE_MODE" = "tensorrt" ] && [ -f "$TRT_ENGINE" ]; then
+            TRT_ARGS="--inference-mode tensorrt --trt-engine-path $TRT_ENGINE"
+            echo "TRT engine: $TRT_ENGINE"
+          else
+            TRT_ARGS="--inference-mode pytorch"
+            if [ "$INFERENCE_MODE" = "tensorrt" ]; then
+              echo "⚠️ TRT engine not found, falling back to PyTorch"
+            fi
+          fi
+
+          docker run -d --gpus all --network=host --entrypoint /bin/bash \
+            --name groot-workshop-inference \
+            --shm-size=8g \
+            --restart unless-stopped \
+            -e PYTHONUNBUFFERED=1 \
+            -v /opt/groot/models:/opt/groot/models \
+            -v /opt/groot/trt_n16:/opt/groot/trt_n16 \
+            -v /home/ubuntu/.cache/huggingface:/root/.cache/huggingface \
+            "$ECR_IMAGE" \
+            -c "cd /workspace/gr00t-repo && python -m gr00t.eval.run_gr00t_server \   
+              --model-path $MODEL_PATH \
+              --embodiment-tag $EMBODIMENT \
+              --host $POLICY_HOST \ 
+              --port $POLICY_PORT" 
+
+          echo "Waiting for Policy Server (up to 15 min)..."
+          for i in $(seq 1 180); do
+            ss -tlnp | grep -q ":$POLICY_PORT " && echo "✅ Policy Server ready on port $POLICY_PORT" && break
+            sleep 5
+          done
+
+          if ! ss -tlnp | grep -q ":$POLICY_PORT "; then
+            echo "⚠️ Timeout waiting for port $POLICY_PORT — check: docker logs groot-workshop-inference"
+          fi
+
+          # Keep script alive so Greengrass doesn't trigger shutdown
+          docker wait groot-workshop-inference
+      shutdown:
+        RequiresPrivilege: true
+        Script: |
+          docker stop groot-workshop-inference 2>/dev/null || true
+          docker rm groot-workshop-inference 2>/dev/null || true
+        Timeout: 30
