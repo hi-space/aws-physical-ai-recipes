@@ -129,7 +129,7 @@ if [ "$UNINSTALL" = "--uninstall" ]; then
 
   # 4. Greengrass 컴포넌트 삭제
   echo ">>> [4/6] Deleting Greengrass components (N1.6)"
-  for COMP in com.workshop.benchmark com.workshop.docker-build com.workshop.inference com.workshop.setup; do
+  for COMP in com.workshop.${USER_ID}.benchmark com.workshop.${USER_ID}.docker-build com.workshop.${USER_ID}.inference com.workshop.${USER_ID}.setup; do
     VERSIONS=$(aws greengrassv2 list-component-versions \
       --arn "arn:aws:greengrass:${REGION}:${ACCOUNT_ID}:components:${COMP}" \
       --query "componentVersions[?starts_with(componentVersion,'1.')].componentVersion" \
@@ -286,20 +286,20 @@ EC2_ROLE_NAME=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.25
 
 GG_PROVISION_POLICY="GreengrassProvisionPolicy"
 
-# if [ -n "$EC2_ROLE_NAME" ]; then
-#   if aws iam get-role-policy --role-name "$EC2_ROLE_NAME" --policy-name "$GG_PROVISION_POLICY" &>/dev/null; then
-#     echo "   ✅ Permissions already configured on $EC2_ROLE_NAME"
-#   else
-#     echo "   ⚠️  IoT/Greengrass 권한이 없습니다. 아래 명령어로 추가하세요:"
-#     echo "   aws iam put-role-policy --role-name $EC2_ROLE_NAME --policy-name $GG_PROVISION_POLICY \\"
-#     echo "     --policy-document file://gg-provision-policy.json"
-#     echo ""
-#     echo "   또는 관리자에게 요청하세요."
-#     echo "   계속 진행합니다 (Greengrass 설치 시 실패할 수 있음)..."
-#   fi
-# else
-#   echo "   ⚠️  EC2 Role을 감지할 수 없습니다. 계속 진행합니다."
-# fi
+if [ -n "$EC2_ROLE_NAME" ]; then
+  if aws iam get-role-policy --role-name "$EC2_ROLE_NAME" --policy-name "$GG_PROVISION_POLICY" &>/dev/null; then
+    echo "   ✅ Permissions already configured on $EC2_ROLE_NAME"
+  else
+    echo "   ⚠️  IoT/Greengrass 권한이 없습니다. 아래 명령어로 추가하세요:"
+    echo "   aws iam put-role-policy --role-name $EC2_ROLE_NAME --policy-name $GG_PROVISION_POLICY \\"
+    echo "     --policy-document file://gg-provision-policy.json"
+    echo ""
+    echo "   또는 관리자에게 요청하세요."
+    echo "   계속 진행합니다 (Greengrass 설치 시 실패할 수 있음)..."
+  fi
+else
+  echo "   ⚠️  EC2 Role을 감지할 수 없습니다. 계속 진행합니다."
+fi
 
 # ─── Step 4: Greengrass 설치 + 프로비저닝 ────────────────────────────────────
 if [ -f /greengrass/v2/bin/greengrass-cli ]; then
@@ -334,7 +334,7 @@ else
       \"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},
       \"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},
       \"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},
-      \"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\",\"configurationUpdate\":{\"merge\":\"{\\\"logsUploaderConfiguration\\\":{\\\"componentLogsConfigurationMap\\\":{\\\"com.workshop.setup\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.docker-build\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.inference\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.benchmark\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"}}}}\"}}
+      \"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\",\"configurationUpdate\":{\"merge\":\"{\\\"logsUploaderConfiguration\\\":{\\\"componentLogsConfigurationMap\\\":{\\\"com.workshop.${USER_ID}.setup\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.${USER_ID}.docker-build\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.${USER_ID}.inference\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"},\\\"com.workshop.${USER_ID}.benchmark\\\":{\\\"minimumLogLevel\\\":\\\"INFO\\\"}}}}\"}}
     }" \
     --region "$REGION" &>/dev/null || true
 fi
@@ -404,8 +404,16 @@ for RECIPE in "$COMPONENTS_DIR"/com.workshop.*/recipe.yaml; do
   TEMP_RECIPE="/tmp/recipe-$(basename $(dirname $RECIPE)).yaml"
   sed -E "s|${OLD_ECR_PATTERN}|${NEW_ECR}|g" "$RECIPE" > "$TEMP_RECIPE"
   sed -i "s|S3_BUCKET_PLACEHOLDER|${S3_BUCKET}|g" "$TEMP_RECIPE"
+  # Append -USER_ID to component names to avoid conflicts between users
+  sed -i "s|ComponentName: com.workshop\.|ComponentName: com.workshop.${USER_ID}.|g" "$TEMP_RECIPE"
+  # Also fix dependency references
+  sed -i "s|com.workshop.docker-build|com.workshop.${USER_ID}.docker-build|g" "$TEMP_RECIPE"
+  sed -i "s|com.workshop.setup|com.workshop.${USER_ID}.setup|g" "$TEMP_RECIPE"
+  sed -i "s|com.workshop.inference|com.workshop.${USER_ID}.inference|g" "$TEMP_RECIPE"
+  sed -i "s|com.workshop.benchmark|com.workshop.${USER_ID}.benchmark|g" "$TEMP_RECIPE"
 
-  echo "   Registering: $COMP_NAME v$COMP_VER"
+  COMP_NAME_FINAL=$(grep 'ComponentName:' "$TEMP_RECIPE" | awk '{print $2}')
+  echo "   Registering: $COMP_NAME_FINAL v$COMP_VER"
   aws greengrassv2 create-component-version \
     --inline-recipe "fileb://$TEMP_RECIPE" \
     --region "$REGION" 2>/dev/null && echo "     ✅ OK" || echo "     ⏭️  Already exists"
@@ -427,7 +435,7 @@ echo " 배포:"
 echo "   aws greengrassv2 create-deployment \\"
 echo "     --target-arn arn:aws:iot:${REGION}:${ACCOUNT_ID}:thinggroup/${THING_GROUP} \\"
 echo "     --deployment-name \"workshop-n16\" \\"
-echo "     --components '{\"com.workshop.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.inference\":{\"componentVersion\":\"1.0.0\"}}' \\"
+echo "     --components '{\"com.workshop.${USER_ID}.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.inference\":{\"componentVersion\":\"1.0.0\"}}' \\"
 echo "     --deployment-policies '{\"componentUpdatePolicy\":{\"action\":\"SKIP_NOTIFY_COMPONENTS\"}}' \\"
 echo "     --region $REGION"
 echo ""
@@ -435,8 +443,10 @@ echo " 벤치마크:"
 echo "   aws greengrassv2 create-deployment \\"
 echo "     --target-arn arn:aws:iot:${REGION}:${ACCOUNT_ID}:thinggroup/${THING_GROUP} \\"
 echo "     --deployment-name \"workshop-n16-benchmark\" \\"
-echo "     --components '{\"com.workshop.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.inference\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.benchmark\":{\"componentVersion\":\"1.0.0\"}}' \\"
+echo "     --components '{\"com.workshop.${USER_ID}.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.inference\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.benchmark\":{\"componentVersion\":\"1.0.0\"}}' \\"
 echo "     --deployment-policies '{\"componentUpdatePolicy\":{\"action\":\"SKIP_NOTIFY_COMPONENTS\"}}' \\"
 echo "     --region $REGION"
 echo ""
-
+echo " 기대 벤치마크 결과 (L40S):"
+echo "   PyTorch: Avg ~140ms | Hz ~7.15"
+echo "   TRT (DiT Action Head): 측정 필요"
