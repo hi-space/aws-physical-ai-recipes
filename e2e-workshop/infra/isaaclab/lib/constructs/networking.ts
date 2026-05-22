@@ -60,13 +60,18 @@ export class NetworkingConstruct extends Construct {
 
     // --- AZ 선택 로직 ---
     // resolvedAZ가 있으면 Custom Resource에서 탐색된 AZ 사용 (capacity 확인됨)
-    // 없으면 기존 로직: 'auto'이면 첫 번째 AZ, '0'~'5'이면 해당 인덱스 AZ
+    // 없으면 기존 로직: 'auto'이면 첫 번째 AZ, '0'~'5'이면 해당 인덱스 AZ,
+    // AZ 이름(예: 'us-east-1b')이면 직접 사용
     let selectedAZ: string;
     if (props.resolvedAZ) {
       selectedAZ = props.resolvedAZ;
     } else {
       const azIndex = props.preferredAZ === 'auto' ? 0 : parseInt(props.preferredAZ, 10);
-      selectedAZ = cdk.Fn.select(azIndex, cdk.Fn.getAzs(''));
+      if (isNaN(azIndex)) {
+        selectedAZ = props.preferredAZ;
+      } else {
+        selectedAZ = cdk.Fn.select(azIndex, cdk.Fn.getAzs(''));
+      }
     }
 
     // --- VPC CIDR 및 서브넷 CIDR 계산 ---
@@ -173,7 +178,7 @@ export class NetworkingConstruct extends Construct {
       vpcId: this.vpc.ref,
       serviceName: `com.amazonaws.${cdk.Aws.REGION}.s3`,
       vpcEndpointType: 'Gateway',
-      routeTableIds: [privateRouteTable.ref],
+      routeTableIds: [publicRouteTable.ref, privateRouteTable.ref],
       tags: [{ key: 'Name', value: `${p}-S3-Endpoint` }],
     });
 
