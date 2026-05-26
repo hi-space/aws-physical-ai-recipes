@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-# Add container/training to sys.path so we can import train.py without sagemaker-training installed
+# Add training/container to sys.path so we can import train.py without sagemaker-training installed
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "container" / "training"))
+sys.path.insert(0, str(ROOT / "container"))
 
 import train  # noqa: E402
 

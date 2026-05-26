@@ -3,4 +3,4 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-COPY container/inference/serve.py /opt/ml/code/serve.py
+COPY inference/sagemaker/container/serve.py /opt/ml/code/serve.py

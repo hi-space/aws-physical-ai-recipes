@@ -21,7 +21,7 @@ def test_groot_version_n17_passes_overrides():
             region="us-east-1",
             source_s3_bucket="bucket",
             source_s3_key="key.zip",
-            buildspec_path="container/training/buildspec.yml",
+            buildspec_path="training/container/buildspec.yml",
             environment_overrides=[
                 {"name": "GROOT_VERSION", "value": "n1.7", "type": "PLAINTEXT"},
                 {"name": "BASE_MODEL_PATH", "value": "nvidia/GR00T-N1.7-3B", "type": "PLAINTEXT"},
