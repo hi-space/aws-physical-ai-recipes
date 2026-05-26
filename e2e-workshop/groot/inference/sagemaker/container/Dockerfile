@@ -98,7 +98,7 @@ RUN pip install --no-cache-dir \
 # 추론 서버 복사
 # ---------------------------------------------------------------------------
 RUN mkdir -p /opt/ml/model /opt/ml/code
-COPY container/inference/serve.py /opt/ml/code/serve.py
+COPY inference/sagemaker/container/serve.py /opt/ml/code/serve.py
 
 EXPOSE 8080
 WORKDIR /opt/ml/code

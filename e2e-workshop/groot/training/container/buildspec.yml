@@ -30,7 +30,7 @@ phases:
     commands:
       - echo "Docker 이미지 빌드 중..."
       - export DOCKER_BUILDKIT=1
-      - docker build --no-cache --file container/training/Dockerfile --build-arg GROOT_VERSION=${GROOT_VERSION} --build-arg USE_STABLE=${USE_STABLE} --build-arg BASE_MODEL_PATH=${BASE_MODEL_PATH} --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} .
+      - docker build --no-cache --file training/container/Dockerfile --build-arg GROOT_VERSION=${GROOT_VERSION} --build-arg USE_STABLE=${USE_STABLE} --build-arg BASE_MODEL_PATH=${BASE_MODEL_PATH} --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} .
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${GROOT_VERSION}
