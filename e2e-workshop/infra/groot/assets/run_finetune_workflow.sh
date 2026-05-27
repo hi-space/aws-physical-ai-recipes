@@ -70,8 +70,13 @@ else
     echo "WARNING: nvidia-smi not found. GPU may not be available."
 fi
 
-# Multi-node distributed training setup (AWS Batch injects these env vars)
+# Single-node multi-GPU: unset NCCL_SOCKET_IFNAME to let NCCL auto-detect
 NUM_NODES=${NUM_NODES:-1}
+if [ "$NUM_NODES" -le 1 ]; then
+    unset NCCL_SOCKET_IFNAME
+fi
+
+# Multi-node distributed training setup (AWS Batch injects these env vars)
 if [ "$NUM_NODES" -gt 1 ]; then
     echo "Multi-node training detected: NUM_NODES=$NUM_NODES"
     # AWS Batch sets:

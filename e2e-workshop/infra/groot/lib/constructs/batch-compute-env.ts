@@ -59,7 +59,12 @@ export class BatchComputeEnv extends Construct {
       ],
     });
 
-    // Launch template with large root volume for Docker images
+    // Launch template with large root volume and GPU support
+    const userData = ec2.UserData.forLinux();
+    userData.addCommands(
+      'echo ECS_ENABLE_GPU_SUPPORT=true >> /etc/ecs/ecs.config',
+    );
+
     const launchTemplate = new ec2.LaunchTemplate(this, 'LaunchTemplate', {
       blockDevices: [
         {
@@ -70,6 +75,7 @@ export class BatchComputeEnv extends Construct {
           }),
         },
       ],
+      userData,
     });
 
     this.computeEnvironment = new batch.ManagedEc2EcsComputeEnvironment(this, 'ComputeEnv', {
@@ -89,5 +95,6 @@ export class BatchComputeEnv extends Construct {
       maxvCpus: 192,
       launchTemplate,
     });
+
   }
 }

@@ -10,6 +10,7 @@ export interface BatchJobDefinitionProps {
   computeEnvironment: batch.IManagedComputeEnvironment;
   efsFileSystemId: string;
   repository: ecr.IRepository;
+  s3UploadUri: string;
 }
 
 export class BatchJobDefinition extends Construct {
@@ -53,9 +54,9 @@ export class BatchJobDefinition extends Construct {
       TUNE_PROJECTOR: 'true',
       TUNE_DIFFUSION_MODEL: 'true',
       OUTPUT_DIR: '/mnt/efs/gr00t/checkpoints',
-      UPLOAD_TARGET: 'none',
+      UPLOAD_TARGET: 's3',
+      S3_UPLOAD_URI: props.s3UploadUri,
       REPORT_TO: 'tensorboard',
-      NCCL_SOCKET_IFNAME: 'eth0',
     };
 
     // --- Single-node Job Definition (1 GPU) ---

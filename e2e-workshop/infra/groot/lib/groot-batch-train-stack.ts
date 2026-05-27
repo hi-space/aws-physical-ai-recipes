@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { SharedResourceImporter } from './constructs/shared-resource-importer';
 import { BatchComputeEnv } from './constructs/batch-compute-env';
@@ -48,12 +49,19 @@ export class GrootBatchTrainStack extends cdk.Stack {
       efsSecurityGroup: shared.efsSecurityGroup,
     });
 
-    // [4] Job Queue + Job Definition
+    // [4] S3 bucket for model checkpoints
+    const checkpointBucket = new s3.Bucket(this, 'CheckpointBucket', {
+      bucketName: `groot-batch-checkpoints-${userId ?? 'default'}`,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // [5] Job Queue + Job Definition
     const batchJob = new BatchJobDefinition(this, 'BatchJob', {
       namePrefix,
       computeEnvironment: batchCompute.computeEnvironment,
       efsFileSystemId: props.efsFileSystemId,
       repository: sharedRepository,
+      s3UploadUri: `s3://${checkpointBucket.bucketName}/checkpoints`,
     });
 
     // --- CloudFormation Outputs ---
