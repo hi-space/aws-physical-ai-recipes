@@ -59,10 +59,16 @@ export class BatchComputeEnv extends Construct {
       ],
     });
 
-    // Launch template with large root volume and GPU support
-    const userData = ec2.UserData.forLinux();
-    userData.addCommands(
+    // Launch template with large root volume and GPU support.
+    // AWS Batch on ECS_AL2023 requires UserData in MIME multipart format so it
+    // can merge its own bootstrap parts; a plain shell script makes the CE INVALID.
+    const shellUserData = ec2.UserData.forLinux();
+    shellUserData.addCommands(
       'echo ECS_ENABLE_GPU_SUPPORT=true >> /etc/ecs/ecs.config',
+    );
+    const userData = new ec2.MultipartUserData();
+    userData.addPart(
+      ec2.MultipartBody.fromUserData(shellUserData, 'text/x-shellscript'),
     );
 
     const launchTemplate = new ec2.LaunchTemplate(this, 'LaunchTemplate', {
