@@ -191,11 +191,10 @@ def build_pipeline(config: dict, args: argparse.Namespace):
 
     estimator = Estimator(**estimator_kwargs)
 
-    # SageMaker는 빈 InputDataConfig를 거부하므로 dataset_s3_uri 없을 땐 None
-    if args.dataset_s3_uri:
-        training_inputs = {"dataset": TrainingInput(s3_data=p_dataset_s3_uri)}
-    else:
-        training_inputs = None
+    # dataset 채널은 항상 정의해 둔다. ParameterString 으로 S3 URI 가 늦게 바인딩되므로
+    # upsert 시점에 --dataset-s3-uri 가 비어 있어도 콘솔/CLI 실행 시 DatasetS3Uri 파라미터로
+    # 채널이 채워진다. (이전엔 inputs=None 으로 박제되어 콘솔 파라미터가 무시되었다.)
+    training_inputs = {"dataset": TrainingInput(s3_data=p_dataset_s3_uri)}
 
     training_step = TrainingStep(
         name="GR00TFinetune",
