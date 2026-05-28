@@ -69,7 +69,7 @@ python training/scripts/run_training.py \
     --max-steps 100 --save-steps 50
 ```
 
-본격 학습은 `--max-steps 6000 --instance-type ml.g6e.12xlarge --num-gpus 4`처럼 키워서 실행하면 됩니다.
+기본 인스턴스는 `ml.g6e.12xlarge` (L40S 4-GPU)입니다. 본격 학습은 `--max-steps 6000 --save-steps 2000`처럼 step만 키워서 실행하면 됩니다.
 
 학습 곡선은 SageMaker 콘솔의 *Performance* 탭과 MLflow에서 확인할 수 있습니다.
 

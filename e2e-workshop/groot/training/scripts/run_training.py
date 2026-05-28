@@ -101,7 +101,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
             print("  infra/deploy_stack.py 및 scripts/trigger_build.py를 먼저 실행하세요.")
             sys.exit(1)
 
-    use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", True)
+    use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", False)
     max_wait = train_cfg.get("max_wait_seconds", 86400) if use_spot else None
 
     session = sagemaker.Session(
@@ -268,8 +268,8 @@ def main() -> None:
     parser.add_argument("--training-image-uri", default="",
                         help="학습 컨테이너 ECR URI 직접 지정 (--groot-version과 무관)")
     parser.add_argument("--instance-type",
-                        default=train_cfg.get("instance_type", "ml.g5.2xlarge"),
-                        help="학습 인스턴스 타입 (기본 ml.g5.2xlarge — SO-101 단일 GPU 검증용)")
+                        default=train_cfg.get("instance_type", "ml.g6e.12xlarge"),
+                        help="학습 인스턴스 타입 (기본 ml.g6e.12xlarge — L40S 4-GPU)")
     parser.add_argument("--max-steps", type=int,
                         default=int(train_cfg.get("max_steps", 100)),
                         help="최대 학습 스텝 (기본 100 — 검증용)")
@@ -280,8 +280,8 @@ def main() -> None:
                         default=int(train_cfg.get("global_batch_size", 32)),
                         help="글로벌 배치 크기")
     parser.add_argument("--num-gpus", type=int,
-                        default=int(train_cfg.get("num_gpus", 1)),
-                        help="GPU 수 (기본 1 — ml.g5.2xlarge는 단일 GPU)")
+                        default=int(train_cfg.get("num_gpus", 4)),
+                        help="GPU 수 (기본 4 — ml.g6e.12xlarge는 L40S 4-GPU)")
     parser.add_argument("--use-spot", dest="use_spot", action="store_true", default=None,
                         help="Spot Instance 사용")
     parser.add_argument("--no-spot", dest="use_spot", action="store_false",

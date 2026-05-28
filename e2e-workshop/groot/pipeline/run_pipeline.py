@@ -105,7 +105,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     )
     p_instance_type = ParameterString(
         name="InstanceType",
-        default_value=args.instance_type or train_cfg.get("instance_type", "ml.g5.2xlarge"),
+        default_value=args.instance_type or train_cfg.get("instance_type", "ml.g6e.12xlarge"),
     )
     p_max_steps = ParameterInteger(
         name="MaxSteps",
@@ -117,7 +117,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     )
     p_num_gpus = ParameterInteger(
         name="NumGpus",
-        default_value=args.num_gpus or train_cfg.get("num_gpus", 1),
+        default_value=args.num_gpus or train_cfg.get("num_gpus", 4),
     )
     p_endpoint_name = ParameterString(
         name="EndpointName",
@@ -131,7 +131,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
     # -----------------------------------------------------------------------
     # Step 1: Training Job (Spot Instance)
     # -----------------------------------------------------------------------
-    use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", True)
+    use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", False)
     max_wait = train_cfg.get("max_wait_seconds", 86400) if use_spot else None
 
     # Script Mode: train.py를 런타임에 주입 (Docker 재빌드 없이 스크립트 수정 반영)
@@ -329,14 +329,14 @@ def main() -> None:
                         help="학습 컨테이너 ECR URI")
     parser.add_argument("--inference-image-uri", default=config.get("ecr", {}).get("inference_uri", ""),
                         help="추론 컨테이너 ECR URI (미지정 시 학습 URI 사용)")
-    parser.add_argument("--instance-type", default=train_cfg.get("instance_type", "ml.g5.2xlarge"),
-                        help="학습 인스턴스 타입 (기본 ml.g5.2xlarge)")
+    parser.add_argument("--instance-type", default=train_cfg.get("instance_type", "ml.g6e.12xlarge"),
+                        help="학습 인스턴스 타입 (기본 ml.g6e.12xlarge — L40S 4-GPU)")
     parser.add_argument("--max-steps", type=int, default=int(train_cfg.get("max_steps", 6000)),
                         help="최대 학습 스텝")
     parser.add_argument("--global-batch-size", type=int, default=int(train_cfg.get("global_batch_size", 32)),
                         help="글로벌 배치 크기")
-    parser.add_argument("--num-gpus", type=int, default=int(train_cfg.get("num_gpus", 1)),
-                        help="GPU 수 (기본 1)")
+    parser.add_argument("--num-gpus", type=int, default=int(train_cfg.get("num_gpus", 4)),
+                        help="GPU 수 (기본 4 — ml.g6e.12xlarge L40S 4-GPU)")
     parser.add_argument("--hf-dataset-id", default="",
                         help="HF 데이터셋 ID (지정 시 컨테이너에서 직접 다운로드, --dataset-s3-uri 대신 사용)")
     parser.add_argument("--hf-token", default="",

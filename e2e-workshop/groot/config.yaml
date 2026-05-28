@@ -22,9 +22,9 @@ model:
   groot_version: n1.6
 training:
   global_batch_size: 32
-  instance_type: ml.g5.2xlarge
+  instance_type: ml.g6e.12xlarge
   max_steps: 100
   save_steps: 50
   max_wait_seconds: 86400
-  num_gpus: 1
-  use_spot: true
+  num_gpus: 4
+  use_spot: false

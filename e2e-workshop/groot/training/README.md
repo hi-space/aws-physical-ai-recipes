@@ -59,6 +59,8 @@ python training/data/upload_dataset.py \
 
 ### 학습 실행
 
+기본 인스턴스는 `ml.g6e.12xlarge` (L40S 4-GPU)입니다.
+
 빠른 검증 (100 step):
 
 ```bash
@@ -67,14 +69,15 @@ python training/scripts/run_training.py \
     --max-steps 100 --save-steps 50
 ```
 
-본격 학습 (4-GPU):
+본격 학습:
 
 ```bash
 python training/scripts/run_training.py \
     --dataset-s3-uri s3://<bucket>/datasets/leisaac-pick-orange \
-    --max-steps 6000 --save-steps 2000 \
-    --instance-type ml.g6e.12xlarge --num-gpus 4
+    --max-steps 6000 --save-steps 2000
 ```
+
+단일 GPU로 가볍게 돌리고 싶다면 `--instance-type ml.g5.2xlarge --num-gpus 1` 옵션을 붙이세요.
 
 ## Configuration
 
