@@ -76,7 +76,7 @@ class FinetuneWorkflow:
 
         # Tuning flags
         self.tune_llm = os.getenv("TUNE_LLM", "false").lower() == "true"
-        self.tune_visual = os.getenv("TUNE_VISUAL", "false").lower() == "true"
+        self.tune_visual = os.getenv("TUNE_VISUAL", "true").lower() == "true"
         self.tune_projector = os.getenv("TUNE_PROJECTOR", "true").lower() == "true"
         self.tune_diffusion_model = (
             os.getenv("TUNE_DIFFUSION_MODEL", "true").lower() == "true"
