@@ -113,8 +113,9 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         "max_steps": str(args.max_steps),
         "global_batch_size": str(args.global_batch_size),
         "save_steps": str(args.save_steps),
-        "num_gpus": str(args.num_gpus),
     }
+    if args.num_gpus is not None:
+        hyperparameters["num_gpus"] = str(args.num_gpus)
     if args.groot_version:
         hyperparameters["groot_version"] = args.groot_version
     if args.hf_dataset_id:
@@ -151,6 +152,11 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         container_env["HF_MLFLOW_LOG_ARTIFACTS"] = "true"
         print(f"MLflow 활성화: {mlflow_arn}")
 
+    # Job name 을 미리 생성해 checkpoint_s3_uri 와 동일한 식별자를 공유시킨다.
+    # 실행마다 unique 하므로 동일 embodiment 로 여러 번 학습해도 경로가 충돌하지 않는다.
+    job_name = sagemaker.utils.name_from_base("groot-finetune")
+    checkpoint_s3_uri = f"s3://{bucket}/checkpoints/{job_name}"
+
     estimator_kwargs = dict(
         image_uri=training_image_uri,
         role=role_arn,
@@ -159,6 +165,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         instance_type=args.instance_type,
         instance_count=1,
         output_path=f"s3://{bucket}/output",
+        checkpoint_s3_uri=checkpoint_s3_uri,
         hyperparameters=hyperparameters,
         metric_definitions=metric_definitions,
         sagemaker_session=session,
@@ -166,11 +173,12 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
     if container_env:
         estimator_kwargs["environment"] = container_env
 
+    print(f"체크포인트 S3 경로:  {checkpoint_s3_uri}")
+
     if use_spot:
         estimator_kwargs.update(
             use_spot_instances=True,
             max_wait=max_wait,
-            checkpoint_s3_uri=f"s3://{bucket}/checkpoints/{args.embodiment_tag}",
         )
         print(f"Spot Instance 학습 활성화")
 
@@ -191,21 +199,15 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         print(f"  데이터셋:        HF/{args.hf_dataset_id} (컨테이너 내 다운로드)")
 
     try:
-        estimator.fit(inputs=inputs, wait=not args.no_wait)
-    except Exception as e:
-        job_name = getattr(
-            getattr(estimator, "latest_training_job", None), "name", None
+        estimator.fit(inputs=inputs, job_name=job_name, wait=not args.no_wait)
+    except Exception:
+        log_url = (
+            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+            f"?region={region}#logsV2:log-groups/log-group/"
+            f"%2Faws%2Fsagemaker%2FTrainingJobs/log-events/{job_name}"
         )
-        if job_name:
-            log_url = (
-                f"https://{region}.console.aws.amazon.com/cloudwatch/home"
-                f"?region={region}#logsV2:log-groups/log-group/"
-                f"%2Faws%2Fsagemaker%2FTrainingJobs/log-events/{job_name}"
-            )
-            print(f"\nCloudWatch 로그: {log_url}")
+        print(f"\nCloudWatch 로그: {log_url}")
         raise
-
-    job_name = estimator.latest_training_job.name
 
     print(f"\n작업 시작/완료!")
     print(f"  작업 이름:       {job_name}")
@@ -279,9 +281,10 @@ def main() -> None:
     parser.add_argument("--global-batch-size", type=int,
                         default=int(train_cfg.get("global_batch_size", 32)),
                         help="글로벌 배치 크기")
+    _cfg_num_gpus = train_cfg.get("num_gpus")
     parser.add_argument("--num-gpus", type=int,
-                        default=int(train_cfg.get("num_gpus", 4)),
-                        help="GPU 수 (기본 4 — ml.g6e.12xlarge는 L40S 4-GPU)")
+                        default=int(_cfg_num_gpus) if _cfg_num_gpus else None,
+                        help="사용할 GPU 수 (미지정 시 인스턴스의 모든 GPU 자동 감지)")
     parser.add_argument("--use-spot", dest="use_spot", action="store_true", default=None,
                         help="Spot Instance 사용")
     parser.add_argument("--no-spot", dest="use_spot", action="store_false",

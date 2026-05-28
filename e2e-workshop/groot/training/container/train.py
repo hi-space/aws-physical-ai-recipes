@@ -71,9 +71,11 @@ def parse_sagemaker_env() -> dict:
         4. GROOT_VERSION 환경변수에서 유추 (n1.6 → nvidia/GR00T-N1.6-3B)
     """
     num_gpus = _get_hyperparameter("num_gpus")
-    if not num_gpus:
+    # 미지정/0 이면 인스턴스가 가진 모든 GPU 를 사용. SageMaker pipeline 의
+    # ParameterInteger 는 None 을 허용하지 않아 NumGpus=0 을 sentinel 로 쓴다.
+    if not num_gpus or num_gpus == "0":
         num_gpus = _detect_gpu_count()
-        print(f"num_gpus 하이퍼파라미터 미설정 → 자동 감지: {num_gpus}개 GPU")
+        print(f"num_gpus 미설정/0 → 자동 감지: {num_gpus}개 GPU")
 
     groot_version = (
         _get_hyperparameter("groot_version")

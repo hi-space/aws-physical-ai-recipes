@@ -49,6 +49,8 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         from sagemaker.estimator import Estimator
         from sagemaker.inputs import TrainingInput
         from sagemaker.model import Model
+        from sagemaker.workflow.execution_variables import ExecutionVariables
+        from sagemaker.workflow.functions import Join
         from sagemaker.workflow.parameters import ParameterInteger, ParameterString
         from sagemaker.workflow.pipeline import Pipeline
         from sagemaker.workflow.pipeline_context import PipelineSession
@@ -115,9 +117,12 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         name="GlobalBatchSize",
         default_value=args.global_batch_size or train_cfg.get("global_batch_size", 32),
     )
+    # NumGpus=0 의 의미: 컨테이너 train.py 가 torch.cuda.device_count() 로 자동 감지.
+    # 인스턴스 타입을 바꿀 때 이 값을 같이 갱신하지 않아도 모든 GPU 가 활용된다.
     p_num_gpus = ParameterInteger(
         name="NumGpus",
-        default_value=args.num_gpus or train_cfg.get("num_gpus", 4),
+        default_value=int(args.num_gpus) if args.num_gpus is not None
+                      else int(train_cfg.get("num_gpus", 0) or 0),
     )
     p_endpoint_name = ParameterString(
         name="EndpointName",
@@ -147,6 +152,16 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         {"Name": "eval:runtime",        "Regex": r"'eval_runtime':\s*([0-9.eE+-]+)"},
     ]
 
+    # Pipeline 실행마다 unique 한 PIPELINE_EXECUTION_ID 를 경로에 포함시켜
+    # 동일 embodiment 로 여러 번 실행해도 checkpoint 가 충돌하지 않게 한다.
+    checkpoint_s3_uri = Join(
+        on="/",
+        values=[
+            f"s3://{bucket}/checkpoints",
+            ExecutionVariables.PIPELINE_EXECUTION_ID,
+        ],
+    )
+
     estimator_kwargs = dict(
         image_uri=training_image_uri,
         role=role_arn,
@@ -155,6 +170,7 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         instance_type=p_instance_type,
         instance_count=1,
         output_path=f"s3://{bucket}/output",
+        checkpoint_s3_uri=checkpoint_s3_uri,
         metric_definitions=metric_definitions,
         hyperparameters={
             "embodiment_tag": p_embodiment_tag,
@@ -181,11 +197,12 @@ def build_pipeline(config: dict, args: argparse.Namespace):
         },
     )
 
+    print(f"체크포인트 S3 경로:  s3://{bucket}/checkpoints/<execution-id>")
+
     if use_spot:
         estimator_kwargs.update(
             use_spot_instances=True,
             max_wait=max_wait,
-            checkpoint_s3_uri=f"s3://{bucket}/checkpoints/{args.embodiment_tag}",
         )
         print(f"Spot Instance 학습 활성화 (최대 대기: {max_wait}초)")
 
@@ -335,8 +352,8 @@ def main() -> None:
                         help="최대 학습 스텝")
     parser.add_argument("--global-batch-size", type=int, default=int(train_cfg.get("global_batch_size", 32)),
                         help="글로벌 배치 크기")
-    parser.add_argument("--num-gpus", type=int, default=int(train_cfg.get("num_gpus", 4)),
-                        help="GPU 수 (기본 4 — ml.g6e.12xlarge L40S 4-GPU)")
+    parser.add_argument("--num-gpus", type=int, default=None,
+                        help="사용할 GPU 수 (미지정 시 인스턴스의 모든 GPU 자동 감지)")
     parser.add_argument("--hf-dataset-id", default="",
                         help="HF 데이터셋 ID (지정 시 컨테이너에서 직접 다운로드, --dataset-s3-uri 대신 사용)")
     parser.add_argument("--hf-token", default="",
@@ -384,8 +401,9 @@ def main() -> None:
             "DatasetS3Uri": args.dataset_s3_uri,
             "MaxSteps": args.max_steps,
             "GlobalBatchSize": args.global_batch_size,
-            "NumGpus": args.num_gpus,
         }
+        if args.num_gpus is not None:
+            start_params["NumGpus"] = args.num_gpus
         if args.instance_type:
             start_params["InstanceType"] = args.instance_type
         if args.endpoint_name:

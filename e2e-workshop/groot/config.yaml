@@ -26,5 +26,4 @@ training:
   max_steps: 100
   save_steps: 50
   max_wait_seconds: 86400
-  num_gpus: 4
   use_spot: false
