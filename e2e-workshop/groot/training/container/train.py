@@ -299,7 +299,13 @@ def run_gr00t_training(env: dict) -> None:
     병렬화 전략을 사용합니다.
     """
     ensure_tasks_jsonl(env["dataset_dir"])
-    training_output_dir = os.path.join(env["output_dir"], "checkpoint")
+    # 학습 중간 체크포인트는 /opt/ml/checkpoints 에 저장한다.
+    # SageMaker CheckpointConfig 가 이 경로를 S3 와 실시간 sync 하므로
+    # (1) 중간 step 가중치를 S3 에서 바로 확인할 수 있고
+    # (2) Spot 중단 시 재시작에서 이어서 학습할 수 있다.
+    # /opt/ml/model 아래에 두면 학습 종료 후 tar.gz 업로드 시점까지 S3 에 안 올라간다.
+    training_output_dir = "/opt/ml/checkpoints"
+    os.makedirs(training_output_dir, exist_ok=True)
 
     num_gpus = int(env["num_gpus"])
 
