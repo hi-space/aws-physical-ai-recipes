@@ -185,6 +185,10 @@ def handler(event, context):
                         print(f'Unsupported: {instance_type} in {az}')
                         all_tried.append(f'{instance_type}/{az}(unsupported)')
                         continue
+                    elif 'No default subnet' in error_msg or 'InvalidInput' in error_msg:
+                        print(f'No default subnet: {instance_type} in {az}')
+                        all_tried.append(f'{instance_type}/{az}(no-subnet)')
+                        continue
                     else:
                         print(f'Unexpected error: {e}')
                         raise
