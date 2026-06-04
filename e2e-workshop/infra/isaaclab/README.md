@@ -643,9 +643,9 @@ cdk deploy -c inferenceInstanceType=g5.12xlarge
 cdk deploy -c region=us-west-2
 ```
 
-### Default VPC가 없는 계정에서 AZ 탐색 실패
+### 특정 AZ에 Default Subnet이 없어서 AZ 탐색 실패
 
-`preferredAZ=auto`(기본값) 사용 시 아래와 같은 에러가 발생하면 계정에 Default VPC가 없는 것이다:
+`preferredAZ=auto`(기본값) 사용 시 아래와 같은 에러가 발생하면 특정 AZ에 Default Subnet이 없는 것이다:
 
 ```
 Received response status [FAILED] from custom resource.
@@ -653,21 +653,32 @@ Message returned: An error occurred (InvalidInput) when calling the RunInstances
 No default subnet for availability zone: 'us-east-1b'
 ```
 
-원인: AZ 탐색 Lambda가 probe용 `run_instances`를 호출할 때 subnet을 지정하지 않으므로, Default VPC/Subnet이 없으면 모든 AZ에서 실패한다.
+원인: AZ 탐색 Lambda가 probe용 `run_instances`를 호출할 때 subnet을 지정하지 않으므로, 해당 AZ에 Default Subnet이 없으면 실패한다. 리전에 새로운 AZ가 추가되었거나 누군가 Default Subnet을 삭제한 경우 발생할 수 있다.
+
+현재 상태 확인:
+
+```bash
+# 리전의 전체 AZ 목록
+aws ec2 describe-availability-zones --region us-east-1 \
+  --query 'AvailabilityZones[].ZoneName' --output text
+
+# Default Subnet이 존재하는 AZ 목록 (위와 비교)
+aws ec2 describe-subnets --filters "Name=default-for-az,Values=true" \
+  --region us-east-1 --query 'Subnets[].AvailabilityZone' --output text
+```
 
 해결 방법:
 
 ```bash
-# 방법 1: AZ를 직접 지정 (Lambda 탐색 건너뜀)
-cdk deploy -c preferredAZ=0                # 리전 첫 번째 AZ 사용
-cdk deploy -c preferredAZ=us-west-2a       # AZ 이름 직접 지정
+# 방법 1: 누락된 AZ에 Default Subnet 생성
+aws ec2 create-default-subnet --availability-zone us-east-1b
 
-# 방법 2: Default VPC 생성 후 재배포
-aws ec2 create-default-vpc --region us-east-1
-cdk deploy
+# 방법 2: AZ를 직접 지정 (Lambda 탐색 건너뜀)
+cdk deploy -c preferredAZ=0                # 리전 첫 번째 AZ 사용
+cdk deploy -c preferredAZ=us-east-1a       # AZ 이름 직접 지정
 ```
 
-> `preferredAZ`에 인덱스(`0`~`5`) 또는 AZ 이름을 지정하면 `AzSelectorConstruct` Lambda를 건너뛰므로 Default VPC 유무와 무관하게 배포된다. 다만, 해당 AZ에 GPU capacity가 없을 수 있으므로 사전에 확인하는 것을 권장한다.
+> `preferredAZ`에 인덱스(`0`~`5`) 또는 AZ 이름을 지정하면 `AzSelectorConstruct` Lambda를 건너뛰므로 Default Subnet 유무와 무관하게 배포된다. 다만, 해당 AZ에 GPU capacity가 없을 수 있으므로 사전에 확인하는 것을 권장한다.
 
 ### 실패한 스택 정리
 
