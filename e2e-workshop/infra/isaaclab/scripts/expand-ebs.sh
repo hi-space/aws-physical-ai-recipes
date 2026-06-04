@@ -12,8 +12,9 @@
 set -euo pipefail
 
 NEW_SIZE="${1:-500}"
-INSTANCE_ID="${2:-$(curl -s http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "")}"
-REGION="${AWS_DEFAULT_REGION:-$(curl -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || aws configure get region 2>/dev/null || echo "us-east-1")}"
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300" 2>/dev/null || echo "")
+INSTANCE_ID="${2:-$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "")}"
+REGION="${AWS_DEFAULT_REGION:-$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || aws configure get region 2>/dev/null || echo "us-east-1")}"
 
 if [[ -z "$INSTANCE_ID" ]]; then
   echo "Error: 인스턴스 ID를 확인할 수 없습니다. 두 번째 인자로 지정하세요."
