@@ -31,7 +31,8 @@
 #           "Effect": "Allow",
 #           "Action": [
 #             "iam:GetRole", "iam:CreateRole", "iam:AttachRolePolicy",
-#             "iam:GetPolicy", "iam:PassRole", "iam:CreatePolicy", "iam:TagRole"
+#             "iam:GetPolicy", "iam:PassRole", "iam:CreatePolicy", "iam:TagRole",
+#             "iam:PutRolePolicy"
 #           ],
 #           "Resource": "*"
 #         },
@@ -404,6 +405,8 @@ for RECIPE in "$COMPONENTS_DIR"/com.workshop.*/recipe.yaml; do
   TEMP_RECIPE="/tmp/recipe-$(basename $(dirname $RECIPE)).yaml"
   sed -E "s|${OLD_ECR_PATTERN}|${NEW_ECR}|g" "$RECIPE" > "$TEMP_RECIPE"
   sed -i "s|S3_BUCKET_PLACEHOLDER|${S3_BUCKET}|g" "$TEMP_RECIPE"
+  # Replace hardcoded region in recipe configurations
+  sed -i "s|region: \"us-east-1\"|region: \"${REGION}\"|g" "$TEMP_RECIPE"
   # Append -USER_ID to component names to avoid conflicts between users
   sed -i "s|ComponentName: com.workshop\.|ComponentName: com.workshop.${USER_ID}.|g" "$TEMP_RECIPE"
   # Also fix dependency references
