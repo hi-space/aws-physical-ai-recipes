@@ -121,6 +121,56 @@ export class DcvInstanceConstruct extends Construct {
           },
         },
         {
+          policyName: 'EbsExpandPolicy',
+          policyDocument: {
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: [
+                  'ec2:DescribeInstances',
+                  'ec2:DescribeVolumes',
+                  'ec2:ModifyVolume',
+                  'ec2:DescribeVolumesModifications',
+                ],
+                Resource: '*',
+              },
+            ],
+          },
+        },
+        {
+          policyName: 'GreengrassProvisionPolicy',
+          policyDocument: {
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: ['iot:*', 'greengrass:*'],
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: [
+                  'iam:GetRole',
+                  'iam:CreateRole',
+                  'iam:AttachRolePolicy',
+                  'iam:GetPolicy',
+                  'iam:PassRole',
+                  'iam:CreatePolicy',
+                  'iam:TagRole',
+                  'iam:PutRolePolicy',
+                ],
+                Resource: '*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 'sts:GetCallerIdentity',
+                Resource: '*',
+              },
+            ],
+          },
+        },
+        {
           policyName: 'SageMakerCodeBuildCfnPolicy',
           policyDocument: {
             Version: '2012-10-17',
