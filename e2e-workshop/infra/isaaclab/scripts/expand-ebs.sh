@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+네 #!/usr/bin/env bash
 # =============================================================================
 # expand-ebs.sh — 실행 중인 EC2 인스턴스의 EBS 볼륨 확장
 #
@@ -79,11 +79,14 @@ echo "→ 볼륨 변경 완료 ($STATE)"
 if [[ -f /etc/os-release ]]; then
   echo ""
   echo "→ 파티션 및 파일시스템 확장 중..."
-  DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /) 2>/dev/null || echo "nvme0n1")
-  PART_NUM=$(lsblk -no MAJ:MIN $(findmnt -n -o SOURCE /) | awk -F: '{print $2}')
-  
-  sudo growpart /dev/"$DEVICE" "$PART_NUM" 2>/dev/null || true
-  sudo resize2fs $(findmnt -n -o SOURCE /) 2>/dev/null || \
+  ROOT_DEV=$(findmnt -n -o SOURCE /)
+  DEVICE=$(lsblk -no PKNAME "$ROOT_DEV" 2>/dev/null || echo "nvme0n1")
+  PART_NUM=$(echo "$ROOT_DEV" | grep -oP '[0-9]+$')
+
+  if [[ -n "$PART_NUM" && -n "$DEVICE" ]]; then
+    sudo growpart /dev/"$DEVICE" "$PART_NUM" 2>/dev/null || true
+  fi
+  sudo resize2fs "$ROOT_DEV" 2>/dev/null || \
     sudo xfs_growfs / 2>/dev/null || true
   
   echo ""
