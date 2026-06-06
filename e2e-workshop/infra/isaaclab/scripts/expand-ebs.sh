@@ -1,13 +1,13 @@
-네 #!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
-# expand-ebs.sh — 실행 중인 EC2 인스턴스의 EBS 볼륨 확장
+# expand-ebs.sh — EC2 EBS volume expansion (online, no reboot required)
 #
-# 사용법 (DCV 인스턴스 내부에서 실행):
-#   sudo ./scripts/expand-ebs.sh 500        # 500GB로 확장
-#   sudo ./scripts/expand-ebs.sh            # 기본 500GB
+# Usage (inside EC2 instance):
+#   sudo bash expand-ebs.sh 500        # expand to 500GB
+#   sudo bash expand-ebs.sh            # default 500GB
 #
-# 사용법 (외부에서 인스턴스 ID 지정):
-#   ./scripts/expand-ebs.sh 500 i-0abc123def
+# Usage (external, specify instance ID):
+#   bash expand-ebs.sh 500 i-0abc123def
 # =============================================================================
 set -euo pipefail
 
@@ -17,26 +17,32 @@ INSTANCE_ID="${2:-$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://16
 REGION="${AWS_DEFAULT_REGION:-$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || aws configure get region 2>/dev/null || echo "us-east-1")}"
 
 if [[ -z "$INSTANCE_ID" ]]; then
-  echo "Error: 인스턴스 ID를 확인할 수 없습니다. 두 번째 인자로 지정하세요."
+  echo "Error: Cannot detect instance ID. Pass it as second argument."
   echo "Usage: $0 [SIZE_GB] [INSTANCE_ID]"
   exit 1
 fi
 
-echo "=== EBS 볼륨 확장 ==="
+echo "=== EBS Volume Expansion ==="
 echo "Instance: $INSTANCE_ID"
 echo "Region:   $REGION"
-echo "New Size: ${NEW_SIZE}GB"
+echo "Target:   ${NEW_SIZE}GB"
 echo ""
 
-# 1. 루트 볼륨 ID 조회
+# 1. Find root volume
+ROOT_DEVICE_NAME=$(aws ec2 describe-instances \
+  --instance-ids "$INSTANCE_ID" \
+  --region "$REGION" \
+  --query 'Reservations[0].Instances[0].RootDeviceName' \
+  --output text)
+
 VOLUME_ID=$(aws ec2 describe-instances \
   --instance-ids "$INSTANCE_ID" \
   --region "$REGION" \
-  --query 'Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName==`/dev/sda1`].Ebs.VolumeId' \
+  --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName==\`${ROOT_DEVICE_NAME}\`].Ebs.VolumeId" \
   --output text)
 
 if [[ -z "$VOLUME_ID" || "$VOLUME_ID" == "None" ]]; then
-  echo "Error: 루트 볼륨을 찾을 수 없습니다."
+  echo "Error: Cannot find root volume. (RootDeviceName: $ROOT_DEVICE_NAME)"
   exit 1
 fi
 
@@ -45,57 +51,60 @@ CURRENT_SIZE=$(aws ec2 describe-volumes \
   --region "$REGION" \
   --query 'Volumes[0].Size' --output text)
 
-echo "Volume:   $VOLUME_ID (현재 ${CURRENT_SIZE}GB)"
+echo "Volume:   $VOLUME_ID (current: ${CURRENT_SIZE}GB)"
 
-if (( CURRENT_SIZE >= NEW_SIZE )); then
-  echo "이미 ${CURRENT_SIZE}GB — 확장 불필요"
-  exit 0
+# 2. Modify volume (skip if already target size)
+if (( CURRENT_SIZE < NEW_SIZE )); then
+  echo ""
+  echo "Modifying volume: ${CURRENT_SIZE}GB -> ${NEW_SIZE}GB..."
+  aws ec2 modify-volume \
+    --volume-id "$VOLUME_ID" \
+    --size "$NEW_SIZE" \
+    --region "$REGION" \
+    --output text --query 'VolumeModification.ModificationState'
+
+  # 3. Wait for modification
+  echo "Waiting for volume modification..."
+  for i in $(seq 1 60); do
+    STATE=$(aws ec2 describe-volumes-modifications \
+      --volume-ids "$VOLUME_ID" \
+      --region "$REGION" \
+      --query 'VolumesModifications[0].ModificationState' --output text 2>/dev/null || echo "completed")
+    if [[ "$STATE" == "completed" || "$STATE" == "optimizing" ]]; then
+      break
+    fi
+    if [[ "$STATE" == "failed" ]]; then
+      echo "Error: Volume modification failed."
+      exit 1
+    fi
+    sleep 5
+  done
+  echo "Volume modification done ($STATE)"
+else
+  echo "Volume already ${CURRENT_SIZE}GB (>= ${NEW_SIZE}GB), skipping modify."
 fi
 
-# 2. EBS 볼륨 크기 변경
-echo ""
-echo "→ ${CURRENT_SIZE}GB → ${NEW_SIZE}GB 변경 중..."
-aws ec2 modify-volume \
-  --volume-id "$VOLUME_ID" \
-  --size "$NEW_SIZE" \
-  --region "$REGION" \
-  --output text --query 'VolumeModification.ModificationState'
-
-# 3. 변경 완료 대기
-echo "→ 볼륨 변경 대기 중..."
-while true; do
-  STATE=$(aws ec2 describe-volumes-modifications \
-    --volume-ids "$VOLUME_ID" \
-    --region "$REGION" \
-    --query 'VolumesModifications[0].ModificationState' --output text 2>/dev/null || echo "completed")
-  if [[ "$STATE" == "completed" || "$STATE" == "optimizing" ]]; then
-    break
-  fi
-  sleep 5
-done
-echo "→ 볼륨 변경 완료 ($STATE)"
-
-# 4. 파일시스템 확장 (인스턴스 내부에서 실행 시)
+# 4. Expand filesystem (always attempt when running inside instance)
 if [[ -f /etc/os-release ]]; then
   echo ""
-  echo "→ 파티션 및 파일시스템 확장 중..."
+  echo "Expanding partition and filesystem..."
   ROOT_DEV=$(findmnt -n -o SOURCE /)
-  DEVICE=$(lsblk -no PKNAME "$ROOT_DEV" 2>/dev/null || echo "nvme0n1")
-  PART_NUM=$(echo "$ROOT_DEV" | grep -oP '[0-9]+$')
+  DEVICE=$(lsblk -no PKNAME "$ROOT_DEV" 2>/dev/null || echo "")
+  PART_NUM=$(echo "$ROOT_DEV" | grep -o '[0-9]*$')
 
   if [[ -n "$PART_NUM" && -n "$DEVICE" ]]; then
-    sudo growpart /dev/"$DEVICE" "$PART_NUM" 2>/dev/null || true
+    growpart /dev/"$DEVICE" "$PART_NUM" 2>/dev/null || true
   fi
-  sudo resize2fs "$ROOT_DEV" 2>/dev/null || \
-    sudo xfs_growfs / 2>/dev/null || true
-  
+  resize2fs "$ROOT_DEV" 2>/dev/null || \
+    xfs_growfs / 2>/dev/null || true
+
   echo ""
-  echo "=== 완료 ==="
+  echo "=== Done ==="
   df -h /
 else
   echo ""
-  echo "=== 볼륨 확장 완료 ==="
-  echo "인스턴스 내부에서 파일시스템 확장 필요:"
-  echo "  sudo growpart /dev/nvme0n1 1"
-  echo "  sudo resize2fs /dev/nvme0n1p1"
+  echo "=== Volume expanded ==="
+  echo "Run inside instance to expand filesystem:"
+  echo "  growpart /dev/nvme0n1 1"
+  echo "  resize2fs /dev/nvme0n1p1"
 fi
