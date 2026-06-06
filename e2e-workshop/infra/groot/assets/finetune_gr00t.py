@@ -52,6 +52,7 @@ class FinetuneWorkflow:
         self.num_gpus = int(os.getenv("NUM_GPUS", "1"))
         self.num_nodes = int(os.getenv("NUM_NODES", "1"))
         self.base_model_path = os.getenv("BASE_MODEL_PATH", "nvidia/GR00T-N1.7-3B")
+        self.groot_version = os.getenv("GROOT_VERSION", "n1.7").lower()
         self.embodiment_tag = os.getenv("EMBODIMENT_TAG", "new_embodiment")
         self.modality_config_path = os.getenv(
             "MODALITY_CONFIG_PATH", "/workspace/scripts/so101_modality_config.py"
@@ -76,7 +77,7 @@ class FinetuneWorkflow:
 
         # Tuning flags
         self.tune_llm = os.getenv("TUNE_LLM", "false").lower() == "true"
-        self.tune_visual = os.getenv("TUNE_VISUAL", "true").lower() == "true"
+        self.tune_visual = os.getenv("TUNE_VISUAL", "false").lower() == "true"
         self.tune_projector = os.getenv("TUNE_PROJECTOR", "true").lower() == "true"
         self.tune_diffusion_model = (
             os.getenv("TUNE_DIFFUSION_MODEL", "true").lower() == "true"
@@ -284,8 +285,14 @@ class FinetuneWorkflow:
         config.model.color_jitter_params = ft.color_jitter_params
         config.model.load_bf16 = False
         config.model.reproject_vision = False
-        # N1.7 uses Cosmos-Reason2-2B backbone (not Eagle) — don't override model_name
-        # or eagle_collator; let the N1.7 defaults handle backbone config.
+        # N1.6 uses the Eagle backbone and needs eagle_collator=True for any-res
+        # image handling (matches the official launch_finetune.py recipe). The n1.6
+        # model config defaults eagle_collator to False, so set it explicitly here.
+        # N1.7 uses the Cosmos-Reason2-2B backbone — don't override model_name or
+        # eagle_collator; let the N1.7 defaults handle backbone config.
+        if self.groot_version == "n1.6":
+            config.model.eagle_collator = True
+            config.model.model_name = "nvidia/Eagle-Block2A-2B-v2"
         config.model.backbone_trainable_params_fp32 = True
         config.model.use_relative_action = True
 

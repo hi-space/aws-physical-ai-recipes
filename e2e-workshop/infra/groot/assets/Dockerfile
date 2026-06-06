@@ -103,6 +103,7 @@ ENV PYTHONPATH="/workspace/gr00t-repo:/workspace"
 ENV DATASET_LOCAL_DIR="/workspace/train"
 ENV OUTPUT_DIR="/workspace/checkpoints"
 ENV BASE_MODEL_PATH="${BASE_MODEL_PATH}"
+ENV GROOT_VERSION="${GROOT_VERSION}"
 
 RUN mkdir -p ${DATASET_LOCAL_DIR} ${OUTPUT_DIR}
 

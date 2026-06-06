@@ -107,6 +107,7 @@ def parse_sagemaker_env() -> dict:
         "max_steps": _get_hyperparameter("max_steps", "10000"),
         "global_batch_size": _get_hyperparameter("global_batch_size", "32"),
         "save_steps": _get_hyperparameter("save_steps", "2000"),
+        "dataloader_num_workers": _get_hyperparameter("dataloader_num_workers", "4"),
         "num_gpus": num_gpus,
         "video_key": _get_hyperparameter("video_key", "video.webcam"),
         "state_key": _get_hyperparameter("state_key", "state.single_arm"),
@@ -319,6 +320,7 @@ def run_gr00t_training(env: dict) -> None:
         "--max_steps", env["max_steps"],
         "--global_batch_size", env["global_batch_size"],
         "--save_steps", env["save_steps"],
+        "--dataloader_num_workers", env["dataloader_num_workers"],
     ]
 
     # 데이터셋 안에 modality_config.py가 있으면 자동으로 전달
