@@ -1,0 +1,57 @@
+{
+  "artifact": "nut pouring closed-loop policy rollout",
+  "before_video": "videos/nutpouring_before-base_0.mp4",
+  "after_video": "videos/nutpouring_after-final_0.mp4",
+  "side_by_side_video": "nutpouring-policy-rollout-before-after.mp4",
+  "contact_sheet": "nutpouring-policy-rollout-contact-sheet.png",
+  "source_evaluator": "https://github.com/isaac-sim/IsaacLabEvalTasks/tree/460f2878bdcb4db2d21913db789174fb316b73e2/scripts/evaluate_gn1.py",
+  "groot_ref": "https://github.com/NVIDIA/Isaac-GR00T/tree/796ca8d87360913c47e9f75e17c11d63f7805048",
+  "num_envs": 1,
+  "rollout_length": 24,
+  "num_feedback_actions": 16,
+  "seed": 10,
+  "gpu_summary": {
+    "sample_count": 98,
+    "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "gpu_util_percent_avg": 0.7857142857142857,
+    "gpu_util_percent_max": 23.0,
+    "memory_used_mib_avg": 1178.6326530612246,
+    "memory_used_mib_max": 11144.0
+  },
+  "before-base_eval": {
+    "metadata": {
+      "checkpoint_name": "before-base",
+      "seed": 10,
+      "date": "2026-05-04 04:58:58"
+    },
+    "summary": {
+      "successful_trials": 0,
+      "total_rollouts": 1,
+      "success_rate": 0.0
+    }
+  },
+  "before-base_runtime": {
+    "label": "before-base",
+    "model_path": "/tmp/hf-home/hub/models--nvidia--GR00T-N1.5-3B/snapshots/869830fc749c35f34771aa5209f923ac57e4564e",
+    "seed": 10,
+    "runtime_seconds": 182
+  },
+  "after-final_eval": {
+    "metadata": {
+      "checkpoint_name": "after-final",
+      "seed": 10,
+      "date": "2026-05-04 05:00:55"
+    },
+    "summary": {
+      "successful_trials": 1,
+      "total_rollouts": 1,
+      "success_rate": 1.0
+    }
+  },
+  "after-final_runtime": {
+    "label": "after-final",
+    "model_path": "/osmo/data/input/0/PhysAI-GR00T-Finetuned",
+    "seed": 10,
+    "runtime_seconds": 40
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "workflow": "aws-cosmos-reason2-nim",
+  "nim_image": "nvcr.io/nim/nvidia/cosmos-reason2-2b:1.7.0",
+  "model_name": "nvidia/cosmos-reason2-2b",
+  "external_nim_server_url": "",
+  "media_type": "video",
+  "media_url": "https://assets.ngc.nvidia.com/products/api-catalog/cosmos-reason1-7b/car_curb.mp4",
+  "max_tokens": 512,
+  "video_fps": 1.0,
+  "runtime_seconds": 257
+}

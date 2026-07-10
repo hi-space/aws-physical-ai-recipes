@@ -1,0 +1,29 @@
+aws_region   = "ap-northeast-2"
+project_name = "aws-osmo"
+environment  = "dev-repro"
+
+# Pin subnets to AZs that actually offer the GPU family you deploy. In Seoul,
+# G7e (RTX PRO 6000) is only offered in ap-northeast-2a and ap-northeast-2b, so
+# pin those two and set az_count/karpenter_az_count to 2 to avoid provisioning
+# subnets in zones that can never place a GPU node.
+availability_zones = ["ap-northeast-2a", "ap-northeast-2b"]
+az_count           = 2
+karpenter_az_count = 2
+
+# The EKS API endpoint is private-only by default. Add narrow CIDRs only when
+# your network path requires temporary public access.
+cluster_endpoint_public_access_cidrs = []
+
+# Use one NAT gateway for lower-cost reproducibility tests. Set false for
+# AZ-aligned NAT in reference-ha deployments.
+single_nat_gateway = true
+
+eks_cluster_version = "1.35"
+
+system_node_instance_types = ["m7i.2xlarge"]
+system_node_min_size       = 3
+system_node_desired_size   = 3
+system_node_max_size       = 5
+
+reference_ha        = false
+deletion_protection = false

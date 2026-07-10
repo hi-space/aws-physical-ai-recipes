@@ -1,0 +1,6 @@
+NAME                                              TYPE           ZONE              EFA      GPU      READY
+ip-10-40-11-242.ap-northeast-2.compute.internal   g7e.12xlarge   ap-northeast-2a   1        2        True
+ip-10-40-14-250.ap-northeast-2.compute.internal   g7e.12xlarge   ap-northeast-2a   1        2        True
+ip-10-40-18-226.ap-northeast-2.compute.internal   m7i.2xlarge    ap-northeast-2b   <none>   <none>   True
+ip-10-40-33-16.ap-northeast-2.compute.internal    m7i.2xlarge    ap-northeast-2c   <none>   <none>   True
+ip-10-40-8-88.ap-northeast-2.compute.internal     m7i.2xlarge    ap-northeast-2a   <none>   <none>   True

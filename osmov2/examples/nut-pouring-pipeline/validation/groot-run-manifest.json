@@ -1,0 +1,12 @@
+{
+  "workflow": "groot_finetune_nut_pouring",
+  "output_dataset": "PhysAI-GR00T-Finetuned",
+  "input_dataset": "PhysAI-LeRobotDataset",
+  "base_model_path": "nvidia/GR00T-N1.5-3B",
+  "max_steps": 10000,
+  "save_steps": 1000,
+  "gpu_metrics_interval_seconds": 10,
+  "retain_checkpoints": true,
+  "runtime_seconds": 6301,
+  "train_exit": 0
+}

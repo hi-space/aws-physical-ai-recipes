@@ -1,0 +1,23 @@
+{
+  "validated_at": "2026-05-06T05:06:44Z",
+  "workflow_id": "aws-osmo-gpu-smoke-3",
+  "workflow_runtime_seconds": 219,
+  "cuda_burn_seconds": 120,
+  "gpu_model": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "node": "ip-10-40-23-26.ap-northeast-2.compute.internal",
+  "amp_workspace_id": "ws-41a61aa8-e5cb-4196-aa2f-12abae537904",
+  "grafana_datasource": "AMP aws-osmo-dev-repro-eks",
+  "amp_max_over_1h": {
+    "DCGM_FI_DEV_GPU_UTIL": 100,
+    "DCGM_FI_DEV_FB_USED": 1070,
+    "DCGM_FI_DEV_POWER_USAGE": 537.003,
+    "DCGM_FI_DEV_GPU_TEMP": 67
+  },
+  "screenshots": [
+    "10-grafana-gpu-utilization-panel.png",
+    "11-grafana-gpu-framebuffer-panel.png",
+    "12-grafana-gpu-power-panel.png",
+    "13-grafana-gpu-temperature-panel.png"
+  ],
+  "query_filter": "namespace=\"osmo-workflows\""
+}

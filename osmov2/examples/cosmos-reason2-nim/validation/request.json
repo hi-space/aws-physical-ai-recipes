@@ -1,0 +1,33 @@
+{
+  "model": "nvidia/cosmos-reason2-2b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a physical AI assistant that reasons about robot-relevant scenes."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "video_url",
+          "video_url": {
+            "url": "https://assets.ngc.nvidia.com/products/api-catalog/cosmos-reason1-7b/car_curb.mp4"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Approve or reject this generated video for inclusion in a robotics dataset. Evaluate physical plausibility, object permanence, and obvious scene anomalies. Return a short rationale with 2-4 bullet points, then end with a final line in the form 'Decision: Approve' or 'Decision: Reject'.\n"
+        }
+      ]
+    }
+  ],
+  "temperature": 0.2,
+  "top_p": 0.7,
+  "max_tokens": 512,
+  "stream": false,
+  "media_io_kwargs": {
+    "video": {
+      "fps": 1.0
+    }
+  }
+}

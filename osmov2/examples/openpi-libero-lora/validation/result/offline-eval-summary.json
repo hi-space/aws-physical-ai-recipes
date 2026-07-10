@@ -1,0 +1,29 @@
+{
+  "workflow": "aws-openpi-libero-30k-visual-eval-1",
+  "config_name": "pi0_libero_low_mem_finetune",
+  "checkpoint_dataset": "openpi-libero-lora-30k-artifacts",
+  "checkpoint_dir": "/osmo/data/input/0/openpi-libero-lora-30k-artifacts/artifacts/checkpoints/pi0_libero_low_mem_finetune/aws-osmo-libero-lora-30k/29999",
+  "dataset_repo_id": "physical-intelligence/libero",
+  "dataset_episodes": [
+    0
+  ],
+  "frames": 64,
+  "action_horizon": 50,
+  "base_mse_first_action": 0.35987308621406555,
+  "base_mae_first_action": 0.34204965829849243,
+  "finetuned_mse_first_action": 0.001460963161662221,
+  "finetuned_mae_first_action": 0.018153810873627663,
+  "mse_delta": -0.35841212305240333,
+  "mae_delta": -0.32389584742486477,
+  "train_loss_first": 0.0096,
+  "train_loss_last": 0.0026,
+  "first_prompt": "put the white mug on the left plate and put the yellow and white mug on the right plate",
+  "output_dataset": "aws-osmo/openpi-libero-30k-visual-artifacts:1",
+  "source_training_workflow": "aws-openpi-libero-lora-7",
+  "train_loss_source": "osmo workflow logs aws-openpi-libero-lora-7 retained window",
+  "train_loss_logged_points": 9765,
+  "train_loss_first_logged_step": 20235,
+  "train_loss_last_logged_step": 29999,
+  "train_loss_min_retained": 0.0004,
+  "train_loss_max_retained": 0.5775
+}

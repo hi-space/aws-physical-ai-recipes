@@ -1,0 +1,21 @@
+{
+  "workflow": "aws-gr00t-10k-open-loop-visual",
+  "checkpoint_dataset": "gr00t-finetune-10k-artifacts",
+  "checkpoint_step": 10000,
+  "dataset_path": "demo_data/cube_to_bowl_5",
+  "eval_steps": 160,
+  "action_horizon": 16,
+  "before_steps": 1,
+  "before_checkpoint": "/tmp/gr00t-before-output/checkpoint-1",
+  "finetuned_checkpoint": "/osmo/data/input/0/gr00t-finetune-10k-artifacts/artifacts/checkpoint-10000",
+  "before": {
+    "mse": 1195.1436767578125,
+    "mae": 24.484426498413086
+  },
+  "finetuned": {
+    "mse": 774.3192138671875,
+    "mae": 17.873502731323242
+  },
+  "mse_delta": -420.824462890625,
+  "mae_delta": -6.610923767089844
+}

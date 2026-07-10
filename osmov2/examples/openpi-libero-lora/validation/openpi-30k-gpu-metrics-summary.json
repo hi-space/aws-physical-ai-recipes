@@ -1,0 +1,10 @@
+{
+  "sample_count": 494,
+  "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "gpu_util_percent_avg": 77.7165991902834,
+  "gpu_util_percent_max": 100.0,
+  "memory_used_mib_avg": 66381.29352226721,
+  "memory_used_mib_max": 68751.0,
+  "power_draw_w_avg": 326.8889473684211,
+  "power_draw_w_max": 384.23
+}

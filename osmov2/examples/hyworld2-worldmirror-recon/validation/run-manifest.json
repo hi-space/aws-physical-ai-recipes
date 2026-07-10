@@ -1,0 +1,15 @@
+{
+  "workflow": "aws-hyworld2-worldmirror-recon",
+  "repository": "https://github.com/Tencent-Hunyuan/HY-World-2.0",
+  "ref": "49c1ab648b251814e984cdfb6eb8707705375920",
+  "model_id": "tencent/HY-World-2.0",
+  "model_subfolder": "HY-WorldMirror-2.0",
+  "image": "nvcr.io/nvidia/pytorch:25.03-py3",
+  "input_path": "examples/worldrecon/realistic/Dining_Table",
+  "case_name": "dining_table_4v_952",
+  "target_size": 952,
+  "runtime_seconds": 737,
+  "runtime_patch": "flash-attn optional fallback for Blackwell/PyTorch SDPA path",
+  "retain_gaussians": "true",
+  "retain_points": "true"
+}

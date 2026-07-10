@@ -1,0 +1,16 @@
+{
+  "workflow": "aws-lyra2-dmd-single",
+  "repository": "https://github.com/nv-tlabs/lyra",
+  "ref": "52e507988ebcccb9bd5e039f31d2b985adc310c7",
+  "model_id": "nvidia/Lyra-2.0",
+  "image": "nvcr.io/nvidia/pytorch:25.03-py3",
+  "sample_id": 4,
+  "mode": "dmd",
+  "num_frames_zoom_in": 81,
+  "num_frames_zoom_out": 241,
+  "stage1_runtime_seconds": 677,
+  "stage2_runtime_seconds": 142,
+  "runtime_seconds": 5058,
+  "retain_ply": "false",
+  "retain_intermediate_videos": "false"
+}

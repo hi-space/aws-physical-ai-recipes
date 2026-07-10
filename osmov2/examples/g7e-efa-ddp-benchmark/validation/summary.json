@@ -1,0 +1,45 @@
+{
+  "comparison": {
+    "efa_time_saved_percent": 90.56706117055721,
+    "efa_time_saved_seconds": 1.2421205639839172,
+    "efa_total_seconds": 0.12937206029891968,
+    "socket_over_efa_speedup": 10.601150056000844,
+    "socket_total_seconds": 1.371492624282837
+  },
+  "results": [
+    {
+      "avg_step_seconds": 0.010758953168988228,
+      "gpus_per_node": 1,
+      "gradient_payload_gib_per_second": 46.4729227970996,
+      "gradient_payload_mib_per_rank": 256,
+      "gradient_payload_mib_per_step": 512,
+      "master_log": "efa-master.log",
+      "mode": "efa",
+      "p50_step_seconds": 0.010761184617877007,
+      "p95_step_seconds": 0.010961352847516537,
+      "param_mib": 256,
+      "steps": 12,
+      "total_seconds": 0.12937206029891968,
+      "warmup_steps": 2,
+      "worker_log": "efa-worker.log",
+      "world_size": 2
+    },
+    {
+      "avg_step_seconds": 0.11426228284835815,
+      "gpus_per_node": 1,
+      "gradient_payload_gib_per_second": 4.375897168653362,
+      "gradient_payload_mib_per_rank": 256,
+      "gradient_payload_mib_per_step": 512,
+      "master_log": "socket-master.log",
+      "mode": "socket",
+      "p50_step_seconds": 0.11425658315420151,
+      "p95_step_seconds": 0.11458267271518707,
+      "param_mib": 256,
+      "steps": 12,
+      "total_seconds": 1.371492624282837,
+      "warmup_steps": 2,
+      "worker_log": "socket-worker.log",
+      "world_size": 2
+    }
+  ]
+}

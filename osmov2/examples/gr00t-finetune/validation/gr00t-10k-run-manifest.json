@@ -1,0 +1,15 @@
+{
+  "workflow": "aws-gr00t-finetune",
+  "repository": "https://github.com/NVIDIA/Isaac-GR00T",
+  "ref": "ead52833afbbf4243f8cd5e7664f48a94de03b19",
+  "image": "nvcr.io/nvidia/pytorch:25.03-py3",
+  "dataset_path": "demo_data/cube_to_bowl_5",
+  "base_model_path": "nvidia/GR00T-N1.6-3B",
+  "embodiment_tag": "NEW_EMBODIMENT",
+  "modality_config_path": "examples/SO100/so100_config.py",
+  "max_steps": 10000,
+  "global_batch_size": 1,
+  "gpu_metrics_interval_seconds": 10,
+  "runtime_seconds": 2676,
+  "retain_model_weights": "true"
+}

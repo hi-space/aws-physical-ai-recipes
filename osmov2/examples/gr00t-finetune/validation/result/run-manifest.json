@@ -1,0 +1,15 @@
+{
+  "workflow": "aws-gr00t-10k-open-loop-visual",
+  "repository": "https://github.com/NVIDIA/Isaac-GR00T",
+  "ref": "ead52833afbbf4243f8cd5e7664f48a94de03b19",
+  "dataset_path": "demo_data/cube_to_bowl_5",
+  "base_model_path": "nvidia/GR00T-N1.6-3B",
+  "checkpoint_dataset": "gr00t-finetune-10k-artifacts",
+  "checkpoint_step": "10000",
+  "before_steps": 1,
+  "embodiment_tag": "NEW_EMBODIMENT",
+  "modality_config_path": "examples/SO100/so100_config.py",
+  "eval_steps": 160,
+  "action_horizon": 16,
+  "runtime_seconds": 632
+}
