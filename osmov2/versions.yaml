@@ -1,13 +1,16 @@
 osmo:
-  release: "6.2.10"
+  release: "6.3.1"
   chart_repository: "https://helm.ngc.nvidia.com/nvidia/osmo"
-  chart_version: "1.2.1"
+  chart_version: "1.3.1"
   image_registry: "nvcr.io/nvidia/osmo"
-  image_tag: "6.2"
+  image_tag: "6.3"
   compatibility_note: "https://github.com/NVIDIA/OSMO/pull/894"
   cookbook_ref: "c2c30e55f84969fff55d51cd2044a03d40d6a1a5"
   cosmos_transfer_ref: "0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b"
   cosmos_predict_tokenizer_revision: "f176dc95b4a70f53ce01c4b302851595e7322b00"
+  # 6.3 workflow task pods require explicit init/client images (missing -> task pod 422).
+  backend_init_image: "nvcr.io/nvidia/osmo/init-container:6.3.1"
+  backend_client_image: "nvcr.io/nvidia/osmo/client:6.3.1"
   internal_router_image: "public.ecr.aws/nginx/nginx-unprivileged:1.27-alpine"
 
 kai_scheduler:
