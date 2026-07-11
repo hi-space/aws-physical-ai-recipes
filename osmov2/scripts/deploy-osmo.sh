@@ -286,6 +286,13 @@ gateway:
     enabled: false
   oauth2Proxy:
     enabled: false
+  # 6.3 defaults gateway.tls.enabled=true, which makes every core service
+  # (service/router/agent/logger) mint an in-process self-signed cert and serve
+  # HTTPS for the Envoy gateway. This baseline runs gateway-disabled with plain
+  # HTTP behind the nginx internal router + port-forward, so the CLI/admin-token
+  # login over http://osmo-service:80 works. Disable upstream TLS to match.
+  tls:
+    enabled: false
 
 podMonitor:
   enabled: ${POD_MONITOR_ENABLED}
