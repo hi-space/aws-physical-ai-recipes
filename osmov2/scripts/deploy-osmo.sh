@@ -427,7 +427,7 @@ done
 port_open 127.0.0.1 9000 || die "OSMO service port-forward did not become ready"
 login_osmo_with_token "http://127.0.0.1:9000" "${DEFAULT_ADMIN_TOKEN}" || die "failed to log in to OSMO with default admin token"
 
-# OSMO 6.2 uses SERVICE.service_base_url for workflow control-plane callbacks.
+# OSMO 6.3 uses SERVICE.service_base_url for workflow control-plane callbacks.
 # The in-cluster logger service serves workflow log websocket endpoints, while
 # workflow data and dataset API calls must reach the service API.
 jq -n \
