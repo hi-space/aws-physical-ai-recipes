@@ -32,7 +32,7 @@ Observed result:
   - `nvcr.io/nvidia/isaac-sim:5.1.0` (~7.6 GB, pulled in 2m35s)
   - `nvcr.io/nvidia/osmo/client:6.3.1` (osmo-ctrl sidecar)
 - Isaac Sim booted headless with livestreaming enabled
-  ([validation/isaac-sim-boot.log](validation/isaac-sim-boot.log)):
+  ([validation/isaac-sim-boot.txt](validation/isaac-sim-boot.txt)):
   - `omni.kit.livestream.core-7.5.0 startup`
   - `omni.kit.livestream.webrtc-7.0.0 startup`
   - `Isaac Sim Full Streaming Version: 5.1.0-rc.19`
