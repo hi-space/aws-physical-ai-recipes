@@ -138,3 +138,39 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_cognito_auth" {
+  description = "Enable AWS Cognito browser authentication on the admin ALB. When true, the host-less catch-all Ingress rule is removed and login is domain-only."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_domain_prefix" {
+  description = "Cognito Hosted UI domain prefix (globally unique). Resolves to <prefix>.auth.<region>.amazoncognito.com. Required when enable_cognito_auth is true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cognito_domain_prefix == "" || can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", var.cognito_domain_prefix))
+    error_message = "cognito_domain_prefix must be a lowercase DNS label (letters, digits, hyphens; not starting or ending with a hyphen)."
+  }
+}
+
+variable "cognito_admin_email" {
+  description = "Optional email for an initial Cognito admin user placed in the osmo-admin group. Leave empty to skip user creation."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_admin_temp_password" {
+  description = "Temporary password for the initial Cognito admin user. Must satisfy the pool password policy. The user is forced to change it on first login."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cognito_access_token_validity_hours" {
+  description = "Access and ID token validity in hours for the browser app client."
+  type        = number
+  default     = 1
+}
