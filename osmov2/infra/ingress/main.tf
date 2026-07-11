@@ -170,19 +170,32 @@ resource "kubernetes_ingress_v1" "osmo_admin" {
   metadata {
     name      = local.ingress_name
     namespace = local.ingress_namespace
-    annotations = {
-      "alb.ingress.kubernetes.io/backend-protocol"         = "HTTP"
-      "alb.ingress.kubernetes.io/certificate-arn"          = aws_acm_certificate_validation.osmo_admin.certificate_arn
-      "alb.ingress.kubernetes.io/healthcheck-path"         = var.healthcheck_path
-      "alb.ingress.kubernetes.io/inbound-cidrs"            = join(",", var.allowed_cidrs)
-      "alb.ingress.kubernetes.io/listen-ports"             = jsonencode([{ HTTP = 80 }, { HTTPS = 443 }])
-      "alb.ingress.kubernetes.io/load-balancer-attributes" = "idle_timeout.timeout_seconds=3600,routing.http2.enabled=true"
-      "alb.ingress.kubernetes.io/load-balancer-name"       = local.load_balancer_name
-      "alb.ingress.kubernetes.io/scheme"                   = var.load_balancer_scheme
-      "alb.ingress.kubernetes.io/ssl-redirect"             = "443"
-      "alb.ingress.kubernetes.io/success-codes"            = "200-399"
-      "alb.ingress.kubernetes.io/target-type"              = "ip"
-    }
+    annotations = merge(
+      {
+        "alb.ingress.kubernetes.io/backend-protocol"         = "HTTP"
+        "alb.ingress.kubernetes.io/certificate-arn"          = aws_acm_certificate_validation.osmo_admin.certificate_arn
+        "alb.ingress.kubernetes.io/healthcheck-path"         = var.healthcheck_path
+        "alb.ingress.kubernetes.io/inbound-cidrs"            = join(",", var.allowed_cidrs)
+        "alb.ingress.kubernetes.io/listen-ports"             = jsonencode([{ HTTP = 80 }, { HTTPS = 443 }])
+        "alb.ingress.kubernetes.io/load-balancer-attributes" = "idle_timeout.timeout_seconds=3600,routing.http2.enabled=true"
+        "alb.ingress.kubernetes.io/load-balancer-name"       = local.load_balancer_name
+        "alb.ingress.kubernetes.io/scheme"                   = var.load_balancer_scheme
+        "alb.ingress.kubernetes.io/ssl-redirect"             = "443"
+        "alb.ingress.kubernetes.io/success-codes"            = "200-399"
+        "alb.ingress.kubernetes.io/target-type"              = "ip"
+      },
+      var.enable_cognito_auth ? {
+        "alb.ingress.kubernetes.io/auth-type" = "cognito"
+        "alb.ingress.kubernetes.io/auth-idp-cognito" = jsonencode({
+          userPoolARN      = local.cognito_user_pool_arn
+          userPoolClientID = local.cognito_browser_client_id
+          userPoolDomain   = local.cognito_user_pool_domain
+        })
+        "alb.ingress.kubernetes.io/auth-scope"                      = "openid email profile"
+        "alb.ingress.kubernetes.io/auth-session-timeout"            = "3600"
+        "alb.ingress.kubernetes.io/auth-on-unauthenticated-request" = "authenticate"
+      } : {}
+    )
     labels = {
       "app.kubernetes.io/name"       = "osmo-admin-ingress"
       "app.kubernetes.io/part-of"    = "aws-nvidia-robotics-reference-architecture"
@@ -215,20 +228,25 @@ resource "kubernetes_ingress_v1" "osmo_admin" {
     }
 
     # Host-less catch-all so the raw ALB DNS name also routes (demo access
-    # without the domain). HTTPS still uses the domain_name ACM cert, so hitting
-    # the raw ALB address over https shows a cert-name warning (expected).
-    rule {
-      http {
-        path {
-          path      = "/"
-          path_type = "Prefix"
+    # without the domain). Removed when Cognito auth is enabled, because the
+    # OAuth callback is registered against domain_name and raw-DNS access would
+    # fail the login redirect.
+    dynamic "rule" {
+      for_each = var.enable_cognito_auth ? [] : [1]
 
-          backend {
-            service {
-              name = var.osmo_ui_service_name
+      content {
+        http {
+          path {
+            path      = "/"
+            path_type = "Prefix"
 
-              port {
-                number = var.osmo_ui_service_port
+            backend {
+              service {
+                name = var.osmo_ui_service_name
+
+                port {
+                  number = var.osmo_ui_service_port
+                }
               }
             }
           }
@@ -239,7 +257,9 @@ resource "kubernetes_ingress_v1" "osmo_admin" {
 
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    aws_acm_certificate_validation.osmo_admin
+    aws_acm_certificate_validation.osmo_admin,
+    aws_cognito_user_pool_client.browser,
+    aws_cognito_user_pool_domain.osmo
   ]
 }
 
