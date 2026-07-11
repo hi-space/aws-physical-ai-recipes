@@ -4,10 +4,10 @@
 
 | Component | Version |
 | --- | --- |
-| OSMO | `6.2.10` |
+| OSMO | `6.3.1` |
 | OSMO Helm repo | `https://helm.ngc.nvidia.com/nvidia/osmo` |
-| OSMO Helm charts | `1.2.1` |
-| OSMO image tag | `6.2` |
+| OSMO Helm charts | `1.3.1` |
+| OSMO image tag | `6.3` |
 | Isaac Lab image | `nvcr.io/nvidia/isaac-lab:2.2.0` |
 | KAI Scheduler Helm chart | `oci://ghcr.io/kai-scheduler/kai-scheduler/kai-scheduler` |
 | KAI Scheduler | `v0.13.0` |
