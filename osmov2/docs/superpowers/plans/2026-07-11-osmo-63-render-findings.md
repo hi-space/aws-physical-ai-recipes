@@ -14,7 +14,7 @@
 - `helm template` completed without error
 - Output: 1677 lines of valid YAML
 - Error stream: empty (`/tmp/osmo-63-nogw.err`)
-- Rendered resources: ServiceAccount, 8 Services, 7 Deployments, ConfigMaps, Secrets
+- Rendered resources: ServiceAccount, 8 Services, 8 Deployments, ConfigMaps, Secrets
 
 **Decision:** Gateway-disabled rendering is supported. Tasks A3/A4 may proceed.
 
@@ -48,6 +48,19 @@ kubectl port-forward svc/osmo-ui 8082:80 -n osmo
 **Critical observation:** The UI is still configured to reach the API via `NEXT_PUBLIC_OSMO_API_HOSTNAME=osmo-gateway:80` in the rendered Deployment, even though the gateway is disabled. This env var is NOT automatically updated when gateway is off, so the deployed UI will fail to reach the API without additional configuration override.
 
 **Decision:** API and UI are reachable for development testing via separate port-forwards, but require manual env override in the UI Deployment to work together in a gateway-off cluster.
+
+**Recommendation for Task A3 (Gateway-Off Mode):**
+
+When deploying with gateway disabled, Task A3 MUST override the UI's API hostname to point at the internal nginx router instead of the missing gateway. 
+
+- **Helm Value:** `services.ui.apiHostname`
+- **Rendered Environment Variable:** `NEXT_PUBLIC_OSMO_API_HOSTNAME` (in `osmo-ui` Deployment)
+- **Current Value (gateway enabled):** `osmo-gateway:80`
+- **Required Value (gateway disabled):** `osmo-internal-router:80` (or `osmo-internal-router.<namespace>.svc.cluster.local` for explicit FQDN)
+
+Set via Helm: `--set services.ui.apiHostname=osmo-internal-router:80`
+
+This aligns with the "Chosen router mode: KEEP" decision — the nginx internal router continues to serve as the single entry point for both API (`/`) and logger (`/api/logger/`) paths.
 
 ---
 
@@ -128,13 +141,13 @@ Services:
   osmo-router-headless (headless, 80/8000)
   osmo-ui (ClusterIP, 80/8000)
 
-Deployments:
+Deployments (8 total):
   osmo-agent (1 replica)
-  osmo-service (3 replicas with topology spread)
   osmo-delayed-job-monitor (1 replica)
   osmo-gateway-authz (1 replica)
   osmo-logger (3 replicas)
   osmo-router (3 replicas with HPA scale 3-5)
+  osmo-service (3 replicas with topology spread)
   osmo-ui (1 replica)
   osmo-worker (2 replicas)
 
