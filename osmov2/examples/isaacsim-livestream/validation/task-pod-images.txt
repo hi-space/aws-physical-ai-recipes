@@ -1,0 +1,6 @@
+    Image:         nvcr.io/nvidia/osmo/init-container:6.3.1
+    Image:         nvcr.io/nvidia/isaac-sim:5.1.0
+    Image:         nvcr.io/nvidia/osmo/client:6.3.1
+  Normal  Pulled     6m53s  kubelet        Successfully pulled image "nvcr.io/nvidia/osmo/init-container:6.3.1" in 1.308s (1.308s including waiting). Image size: 353982715 bytes.
+  Normal  Pulled     4m13s  kubelet        Successfully pulled image "nvcr.io/nvidia/isaac-sim:5.1.0" in 2m35.354s (2m35.354s including waiting). Image size: 7617868030 bytes.
+  Normal  Pulled     4m9s   kubelet        Successfully pulled image "nvcr.io/nvidia/osmo/client:6.3.1" in 2.657s (2.657s including waiting). Image size: 135760269 bytes.
