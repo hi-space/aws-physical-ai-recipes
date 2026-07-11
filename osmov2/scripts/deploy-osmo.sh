@@ -12,6 +12,8 @@ OSMO_CHART_REPO="${OSMO_CHART_REPO:-$(version_value chart_repository)}"
 OSMO_CHART_VERSION="${OSMO_CHART_VERSION:-$(version_value chart_version)}"
 OSMO_IMAGE_REGISTRY="${OSMO_IMAGE_REGISTRY:-$(version_value image_registry)}"
 OSMO_IMAGE_TAG="${OSMO_IMAGE_TAG:-$(version_value image_tag)}"
+OSMO_BACKEND_INIT_IMAGE="${OSMO_BACKEND_INIT_IMAGE:-$(version_value backend_init_image)}"
+OSMO_BACKEND_CLIENT_IMAGE="${OSMO_BACKEND_CLIENT_IMAGE:-$(version_value backend_client_image)}"
 OSMO_BACKEND_NAME="${OSMO_BACKEND_NAME:-default}"
 OSMO_CONFIGURE_GPU_PLATFORM="${OSMO_CONFIGURE_GPU_PLATFORM:-true}"
 OSMO_GPU_PLATFORM_NAME="${OSMO_GPU_PLATFORM_NAME:-g7e-rtx-pro-6000}"
@@ -37,8 +39,7 @@ else
   OSMO_K8S_SCHEDULER_NAME="${OSMO_K8S_SCHEDULER_NAME:-default-scheduler}"
   OSMO_INSTALL_PODGROUP_COMPAT_CRD="${OSMO_INSTALL_PODGROUP_COMPAT_CRD:-true}"
 fi
-OSMO_DEPLOY_WEB_UI="${OSMO_DEPLOY_WEB_UI:-true}"
-OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-osmo-service:80}"
+OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-osmo-internal-router:80}"
 OSMO_DATASET_BUCKET_NAME="${OSMO_DATASET_BUCKET_NAME:-aws-osmo}"
 OSMO_DEPLOY_INTERNAL_ROUTER="${OSMO_DEPLOY_INTERNAL_ROUTER:-true}"
 OSMO_INTERNAL_ROUTER_NAME="${OSMO_INTERNAL_ROUTER_NAME:-osmo-internal-router}"
@@ -203,14 +204,13 @@ osmo_chart_ref() {
 
 SERVICE_VALUES="$(mktemp)"
 BACKEND_VALUES="$(mktemp)"
-UI_VALUES="$(mktemp)"
 SERVICE_CONFIG="$(mktemp)"
 WORKFLOW_CONFIG="$(mktemp)"
 DATASET_CONFIG="$(mktemp)"
 BACKEND_CONFIG="$(mktemp)"
 POOL_CONFIG="$(mktemp)"
 GPU_POD_TEMPLATE_CONFIG="$(mktemp)"
-trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${UI_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
 
 cat >"${SERVICE_VALUES}" <<EOF
 global:
@@ -226,7 +226,13 @@ serviceAccount:
 services:
   configFile:
     enabled: true
-    path: /home/osmo/config/mek.yaml
+    path: /opt/osmo/config.yaml
+  ui:
+    enabled: true
+    serviceAccountName: "${OSMO_SERVICE_ACCOUNT_NAME}"
+    apiHostname: "${OSMO_UI_API_HOSTNAME}"
+  router:
+    replicas: 1
   worker:
     scaling:
       minReplicas: 1
@@ -275,14 +281,10 @@ services:
     ingress:
       enabled: false
 
-sidecars:
+gateway:
   envoy:
     enabled: false
   oauth2Proxy:
-    enabled: false
-  rateLimit:
-    enabled: false
-  authz:
     enabled: false
 
 podMonitor:
@@ -298,6 +300,11 @@ helm upgrade --install osmo-service "$(osmo_chart_ref service)" \
 
 kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-service --timeout=10m
 
+kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m || log "osmo-ui not ready yet"
+
+# Keep nginx internal router: the 6.3 built-in router is session/subdomain-based and cannot
+# replace this repo's path-router (/api/logger/* -> osmo-logger, /* -> osmo-service).
+# See docs/superpowers/plans/2026-07-11-osmo-63-render-findings.md
 if [[ "${OSMO_DEPLOY_INTERNAL_ROUTER}" == "true" ]]; then
   kubectl -n "${OSMO_NAMESPACE}" apply -f - <<YAML
 apiVersion: v1
@@ -437,7 +444,10 @@ jq -n \
   --arg access_key "${WORKFLOW_DATA_SECRET_ACCESS_KEY}" \
   --arg region "${AWS_REGION}" \
   --arg workflow_data_base_url "${OSMO_WORKFLOW_DATA_BASE_URL}" \
+  --arg init_image "${OSMO_BACKEND_INIT_IMAGE}" \
+  --arg client_image "${OSMO_BACKEND_CLIENT_IMAGE}" \
   '{
+    backend_images: { init: $init_image, client: $client_image },
     workflow_data: {
       base_url: $workflow_data_base_url,
       credential: {
@@ -822,36 +832,6 @@ if [[ "${OSMO_CONFIGURE_G6_PLATFORM}" == "true" ]]; then
       die "failed to configure OSMO pool G6 platform"
     fi
   fi
-fi
-
-if [[ "${OSMO_DEPLOY_WEB_UI}" == "true" ]]; then
-  cat >"${UI_VALUES}" <<EOF
-global:
-  osmoImageLocation: "${OSMO_IMAGE_REGISTRY}"
-  osmoImageTag: "${OSMO_IMAGE_TAG}"
-  imagePullSecret: "${IMAGE_PULL_SECRET}"
-
-services:
-  ui:
-    apiHostname: "${OSMO_UI_API_HOSTNAME}"
-    ingress:
-      enabled: false
-
-sidecars:
-  envoy:
-    enabled: false
-  oauth2Proxy:
-    enabled: false
-EOF
-
-  helm upgrade --install osmo-ui "$(osmo_chart_ref web-ui)" \
-    --namespace "${OSMO_NAMESPACE}" \
-    --version "${OSMO_CHART_VERSION}" \
-    --values "${UI_VALUES}" \
-    --wait \
-    --timeout 10m
-
-  kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m
 fi
 
 log "OSMO service and backend operator deployment completed"
