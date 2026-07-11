@@ -104,3 +104,47 @@ Observed result:
   `Nov 17 23:59:59 2026 GMT`.
 - ALB ingress is restricted to
   `15.248.4.0/24,211.219.120.227/32,106.101.136.0/24,118.235.15.0/24,118.235.10.0/24`.
+
+## Cognito Browser Authentication — Runtime Validation
+
+Status: PENDING (fill in after the first live apply with `enable_cognito_auth = true`).
+
+Apply command (replace `domain_name`, `hosted_zone_id`, `allowed_cidrs`,
+`cognito_domain_prefix`, and `cognito_admin_email` with real values):
+
+```bash
+terraform -chdir=infra/ingress apply -input=false \
+  -var='aws_region=ap-northeast-2' \
+  -var='cluster_name=aws-osmo-dev-repro-eks' \
+  -var='cluster_oidc_issuer_url=<core: cluster_oidc_issuer_url>' \
+  -var='cluster_oidc_provider_arn=<core: cluster_oidc_provider_arn>' \
+  -var='vpc_id=<core: vpc_id>' \
+  -var='domain_name=osmo.example.com' \
+  -var='hosted_zone_id=<route53 zone id>' \
+  -var='allowed_cidrs=["<admin cidr>/32"]' \
+  -var='enable_cognito_auth=true' \
+  -var='cognito_domain_prefix=aws-osmo-dev-repro-auth' \
+  -var='cognito_admin_email=<admin email>' \
+  -var='cognito_admin_temp_password=<temp password>'
+```
+
+Checklist to record once validated:
+
+- [ ] `terraform apply` resource count (Cognito user pool, browser client,
+      Hosted UI domain, groups, admin user, ACM, ALB ingress, Route 53).
+- [ ] Cognito user pool ID and Hosted UI domain
+      (`<prefix>.auth.ap-northeast-2.amazoncognito.com`) resolve.
+- [ ] Browser client callback URL registered as
+      `https://<domain_name>/oauth2/idpresponse`.
+- [ ] Ingress annotation `alb.ingress.kubernetes.io/auth-type: cognito`
+      present; `auth-idp-cognito` carries pool ARN / client ID / domain (no
+      secret).
+- [ ] Host-less catch-all rule absent (domain-only routing) — hitting the raw
+      ALB DNS does not serve the UI.
+- [ ] Unauthenticated request to `https://<domain_name>/` redirects (302) to
+      the Cognito Hosted UI login page.
+- [ ] After login (first-login password change for the admin user), the OSMO
+      UI loads over HTTPS.
+- [ ] Disable check: re-apply with `enable_cognito_auth=false` restores the
+      auth-less ingress and the catch-all rule (optional regression check).
+
