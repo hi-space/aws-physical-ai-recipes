@@ -1,12 +1,12 @@
 # Observability
 
-OSMO 6.2 expects Prometheus, Grafana, imported OSMO dashboards, and backend config fields named `grafana_url` and `dashboard_url`. On AWS, the deployable minimal mapping is to keep Prometheus-compatible scraping in the EKS cluster, remote write to Amazon Managed Service for Prometheus (AMP), and use Amazon Managed Grafana (AMG) as the Grafana endpoint.
+OSMO 6.3 expects Prometheus, Grafana, imported OSMO dashboards, and backend config fields named `grafana_url` and `dashboard_url`. On AWS, the deployable minimal mapping is to keep Prometheus-compatible scraping in the EKS cluster, remote write to Amazon Managed Service for Prometheus (AMP), and use Amazon Managed Grafana (AMG) as the Grafana endpoint.
 
 This path follows the AWS-documented [existing Prometheus remote write](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-onboard-ingest-metrics-existing-Prometheus.html) onboarding flow: the in-cluster Prometheus instance remains responsible for scraping OSMO targets, but Grafana queries AMP rather than using the in-cluster Prometheus server as the long-term query and storage backend.
 
 References:
 
-- [OSMO Add Observability](https://nvidia.github.io/OSMO/release/6.2/deployment_guide/install_backend/observability.html)
+- [OSMO Add Observability](https://nvidia.github.io/OSMO/release/6.3/deployment_guide/install_backend/observability.html)
 - [AMP remote write from existing Prometheus](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-onboard-ingest-metrics-existing-Prometheus.html)
 - [AMP IRSA setup](https://docs.aws.amazon.com/prometheus/latest/userguide/set-up-irsa.html)
 - [AMG Prometheus data source](https://docs.aws.amazon.com/grafana/latest/userguide/prometheus-data-source.html)
