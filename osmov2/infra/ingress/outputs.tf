@@ -32,3 +32,28 @@ output "ingress_name" {
   description = "Kubernetes Ingress name."
   value       = kubernetes_ingress_v1.osmo_admin.metadata[0].name
 }
+
+output "cognito_user_pool_arn" {
+  description = "Cognito user pool ARN (null when Cognito auth is disabled)."
+  value       = local.cognito_user_pool_arn
+}
+
+output "cognito_browser_client_id" {
+  description = "Cognito browser app client ID (null when Cognito auth is disabled)."
+  value       = local.cognito_browser_client_id
+}
+
+output "cognito_user_pool_domain" {
+  description = "Cognito Hosted UI domain prefix (null when Cognito auth is disabled)."
+  value       = local.cognito_user_pool_domain
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Fully qualified Cognito Hosted UI domain (null when Cognito auth is disabled)."
+  value       = local.cognito_user_pool_domain == null ? null : "${local.cognito_user_pool_domain}.auth.${var.aws_region}.amazoncognito.com"
+}
+
+output "cognito_issuer" {
+  description = "Cognito OIDC issuer URL (null when Cognito auth is disabled)."
+  value       = local.cognito_issuer
+}
