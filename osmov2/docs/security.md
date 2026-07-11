@@ -31,3 +31,17 @@ Terraform creates runtime credentials and stores them in AWS Secrets Manager. Th
 This repo does not create public application ingress in the baseline. Use `kubectl port-forward` for initial validation. If public UI/API exposure is needed later, add it through a separate reviewed change with TLS, authentication, narrow source ranges, and WAF where appropriate.
 
 The optional `infra/ingress` Terraform root creates HTTPS access for the OSMO admin UI through AWS Load Balancer Controller, ACM, Route 53, and an ALB-backed Kubernetes Ingress. It requires a non-empty `allowed_cidrs` list and rejects `0.0.0.0/0`; keep this allow list limited to trusted administrator networks.
+
+## Cognito Browser Authentication (optional ingress)
+
+The optional `infra/ingress` root can require AWS Cognito login for the admin
+UI via ALB-native `authenticate-cognito` (`enable_cognito_auth = true`). The
+ALB handles the OIDC handshake; no sidecar or session store is deployed.
+
+- Login is domain-only when enabled (the raw ALB DNS catch-all is removed).
+- The browser app client holds a generated secret managed between the ALB and
+  Cognito; it is never placed in Ingress annotations.
+- `osmo-admin` / `osmo-user` groups are defined for future RBAC. Today any
+  authenticated user can reach the UI — there is no per-role authorization.
+- The OSMO CLI and service-to-service calls remain bearer-token based and are
+  unaffected.

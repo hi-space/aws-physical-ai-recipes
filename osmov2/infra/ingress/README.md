@@ -24,6 +24,29 @@ Required inputs:
 
 The Ingress routes only to the private `osmo-ui` service. The UI deployment proxies API calls to `osmo-service` inside the cluster, so the public ALB does not need to expose the API service separately.
 
+## Cognito Browser Authentication (optional)
+
+Set `enable_cognito_auth = true` to require AWS Cognito login before the admin
+UI is served. The ALB performs the OIDC Authorization Code handshake itself
+(`authenticate-cognito`); no in-cluster proxy or Redis session store is added.
+
+Additional inputs:
+
+- `cognito_domain_prefix` (required when enabled): globally unique Hosted UI
+  prefix, resolving to `<prefix>.auth.<region>.amazoncognito.com`.
+- `cognito_admin_email` (optional): creates an initial admin user in the
+  `osmo-admin` group.
+- `cognito_admin_temp_password` (optional): temporary password for that user;
+  Cognito forces a change on first login.
+
+When enabled, access is domain-only: the host-less catch-all rule is removed so
+the OAuth callback (`https://<domain_name>/oauth2/idpresponse`) always resolves.
+The `osmo-admin` and `osmo-user` groups are created for future role mapping but
+no authorization logic is wired yet — any authenticated user reaches the UI.
+
+The OSMO CLI and automation continue to use bearer tokens; only the browser UI
+is gated by Cognito.
+
 The AWS Load Balancer Controller IAM policy is pinned in this directory from `kubernetes-sigs/aws-load-balancer-controller/v3.2.2`.
 
 ## Runtime Validation

@@ -21,6 +21,15 @@ allowed_cidrs = [
   "203.0.113.0/24"
 ]
 
+# Optional: AWS Cognito browser authentication for the admin UI.
+# When enable_cognito_auth is true, the UI is reachable only via domain_name
+# (the raw ALB DNS catch-all route is removed) and users must sign in through
+# the Cognito Hosted UI.
+enable_cognito_auth   = false
+cognito_domain_prefix = "aws-osmo-dev-repro-auth" # globally unique
+# cognito_admin_email       = "admin@example.com"
+# cognito_admin_temp_password = "ChangeMe123!"
+
 tags = {
   Project     = "aws-osmo"
   Environment = "dev-repro"
