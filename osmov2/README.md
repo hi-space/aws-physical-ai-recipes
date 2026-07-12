@@ -69,10 +69,23 @@ scripts/deploy-infra.sh
 scripts/deploy-karpenter.sh
 scripts/deploy-gpu-operator.sh
 scripts/deploy-efa-device-plugin.sh
-scripts/deploy-osmo.sh
+scripts/deploy-osmo-sso-bootstrap.sh   # first SSO deploy: see note below
 scripts/validate-platform.sh
 scripts/smoke-test.sh
 ```
+
+The 6.3.1 SSO gateway has a bootstrap ordering problem: `deploy-osmo.sh`
+requires the `infra/cloudfront` `osmo_ui_cloudfront_domain` output, but
+`infra/cloudfront` needs the `osmo-gateway` Service LoadBalancer that only
+exists after OSMO is deployed. `scripts/deploy-osmo-sso-bootstrap.sh` breaks the
+cycle: it applies `infra/cognito` with a placeholder callback, runs
+`deploy-osmo.sh` once to create the gateway LoadBalancer, applies
+`infra/cloudfront` with that LoadBalancer as origin, then re-applies
+`infra/cognito` and re-runs `deploy-osmo.sh` with the real CloudFront hostname.
+On later deploys, once the CloudFront domain is stable, you can run
+`scripts/deploy-osmo.sh` directly. For a non-default region, export
+`TF_WORKSPACE` and point `COGNITO_VAR_FILE` / `CLOUDFRONT_VAR_FILE` at the
+matching `terraform.<region>.tfvars`.
 
 `scripts/smoke-test.sh` submits `examples/osmo-smoke/workflow.yaml` by default. For the GPU smoke workflow, prewarm a G7e node so OSMO resource validation can observe GPU platform capacity:
 
