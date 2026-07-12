@@ -71,13 +71,13 @@ resource "aws_wafv2_web_acl" "this" {
   }
 }
 
-resource "aws_cloudfront_distribution" "this" {
+resource "aws_cloudfront_distribution" "osmo_ui" {
   provider = aws.global
   comment  = "OSMO Admin UI via ALB"
   enabled  = true
 
   origin {
-    domain_name = var.alb_dns_name
+    domain_name = var.osmo_alb_dns_name
     origin_id   = "osmo-alb-origin"
 
     custom_origin_config {
@@ -90,6 +90,49 @@ resource "aws_cloudfront_distribution" "this" {
 
   default_cache_behavior {
     target_origin_id       = "osmo-alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3"
+  }
+
+  web_acl_id = aws_wafv2_web_acl.this.arn
+
+  price_class = "PriceClass_200"
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+}
+
+resource "aws_cloudfront_distribution" "grafana" {
+  provider = aws.global
+  comment  = "OSMO Grafana via ALB"
+  enabled  = true
+
+  origin {
+    domain_name = var.grafana_alb_dns_name
+    origin_id   = "grafana-alb-origin"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "grafana-alb-origin"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods         = ["GET", "HEAD"]

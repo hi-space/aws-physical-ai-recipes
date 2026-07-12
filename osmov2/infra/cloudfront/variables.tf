@@ -4,8 +4,13 @@ variable "name_prefix" {
   default     = "osmo"
 }
 
-variable "alb_dns_name" {
-  description = "ALB DNS name to use as CloudFront origin."
+variable "osmo_alb_dns_name" {
+  description = "OSMO Admin UI ALB DNS name to use as CloudFront origin."
+  type        = string
+}
+
+variable "grafana_alb_dns_name" {
+  description = "Grafana ALB DNS name to use as CloudFront origin."
   type        = string
 }
 

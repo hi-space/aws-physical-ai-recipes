@@ -48,13 +48,15 @@ helm repo update prometheus-community >/dev/null
 
 PUSHGATEWAY_FQDN="${PUSHGATEWAY_SERVICE}.${MONITORING_NAMESPACE}.svc.cluster.local:9091"
 
-# When exposing Grafana via ingress host, set root_url so login redirects and
-# generated links use the public domain instead of the pod's localhost.
-if [[ -n "${GRAFANA_INGRESS_HOST:-}" ]]; then
+# When exposing Grafana via ingress host or CloudFront, set root_url so login
+# redirects and generated links use the public domain instead of the pod's localhost.
+# GRAFANA_CLOUDFRONT_DOMAIN takes precedence over GRAFANA_INGRESS_HOST.
+GRAFANA_PUBLIC_HOST="${GRAFANA_CLOUDFRONT_DOMAIN:-${GRAFANA_INGRESS_HOST:-}}"
+if [[ -n "${GRAFANA_PUBLIC_HOST:-}" ]]; then
   GRAFANA_INI_BLOCK=$(cat <<INI
   grafana.ini:
     server:
-      root_url: "https://${GRAFANA_INGRESS_HOST}"
+      root_url: "https://${GRAFANA_PUBLIC_HOST}"
 INI
 )
 else
