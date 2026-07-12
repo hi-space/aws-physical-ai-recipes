@@ -148,6 +148,26 @@ Destroy the reference environment when finished:
 scripts/destroy.sh
 ```
 
+## GPU Provisioning Options
+
+GPU 노드 프로비저닝은 Karpenter(기본, 재현성 경로 유지) 또는 관리형 노드그룹 + Cluster Autoscaler로 전환 가능합니다. 기본 설정은 On-Demand 용량이며, Spot 용량과 GPU 폴백 패밀리는 선택적 기능입니다.
+
+| 변수 | 위치 | 기본 | 설명 |
+|------|------|------|------|
+| `gpu_provisioner` | tfvars | `karpenter` | `karpenter` 또는 `managed-nodegroup` |
+| `KARPENTER_CAPACITY_TYPE` | env | `on-demand` | `on-demand` 또는 `on-demand,spot` |
+| `gpu_capacity_type` | tfvars | `ON_DEMAND` | 관리형 모드에서 Spot 활성화 |
+| `GPU_FALLBACK_FAMILIES` | env | (빈값) | `g6,g5,g6e` opt-in GPU 폴백 |
+| `OSMO_FALLBACK_PLATFORMS` | env | (빈값) | 등록할 OSMO 플랫폼 패밀리 |
+
+**기본 설정**: Karpenter On-Demand (개발 및 재현성 경로 변경 없음).
+
+**관리형 모드**: `gpu_provisioner=managed-nodegroup`을 설정하고 `scripts/deploy-cluster-autoscaler.sh`를 실행합니다. Cluster Autoscaler는 pending pod 기반으로 노드를 동적으로 프로비저닝합니다.
+
+**Spot 옵션**: 장시간 학습 워크로드에서는 `KARPENTER_CAPACITY_TYPE=on-demand,spot` 또는 `gpu_capacity_type=SPOT`으로 비용을 절감할 수 있습니다. Spot 중단이 워크플로우 재현성에 영향을 줄 수 있으므로, 기본값으로는 On-Demand를 유지합니다.
+
+**GPU 폴백**: `GPU_FALLBACK_FAMILIES=g6,g5,g6e`을 설정하면 주력 GPU(G7e)를 사용할 수 없을 때 폴백 GPU를 자동으로 전환합니다. 폴백 매핑: `g6` (NVIDIA L4), `g5` (NVIDIA A10G), `g6e` (NVIDIA L40S). 이 옵션은 기본값으로는 비활성이며, 벤치마크 재현성에 영향을 주지 않습니다.
+
 ## Current Scope
 
 This reference focuses on the AWS integration layer for NVIDIA OSMO. It is not a general-purpose NVIDIA robotics platform distribution; it demonstrates repeatable AWS infrastructure, EKS GPU scheduling, OSMO deployment, and validated workflow execution for NVIDIA robotics and physical AI workloads.
