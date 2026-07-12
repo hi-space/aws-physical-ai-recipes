@@ -47,8 +47,11 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # Disable public self-registration: only administrators may create users
+  # (admin-create-user). This pool fronts an internal admin UI, so open
+  # sign-up would let unauthorized users provision accounts.
   admin_create_user_config {
-    allow_admin_create_user_only = false
+    allow_admin_create_user_only = true
   }
 
   deletion_protection = var.deletion_protection ? "ACTIVE" : "INACTIVE"
