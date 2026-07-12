@@ -4,7 +4,12 @@ PASK-aligned GR00T fine-tune workflow using NVIDIA `GR00T-N1.6-3B`, the upstream
 
 Files:
 
-- [workflow.yaml](workflow.yaml): OSMO workflow definition.
+| File | Stack | Notes |
+| --- | --- | --- |
+| [workflow.yaml](workflow.yaml) | PyTorch 25.03 (Isaac Sim 4.5 era) | stable, validated |
+| [workflow-g6.yaml](workflow-g6.yaml) | PyTorch 25.03, G6 L4 platform | G6 fallback |
+| [workflow-5.1.yaml](workflow-5.1.yaml) | PyTorch 25.04 (Isaac Sim 5.1 era) | latest |
+
 - [validation.md](validation.md): validation result, plots, replays, and run manifests.
 - [validation/](validation/): retained validation artifacts.
 

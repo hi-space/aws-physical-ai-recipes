@@ -2,6 +2,13 @@
 
 Isaac Lab RSL-RL workflow for `Isaac-Reach-Franka-v0`. It trains for a bounded number of iterations and exports checkpoint, scalar summaries, and before/after videos.
 
+| File | Isaac Lab / Sim | Platform | Notes |
+| --- | --- | --- | --- |
+| `workflow.yaml` | 2.2.0 (Isaac Sim 4.5.0) | G7e | stable, validated |
+| `workflow-g6.yaml` | 2.2.0 (Isaac Sim 4.5.0) | G6 L4 | G6 fallback |
+| `workflow-g6-video.yaml` | 2.2.0 (Isaac Sim 4.5.0) | G6 L4 | video-only variant |
+| `workflow-5.1.yaml` | 2.3.0 (Isaac Sim 5.1.0) | G7e | latest |
+
 Run it through the repo wrapper:
 
 ```bash

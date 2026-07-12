@@ -1,0 +1,298 @@
+# Stage 3 — Training (GR00T VLA fine-tune)
+# Fine-tune NVIDIA GR00T on the SO-101 LeRobot dataset produced by Stage 1
+# (01-data-prep). Uses the SO-101 6-DOF modality config from the e2e workshop
+# so the arm/gripper state+action layout and the LeIsaac-compatible language
+# key match what Stage 4 closed-loop eval expects.
+#
+# Consumes the Stage 1 OSMO dataset as an input; produces a fine-tuned
+# checkpoint as an output dataset for Stage 4 (04-closeloop) and Stage 5 (edge).
+#
+#   osmo workflow submit examples ... 03-training/workflow.yaml \
+#     --set input_dataset=e2e-pipeline-lerobot-dataset \
+#     --set max_steps=10000
+
+workflow:
+  name: aws-e2e-training
+  timeout:
+    exec_timeout: 12h
+    queue_timeout: 6h
+  resources:
+    gpu:
+      cpu: {{ cpu }}
+      gpu: 1
+      memory: {{ memory }}
+      storage: {{ storage }}
+      platform: {{ platform }}
+
+  tasks:
+  - name: gr00t-finetune
+    resource: gpu
+    image: {{ image_name }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    inputs:
+    - dataset:
+        name: {{ input_dataset }}
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+        START_TS="$(date -u +%s)"
+
+        unset PIP_CONSTRAINT || true
+        export PIP_CONSTRAINT=
+        export DEBIAN_FRONTEND=noninteractive
+        export HF_HOME=/tmp/hf-home
+        export HUGGING_FACE_HUB_TOKEN="${HF_TOKEN:-}"
+        export PYTHONUNBUFFERED=1
+        export UV_LINK_MODE=copy
+        export UV_PROJECT_ENVIRONMENT=/tmp/gr00t-venv
+        export WANDB_DISABLED=true
+
+        BASE_MODEL_PATH="{{ base_model_path }}"
+        GROOT_VERSION="{{ groot_version }}"
+        EMBODIMENT_TAG="{{ embodiment_tag }}"
+        MAX_STEPS="{{ max_steps }}"
+        SAVE_STEPS="{{ save_steps }}"
+        SAVE_TOTAL_LIMIT="{{ save_total_limit }}"
+        GLOBAL_BATCH_SIZE="{{ global_batch_size }}"
+        LEARNING_RATE="{{ learning_rate }}"
+        DATALOADER_NUM_WORKERS="{{ dataloader_num_workers }}"
+        RETAIN_MODEL_WEIGHTS="{{ retain_model_weights }}"
+        ARTIFACT_DIR="{{output}}/artifacts"
+        OUTPUT_DIR=/tmp/gr00t-output
+        DATASET_DIR="{{input:0}}/dataset"
+
+        nvidia-smi
+        python --version
+
+        apt-get update >/dev/null
+        apt-get install -y --no-install-recommends \
+          ca-certificates curl ffmpeg git git-lfs libgl1 libglib2.0-0 >/dev/null
+        git lfs install --skip-repo >/dev/null
+        curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
+        export PATH="${HOME}/.local/bin:${PATH}"
+
+        # Stage 1 output layout is <input>/dataset, but OSMO may nest the
+        # published dataset under <input>/<dataset-name>/artifacts/dataset. Locate
+        # the LeRobot root by finding the meta/info.json it must contain.
+        if [ ! -d "${DATASET_DIR}/meta" ]; then
+          INFO_JSON="$(find "{{input:0}}" -maxdepth 6 -type f -path '*/meta/info.json' 2>/dev/null | sort | head -1)"
+          if [ -n "${INFO_JSON}" ]; then
+            DATASET_DIR="$(dirname "$(dirname "${INFO_JSON}")")"
+          else
+            DATASET_DIR="{{input:0}}"
+          fi
+        fi
+        test -d "${DATASET_DIR}/meta"
+        echo ">>> Using dataset at ${DATASET_DIR}"
+
+        git clone --filter=blob:none "{{ gr00t_repository }}" /tmp/Isaac-GR00T
+        cd /tmp/Isaac-GR00T
+        git checkout "{{ gr00t_ref }}"
+        uv sync --no-dev
+
+        # SO-101 modality config registered for NEW_EMBODIMENT (from e2e workshop).
+        cp /tmp/so101_modality_config.py examples/SO100/so101_e2e_config.py
+
+        # GPU metrics sampler
+        GPU_METRICS_DIR=/tmp/gpu-metrics
+        mkdir -p "${GPU_METRICS_DIR}"
+        (
+          set +e
+          while true; do
+            nvidia-smi \
+              --query-gpu=timestamp,index,name,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,temperature.gpu \
+              --format=csv,noheader,nounits >>"${GPU_METRICS_DIR}/nvidia-smi.csv" 2>/dev/null || true
+            sleep "{{ gpu_metrics_interval_seconds }}"
+          done
+        ) &
+        GPU_METRICS_PID="$!"
+        trap 'kill "${GPU_METRICS_PID}" 2>/dev/null || true' EXIT
+
+        # launch_finetune.py hardcodes config.model.use_relative_action=True for
+        # the N1.6 backbone; FinetuneConfig has no --use-relative-action field
+        # (tyro rejects it), so relative-action is not a CLI knob here.
+        uv run python gr00t/experiment/launch_finetune.py \
+          --base-model-path "${BASE_MODEL_PATH}" \
+          --dataset-path "${DATASET_DIR}" \
+          --embodiment-tag "${EMBODIMENT_TAG}" \
+          --modality-config-path examples/SO100/so101_e2e_config.py \
+          --num-gpus 1 \
+          --global-batch-size "${GLOBAL_BATCH_SIZE}" \
+          --max-steps "${MAX_STEPS}" \
+          --save-steps "${SAVE_STEPS}" \
+          --save-total-limit "${SAVE_TOTAL_LIMIT}" \
+          --output-dir "${OUTPUT_DIR}" \
+          --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
+          --learning-rate "${LEARNING_RATE}" \
+          --no-use-wandb
+
+        kill "${GPU_METRICS_PID}" 2>/dev/null || true
+        python /tmp/gpu_metrics_summary.py "${GPU_METRICS_DIR}/nvidia-smi.csv" "${GPU_METRICS_DIR}" || true
+
+        if [ "${RETAIN_MODEL_WEIGHTS}" != "true" ]; then
+          find "${OUTPUT_DIR}" -type f \( \
+            -name "optimizer.pt" -o -name "scheduler.pt" -o -name "rng_state.pth" \
+          \) -delete
+        fi
+
+        mkdir -p "${ARTIFACT_DIR}"
+        cp -a "${OUTPUT_DIR}/." "${ARTIFACT_DIR}/"
+        cp -a "${GPU_METRICS_DIR}" "${ARTIFACT_DIR}/gpu-metrics"
+        END_TS="$(date -u +%s)"
+        cat > "${ARTIFACT_DIR}/run-manifest.json" <<JSON
+        {
+          "workflow": "aws-e2e-training",
+          "base_model_path": "${BASE_MODEL_PATH}",
+          "groot_version": "${GROOT_VERSION}",
+          "embodiment_tag": "${EMBODIMENT_TAG}",
+          "modality_config": "so101_e2e_config.py",
+          "use_relative_action": "hardcoded-true-in-launch-script",
+          "max_steps": ${MAX_STEPS},
+          "global_batch_size": ${GLOBAL_BATCH_SIZE},
+          "runtime_seconds": $((END_TS - START_TS)),
+          "retain_model_weights": "${RETAIN_MODEL_WEIGHTS}"
+        }
+        JSON
+
+        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -200
+        exit 0
+    - path: /tmp/so101_modality_config.py
+      contents: |
+        """SO-ARM101 (6-DOF) modality config — from e2e-workshop.
+
+        Copy of e2e-workshop/groot/training/data/configs/so101_modality_config.py.
+        Registers a NEW_EMBODIMENT config with 5 arm joints + 1 gripper, matching
+        the LightwheelAI/leisaac-pick-orange dataset and the LeIsaac closed-loop
+        eval language key `annotation.human.task_description`.
+        """
+        from gr00t.configs.data.embodiment_configs import register_modality_config
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import (
+            ActionConfig,
+            ActionFormat,
+            ActionRepresentation,
+            ActionType,
+            ModalityConfig,
+        )
+
+        so101_config = {
+            "video": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["front", "wrist"],
+            ),
+            "state": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["single_arm", "gripper"],
+            ),
+            "action": ModalityConfig(
+                delta_indices=list(range(0, 16)),
+                modality_keys=["single_arm", "gripper"],
+                action_configs=[
+                    ActionConfig(
+                        rep=ActionRepresentation.RELATIVE,
+                        type=ActionType.NON_EEF,
+                        format=ActionFormat.DEFAULT,
+                    ),
+                    ActionConfig(
+                        rep=ActionRepresentation.ABSOLUTE,
+                        type=ActionType.NON_EEF,
+                        format=ActionFormat.DEFAULT,
+                    ),
+                ],
+            ),
+            "language": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["annotation.human.task_description"],
+            ),
+        }
+
+        register_modality_config(so101_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
+    - path: /tmp/gpu_metrics_summary.py
+      contents: |
+        import csv
+        import json
+        import math
+        import statistics
+        import sys
+        from pathlib import Path
+
+        csv_path = Path(sys.argv[1])
+        out_dir = Path(sys.argv[2])
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        fields = ["timestamp", "index", "name", "gpu_util_percent", "memory_util_percent",
+                  "memory_used_mib", "memory_total_mib", "power_draw_w", "temperature_c"]
+        rows = []
+        if csv_path.exists():
+            with csv_path.open(newline="") as f:
+                for row in csv.reader(f):
+                    if len(row) != len(fields):
+                        continue
+                    item = {k: v.strip() for k, v in zip(fields, row)}
+                    for k in fields[3:]:
+                        try:
+                            item[k] = float(item[k])
+                        except ValueError:
+                            item[k] = math.nan
+                    rows.append(item)
+
+        def values(key):
+            return [float(r[key]) for r in rows if not math.isnan(float(r[key]))]
+
+        summary = {
+            "sample_count": len(rows),
+            "gpu_name": rows[0]["name"] if rows else None,
+            "gpu_util_percent_avg": statistics.fmean(values("gpu_util_percent")) if values("gpu_util_percent") else None,
+            "gpu_util_percent_max": max(values("gpu_util_percent")) if values("gpu_util_percent") else None,
+            "memory_used_mib_max": max(values("memory_used_mib")) if values("memory_used_mib") else None,
+            "power_draw_w_max": max(values("power_draw_w")) if values("power_draw_w") else None,
+        }
+        (out_dir / "gpu-metrics-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            x = list(range(len(rows)))
+            fig, ax = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+            ax[0].plot(x, values("gpu_util_percent"), label="GPU util %", color="#2563eb")
+            ax[0].set_ylabel("percent"); ax[0].legend(); ax[0].grid(True, alpha=0.3)
+            mem = [v / 1024 for v in values("memory_used_mib")]
+            ax[1].plot(x, mem, label="Memory used GiB", color="#9333ea")
+            ax[1].set_xlabel("sample"); ax[1].set_ylabel("GiB"); ax[1].legend(); ax[1].grid(True, alpha=0.3)
+            fig.suptitle("GR00T fine-tune GPU utilization"); fig.tight_layout()
+            fig.savefig(out_dir / "gpu-utilization.png", dpi=150)
+        except Exception as exc:
+            (out_dir / "gpu-metrics-plot-error.txt").write_text(str(exc) + "\n")
+    outputs:
+    - dataset:
+        name: {{ output_dataset }}
+        path: artifacts
+
+default-values:
+  cpu: 16
+  memory: 96Gi
+  storage: 256Gi
+  platform: g7e-rtx-pro-6000
+  image_name: "nvcr.io/nvidia/pytorch:25.03-py3"
+  gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
+  gr00t_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"
+  base_model_path: nvidia/GR00T-N1.6-3B
+  groot_version: n1.6
+  embodiment_tag: NEW_EMBODIMENT
+  input_dataset: e2e-pipeline-lerobot-dataset
+  output_dataset: e2e-pipeline-groot-checkpoint
+  max_steps: 10
+  save_steps: 10
+  save_total_limit: 1
+  global_batch_size: 1
+  learning_rate: 1e-4
+  dataloader_num_workers: 4
+  retain_model_weights: "true"
+  gpu_metrics_interval_seconds: 10

@@ -1,0 +1,58 @@
+---
+# Stage 5 — Edge (setup component)
+# AWS IoT Greengrass component that stages the fine-tuned GR00T model onto an
+# edge device. Generalized from e2e-workshop/edge/workshop-components/N1.6/
+# com.workshop.setup — the workshop hardcoded a CloudFront tarball; here the
+# model comes from the S3 location you export the Stage 3 (03-training) OSMO
+# dataset to (see 05-edge/README.md).
+#
+# TensorRT engine build is optional (buildTrt=false by default) so the base
+# component works without the workshop-specific export scripts.
+RecipeFormatVersion: "2020-01-25"
+ComponentName: com.aws.groot.setup
+ComponentVersion: "1.0.0"
+ComponentDescription: "Stage the fine-tuned GR00T policy model on an edge device (from S3)."
+ComponentPublisher: AWS-Physical-AI-Recipes
+ComponentConfiguration:
+  DefaultConfiguration:
+    # s3://<bucket>/<prefix> where you uploaded the Stage 3 checkpoint.
+    modelS3Uri: "s3://REPLACE_ME/models/e2e-pipeline-groot-checkpoint"
+    modelDir: "/opt/groot/models"
+    modelName: "GR00T-checkpoint"
+    region: "ap-northeast-2"
+    buildTrt: "false"
+    trtEngineDir: "/opt/groot/trt"
+    precision: "bf16"
+Manifests:
+  - Platform:
+      os: linux
+      architecture: amd64
+    Lifecycle:
+      run:
+        RequiresPrivilege: true
+        Script: |
+          set -e
+          export AWS_DEFAULT_REGION="{configuration:/region}"
+          MODEL_S3_URI="{configuration:/modelS3Uri}"
+          MODEL_DIR="{configuration:/modelDir}"
+          MODEL_NAME="{configuration:/modelName}"
+          BUILD_TRT="{configuration:/buildTrt}"
+
+          DEST="${MODEL_DIR}/${MODEL_NAME}"
+          if [ -d "$DEST" ] && [ "$(find "$DEST" -name '*.safetensors' 2>/dev/null | wc -l)" -ge 1 ]; then
+            echo "Model $MODEL_NAME already present at $DEST — skipping download."
+          else
+            echo "=== Syncing model from ${MODEL_S3_URI} ==="
+            mkdir -p "$DEST"
+            aws s3 sync "$MODEL_S3_URI" "$DEST" --region "$AWS_DEFAULT_REGION" --no-progress
+            echo "Model ready: $DEST ($(du -sh "$DEST" | cut -f1))"
+          fi
+
+          if [ "$BUILD_TRT" = "true" ]; then
+            echo "buildTrt=true set, but TRT export is model-specific."
+            echo "Provide export_onnx + build_tensorrt scripts for your checkpoint,"
+            echo "or run inference in PyTorch mode (default)."
+          fi
+
+          echo "=== Setup complete ==="
+        Timeout: 3600
