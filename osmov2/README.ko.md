@@ -234,7 +234,7 @@ GPU_PREWARM_INSTANCE_TYPE=g6.4xlarge \
   scripts/prewarm-gpu-node.sh
 ```
 
-관련 기본값은 `versions.yaml`에 있습니다: `karpenter_g6_nodepool_name`(기본 `aws-osmo-g6`), `g6_instance_types`(기본 `g6.2xlarge,g6.4xlarge,g6.8xlarge`). AZ는 `KARPENTER_G6_ZONE`(기본 `ap-northeast-2a`)으로 오버라이드할 수 있습니다.
+관련 기본값은 `versions.yaml`에 있습니다: `karpenter_g6_nodepool_name`(기본 `aws-osmo-g6`), `g6_instance_types`(기본 `g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge`). AZ는 기본적으로 배포 리전의 첫 번째 AZ(예: `us-west-2a`)로 자동 설정되며, `KARPENTER_G6_ZONE`으로 오버라이드할 수 있습니다.
 
 G6 노드에서 검증된 예제 워크플로:
 
@@ -242,8 +242,28 @@ G6 노드에서 검증된 예제 워크플로:
 - `examples/isaaclab-rsl-rl-video/workflow-g6.yaml` — Isaac Lab RSL-RL 학습(영상 렌더링 비활성).
 - `examples/isaaclab-rsl-rl-video/workflow-g6-video.yaml` — 위와 동일하되 영상 렌더링 활성. play.py에 `--enable_cameras`를 추가해 headless 환경에서도 오프스크린 비디오 녹화가 되도록 했습니다.
 - `examples/gr00t-finetune/workflow-g6.yaml` — GR00T 파인튜닝(L4에 맞춰 리소스·튜닝 범위 축소).
+- `examples/gpu-smoke/workflow-g6.yaml` — CUDA 번-인 GPU 스모크(L4).
 
 참고: L4(24GB)는 Cosmos Reason2 같은 추론(VLM) 워크로드에는 충분하지만, Cosmos Predict/Transfer 계열의 diffusion 생성 워크로드에는 부적합합니다(A100/H100/G7e 필요).
+
+### G6e(NVIDIA L40S, 48GB) 폴백
+
+G6/L4의 24GB로도 부족하지만 여전히 G7e 용량을 확보할 수 없을 때는 G6e(L40S, 48GB)로 폴백할 수 있습니다. G6와 동일한 방식(전용 NodePool + OSMO 플랫폼)이며, G7e EC2NodeClass를 재사용합니다.
+
+```bash
+# 1) G6e NodePool 생성 (단일 AZ 핀)
+DEPLOY_G6E_NODEPOOL=true scripts/deploy-karpenter.sh
+
+# 2) OSMO에 g6e-l40s 플랫폼 등록
+OSMO_CONFIGURE_G6E_PLATFORM=true scripts/deploy-osmo.sh
+
+# 3) G6e 노드 프리워밍
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge \
+  KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
+  scripts/prewarm-gpu-node.sh
+```
+
+관련 기본값: `karpenter_g6e_nodepool_name`(기본 `aws-osmo-g6e`), `g6e_instance_types`(기본 `g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge`). AZ는 `KARPENTER_G6E_ZONE`으로 오버라이드합니다. GPU 스모크 검증용 워크플로는 `examples/gpu-smoke/workflow-g6e.yaml`(플랫폼 `g6e-l40s`)입니다.
 
 ## EFA 모드
 

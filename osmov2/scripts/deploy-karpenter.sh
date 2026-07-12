@@ -25,13 +25,24 @@ KARPENTER_CONSOLIDATE_AFTER="${KARPENTER_CONSOLIDATE_AFTER:-5m}"
 # G6 (NVIDIA L4) capacity-fallback NodePool. Set DEPLOY_G6_NODEPOOL=true to also
 # create a g6 NodePool alongside g7e (for when g7e RTX PRO 6000 capacity is
 # unavailable). Reuses the g7e EC2NodeClass. Pinned to a single AZ to match the
-# g7e AZ strategy and keep GPU workloads co-located.
+# g7e AZ strategy and keep GPU workloads co-located. KARPENTER_G6_ZONE defaults
+# to the first AZ of the deploy region (see the AWS_REGION-based fallback below).
 DEPLOY_G6_NODEPOOL="${DEPLOY_G6_NODEPOOL:-false}"
 KARPENTER_G6_NODEPOOL_NAME="${KARPENTER_G6_NODEPOOL_NAME:-$(version_value karpenter_g6_nodepool_name)}"
 KARPENTER_G6_INSTANCE_TYPES="${KARPENTER_G6_INSTANCE_TYPES:-$(version_value g6_instance_types)}"
-KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-ap-northeast-2a}"
+KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-}"
 KARPENTER_G6_NODEPOOL_CPU_LIMIT="${KARPENTER_G6_NODEPOOL_CPU_LIMIT:-96}"
 KARPENTER_G6_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6_NODEPOOL_MEMORY_LIMIT:-768Gi}"
+
+# G6e (NVIDIA L40S, 48GB) capacity-fallback NodePool. Same idea as g6 but a
+# bigger GPU. Set DEPLOY_G6E_NODEPOOL=true to create it. KARPENTER_G6E_ZONE
+# defaults to the first AZ of the deploy region as well.
+DEPLOY_G6E_NODEPOOL="${DEPLOY_G6E_NODEPOOL:-false}"
+KARPENTER_G6E_NODEPOOL_NAME="${KARPENTER_G6E_NODEPOOL_NAME:-$(version_value karpenter_g6e_nodepool_name)}"
+KARPENTER_G6E_INSTANCE_TYPES="${KARPENTER_G6E_INSTANCE_TYPES:-$(version_value g6e_instance_types)}"
+KARPENTER_G6E_ZONE="${KARPENTER_G6E_ZONE:-}"
+KARPENTER_G6E_NODEPOOL_CPU_LIMIT="${KARPENTER_G6E_NODEPOOL_CPU_LIMIT:-96}"
+KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT:-768Gi}"
 
 comma_values_to_yaml() {
   local csv="$1"
@@ -46,6 +57,11 @@ comma_values_to_yaml() {
 configure_kubectl
 
 AWS_REGION="$(terraform_output aws_region)"
+# G6/G6e NodePools pin to a single AZ. Default to the region's first AZ so a
+# non-default region (e.g. us-west-2) does not silently keep the ap-northeast-2
+# zone; callers can still override KARPENTER_G6_ZONE / KARPENTER_G6E_ZONE.
+KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-${AWS_REGION}a}"
+KARPENTER_G6E_ZONE="${KARPENTER_G6E_ZONE:-${AWS_REGION}a}"
 CLUSTER_NAME="$(terraform_output cluster_name)"
 CLUSTER_ENDPOINT="$(terraform_output cluster_endpoint)"
 KARPENTER_QUEUE_NAME="$(terraform_output karpenter_interruption_queue_name)"
@@ -232,4 +248,71 @@ YAML
 
   kubectl wait --for=condition=Ready "nodepool/${KARPENTER_G6_NODEPOOL_NAME}" --timeout=10m
   log "Karpenter G6 NodePool deployment completed"
+fi
+
+# ---------------------------------------------------------------------------
+# Optional G6e (NVIDIA L40S, 48GB) capacity-fallback NodePool.
+# Enable with DEPLOY_G6E_NODEPOOL=true when g7e capacity is unavailable and the
+# workload needs more VRAM than L4's 24GB. Reuses the g7e EC2NodeClass (same
+# AMI/subnet/SG discovery); only the NodePool differs (L40S instance types,
+# single-AZ pin, g6e labels). Node labels aws.osmo.reference/nodepool=g6e +
+# gpu-family=l40s are what OSMO's g6e-l40s platform nodeSelector targets (see
+# deploy-osmo.sh OSMO_CONFIGURE_G6E_PLATFORM).
+# ---------------------------------------------------------------------------
+if [[ "${DEPLOY_G6E_NODEPOOL}" == "true" ]]; then
+  G6E_INSTANCE_TYPE_VALUES="$(comma_values_to_yaml "${KARPENTER_G6E_INSTANCE_TYPES}")"
+  [[ -n "${G6E_INSTANCE_TYPE_VALUES}" ]] || die "KARPENTER_G6E_INSTANCE_TYPES must contain at least one instance type"
+
+  log "applying G6e (L40S) NodePool ${KARPENTER_G6E_NODEPOOL_NAME} in ${KARPENTER_G6E_ZONE}"
+  kubectl apply -f - <<YAML
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ${KARPENTER_G6E_NODEPOOL_NAME}
+  labels:
+    app.kubernetes.io/name: karpenter
+    app.kubernetes.io/part-of: aws-osmo-reference
+spec:
+  template:
+    metadata:
+      labels:
+        aws.osmo.reference/nodepool: g6e
+        aws.osmo.reference/gpu-family: l40s
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: ${KARPENTER_EC2NODECLASS_NAME}
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["${KARPENTER_G6E_ZONE}"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+${G6E_INSTANCE_TYPE_VALUES}
+      expireAfter: ${KARPENTER_NODE_EXPIRE_AFTER}
+  limits:
+    cpu: "${KARPENTER_G6E_NODEPOOL_CPU_LIMIT}"
+    memory: "${KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT}"
+  disruption:
+    consolidationPolicy: ${KARPENTER_CONSOLIDATION_POLICY}
+    consolidateAfter: ${KARPENTER_CONSOLIDATE_AFTER}
+YAML
+
+  kubectl wait --for=condition=Ready "nodepool/${KARPENTER_G6E_NODEPOOL_NAME}" --timeout=10m
+  log "Karpenter G6e NodePool deployment completed"
 fi

@@ -29,6 +29,16 @@ OSMO_G6_PLATFORM_NAME="${OSMO_G6_PLATFORM_NAME:-g6-l4}"
 OSMO_G6_POD_TEMPLATE_NAME="${OSMO_G6_POD_TEMPLATE_NAME:-aws-g6-l4}"
 OSMO_G6_PLATFORM_LABEL_KEY="${OSMO_G6_PLATFORM_LABEL_KEY:-karpenter.sh/nodepool}"
 OSMO_G6_PLATFORM_LABEL_VALUE="${OSMO_G6_PLATFORM_LABEL_VALUE:-$(version_value karpenter_g6_nodepool_name)}"
+# Optional G6e (NVIDIA L40S, 48GB) capacity-fallback platform. Set
+# OSMO_CONFIGURE_G6E_PLATFORM=true (alongside the g6e NodePool from
+# deploy-karpenter.sh DEPLOY_G6E_NODEPOOL=true) to register a g6e-l40s OSMO
+# platform. Workloads target it with `platform: g6e-l40s`. Its nodeSelector
+# points at the g6e NodePool's karpenter.sh/nodepool label value.
+OSMO_CONFIGURE_G6E_PLATFORM="${OSMO_CONFIGURE_G6E_PLATFORM:-false}"
+OSMO_G6E_PLATFORM_NAME="${OSMO_G6E_PLATFORM_NAME:-g6e-l40s}"
+OSMO_G6E_POD_TEMPLATE_NAME="${OSMO_G6E_POD_TEMPLATE_NAME:-aws-g6e-l40s}"
+OSMO_G6E_PLATFORM_LABEL_KEY="${OSMO_G6E_PLATFORM_LABEL_KEY:-karpenter.sh/nodepool}"
+OSMO_G6E_PLATFORM_LABEL_VALUE="${OSMO_G6E_PLATFORM_LABEL_VALUE:-$(version_value karpenter_g6e_nodepool_name)}"
 OSMO_INSTALL_KAI="${OSMO_INSTALL_KAI:-true}"
 if [[ "${OSMO_INSTALL_KAI}" == "true" ]]; then
   OSMO_K8S_SCHEDULER_NAME="${OSMO_K8S_SCHEDULER_NAME:-$(version_value kai_scheduler_name)}"
@@ -1008,6 +1018,108 @@ if [[ "${OSMO_CONFIGURE_G6_PLATFORM}" == "true" ]]; then
       --description "Configure AWS G6 L4 GPU platform" >/tmp/osmo-g6-pool-config.log 2>&1; then
       cat /tmp/osmo-g6-pool-config.log >&2
       die "failed to configure OSMO pool G6 platform"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional G6e (NVIDIA L40S, 48GB) capacity-fallback platform. Same structure as
+# the g6 platform above, but with a g6e-specific pod template + nodeSelector so
+# OSMO workflows can request `platform: g6e-l40s`. Enable with
+# OSMO_CONFIGURE_G6E_PLATFORM=true after the g6e NodePool exists
+# (deploy-karpenter.sh DEPLOY_G6E_NODEPOOL=true).
+# ---------------------------------------------------------------------------
+if [[ "${OSMO_CONFIGURE_G6E_PLATFORM}" == "true" ]]; then
+  POD_TEMPLATE_CURRENT="$(osmo config show POD_TEMPLATE 2>/dev/null || printf '{}')"
+  printf '%s' "${POD_TEMPLATE_CURRENT}" | jq \
+    --arg name "${OSMO_G6E_POD_TEMPLATE_NAME}" \
+    --arg label_key "${OSMO_G6E_PLATFORM_LABEL_KEY}" \
+    --arg label_value "${OSMO_G6E_PLATFORM_LABEL_VALUE}" \
+    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
+    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
+    '.[$name] = {
+       metadata: {
+         annotations: {
+           "karpenter.sh/do-not-disrupt": $do_not_disrupt
+         }
+       },
+       spec: {
+         nodeSelector: {
+           ($label_key): $label_value
+         },
+         tolerations: [
+           {
+             key: "nvidia.com/gpu",
+             operator: "Exists",
+             effect: "NoSchedule"
+           }
+         ],
+         containers: [
+           {
+             name: "{{USER_CONTAINER_NAME}}",
+             volumeMounts: [
+               {
+                 name: "shm",
+                 mountPath: "/dev/shm"
+               }
+             ]
+           }
+         ],
+         volumes: [
+           {
+             name: "shm",
+             emptyDir: {
+               medium: "Memory",
+               sizeLimit: $shm_size
+             }
+           }
+         ]
+       }
+     }' >"${GPU_POD_TEMPLATE_CONFIG}"
+
+  if ! osmo config update POD_TEMPLATE \
+    --file "${GPU_POD_TEMPLATE_CONFIG}" \
+    --description "Configure AWS G6e L40S pod template" >/tmp/osmo-g6e-pod-template.log 2>&1; then
+    cat /tmp/osmo-g6e-pod-template.log >&2
+    die "failed to configure OSMO G6e pod template"
+  fi
+
+  POOL_CURRENT="$(osmo config show POOL default)"
+  if printf '%s' "${POOL_CURRENT}" | jq -e \
+    --arg platform "${OSMO_G6E_PLATFORM_NAME}" \
+    --arg pod_template "${OSMO_G6E_POD_TEMPLATE_NAME}" \
+    --arg label_key "${OSMO_G6E_PLATFORM_LABEL_KEY}" \
+    --arg label_value "${OSMO_G6E_PLATFORM_LABEL_VALUE}" \
+    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
+    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
+    '.platforms[$platform].labels[$label_key] == $label_value and
+     .parsed_pod_template[$pod_template].metadata.annotations["karpenter.sh/do-not-disrupt"] == $do_not_disrupt and
+     any(.parsed_pod_template[$pod_template].spec.containers[]?; .name == "{{USER_CONTAINER_NAME}}" and any(.volumeMounts[]?; .name == "shm" and .mountPath == "/dev/shm")) and
+     any(.parsed_pod_template[$pod_template].spec.volumes[]?; .name == "shm" and .emptyDir.medium == "Memory" and .emptyDir.sizeLimit == $shm_size) and
+     any(.platforms[$platform].tolerations[]?; .key == "nvidia.com/gpu" and .operator == "Exists" and .effect == "NoSchedule") and
+     any(.platforms[$platform].override_pod_template[]?; . == $pod_template)' >/dev/null; then
+    log "OSMO pool G6e platform is already configured"
+  else
+    printf '%s' "${POOL_CURRENT}" | jq \
+      --arg platform "${OSMO_G6E_PLATFORM_NAME}" \
+      --arg pod_template "${OSMO_G6E_POD_TEMPLATE_NAME}" \
+      'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+       .platforms[$platform] = {
+         description: "AWS G6e NVIDIA L40S platform (capacity fallback)",
+         host_network_allowed: false,
+         privileged_allowed: false,
+         allowed_mounts: [],
+         default_mounts: [],
+         default_variables: {},
+         resource_validations: [],
+         override_pod_template: [$pod_template]
+       }' >"${POOL_CONFIG}"
+
+    if ! osmo config update POOL default \
+      --file "${POOL_CONFIG}" \
+      --description "Configure AWS G6e L40S GPU platform" >/tmp/osmo-g6e-pool-config.log 2>&1; then
+      cat /tmp/osmo-g6e-pool-config.log >&2
+      die "failed to configure OSMO pool G6e platform"
     fi
   fi
 fi

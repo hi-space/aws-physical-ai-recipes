@@ -27,6 +27,9 @@ karpenter:
   # G6 (NVIDIA L4) capacity-fallback NodePool. Reuses the g7e EC2NodeClass.
   # Used when g7e (RTX PRO 6000) capacity is unavailable in-region.
   karpenter_g6_nodepool_name: "aws-osmo-g6"
+  # G6e (NVIDIA L40S, 48GB) capacity-fallback NodePool. Also reuses the g7e
+  # EC2NodeClass. Bigger GPU than g6/L4 for higher-VRAM fallback workloads.
+  karpenter_g6e_nodepool_name: "aws-osmo-g6e"
 
 gpu_operator:
   gpu_operator_chart_repository: "https://nvidia.github.io/gpu-operator"
@@ -83,8 +86,11 @@ aws:
   eks_al2023_nvidia_ami_release: "amazon-eks-node-al2023-x86_64-nvidia-1.35-v20260423"
   g7e_smoke_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge"
   g7e_nut_pouring_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge,g7e.12xlarge,g7e.24xlarge"
-  # G6 (NVIDIA L4, 24GB) fallback sizes. Single-AZ (2a) to match g7e AZ pinning.
-  g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge"
+  # G6 (NVIDIA L4, 24GB) fallback sizes. Single-AZ to match g7e AZ pinning.
+  g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge"
+  # G6e (NVIDIA L40S, 48GB) fallback sizes. Larger GPU than g6/L4 for models
+  # that need more VRAM but still cannot get g7e capacity. Single-AZ.
+  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge"
 
 terraform:
   cli: ">= 1.5.0, < 2.0.0"
