@@ -71,10 +71,22 @@ scripts/deploy-infra.sh
 scripts/deploy-karpenter.sh
 scripts/deploy-gpu-operator.sh
 scripts/deploy-efa-device-plugin.sh
-scripts/deploy-osmo.sh
+scripts/deploy-osmo-sso-bootstrap.sh   # 최초 SSO 배포: 아래 노트 참고
 scripts/validate-platform.sh
 scripts/smoke-test.sh
 ```
+
+6.3.1 SSO 게이트웨이에는 부트스트랩 순서 문제가 있습니다. `deploy-osmo.sh`는
+`infra/cloudfront`의 `osmo_ui_cloudfront_domain` 출력을 요구하지만,
+`infra/cloudfront`는 OSMO 배포 후에야 생기는 `osmo-gateway` Service
+LoadBalancer가 있어야 합니다. `scripts/deploy-osmo-sso-bootstrap.sh`가 이
+순환을 끊습니다: placeholder 콜백으로 `infra/cognito`를 apply하고,
+`deploy-osmo.sh`를 한 번 돌려 게이트웨이 LoadBalancer를 만든 뒤, 그 LB를
+오리진으로 `infra/cloudfront`를 apply하고, 마지막에 실제 CloudFront 호스트명으로
+`infra/cognito`를 재적용하고 `deploy-osmo.sh`를 다시 실행합니다. 이후 배포에서는
+CloudFront 도메인이 안정되므로 `scripts/deploy-osmo.sh`를 직접 실행하면 됩니다.
+기본 리전이 아니면 `TF_WORKSPACE`를 export하고 `COGNITO_VAR_FILE` /
+`CLOUDFRONT_VAR_FILE`을 해당 `terraform.<region>.tfvars`로 지정하세요.
 
 `scripts/smoke-test.sh`는 기본으로 `examples/osmo-smoke/workflow.yaml`을 제출합니다. GPU 스모크 워크플로의 경우, OSMO 리소스 검증이 GPU 플랫폼 용량을 관측할 수 있도록 G7e 노드를 미리 워밍(prewarm)하세요:
 
@@ -87,7 +99,73 @@ SMOKE_SET_NGC_CREDENTIAL=true \
 scripts/wait-gpu-node-cleanup.sh
 ```
 
+GPU 스모크 경로는 실시간 G7e(RTX PRO 6000) On-Demand 용량에 의존합니다.
+`prewarm-gpu-node.sh`는 Karpenter가 실제 G7e 노드를 띄우도록 강제해 제출 전에
+OSMO가 GPU 플랫폼을 등록하게 합니다. 등록된 노드가 없으면 OSMO는 워크플로를
+`no resources in platform`으로 거부합니다. Karpenter는 항상 가장 저렴한 인스턴스
+타입(예: `g7e.2xlarge`)부터 시도하고 `InsufficientInstanceCapacity` 시 큰
+사이즈로 자동 확대하지 않으므로, 풀의 AZ에 On-Demand G7e 재고가 없으면 노드가
+끝내 뜨지 않습니다. 풀을 더 많은 AZ로 분산(아래 참고)하거나 용량이 회복될 때
+재시도하세요.
+
 검증된 예제 워크플로는 [examples/](examples/README.md) 아래에 있습니다. 각 예제 폴더는 워크플로 정의·실행 방법·검증 산출물을 함께 보관합니다.
+
+### 멀티리전 G7e AZ 선택
+
+G7e(RTX PRO 6000)는 리전마다 서로 다른(때로는 비연속적인) AZ에서 제공되며, 단일
+AZ의 On-Demand 용량은 고갈될 수 있습니다. `infra/core/main.tf`에
+`g7e_azs_by_region` 맵이 있어 AZ 선택이 다음 순서로 해결됩니다: 명시적
+`availability_zones` 변수 → 리전 맵 조회 → 자동 발견된 AZ. `availability_zones =
+[]`로 두면 맵에 위임합니다. 현재 핀: `ap-northeast-2` = `[a, b]`, `us-east-1` =
+`[b, d]`(비연속), `us-east-2` = `[a, b]`, `us-west-2` = `[a, b, c, d]`.
+
+한 AZ가 용량 제약일 때 GPU 노드가 다른 AZ로 폴백할 수 있도록, Karpenter 프라이빗
+서브넷을 EKS/스테이트풀 풋프린트보다 넓게 분산하세요. EKS + RDS는 앞의 `az_count`
+개 AZ에 머물고, Karpenter 서브넷은 `karpenter_az_count`개에 걸칩니다:
+
+```hcl
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c", "us-west-2d"]
+az_count           = 2   # EKS + RDS는 a/b
+karpenter_az_count = 4   # GPU 노드는 a/b/c/d 중 어디든
+```
+
+리전별 시작점은 `infra/core/terraform.<region>.tfvars.example`(`use1`, `use2`,
+`usw2`)에 있으며, 각각 리전 suffix가 붙은 `project_name`을 써서 같은 계정
+멀티리전 배포 시 account-global IAM 이름 충돌을 피합니다.
+
+### Cognito SSO로 OSMO UI에 HTTPS 접속
+
+`deploy-osmo-sso-bootstrap.sh` 경로는 OSMO UI를 CloudFront
+(`https://<osmo-ui-cloudfront-domain>`) 뒤에 Amazon Cognito 싱글 사인온과 함께
+게시합니다. 6.3.1에서는 UI·API 게이트웨이·envoy·oauth2-proxy가 `osmo-service`
+릴리스로 통합되어 있습니다. 인증되지 않은 요청은 Cognito hosted 로그인 UI로
+리다이렉트되고, 로그인 후 oauth2-proxy가 세션을 수립합니다.
+
+접근은 두 계층으로 제한됩니다: `infra/cloudfront`의 WAF IP 허용 목록이 배포에
+도달할 수 있는 대상을 통제하고, Cognito가 로그인할 수 있는 사용자를 통제합니다.
+최초 접속 전에 Cognito user pool에 로그인 사용자(아이디/비밀번호)를 생성하세요:
+
+```bash
+POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
+aws cognito-idp admin-create-user \
+  --user-pool-id "$POOL" \
+  --username admin@example.com \
+  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --message-action SUPPRESS
+aws cognito-idp admin-set-user-password \
+  --user-pool-id "$POOL" \
+  --username admin@example.com \
+  --password '<강력한-비밀번호>' --permanent
+```
+
+그다음 화이트리스트에 등록된 IP에서 `https://<osmo-ui-cloudfront-domain>`을 열고
+위 아이디/비밀번호로 로그인합니다. 도메인은 언제든 다음으로 조회할 수 있습니다:
+
+```bash
+terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain
+```
+
+### SSO 없이 로컬 접근
 
 로컬 UI 접근을 위해 UI 포트포워드를 열어두세요:
 
@@ -97,10 +175,12 @@ kubectl -n osmo port-forward svc/osmo-ui 9001:80
 
 그다음 <http://127.0.0.1:9001> 을 엽니다. 기본 UI 배포는 UI 파드에서 `osmo-service:80`으로 API 요청을 프록시합니다. 다른 프라이빗 엔드포인트를 쓰려면 `scripts/deploy-osmo.sh` 실행 전에 `OSMO_UI_API_HOSTNAME`을 오버라이드하세요.
 
-로컬 CLI나 직접 API 접근을 위해서는 별도의 API 포트포워드를 열어두세요:
+로컬 CLI나 직접 API 접근을 위해서는 별도의 API 포트포워드를 열어두세요. 6.3.1에서
+`osmo-service:80`은 self-signed TLS만 제공하므로, 평문 OSMO CLI 로그인 경로는
+`osmo-internal-router`(API로 향하는 no-auth 평문 HTTP 경로)를 거쳐야 합니다:
 
 ```bash
-kubectl -n osmo port-forward svc/osmo-service 9000:80
+kubectl -n osmo port-forward svc/osmo-internal-router 9000:80
 ```
 
 ## G6(NVIDIA L4) 용량 폴백 경로

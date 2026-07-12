@@ -98,7 +98,76 @@ SMOKE_SET_NGC_CREDENTIAL=true \
 scripts/wait-gpu-node-cleanup.sh
 ```
 
+The GPU smoke path depends on live G7e (RTX PRO 6000) On-Demand capacity.
+`prewarm-gpu-node.sh` forces Karpenter to launch a real G7e node so OSMO
+registers the GPU platform before submission; without a registered node, OSMO
+rejects the workflow with `no resources in platform`. Karpenter always tries the
+cheapest instance type first (e.g. `g7e.2xlarge`) and does not auto-escalate to
+a larger size on `InsufficientInstanceCapacity`, so if AWS has no On-Demand G7e
+in the pool's AZs the node never appears. Spread the pool across more AZs (see
+below) or retry when capacity recovers.
+
 Validated example workflows live under [examples/](examples/README.md). Each example folder keeps its workflow definition, run instructions, and validation artifacts together.
+
+### Multi-region G7e AZ selection
+
+G7e (RTX PRO 6000) is offered in different — sometimes non-contiguous — AZs per
+region, and On-Demand capacity in a single AZ can exhaust. `infra/core/main.tf`
+carries a `g7e_azs_by_region` map so AZ selection resolves in this order:
+explicit `availability_zones` var → region map lookup → discovered AZs. Leaving
+`availability_zones = []` delegates to the map. Current pins: `ap-northeast-2`
+= `[a, b]`, `us-east-1` = `[b, d]` (non-contiguous), `us-east-2` = `[a, b]`,
+`us-west-2` = `[a, b, c, d]`.
+
+To let GPU nodes fall back across AZs when one is capacity-constrained, spread
+the Karpenter private subnets wider than the EKS/stateful footprint. EKS + RDS
+stay on the first `az_count` AZs; Karpenter subnets span `karpenter_az_count`:
+
+```hcl
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c", "us-west-2d"]
+az_count           = 2   # EKS + RDS on a/b
+karpenter_az_count = 4   # GPU nodes may land in a/b/c/d
+```
+
+Per-region starting points are in `infra/core/terraform.<region>.tfvars.example`
+(`use1`, `use2`, `usw2`), each with a region-suffixed `project_name` so
+account-global IAM names do not collide across a same-account multi-region
+deploy.
+
+### Accessing the OSMO UI over HTTPS with Cognito SSO
+
+The `deploy-osmo-sso-bootstrap.sh` path publishes the OSMO UI behind CloudFront
+(`https://<osmo-ui-cloudfront-domain>`) with Amazon Cognito single sign-on. In
+6.3.1 the UI, API gateway, envoy, and oauth2-proxy are merged into the
+`osmo-service` release; unauthenticated requests are redirected to the Cognito
+hosted login UI, and after login oauth2-proxy establishes the session.
+
+Access is restricted at two layers: the `infra/cloudfront` WAF IP allow list
+gates who can reach the distribution at all, and Cognito gates who can log in.
+Create a login user (username/password) in the Cognito user pool before first
+access:
+
+```bash
+POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
+aws cognito-idp admin-create-user \
+  --user-pool-id "$POOL" \
+  --username admin@example.com \
+  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --message-action SUPPRESS
+aws cognito-idp admin-set-user-password \
+  --user-pool-id "$POOL" \
+  --username admin@example.com \
+  --password '<choose-a-strong-password>' --permanent
+```
+
+Then open `https://<osmo-ui-cloudfront-domain>` from a whitelisted IP and sign in
+with that username and password. Retrieve the domain any time with:
+
+```bash
+terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain
+```
+
+### Local access without SSO
 
 For local UI access, keep the UI port-forward open:
 
@@ -109,10 +178,13 @@ kubectl -n osmo port-forward svc/osmo-ui 9001:80
 Then open <http://127.0.0.1:9001>. The default UI deployment proxies API requests from the UI pod to `osmo-service:80`. Override
 `OSMO_UI_API_HOSTNAME` before `scripts/deploy-osmo.sh` if using a different private endpoint.
 
-For local CLI or direct API access, keep a separate API port-forward open:
+For local CLI or direct API access, keep a separate API port-forward open. In
+6.3.1 `osmo-service:80` serves self-signed TLS only, so the plaintext OSMO CLI
+login path must go through `osmo-internal-router` (the no-auth plain-HTTP route
+to the API):
 
 ```bash
-kubectl -n osmo port-forward svc/osmo-service 9000:80
+kubectl -n osmo port-forward svc/osmo-internal-router 9000:80
 ```
 
 ## EFA Modes
