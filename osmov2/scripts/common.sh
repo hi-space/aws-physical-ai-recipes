@@ -122,3 +122,235 @@ login_osmo_with_token() {
   rm -f "${token_file}"
   return 1
 }
+
+comma_values_to_yaml() {
+  local csv="$1"
+  local value
+  tr ',' '\n' <<<"${csv}" | while IFS= read -r value; do
+    value="$(printf '%s' "${value}" | xargs)"
+    [[ -n "${value}" ]] || continue
+    printf '              - "%s"\n' "${value}"
+  done
+}
+
+# render_gpu_nodepool: emit a Karpenter NodePool manifest (pure; stdout only).
+# Args: name ec2nodeclass family_label gpu_family_label instance_types_csv
+#       capacity_type_csv zone cpu_limit memory_limit expire_after
+#       consolidation_policy consolidate_after
+# zone="" omits the topology zone requirement.
+render_gpu_nodepool() {
+  local name="$1" ec2nodeclass="$2" family_label="$3" gpu_family_label="$4"
+  local instance_types_csv="$5" capacity_type_csv="$6" zone="$7"
+  local cpu_limit="$8" memory_limit="$9" expire_after="${10}"
+  local consolidation_policy="${11}" consolidate_after="${12}"
+
+  local capacity_values instance_values zone_block=""
+  capacity_values="$(comma_values_to_yaml "${capacity_type_csv}")"
+  instance_values="$(comma_values_to_yaml "${instance_types_csv}")"
+  [[ -n "${instance_values}" ]] || die "render_gpu_nodepool: instance_types_csv must contain at least one type"
+  [[ -n "${capacity_values}" ]] || die "render_gpu_nodepool: capacity_type_csv must contain at least one type"
+
+  if [[ -n "${zone}" ]]; then
+    zone_block="$(printf '        - key: topology.kubernetes.io/zone\n          operator: In\n          values:\n              - "%s"\n' "${zone}"; printf x)"
+    zone_block="${zone_block%x}"
+  fi
+
+  cat <<YAML
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ${name}
+  labels:
+    app.kubernetes.io/name: karpenter
+    app.kubernetes.io/part-of: aws-osmo-reference
+spec:
+  template:
+    metadata:
+      labels:
+        aws.osmo.reference/nodepool: ${family_label}
+        aws.osmo.reference/gpu-family: ${gpu_family_label}
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: ${ec2nodeclass}
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+${capacity_values}
+${zone_block}        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+${instance_values}
+      expireAfter: ${expire_after}
+  limits:
+    cpu: "${cpu_limit}"
+    memory: "${memory_limit}"
+  disruption:
+    consolidationPolicy: ${consolidation_policy}
+    consolidateAfter: ${consolidate_after}
+YAML
+}
+
+# gpu_fallback_family_field: static registry for GPU capacity-fallback families.
+# Reads instance types and nodepool names from versions.yaml. Pure; stdout only.
+gpu_fallback_family_field() {
+  local family="$1" field="$2" gpu_label version_key nodepool_key
+  case "${family}" in
+    g6)  gpu_label="l4";   version_key="g6_instance_types";  nodepool_key="karpenter_g6_nodepool_name" ;;
+    g5)  gpu_label="a10g"; version_key="g5_instance_types";  nodepool_key="karpenter_g5_nodepool_name" ;;
+    g6e) gpu_label="l40s"; version_key="g6e_instance_types"; nodepool_key="karpenter_g6e_nodepool_name" ;;
+    *)   die "unknown GPU fallback family: ${family} (supported: g6 g5 g6e)" ;;
+  esac
+  case "${field}" in
+    gpu_label)                   printf '%s' "${gpu_label}" ;;
+    instance_types_version_key)  printf '%s' "${version_key}" ;;
+    nodepool_key)                printf '%s' "${nodepool_key}" ;;
+    nodepool_name)               version_value "${nodepool_key}" ;;
+    instance_types)              version_value "${version_key}" ;;
+    *) die "unknown gpu_fallback_family_field: ${field}" ;;
+  esac
+}
+
+# gpu_pod_template_json: add or update a POD_TEMPLATE entry with GPU pod configuration.
+# Pure function using jq; stdout only.
+# Args: current_json pod_template_name label_key label_value do_not_disrupt shm_size
+gpu_pod_template_json() {
+  local current="$1" name="$2" label_key="$3" label_value="$4" do_not_disrupt="$5" shm_size="$6"
+  printf '%s' "${current}" | jq \
+    --arg name "${name}" --arg label_key "${label_key}" --arg label_value "${label_value}" \
+    --arg do_not_disrupt "${do_not_disrupt}" --arg shm_size "${shm_size}" \
+    '.[$name] = {
+       metadata: { annotations: { "karpenter.sh/do-not-disrupt": $do_not_disrupt } },
+       spec: {
+         nodeSelector: { ($label_key): $label_value },
+         tolerations: [ { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" } ],
+         containers: [ { name: "{{USER_CONTAINER_NAME}}", volumeMounts: [ { name: "shm", mountPath: "/dev/shm" } ] } ],
+         volumes: [ { name: "shm", emptyDir: { medium: "Memory", sizeLimit: $shm_size } } ]
+       }
+     }'
+}
+
+# gpu_pool_platform_json: add or update a POOL platform entry with GPU platform configuration.
+# Strips .last_heartbeat and parsed_* keys (which are computed by OSMO). Pure function using jq; stdout only.
+# Args: current_json platform_name pod_template_name description
+gpu_pool_platform_json() {
+  local current="$1" platform="$2" pod_template="$3" description="$4"
+  printf '%s' "${current}" | jq \
+    --arg platform "${platform}" --arg pod_template "${pod_template}" --arg description "${description}" \
+    'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+     .platforms[$platform] = {
+       description: $description,
+       host_network_allowed: false,
+       privileged_allowed: false,
+       allowed_mounts: [],
+       default_mounts: [],
+       default_variables: {},
+       resource_validations: [],
+       override_pod_template: [$pod_template]
+     }'
+}
+
+osmo_gpu_label_key() {
+  if [[ "${GPU_PROVISIONER:-karpenter}" == "managed-nodegroup" ]]; then
+    printf 'aws.osmo.reference/nodepool'
+  else
+    printf 'karpenter.sh/nodepool'
+  fi
+}
+
+osmo_gpu_label_value() {
+  local family="$1"
+  if [[ "${GPU_PROVISIONER:-karpenter}" == "managed-nodegroup" ]]; then
+    printf '%s' "${family}"
+  else
+    gpu_fallback_family_field "${family}" nodepool_name
+  fi
+}
+
+AUTH_TF_DIR="${AUTH_TF_DIR:-${ROOT_DIR}/infra/auth}"
+
+auth_terraform_output() {
+  local key="$1" env_key
+  env_key="TF_AUTH_OUTPUT_$(printf '%s' "${key}" | tr '[:lower:]' '[:upper:]')"
+  if [[ -n "${!env_key:-}" ]]; then
+    printf '%s' "${!env_key}"
+    return 0
+  fi
+  terraform -chdir="${AUTH_TF_DIR}" output -raw "${key}"
+}
+
+# osmo_gateway_values_block: emit the OSMO service chart `gateway:` values block.
+# auth_enabled != "true" reproduces the dev-repro baseline verbatim.
+osmo_gateway_values_block() {
+  local auth_enabled="$1"
+  if [[ "${auth_enabled}" == "true" ]]; then
+    cat <<'YAML'
+gateway:
+  name: osmo-gateway
+  envoy:
+    enabled: true
+    hostname: "" # set via --set gateway.envoy.hostname
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      ingressClass: alb
+      sslEnabled: false
+      albAnnotations:
+        enabled: true
+        groupName: osmo
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/success-codes: "200,302"
+        alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+  oauth2Proxy:
+    enabled: true
+    provider: oidc
+    scope: "openid email profile"
+    useKubernetesSecrets: true
+    secretName: oauth2-proxy-secrets
+    clientSecretKey: client_secret
+    cookieSecretKey: cookie_secret
+    redisSessionStore: true
+    redis:
+      tlsEnabled: true
+    extraEnv:
+      - name: OAUTH2_PROXY_REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: redis-secret
+            key: redis-password
+    extraArgs:
+      - --insecure-oidc-allow-unverified-email=true
+  tls:
+    enabled: true
+YAML
+  else
+    cat <<'YAML'
+gateway:
+  envoy:
+    enabled: false
+  oauth2Proxy:
+    enabled: false
+  # 6.3 defaults gateway.tls.enabled=true, which makes every core service
+  # (service/router/agent/logger) mint an in-process self-signed cert and serve
+  # HTTPS for the Envoy gateway. This baseline runs gateway-disabled with plain
+  # HTTP behind the nginx internal router + port-forward, so the CLI/admin-token
+  # login over http://osmo-service:80 works. Disable upstream TLS to match.
+  tls:
+    enabled: false
+YAML
+  fi
+}

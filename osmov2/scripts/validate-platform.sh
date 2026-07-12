@@ -36,6 +36,25 @@ if [[ "${OSMO_VALIDATE_KARPENTER}" == "true" ]]; then
   kubectl wait --for=condition=Ready "ec2nodeclass/${KARPENTER_EC2NODECLASS_NAME}" --timeout=5m >/dev/null
 fi
 
+GPU_PROVISIONER="${GPU_PROVISIONER:-karpenter}"
+OSMO_VALIDATE_GPU_FALLBACK="${OSMO_VALIDATE_GPU_FALLBACK:-false}"
+GPU_FALLBACK_FAMILIES="${GPU_FALLBACK_FAMILIES:-}"
+
+if [[ "${OSMO_VALIDATE_GPU_FALLBACK}" == "true" && -n "${GPU_FALLBACK_FAMILIES}" && "${GPU_PROVISIONER}" == "karpenter" ]]; then
+  IFS=',' read -r -a _vf_families <<<"${GPU_FALLBACK_FAMILIES}"
+  for family in "${_vf_families[@]}"; do
+    family="$(printf '%s' "${family}" | xargs)"
+    [[ -n "${family}" ]] || continue
+    fam_nodepool="$(gpu_fallback_family_field "${family}" nodepool_name)"
+    kubectl wait --for=condition=Ready "nodepool/${fam_nodepool}" --timeout=5m >/dev/null ||
+      die "fallback NodePool not Ready: ${fam_nodepool}"
+    kubectl get "nodepool/${fam_nodepool}" -o json |
+      jq -e --arg fam "${family}" \
+        '.spec.template.metadata.labels["aws.osmo.reference/nodepool"] == $fam' >/dev/null ||
+      die "fallback NodePool ${fam_nodepool} missing family label ${family}"
+  done
+fi
+
 if [[ "${OSMO_VALIDATE_GPU_OPERATOR}" == "true" ]]; then
   GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE:-$(version_value gpu_operator_namespace)}"
   GPU_OPERATOR_RELEASE_NAME="${GPU_OPERATOR_RELEASE_NAME:-$(version_value gpu_operator_release_name)}"
@@ -131,6 +150,19 @@ BACKEND_POD_MONITOR="$(helm get values osmo-backend --namespace "${OSMO_NAMESPAC
 
 if [[ "${SERVICE_POD_MONITOR}" == "true" || "${BACKEND_POD_MONITOR}" == "true" ]]; then
   kubectl get crd podmonitors.monitoring.coreos.com >/dev/null || die "PodMonitor is enabled without Prometheus Operator CRDs"
+fi
+
+OSMO_VALIDATE_AUTH="${OSMO_VALIDATE_AUTH:-false}"
+if [[ "${OSMO_VALIDATE_AUTH}" == "true" ]]; then
+  kubectl -n "${OSMO_NAMESPACE}" get secret oauth2-proxy-secrets >/dev/null ||
+    die "oauth2-proxy-secrets secret missing"
+  kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-gateway --timeout=5m >/dev/null 2>&1 ||
+    kubectl -n "${OSMO_NAMESPACE}" get deploy -l app.kubernetes.io/name=osmo-gateway >/dev/null ||
+    die "osmo-gateway deployment not found (gateway not enabled?)"
+  osmo config show POOL default | jq -e \
+    '.roles["osmo-admin"].external_roles == ["osmo-admin"]' >/dev/null ||
+    die "external_roles mapping for osmo-admin missing"
+  log "auth validation passed"
 fi
 
 log "platform validation passed"

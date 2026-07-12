@@ -21,27 +21,24 @@ KARPENTER_NODEPOOL_MEMORY_LIMIT="${KARPENTER_NODEPOOL_MEMORY_LIMIT:-1200Gi}"
 KARPENTER_NODE_EXPIRE_AFTER="${KARPENTER_NODE_EXPIRE_AFTER:-24h}"
 KARPENTER_CONSOLIDATION_POLICY="${KARPENTER_CONSOLIDATION_POLICY:-WhenEmptyOrUnderutilized}"
 KARPENTER_CONSOLIDATE_AFTER="${KARPENTER_CONSOLIDATE_AFTER:-5m}"
+KARPENTER_CAPACITY_TYPE="${KARPENTER_CAPACITY_TYPE:-on-demand}"
 
-# G6 (NVIDIA L4) capacity-fallback NodePool. Set DEPLOY_G6_NODEPOOL=true to also
-# create a g6 NodePool alongside g7e (for when g7e RTX PRO 6000 capacity is
-# unavailable). Reuses the g7e EC2NodeClass. Pinned to a single AZ to match the
-# g7e AZ strategy and keep GPU workloads co-located.
+# GPU capacity-fallback NodePools (opt-in via GPU_FALLBACK_FAMILIES).
+# Backward-compat: DEPLOY_G6_NODEPOOL=true adds g6 to the families list.
+# Each family reuses the g7e EC2NodeClass; only the NodePool differs
+# (instance types, single-AZ pin, family labels). OSMO's <family> platform
+# nodeSelector targets aws.osmo.reference/nodepool=<family>.
 DEPLOY_G6_NODEPOOL="${DEPLOY_G6_NODEPOOL:-false}"
-KARPENTER_G6_NODEPOOL_NAME="${KARPENTER_G6_NODEPOOL_NAME:-$(version_value karpenter_g6_nodepool_name)}"
-KARPENTER_G6_INSTANCE_TYPES="${KARPENTER_G6_INSTANCE_TYPES:-$(version_value g6_instance_types)}"
-KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-ap-northeast-2a}"
-KARPENTER_G6_NODEPOOL_CPU_LIMIT="${KARPENTER_G6_NODEPOOL_CPU_LIMIT:-96}"
-KARPENTER_G6_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6_NODEPOOL_MEMORY_LIMIT:-768Gi}"
+GPU_FALLBACK_FAMILIES="${GPU_FALLBACK_FAMILIES:-}"
+GPU_FALLBACK_ZONE="${GPU_FALLBACK_ZONE:-ap-northeast-2a}"
+GPU_FALLBACK_CPU_LIMIT="${GPU_FALLBACK_CPU_LIMIT:-96}"
+GPU_FALLBACK_MEMORY_LIMIT="${GPU_FALLBACK_MEMORY_LIMIT:-768Gi}"
 
-comma_values_to_yaml() {
-  local csv="$1"
-  local value
-  tr ',' '\n' <<<"${csv}" | while IFS= read -r value; do
-    value="$(printf '%s' "${value}" | xargs)"
-    [[ -n "${value}" ]] || continue
-    printf '              - "%s"\n' "${value}"
-  done
-}
+GPU_PROVISIONER="${GPU_PROVISIONER:-karpenter}"
+if [[ "${GPU_PROVISIONER}" != "karpenter" ]]; then
+  log "GPU_PROVISIONER=${GPU_PROVISIONER}; skipping Karpenter GPU provisioning (using managed node groups)."
+  exit 0
+fi
 
 configure_kubectl
 
@@ -77,9 +74,6 @@ kubectl wait --for=condition=Established crd/ec2nodeclasses.karpenter.k8s.aws --
 if ! aws ssm get-parameter --region "${AWS_REGION}" --name "${AMI_SSM_PARAMETER}" >/dev/null; then
   die "pinned EKS AL2023 NVIDIA AMI SSM parameter was not found: ${AMI_SSM_PARAMETER}"
 fi
-
-INSTANCE_TYPE_VALUES="$(comma_values_to_yaml "${KARPENTER_G7E_INSTANCE_TYPES}")"
-[[ -n "${INSTANCE_TYPE_VALUES}" ]] || die "KARPENTER_G7E_INSTANCE_TYPES must contain at least one instance type"
 
 log "applying G7e EC2NodeClass and NodePool"
 kubectl apply -f - <<YAML
@@ -117,51 +111,20 @@ spec:
     Project: aws-osmo
     Reference: aws-osmo
     ManagedBy: karpenter
----
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: ${KARPENTER_NODEPOOL_NAME}
-  labels:
-    app.kubernetes.io/name: karpenter
-    app.kubernetes.io/part-of: aws-osmo-reference
-spec:
-  template:
-    metadata:
-      labels:
-        aws.osmo.reference/nodepool: g7e
-        aws.osmo.reference/gpu-family: rtx-pro-6000
-    spec:
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: ${KARPENTER_EC2NODECLASS_NAME}
-      taints:
-        - key: nvidia.com/gpu
-          value: "true"
-          effect: NoSchedule
-      requirements:
-        - key: kubernetes.io/arch
-          operator: In
-          values: ["amd64"]
-        - key: kubernetes.io/os
-          operator: In
-          values: ["linux"]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values:
-${INSTANCE_TYPE_VALUES}
-      expireAfter: ${KARPENTER_NODE_EXPIRE_AFTER}
-  limits:
-    cpu: "${KARPENTER_NODEPOOL_CPU_LIMIT}"
-    memory: "${KARPENTER_NODEPOOL_MEMORY_LIMIT}"
-  disruption:
-    consolidationPolicy: ${KARPENTER_CONSOLIDATION_POLICY}
-    consolidateAfter: ${KARPENTER_CONSOLIDATE_AFTER}
 YAML
+
+render_gpu_nodepool \
+  "${KARPENTER_NODEPOOL_NAME}" \
+  "${KARPENTER_EC2NODECLASS_NAME}" \
+  "g7e" "rtx-pro-6000" \
+  "${KARPENTER_G7E_INSTANCE_TYPES}" \
+  "${KARPENTER_CAPACITY_TYPE}" \
+  "" \
+  "${KARPENTER_NODEPOOL_CPU_LIMIT}" \
+  "${KARPENTER_NODEPOOL_MEMORY_LIMIT}" \
+  "${KARPENTER_NODE_EXPIRE_AFTER}" \
+  "${KARPENTER_CONSOLIDATION_POLICY}" \
+  "${KARPENTER_CONSOLIDATE_AFTER}" | kubectl apply -f -
 
 kubectl wait --for=condition=Ready "ec2nodeclass/${KARPENTER_EC2NODECLASS_NAME}" --timeout=10m
 kubectl wait --for=condition=Ready "nodepool/${KARPENTER_NODEPOOL_NAME}" --timeout=10m
@@ -169,67 +132,32 @@ kubectl wait --for=condition=Ready "nodepool/${KARPENTER_NODEPOOL_NAME}" --timeo
 log "Karpenter G7e NodePool deployment completed"
 
 # ---------------------------------------------------------------------------
-# Optional G6 (NVIDIA L4) capacity-fallback NodePool.
-# Enable with DEPLOY_G6_NODEPOOL=true when g7e capacity is unavailable in-region.
-# Reuses the g7e EC2NodeClass (same AMI/subnet/SG discovery); only the NodePool
-# differs (L4 instance types, single-AZ pin, g6 labels). Node labels
-# aws.osmo.reference/nodepool=g6 + gpu-family=l4 are what OSMO's g6-l4 platform
-# nodeSelector targets (see deploy-osmo.sh OSMO_CONFIGURE_G6_PLATFORM).
+# Optional GPU capacity-fallback NodePools (opt-in via GPU_FALLBACK_FAMILIES).
+# Each family reuses the g7e EC2NodeClass; only the NodePool differs
+# (instance types, single-AZ pin, family labels). OSMO's <family> platform
+# nodeSelector targets aws.osmo.reference/nodepool=<family>.
 # ---------------------------------------------------------------------------
-if [[ "${DEPLOY_G6_NODEPOOL}" == "true" ]]; then
-  G6_INSTANCE_TYPE_VALUES="$(comma_values_to_yaml "${KARPENTER_G6_INSTANCE_TYPES}")"
-  [[ -n "${G6_INSTANCE_TYPE_VALUES}" ]] || die "KARPENTER_G6_INSTANCE_TYPES must contain at least one instance type"
+if [[ "${DEPLOY_G6_NODEPOOL}" == "true" && ",${GPU_FALLBACK_FAMILIES}," != *",g6,"* ]]; then
+  GPU_FALLBACK_FAMILIES="${GPU_FALLBACK_FAMILIES:+${GPU_FALLBACK_FAMILIES},}g6"
+fi
 
-  log "applying G6 (L4) NodePool ${KARPENTER_G6_NODEPOOL_NAME} in ${KARPENTER_G6_ZONE}"
-  kubectl apply -f - <<YAML
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: ${KARPENTER_G6_NODEPOOL_NAME}
-  labels:
-    app.kubernetes.io/name: karpenter
-    app.kubernetes.io/part-of: aws-osmo-reference
-spec:
-  template:
-    metadata:
-      labels:
-        aws.osmo.reference/nodepool: g6
-        aws.osmo.reference/gpu-family: l4
-    spec:
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: ${KARPENTER_EC2NODECLASS_NAME}
-      taints:
-        - key: nvidia.com/gpu
-          value: "true"
-          effect: NoSchedule
-      requirements:
-        - key: kubernetes.io/arch
-          operator: In
-          values: ["amd64"]
-        - key: kubernetes.io/os
-          operator: In
-          values: ["linux"]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: topology.kubernetes.io/zone
-          operator: In
-          values: ["${KARPENTER_G6_ZONE}"]
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values:
-${G6_INSTANCE_TYPE_VALUES}
-      expireAfter: ${KARPENTER_NODE_EXPIRE_AFTER}
-  limits:
-    cpu: "${KARPENTER_G6_NODEPOOL_CPU_LIMIT}"
-    memory: "${KARPENTER_G6_NODEPOOL_MEMORY_LIMIT}"
-  disruption:
-    consolidationPolicy: ${KARPENTER_CONSOLIDATION_POLICY}
-    consolidateAfter: ${KARPENTER_CONSOLIDATE_AFTER}
-YAML
-
-  kubectl wait --for=condition=Ready "nodepool/${KARPENTER_G6_NODEPOOL_NAME}" --timeout=10m
-  log "Karpenter G6 NodePool deployment completed"
+if [[ -n "${GPU_FALLBACK_FAMILIES}" ]]; then
+  IFS=',' read -r -a _families <<<"${GPU_FALLBACK_FAMILIES}"
+  for family in "${_families[@]}"; do
+    family="$(printf '%s' "${family}" | xargs)"
+    [[ -n "${family}" ]] || continue
+    fam_nodepool="$(gpu_fallback_family_field "${family}" nodepool_name)"
+    fam_gpu_label="$(gpu_fallback_family_field "${family}" gpu_label)"
+    fam_instances="$(gpu_fallback_family_field "${family}" instance_types)"
+    log "applying ${family} (${fam_gpu_label}) NodePool ${fam_nodepool} in ${GPU_FALLBACK_ZONE}"
+    render_gpu_nodepool \
+      "${fam_nodepool}" "${KARPENTER_EC2NODECLASS_NAME}" \
+      "${family}" "${fam_gpu_label}" \
+      "${fam_instances}" "${KARPENTER_CAPACITY_TYPE}" "${GPU_FALLBACK_ZONE}" \
+      "${GPU_FALLBACK_CPU_LIMIT}" "${GPU_FALLBACK_MEMORY_LIMIT}" \
+      "${KARPENTER_NODE_EXPIRE_AFTER}" "${KARPENTER_CONSOLIDATION_POLICY}" "${KARPENTER_CONSOLIDATE_AFTER}" \
+      | kubectl apply -f -
+    kubectl wait --for=condition=Ready "nodepool/${fam_nodepool}" --timeout=10m
+    log "Karpenter ${family} NodePool deployment completed"
+  done
 fi

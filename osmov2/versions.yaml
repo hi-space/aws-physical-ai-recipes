@@ -1,13 +1,16 @@
 osmo:
-  release: "6.2.10"
+  release: "6.3.1"
   chart_repository: "https://helm.ngc.nvidia.com/nvidia/osmo"
-  chart_version: "1.2.1"
+  chart_version: "1.3.1"
   image_registry: "nvcr.io/nvidia/osmo"
-  image_tag: "6.2"
+  image_tag: "6.3.1"
   compatibility_note: "https://github.com/NVIDIA/OSMO/pull/894"
   cookbook_ref: "c2c30e55f84969fff55d51cd2044a03d40d6a1a5"
   cosmos_transfer_ref: "0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b"
   cosmos_predict_tokenizer_revision: "f176dc95b4a70f53ce01c4b302851595e7322b00"
+  # 6.3 workflow task pods require explicit init/client images (missing -> task pod 422).
+  backend_init_image: "nvcr.io/nvidia/osmo/init-container:6.3.1"
+  backend_client_image: "nvcr.io/nvidia/osmo/client:6.3.1"
   internal_router_image: "public.ecr.aws/nginx/nginx-unprivileged:1.27-alpine"
 
 kai_scheduler:
@@ -27,6 +30,8 @@ karpenter:
   # G6 (NVIDIA L4) capacity-fallback NodePool. Reuses the g7e EC2NodeClass.
   # Used when g7e (RTX PRO 6000) capacity is unavailable in-region.
   karpenter_g6_nodepool_name: "aws-osmo-g6"
+  karpenter_g5_nodepool_name: "aws-osmo-g5"
+  karpenter_g6e_nodepool_name: "aws-osmo-g6e"
 
 gpu_operator:
   gpu_operator_chart_repository: "https://nvidia.github.io/gpu-operator"
@@ -77,6 +82,12 @@ ai_workflows:
   moge_repository: "https://github.com/microsoft/MoGe.git"
   moge_ref: "07444410f1e33f402353b99d6ccd26bd31e469e8"
 
+cluster_autoscaler:
+  cluster_autoscaler_repo: "https://kubernetes.github.io/autoscaler"
+  cluster_autoscaler_chart_version: "9.46.0"
+  cluster_autoscaler_namespace: "kube-system"
+  cluster_autoscaler_release_name: "cluster-autoscaler"
+
 aws:
   default_region: "ap-northeast-2"
   eks_cluster_version: "1.35"
@@ -85,6 +96,10 @@ aws:
   g7e_nut_pouring_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge,g7e.12xlarge,g7e.24xlarge"
   # G6 (NVIDIA L4, 24GB) fallback sizes. Single-AZ (2a) to match g7e AZ pinning.
   g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge"
+  # G5 (NVIDIA A10G, 24GB) fallback sizes. Single-AZ (2a) to match g7e AZ pinning.
+  g5_instance_types: "g5.2xlarge,g5.4xlarge,g5.8xlarge"
+  # G6e (NVIDIA L40S, 48GB) fallback sizes. Single-AZ (2a) to match g7e AZ pinning.
+  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge"
 
 terraform:
   cli: ">= 1.5.0, < 2.0.0"

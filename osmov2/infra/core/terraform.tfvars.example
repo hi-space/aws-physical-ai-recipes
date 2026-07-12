@@ -25,5 +25,13 @@ system_node_min_size       = 3
 system_node_desired_size   = 3
 system_node_max_size       = 5
 
+# --- GPU provisioning ---
+# gpu_provisioner = "karpenter"          # or "managed-nodegroup"
+# gpu_capacity_type = "ON_DEMAND"        # or "SPOT" (managed-nodegroup only; Karpenter uses KARPENTER_CAPACITY_TYPE)
+# gpu_managed_node_instance_types = ["g6.2xlarge"]
+# gpu_managed_node_min_size = 0
+# gpu_managed_node_desired_size = 0
+# gpu_managed_node_max_size = 4
+
 reference_ha        = false
 deletion_protection = false

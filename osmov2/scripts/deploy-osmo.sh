@@ -12,23 +12,28 @@ OSMO_CHART_REPO="${OSMO_CHART_REPO:-$(version_value chart_repository)}"
 OSMO_CHART_VERSION="${OSMO_CHART_VERSION:-$(version_value chart_version)}"
 OSMO_IMAGE_REGISTRY="${OSMO_IMAGE_REGISTRY:-$(version_value image_registry)}"
 OSMO_IMAGE_TAG="${OSMO_IMAGE_TAG:-$(version_value image_tag)}"
+OSMO_BACKEND_INIT_IMAGE="${OSMO_BACKEND_INIT_IMAGE:-$(version_value backend_init_image)}"
+OSMO_BACKEND_CLIENT_IMAGE="${OSMO_BACKEND_CLIENT_IMAGE:-$(version_value backend_client_image)}"
 OSMO_BACKEND_NAME="${OSMO_BACKEND_NAME:-default}"
 OSMO_CONFIGURE_GPU_PLATFORM="${OSMO_CONFIGURE_GPU_PLATFORM:-true}"
 OSMO_GPU_PLATFORM_NAME="${OSMO_GPU_PLATFORM_NAME:-g7e-rtx-pro-6000}"
 OSMO_GPU_POD_TEMPLATE_NAME="${OSMO_GPU_POD_TEMPLATE_NAME:-aws-g7e-rtx-pro-6000}"
-OSMO_GPU_PLATFORM_LABEL_KEY="${OSMO_GPU_PLATFORM_LABEL_KEY:-karpenter.sh/nodepool}"
-OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-$(version_value karpenter_nodepool_name)}"
+GPU_PROVISIONER="${GPU_PROVISIONER:-karpenter}"
+OSMO_GPU_PLATFORM_LABEL_KEY="${OSMO_GPU_PLATFORM_LABEL_KEY:-$(osmo_gpu_label_key)}"
+if [[ "${GPU_PROVISIONER}" == "managed-nodegroup" ]]; then
+  OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-g7e}"
+else
+  OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-$(version_value karpenter_nodepool_name)}"
+fi
 OSMO_GPU_POD_DO_NOT_DISRUPT="${OSMO_GPU_POD_DO_NOT_DISRUPT:-true}"
 OSMO_GPU_POD_SHM_SIZE="${OSMO_GPU_POD_SHM_SIZE:-32Gi}"
-# Optional G6 (NVIDIA L4) capacity-fallback platform. Set OSMO_CONFIGURE_G6_PLATFORM=true
-# (alongside the g6 NodePool from deploy-karpenter.sh DEPLOY_G6_NODEPOOL=true) to
-# register a g6-l4 OSMO platform. Workloads target it with `platform: g6-l4`.
-# Its nodeSelector points at the g6 NodePool's karpenter.sh/nodepool label value.
-OSMO_CONFIGURE_G6_PLATFORM="${OSMO_CONFIGURE_G6_PLATFORM:-false}"
-OSMO_G6_PLATFORM_NAME="${OSMO_G6_PLATFORM_NAME:-g6-l4}"
-OSMO_G6_POD_TEMPLATE_NAME="${OSMO_G6_POD_TEMPLATE_NAME:-aws-g6-l4}"
-OSMO_G6_PLATFORM_LABEL_KEY="${OSMO_G6_PLATFORM_LABEL_KEY:-karpenter.sh/nodepool}"
-OSMO_G6_PLATFORM_LABEL_VALUE="${OSMO_G6_PLATFORM_LABEL_VALUE:-$(version_value karpenter_g6_nodepool_name)}"
+# Optional GPU capacity-fallback platforms (comma-separated family names: g6, g5, g6e).
+# Each family registers a <family>-<gpu> OSMO platform. Set OSMO_FALLBACK_PLATFORMS or
+# use OSMO_CONFIGURE_G6_PLATFORM=true for backward compatibility (auto-appends g6).
+OSMO_FALLBACK_PLATFORMS="${OSMO_FALLBACK_PLATFORMS:-}"
+if [[ "${OSMO_CONFIGURE_G6_PLATFORM:-false}" == "true" && ",${OSMO_FALLBACK_PLATFORMS}," != *",g6,"* ]]; then
+  OSMO_FALLBACK_PLATFORMS="${OSMO_FALLBACK_PLATFORMS:+${OSMO_FALLBACK_PLATFORMS},}g6"
+fi
 OSMO_INSTALL_KAI="${OSMO_INSTALL_KAI:-true}"
 if [[ "${OSMO_INSTALL_KAI}" == "true" ]]; then
   OSMO_K8S_SCHEDULER_NAME="${OSMO_K8S_SCHEDULER_NAME:-$(version_value kai_scheduler_name)}"
@@ -37,8 +42,7 @@ else
   OSMO_K8S_SCHEDULER_NAME="${OSMO_K8S_SCHEDULER_NAME:-default-scheduler}"
   OSMO_INSTALL_PODGROUP_COMPAT_CRD="${OSMO_INSTALL_PODGROUP_COMPAT_CRD:-true}"
 fi
-OSMO_DEPLOY_WEB_UI="${OSMO_DEPLOY_WEB_UI:-true}"
-OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-osmo-service:80}"
+OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-osmo-internal-router:80}"
 OSMO_DATASET_BUCKET_NAME="${OSMO_DATASET_BUCKET_NAME:-aws-osmo}"
 OSMO_DEPLOY_INTERNAL_ROUTER="${OSMO_DEPLOY_INTERNAL_ROUTER:-true}"
 OSMO_INTERNAL_ROUTER_NAME="${OSMO_INTERNAL_ROUTER_NAME:-osmo-internal-router}"
@@ -179,6 +183,8 @@ if [[ "${ENABLE_POD_MONITOR:-false}" == "true" ]]; then
   POD_MONITOR_ENABLED="true"
 fi
 
+OSMO_AUTH_ENABLED="${OSMO_AUTH_ENABLED:-false}"
+
 OSMO_CHART_SOURCE="repo"
 OSMO_CHART_CACHE_DIR="${OSMO_CHART_CACHE_DIR:-$(helm env HELM_REPOSITORY_CACHE 2>/dev/null | tr -d '"')}"
 if helm repo add osmo "${OSMO_CHART_REPO}" --force-update >/dev/null &&
@@ -203,14 +209,13 @@ osmo_chart_ref() {
 
 SERVICE_VALUES="$(mktemp)"
 BACKEND_VALUES="$(mktemp)"
-UI_VALUES="$(mktemp)"
 SERVICE_CONFIG="$(mktemp)"
 WORKFLOW_CONFIG="$(mktemp)"
 DATASET_CONFIG="$(mktemp)"
 BACKEND_CONFIG="$(mktemp)"
 POOL_CONFIG="$(mktemp)"
 GPU_POD_TEMPLATE_CONFIG="$(mktemp)"
-trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${UI_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
 
 cat >"${SERVICE_VALUES}" <<EOF
 global:
@@ -226,7 +231,13 @@ serviceAccount:
 services:
   configFile:
     enabled: true
-    path: /home/osmo/config/mek.yaml
+    path: /opt/osmo/config.yaml
+  ui:
+    enabled: true
+    serviceAccountName: "${OSMO_SERVICE_ACCOUNT_NAME}"
+    apiHostname: "${OSMO_UI_API_HOSTNAME}"
+  router:
+    replicas: 1
   worker:
     scaling:
       minReplicas: 1
@@ -275,29 +286,69 @@ services:
     ingress:
       enabled: false
 
-sidecars:
-  envoy:
-    enabled: false
-  oauth2Proxy:
-    enabled: false
-  rateLimit:
-    enabled: false
-  authz:
-    enabled: false
+EOF
+
+# gateway block (dev-repro: disabled; auth: envoy+oauth2Proxy+tls enabled)
+osmo_gateway_values_block "${OSMO_AUTH_ENABLED}" >>"${SERVICE_VALUES}"
+
+cat >>"${SERVICE_VALUES}" <<EOF
 
 podMonitor:
   enabled: ${POD_MONITOR_ENABLED}
 EOF
 
+OSMO_HELM_AUTH_ARGS=()
+if [[ "${OSMO_AUTH_ENABLED}" == "true" ]]; then
+  OSMO_OIDC_ISSUER="${OSMO_OIDC_ISSUER:-$(auth_terraform_output oidc_issuer_url)}"
+  OSMO_OIDC_JWKS="${OSMO_OIDC_JWKS:-$(auth_terraform_output oidc_jwks_uri)}"
+  OSMO_OIDC_BROWSER_CLIENT_ID="${OSMO_OIDC_BROWSER_CLIENT_ID:-$(auth_terraform_output browser_client_id)}"
+  OSMO_COOKIE_DOMAIN="${OSMO_COOKIE_DOMAIN:-$(auth_terraform_output cookie_domain)}"
+  [[ -n "${OSMO_HOSTNAME:-}" ]] || die "OSMO_HOSTNAME (ALB FQDN) is required when OSMO_AUTH_ENABLED=true"
+  [[ -n "${OSMO_OIDC_ISSUER}" ]] || die "OIDC issuer is empty; run deploy-auth.sh first"
+  [[ -n "${OSMO_OIDC_CLIENT_SECRET:-}" ]] || die "OSMO_OIDC_CLIENT_SECRET is required (browser client secret)"
+
+  # oauth2-proxy secrets (client_secret + random cookie_secret).
+  OAUTH2_COOKIE_SECRET="${OAUTH2_COOKIE_SECRET:-$(openssl rand -base64 32 | tr -d '\n')}"
+  kubectl -n "${OSMO_NAMESPACE}" create secret generic oauth2-proxy-secrets \
+    --from-literal=client_secret="${OSMO_OIDC_CLIENT_SECRET}" \
+    --from-literal=cookie_secret="${OAUTH2_COOKIE_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  OSMO_HELM_AUTH_ARGS=(
+    --set "global.hostname=${OSMO_HOSTNAME}"
+    --set "services.service.hostname=${OSMO_HOSTNAME}"
+    --set "services.service.auth.browser_client_id=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.envoy.hostname=${OSMO_HOSTNAME}"
+    --set "gateway.envoy.jwt.providers[0].issuer=${OSMO_OIDC_ISSUER}"
+    --set "gateway.envoy.jwt.providers[0].jwks_uri=${OSMO_OIDC_JWKS}"
+    --set "gateway.envoy.jwt.providers[0].audience=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.envoy.jwt.providers[0].user_claim=email"
+    --set "gateway.oauth2Proxy.oidcIssuerUrl=${OSMO_OIDC_ISSUER}"
+    --set "gateway.oauth2Proxy.clientId=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.oauth2Proxy.cookieDomain=${OSMO_COOKIE_DOMAIN}"
+    --set "gateway.oauth2Proxy.redis.serviceName=${REDIS_HOST}"
+    --set "gateway.oauth2Proxy.redis.port=${REDIS_PORT}"
+  )
+  if [[ -n "${OSMO_ACM_CERT_ARN:-}" ]]; then
+    OSMO_HELM_AUTH_ARGS+=(--set "gateway.envoy.ingress.albAnnotations.sslCertArn=${OSMO_ACM_CERT_ARN}")
+  fi
+fi
+
 helm upgrade --install osmo-service "$(osmo_chart_ref service)" \
   --namespace "${OSMO_NAMESPACE}" \
   --version "${OSMO_CHART_VERSION}" \
   --values "${SERVICE_VALUES}" \
+  "${OSMO_HELM_AUTH_ARGS[@]}" \
   --wait \
   --timeout 15m
 
 kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-service --timeout=10m
 
+kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m || log "osmo-ui not ready yet"
+
+# Keep nginx internal router: the 6.3 built-in router is session/subdomain-based and cannot
+# replace this repo's path-router (/api/logger/* -> osmo-logger, /* -> osmo-service).
+# See docs/superpowers/plans/2026-07-11-osmo-63-render-findings.md
 if [[ "${OSMO_DEPLOY_INTERNAL_ROUTER}" == "true" ]]; then
   kubectl -n "${OSMO_NAMESPACE}" apply -f - <<YAML
 apiVersion: v1
@@ -413,7 +464,7 @@ done
 port_open 127.0.0.1 9000 || die "OSMO service port-forward did not become ready"
 login_osmo_with_token "http://127.0.0.1:9000" "${DEFAULT_ADMIN_TOKEN}" || die "failed to log in to OSMO with default admin token"
 
-# OSMO 6.2 uses SERVICE.service_base_url for workflow control-plane callbacks.
+# OSMO 6.3 uses SERVICE.service_base_url for workflow control-plane callbacks.
 # The in-cluster logger service serves workflow log websocket endpoints, while
 # workflow data and dataset API calls must reach the service API.
 jq -n \
@@ -437,7 +488,10 @@ jq -n \
   --arg access_key "${WORKFLOW_DATA_SECRET_ACCESS_KEY}" \
   --arg region "${AWS_REGION}" \
   --arg workflow_data_base_url "${OSMO_WORKFLOW_DATA_BASE_URL}" \
+  --arg init_image "${OSMO_BACKEND_INIT_IMAGE}" \
+  --arg client_image "${OSMO_BACKEND_CLIENT_IMAGE}" \
   '{
+    backend_images: { init: $init_image, client: $client_image },
     workflow_data: {
       base_url: $workflow_data_base_url,
       credential: {
@@ -510,6 +564,22 @@ if ! osmo credential set aws-osmo-dataset \
 fi
 
 osmo profile set bucket "${OSMO_DATASET_BUCKET_NAME}" >/dev/null
+
+if [[ "${OSMO_AUTH_ENABLED}" == "true" ]]; then
+  POOL_CURRENT="$(osmo config show POOL default)"
+  printf '%s' "${POOL_CURRENT}" | jq \
+    'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+     .roles["osmo-admin"].external_roles = ["osmo-admin"] |
+     .roles["osmo-user"].external_roles  = ["osmo-user"] |
+     .roles["osmo-ctrl"].external_roles  = ["osmo-ctrl"] |
+     .roles["osmo-backend"].external_roles = ["osmo-backend"]' >"${POOL_CONFIG}"
+  if ! osmo config update POOL default --file "${POOL_CONFIG}" \
+    --description "Configure IdP external_roles mapping" >/tmp/osmo-roles-config.log 2>&1; then
+    cat /tmp/osmo-roles-config.log >&2
+    die "failed to configure OSMO external_roles mapping"
+  fi
+  log "OSMO external_roles mapping configured"
+fi
 
 if ! osmo user create backend-operator --roles osmo-backend >/tmp/osmo-backend-user.log 2>&1; then
   osmo user get backend-operator >/dev/null 2>&1 || {
@@ -630,228 +700,59 @@ fi
 
 if [[ "${OSMO_CONFIGURE_GPU_PLATFORM}" == "true" ]]; then
   POD_TEMPLATE_CURRENT="$(osmo config show POD_TEMPLATE 2>/dev/null || printf '{}')"
-  printf '%s' "${POD_TEMPLATE_CURRENT}" | jq \
-    --arg name "${OSMO_GPU_POD_TEMPLATE_NAME}" \
-    --arg label_key "${OSMO_GPU_PLATFORM_LABEL_KEY}" \
-    --arg label_value "${OSMO_GPU_PLATFORM_LABEL_VALUE}" \
-    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
-    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
-    '.[$name] = {
-       metadata: {
-         annotations: {
-           "karpenter.sh/do-not-disrupt": $do_not_disrupt
-         }
-       },
-       spec: {
-         nodeSelector: {
-           ($label_key): $label_value
-         },
-         tolerations: [
-           {
-             key: "nvidia.com/gpu",
-             operator: "Exists",
-             effect: "NoSchedule"
-           }
-         ],
-         containers: [
-           {
-             name: "{{USER_CONTAINER_NAME}}",
-             volumeMounts: [
-               {
-                 name: "shm",
-                 mountPath: "/dev/shm"
-               }
-             ]
-           }
-         ],
-         volumes: [
-           {
-             name: "shm",
-             emptyDir: {
-               medium: "Memory",
-               sizeLimit: $shm_size
-             }
-           }
-         ]
-       }
-     }' >"${GPU_POD_TEMPLATE_CONFIG}"
+  gpu_pod_template_json "${POD_TEMPLATE_CURRENT}" "${OSMO_GPU_POD_TEMPLATE_NAME}" \
+    "${OSMO_GPU_PLATFORM_LABEL_KEY}" "${OSMO_GPU_PLATFORM_LABEL_VALUE}" \
+    "${OSMO_GPU_POD_DO_NOT_DISRUPT}" "${OSMO_GPU_POD_SHM_SIZE}" >"${GPU_POD_TEMPLATE_CONFIG}"
 
-  if ! osmo config update POD_TEMPLATE \
-    --file "${GPU_POD_TEMPLATE_CONFIG}" \
+  if ! osmo config update POD_TEMPLATE --file "${GPU_POD_TEMPLATE_CONFIG}" \
     --description "Configure AWS G7e GPU pod template" >/tmp/osmo-gpu-pod-template.log 2>&1; then
     cat /tmp/osmo-gpu-pod-template.log >&2
     die "failed to configure OSMO G7e pod template"
   fi
 
   POOL_CURRENT="$(osmo config show POOL default)"
-  if printf '%s' "${POOL_CURRENT}" | jq -e \
-    --arg platform "${OSMO_GPU_PLATFORM_NAME}" \
-    --arg pod_template "${OSMO_GPU_POD_TEMPLATE_NAME}" \
-    --arg label_key "${OSMO_GPU_PLATFORM_LABEL_KEY}" \
-    --arg label_value "${OSMO_GPU_PLATFORM_LABEL_VALUE}" \
-    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
-    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
-    '.platforms[$platform].labels[$label_key] == $label_value and
-     .parsed_pod_template[$pod_template].metadata.annotations["karpenter.sh/do-not-disrupt"] == $do_not_disrupt and
-     any(.parsed_pod_template[$pod_template].spec.containers[]?; .name == "{{USER_CONTAINER_NAME}}" and any(.volumeMounts[]?; .name == "shm" and .mountPath == "/dev/shm")) and
-     any(.parsed_pod_template[$pod_template].spec.volumes[]?; .name == "shm" and .emptyDir.medium == "Memory" and .emptyDir.sizeLimit == $shm_size) and
-     any(.platforms[$platform].tolerations[]?; .key == "nvidia.com/gpu" and .operator == "Exists" and .effect == "NoSchedule") and
-     any(.platforms[$platform].override_pod_template[]?; . == $pod_template)' >/dev/null; then
-    log "OSMO pool GPU platform is already configured"
-  else
-    printf '%s' "${POOL_CURRENT}" | jq \
-      --arg platform "${OSMO_GPU_PLATFORM_NAME}" \
-      --arg pod_template "${OSMO_GPU_POD_TEMPLATE_NAME}" \
-      'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
-       .platforms[$platform] = {
-         description: "AWS G7e RTX PRO 6000 Blackwell platform",
-         host_network_allowed: false,
-         privileged_allowed: false,
-         allowed_mounts: [],
-         default_mounts: [],
-         default_variables: {},
-         resource_validations: [],
-         override_pod_template: [$pod_template]
-       }' >"${POOL_CONFIG}"
-
-    if ! osmo config update POOL default \
-      --file "${POOL_CONFIG}" \
-      --description "Configure AWS G7e GPU platform" >/tmp/osmo-pool-config.log 2>&1; then
-      cat /tmp/osmo-pool-config.log >&2
-      die "failed to configure OSMO pool GPU platform"
-    fi
+  gpu_pool_platform_json "${POOL_CURRENT}" "${OSMO_GPU_PLATFORM_NAME}" \
+    "${OSMO_GPU_POD_TEMPLATE_NAME}" "AWS G7e RTX PRO 6000 Blackwell platform" >"${POOL_CONFIG}"
+  if ! osmo config update POOL default --file "${POOL_CONFIG}" \
+    --description "Configure AWS G7e GPU platform" >/tmp/osmo-pool-config.log 2>&1; then
+    cat /tmp/osmo-pool-config.log >&2
+    die "failed to configure OSMO pool GPU platform"
   fi
 fi
 
-# ---------------------------------------------------------------------------
-# Optional G6 (NVIDIA L4) capacity-fallback platform. Same structure as the g7e
-# platform above, but with a g6-specific pod template + nodeSelector so OSMO
-# workflows can request `platform: g6-l4`. Enable with OSMO_CONFIGURE_G6_PLATFORM=true
-# after the g6 NodePool exists (deploy-karpenter.sh DEPLOY_G6_NODEPOOL=true).
-# ---------------------------------------------------------------------------
-if [[ "${OSMO_CONFIGURE_G6_PLATFORM}" == "true" ]]; then
-  POD_TEMPLATE_CURRENT="$(osmo config show POD_TEMPLATE 2>/dev/null || printf '{}')"
-  printf '%s' "${POD_TEMPLATE_CURRENT}" | jq \
-    --arg name "${OSMO_G6_POD_TEMPLATE_NAME}" \
-    --arg label_key "${OSMO_G6_PLATFORM_LABEL_KEY}" \
-    --arg label_value "${OSMO_G6_PLATFORM_LABEL_VALUE}" \
-    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
-    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
-    '.[$name] = {
-       metadata: {
-         annotations: {
-           "karpenter.sh/do-not-disrupt": $do_not_disrupt
-         }
-       },
-       spec: {
-         nodeSelector: {
-           ($label_key): $label_value
-         },
-         tolerations: [
-           {
-             key: "nvidia.com/gpu",
-             operator: "Exists",
-             effect: "NoSchedule"
-           }
-         ],
-         containers: [
-           {
-             name: "{{USER_CONTAINER_NAME}}",
-             volumeMounts: [
-               {
-                 name: "shm",
-                 mountPath: "/dev/shm"
-               }
-             ]
-           }
-         ],
-         volumes: [
-           {
-             name: "shm",
-             emptyDir: {
-               medium: "Memory",
-               sizeLimit: $shm_size
-             }
-           }
-         ]
-       }
-     }' >"${GPU_POD_TEMPLATE_CONFIG}"
+# Optional GPU capacity-fallback platforms (opt-in via OSMO_FALLBACK_PLATFORMS).
+# Each family registers a <family>-<gpu> OSMO platform whose nodeSelector points
+# at aws.osmo.reference/nodepool=<family> (managed) or the family NodePool name.
+if [[ -n "${OSMO_FALLBACK_PLATFORMS}" ]]; then
+  IFS=',' read -r -a _fb_families <<<"${OSMO_FALLBACK_PLATFORMS}"
+  for family in "${_fb_families[@]}"; do
+    family="$(printf '%s' "${family}" | xargs)"
+    [[ -n "${family}" ]] || continue
+    fb_gpu_label="$(gpu_fallback_family_field "${family}" gpu_label)"
+    fb_platform="${family}-${fb_gpu_label}"
+    fb_pod_template="aws-${fb_platform}"
+    fb_label_key="$(osmo_gpu_label_key)"
+    fb_label_value="$(osmo_gpu_label_value "${family}")"
 
-  if ! osmo config update POD_TEMPLATE \
-    --file "${GPU_POD_TEMPLATE_CONFIG}" \
-    --description "Configure AWS G6 L4 pod template" >/tmp/osmo-g6-pod-template.log 2>&1; then
-    cat /tmp/osmo-g6-pod-template.log >&2
-    die "failed to configure OSMO G6 pod template"
-  fi
-
-  POOL_CURRENT="$(osmo config show POOL default)"
-  if printf '%s' "${POOL_CURRENT}" | jq -e \
-    --arg platform "${OSMO_G6_PLATFORM_NAME}" \
-    --arg pod_template "${OSMO_G6_POD_TEMPLATE_NAME}" \
-    --arg label_key "${OSMO_G6_PLATFORM_LABEL_KEY}" \
-    --arg label_value "${OSMO_G6_PLATFORM_LABEL_VALUE}" \
-    --arg do_not_disrupt "${OSMO_GPU_POD_DO_NOT_DISRUPT}" \
-    --arg shm_size "${OSMO_GPU_POD_SHM_SIZE}" \
-    '.platforms[$platform].labels[$label_key] == $label_value and
-     .parsed_pod_template[$pod_template].metadata.annotations["karpenter.sh/do-not-disrupt"] == $do_not_disrupt and
-     any(.parsed_pod_template[$pod_template].spec.containers[]?; .name == "{{USER_CONTAINER_NAME}}" and any(.volumeMounts[]?; .name == "shm" and .mountPath == "/dev/shm")) and
-     any(.parsed_pod_template[$pod_template].spec.volumes[]?; .name == "shm" and .emptyDir.medium == "Memory" and .emptyDir.sizeLimit == $shm_size) and
-     any(.platforms[$platform].tolerations[]?; .key == "nvidia.com/gpu" and .operator == "Exists" and .effect == "NoSchedule") and
-     any(.platforms[$platform].override_pod_template[]?; . == $pod_template)' >/dev/null; then
-    log "OSMO pool G6 platform is already configured"
-  else
-    printf '%s' "${POOL_CURRENT}" | jq \
-      --arg platform "${OSMO_G6_PLATFORM_NAME}" \
-      --arg pod_template "${OSMO_G6_POD_TEMPLATE_NAME}" \
-      'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
-       .platforms[$platform] = {
-         description: "AWS G6 NVIDIA L4 platform (capacity fallback)",
-         host_network_allowed: false,
-         privileged_allowed: false,
-         allowed_mounts: [],
-         default_mounts: [],
-         default_variables: {},
-         resource_validations: [],
-         override_pod_template: [$pod_template]
-       }' >"${POOL_CONFIG}"
-
-    if ! osmo config update POOL default \
-      --file "${POOL_CONFIG}" \
-      --description "Configure AWS G6 L4 GPU platform" >/tmp/osmo-g6-pool-config.log 2>&1; then
-      cat /tmp/osmo-g6-pool-config.log >&2
-      die "failed to configure OSMO pool G6 platform"
+    POD_TEMPLATE_CURRENT="$(osmo config show POD_TEMPLATE 2>/dev/null || printf '{}')"
+    gpu_pod_template_json "${POD_TEMPLATE_CURRENT}" "${fb_pod_template}" \
+      "${fb_label_key}" "${fb_label_value}" "${OSMO_GPU_POD_DO_NOT_DISRUPT}" "${OSMO_GPU_POD_SHM_SIZE}" >"${GPU_POD_TEMPLATE_CONFIG}"
+    if ! osmo config update POD_TEMPLATE --file "${GPU_POD_TEMPLATE_CONFIG}" \
+      --description "Configure AWS ${fb_platform} pod template" >"/tmp/osmo-${family}-pod-template.log" 2>&1; then
+      cat "/tmp/osmo-${family}-pod-template.log" >&2
+      die "failed to configure OSMO ${family} pod template"
     fi
-  fi
-fi
 
-if [[ "${OSMO_DEPLOY_WEB_UI}" == "true" ]]; then
-  cat >"${UI_VALUES}" <<EOF
-global:
-  osmoImageLocation: "${OSMO_IMAGE_REGISTRY}"
-  osmoImageTag: "${OSMO_IMAGE_TAG}"
-  imagePullSecret: "${IMAGE_PULL_SECRET}"
-
-services:
-  ui:
-    apiHostname: "${OSMO_UI_API_HOSTNAME}"
-    ingress:
-      enabled: false
-
-sidecars:
-  envoy:
-    enabled: false
-  oauth2Proxy:
-    enabled: false
-EOF
-
-  helm upgrade --install osmo-ui "$(osmo_chart_ref web-ui)" \
-    --namespace "${OSMO_NAMESPACE}" \
-    --version "${OSMO_CHART_VERSION}" \
-    --values "${UI_VALUES}" \
-    --wait \
-    --timeout 10m
-
-  kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m
+    POOL_CURRENT="$(osmo config show POOL default)"
+    gpu_pool_platform_json "${POOL_CURRENT}" "${fb_platform}" "${fb_pod_template}" \
+      "AWS ${family} ${fb_gpu_label} platform (capacity fallback)" >"${POOL_CONFIG}"
+    if ! osmo config update POOL default --file "${POOL_CONFIG}" \
+      --description "Configure AWS ${fb_platform} GPU platform" >"/tmp/osmo-${family}-pool-config.log" 2>&1; then
+      cat "/tmp/osmo-${family}-pool-config.log" >&2
+      die "failed to configure OSMO pool ${family} platform"
+    fi
+    log "OSMO ${fb_platform} platform configured"
+  done
 fi
 
 log "OSMO service and backend operator deployment completed"
