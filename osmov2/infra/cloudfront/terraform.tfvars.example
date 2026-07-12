@@ -1,0 +1,11 @@
+alb_dns_name = "aws-osmo-dev-repro-eks-admin-2123158171.ap-northeast-2.elb.amazonaws.com"
+alb_region   = "ap-northeast-2"
+
+allowed_cidrs = [
+  "203.0.113.0/32"
+]
+
+tags = {
+  Project     = "aws-osmo"
+  Environment = "dev-repro"
+}
