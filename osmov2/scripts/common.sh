@@ -222,3 +222,42 @@ gpu_fallback_family_field() {
     *) die "unknown gpu_fallback_family_field: ${field}" ;;
   esac
 }
+
+# gpu_pod_template_json: add or update a POD_TEMPLATE entry with GPU pod configuration.
+# Pure function using jq; stdout only.
+# Args: current_json pod_template_name label_key label_value do_not_disrupt shm_size
+gpu_pod_template_json() {
+  local current="$1" name="$2" label_key="$3" label_value="$4" do_not_disrupt="$5" shm_size="$6"
+  printf '%s' "${current}" | jq \
+    --arg name "${name}" --arg label_key "${label_key}" --arg label_value "${label_value}" \
+    --arg do_not_disrupt "${do_not_disrupt}" --arg shm_size "${shm_size}" \
+    '.[$name] = {
+       metadata: { annotations: { "karpenter.sh/do-not-disrupt": $do_not_disrupt } },
+       spec: {
+         nodeSelector: { ($label_key): $label_value },
+         tolerations: [ { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" } ],
+         containers: [ { name: "{{USER_CONTAINER_NAME}}", volumeMounts: [ { name: "shm", mountPath: "/dev/shm" } ] } ],
+         volumes: [ { name: "shm", emptyDir: { medium: "Memory", sizeLimit: $shm_size } } ]
+       }
+     }'
+}
+
+# gpu_pool_platform_json: add or update a POOL platform entry with GPU platform configuration.
+# Strips .last_heartbeat and parsed_* keys (which are computed by OSMO). Pure function using jq; stdout only.
+# Args: current_json platform_name pod_template_name description
+gpu_pool_platform_json() {
+  local current="$1" platform="$2" pod_template="$3" description="$4"
+  printf '%s' "${current}" | jq \
+    --arg platform "${platform}" --arg pod_template "${pod_template}" --arg description "${description}" \
+    'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+     .platforms[$platform] = {
+       description: $description,
+       host_network_allowed: false,
+       privileged_allowed: false,
+       allowed_mounts: [],
+       default_mounts: [],
+       default_variables: {},
+       resource_validations: [],
+       override_pod_template: [$pod_template]
+     }'
+}
