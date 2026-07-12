@@ -151,7 +151,8 @@ render_gpu_nodepool() {
   [[ -n "${capacity_values}" ]] || die "render_gpu_nodepool: capacity_type_csv must contain at least one type"
 
   if [[ -n "${zone}" ]]; then
-    zone_block="$(printf '        - key: topology.kubernetes.io/zone\n          operator: In\n          values:\n              - "%s"\n' "${zone}")"
+    zone_block="$(printf '        - key: topology.kubernetes.io/zone\n          operator: In\n          values:\n              - "%s"\n' "${zone}"; printf x)"
+    zone_block="${zone_block%x}"
   fi
 
   cat <<YAML
