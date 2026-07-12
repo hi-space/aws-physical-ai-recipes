@@ -183,6 +183,8 @@ if [[ "${ENABLE_POD_MONITOR:-false}" == "true" ]]; then
   POD_MONITOR_ENABLED="true"
 fi
 
+OSMO_AUTH_ENABLED="${OSMO_AUTH_ENABLED:-false}"
+
 OSMO_CHART_SOURCE="repo"
 OSMO_CHART_CACHE_DIR="${OSMO_CHART_CACHE_DIR:-$(helm env HELM_REPOSITORY_CACHE 2>/dev/null | tr -d '"')}"
 if helm repo add osmo "${OSMO_CHART_REPO}" --force-update >/dev/null &&
@@ -284,18 +286,12 @@ services:
     ingress:
       enabled: false
 
-gateway:
-  envoy:
-    enabled: false
-  oauth2Proxy:
-    enabled: false
-  # 6.3 defaults gateway.tls.enabled=true, which makes every core service
-  # (service/router/agent/logger) mint an in-process self-signed cert and serve
-  # HTTPS for the Envoy gateway. This baseline runs gateway-disabled with plain
-  # HTTP behind the nginx internal router + port-forward, so the CLI/admin-token
-  # login over http://osmo-service:80 works. Disable upstream TLS to match.
-  tls:
-    enabled: false
+EOF
+
+# gateway block (dev-repro: disabled; auth: envoy+oauth2Proxy+tls enabled)
+osmo_gateway_values_block "${OSMO_AUTH_ENABLED}" >>"${SERVICE_VALUES}"
+
+cat >>"${SERVICE_VALUES}" <<EOF
 
 podMonitor:
   enabled: ${POD_MONITOR_ENABLED}

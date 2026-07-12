@@ -290,3 +290,67 @@ auth_terraform_output() {
   fi
   terraform -chdir="${AUTH_TF_DIR}" output -raw "${key}"
 }
+
+# osmo_gateway_values_block: emit the OSMO service chart `gateway:` values block.
+# auth_enabled != "true" reproduces the dev-repro baseline verbatim.
+osmo_gateway_values_block() {
+  local auth_enabled="$1"
+  if [[ "${auth_enabled}" == "true" ]]; then
+    cat <<'YAML'
+gateway:
+  name: osmo-gateway
+  envoy:
+    enabled: true
+    hostname: "" # set via --set gateway.envoy.hostname
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      ingressClass: alb
+      sslEnabled: false
+      albAnnotations:
+        enabled: true
+        groupName: osmo
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/success-codes: "200,302"
+        alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+  oauth2Proxy:
+    enabled: true
+    provider: oidc
+    scope: "openid email profile"
+    useKubernetesSecrets: true
+    secretName: oauth2-proxy-secrets
+    clientSecretKey: client_secret
+    cookieSecretKey: cookie_secret
+    redisSessionStore: true
+    redis:
+      tlsEnabled: true
+    extraEnv:
+      - name: OAUTH2_PROXY_REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: redis-secret
+            key: redis-password
+    extraArgs:
+      - --insecure-oidc-allow-unverified-email=true
+  tls:
+    enabled: true
+YAML
+  else
+    cat <<'YAML'
+gateway:
+  envoy:
+    enabled: false
+  oauth2Proxy:
+    enabled: false
+  # 6.3 defaults gateway.tls.enabled=true, which makes every core service
+  # (service/router/agent/logger) mint an in-process self-signed cert and serve
+  # HTTPS for the Envoy gateway. This baseline runs gateway-disabled with plain
+  # HTTP behind the nginx internal router + port-forward, so the CLI/admin-token
+  # login over http://osmo-service:80 works. Disable upstream TLS to match.
+  tls:
+    enabled: false
+YAML
+  fi
+}
