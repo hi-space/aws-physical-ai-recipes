@@ -220,6 +220,76 @@ SRP against the app client) and send it as the `Authorization: Bearer` token to
 the gateway. Do not point production CLI users at `osmo-internal-router`, or
 their submissions will all collapse into one shared service identity.
 
+## G6 (NVIDIA L4) capacity-fallback path
+
+When g7e (RTX PRO 6000, 96GB) is out of capacity in a region
+(`InsufficientInstanceCapacity`), this repo provides a fallback path to G6
+(NVIDIA L4, 24GB). The default g7e logic is untouched; the G6 path is opt-in via
+environment variables.
+
+```bash
+# 1) Create the G6 NodePool (reuses the g7e EC2NodeClass, single-AZ pin)
+DEPLOY_G6_NODEPOOL=true scripts/deploy-karpenter.sh
+
+# 2) Register the g6-l4 platform in OSMO
+OSMO_CONFIGURE_G6_PLATFORM=true scripts/deploy-osmo.sh
+
+# 3) Prewarm a G6 node so OSMO resource validation sees the capacity
+GPU_PREWARM_INSTANCE_TYPE=g6.4xlarge \
+  KARPENTER_NODEPOOL_NAME=aws-osmo-g6 \
+  GPU_PREWARM_NAME=aws-osmo-g6-prewarm \
+  scripts/prewarm-gpu-node.sh
+```
+
+Defaults live in `versions.yaml`: `karpenter_g6_nodepool_name` (default
+`aws-osmo-g6`), `g6_instance_types` (default
+`g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge`). The AZ defaults to the deploy
+region's first AZ (e.g. `us-west-2a`) and can be overridden with
+`KARPENTER_G6_ZONE`.
+
+Example workflows validated on G6 nodes:
+
+- `examples/cosmos-reason2-nim/workflow-g6.yaml` — Cosmos Reason2 NIM. Caps the
+  context length via `NIM_MAX_MODEL_LEN` (default 32768) to fit L4's 24GB. The
+  NIM default 256K context needs ~29GiB of KV cache and fails on L4, so this
+  value is the key.
+- `examples/isaaclab-rsl-rl-video/workflow-g6.yaml` — Isaac Lab RSL-RL training
+  (video rendering disabled).
+- `examples/isaaclab-rsl-rl-video/workflow-g6-video.yaml` — same with video
+  rendering enabled. Adds `--enable_cameras` to `play.py` so offscreen video
+  recording works in a headless environment.
+- `examples/gr00t-finetune/workflow-g6.yaml` — GR00T fine-tune (resources and
+  tuning scope reduced for L4).
+- `examples/gpu-smoke/workflow-g6.yaml` — CUDA burn-in GPU smoke (L4).
+
+Note: L4 (24GB) is sufficient for inference (VLM) workloads such as Cosmos
+Reason2, but is not suitable for Cosmos Predict/Transfer diffusion generation
+workloads (which need A100/H100/G7e).
+
+### G6e (NVIDIA L40S, 48GB) fallback
+
+When L4's 24GB is not enough but g7e capacity is still unavailable, fall back to
+G6e (L40S, 48GB). It works the same way as G6 (dedicated NodePool + OSMO
+platform) and reuses the g7e EC2NodeClass.
+
+```bash
+# 1) Create the G6e NodePool (single-AZ pin)
+DEPLOY_G6E_NODEPOOL=true scripts/deploy-karpenter.sh
+
+# 2) Register the g6e-l40s platform in OSMO
+OSMO_CONFIGURE_G6E_PLATFORM=true scripts/deploy-osmo.sh
+
+# 3) Prewarm a G6e node
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge \
+  KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
+  scripts/prewarm-gpu-node.sh
+```
+
+Defaults: `karpenter_g6e_nodepool_name` (default `aws-osmo-g6e`),
+`g6e_instance_types` (default `g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge`).
+Override the AZ with `KARPENTER_G6E_ZONE`. The GPU smoke validation workflow is
+`examples/gpu-smoke/workflow-g6e.yaml` (platform `g6e-l40s`).
+
 ## EFA Modes
 
 The baseline installs the AWS EFA device plugin so EFA-capable G7e nodes can expose `vpc.amazonaws.com/efa`. Installing the plugin is safe on clusters or nodes without EFA support: the upstream chart only schedules the DaemonSet on supported instance labels, so unsupported instances such as `g7e.2xlarge` and `g7e.4xlarge` simply do not register an EFA resource.

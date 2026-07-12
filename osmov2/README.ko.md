@@ -4,7 +4,7 @@ Amazon EKS 위에 NVIDIA OSMO와 검증된 로보틱스 워크플로를 배포�
 
 이 리포는 스택의 AWS 측을 담당합니다: 보안이 적용된 EKS 랜딩 존, GPU 용량 관리, AWS 관리형 백엔드 서비스, OSMO 배포 래퍼, 워크플로 예제, 검증 산출물, 호환성 노트. NVIDIA OSMO는 외부에 고정(pin)된 의존성으로 남으며, 이 리포는 의도적으로 NVIDIA OSMO 소스·NVIDIA Terraform·로컬 OSMO 패치를 포함(vendor)하지 않습니다.
 
-> 이 문서는 [README.md](README.md)(영문)의 한국어 번역본이며, 이 환경에서 검증한 G6(NVIDIA L4) 폴백 경로를 함께 담았습니다. 상세 원문은 영문 README를 기준으로 삼으세요.
+> 이 문서는 [README.md](README.md)(영문)의 한국어 번역본입니다. 상세 원문은 영문 README를 기준으로 삼으세요.
 
 ## 제공 범위
 
