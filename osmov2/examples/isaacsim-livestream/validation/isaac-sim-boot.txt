@@ -1,0 +1,8 @@
+2026/07/11 16:15:11 [26.781s] [ext: omni.kit.livestream.core-7.5.0] startup
+2026/07/11 16:15:11 [26.995s] [ext: omni.kit.livestream.webrtc-7.0.0] startup
+2026/07/11 16:15:17 [33.440s] [ext: omni.services.livestream.nvcf-7.2.0] startup
+2026/07/11 16:15:31 [46.948s] Isaac Sim Full Streaming Version: 5.1.0-rc.19
+2026/07/11 16:15:31 [46.991s] [ext: isaacsim.exp.full.streaming-5.1.0] startup
+2026/07/11 16:15:32 [48.466s] app ready
+2026/07/11 16:15:33 2026-07-11T16:15:33Z [49,299ms] [Warning] [omni.kit.imgui_renderer.plugin] _createExtendCursor: No windowing.
+2026/07/11 16:15:33 2026-07-11T16:15:33Z [49,299ms] [Warning] [omni.kit.imgui_renderer.plugin] _createExtendCursor: No windowing.

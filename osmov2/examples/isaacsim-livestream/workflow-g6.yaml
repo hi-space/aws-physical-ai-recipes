@@ -1,0 +1,25 @@
+workflow:
+  name: aws-osmo-isaacsim-livestream
+  resources:
+    sim-resource:
+      cpu: 4
+      gpu: 1
+      memory: 16Gi
+      storage: 20Gi
+      platform: g6-l4
+  tasks:
+    - name: stream
+      resource: sim-resource
+      image: nvcr.io/nvidia/isaac-sim:5.1.0
+      command: ["bash"]
+      args: ["/tmp/entry.sh"]
+      environment:
+        ACCEPT_EULA: "Y"
+      files:
+        - path: /tmp/entry.sh
+          contents: |
+            set -euo pipefail
+            cd /isaac-sim
+            ./runheadless.sh --/app/livestream/enabled=true
+  timeout:
+    exec_timeout: 2h
