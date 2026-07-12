@@ -122,3 +122,82 @@ login_osmo_with_token() {
   rm -f "${token_file}"
   return 1
 }
+
+comma_values_to_yaml() {
+  local csv="$1"
+  local value
+  tr ',' '\n' <<<"${csv}" | while IFS= read -r value; do
+    value="$(printf '%s' "${value}" | xargs)"
+    [[ -n "${value}" ]] || continue
+    printf '              - "%s"\n' "${value}"
+  done
+}
+
+# render_gpu_nodepool: emit a Karpenter NodePool manifest (pure; stdout only).
+# Args: name ec2nodeclass family_label gpu_family_label instance_types_csv
+#       capacity_type_csv zone cpu_limit memory_limit expire_after
+#       consolidation_policy consolidate_after
+# zone="" omits the topology zone requirement.
+render_gpu_nodepool() {
+  local name="$1" ec2nodeclass="$2" family_label="$3" gpu_family_label="$4"
+  local instance_types_csv="$5" capacity_type_csv="$6" zone="$7"
+  local cpu_limit="$8" memory_limit="$9" expire_after="${10}"
+  local consolidation_policy="${11}" consolidate_after="${12}"
+
+  local capacity_values instance_values zone_block=""
+  capacity_values="$(comma_values_to_yaml "${capacity_type_csv}")"
+  instance_values="$(comma_values_to_yaml "${instance_types_csv}")"
+  [[ -n "${instance_values}" ]] || die "render_gpu_nodepool: instance_types_csv must contain at least one type"
+  [[ -n "${capacity_values}" ]] || die "render_gpu_nodepool: capacity_type_csv must contain at least one type"
+
+  if [[ -n "${zone}" ]]; then
+    zone_block="$(printf '        - key: topology.kubernetes.io/zone\n          operator: In\n          values:\n              - "%s"\n' "${zone}")"
+  fi
+
+  cat <<YAML
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ${name}
+  labels:
+    app.kubernetes.io/name: karpenter
+    app.kubernetes.io/part-of: aws-osmo-reference
+spec:
+  template:
+    metadata:
+      labels:
+        aws.osmo.reference/nodepool: ${family_label}
+        aws.osmo.reference/gpu-family: ${gpu_family_label}
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: ${ec2nodeclass}
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+${capacity_values}
+${zone_block}        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+${instance_values}
+      expireAfter: ${expire_after}
+  limits:
+    cpu: "${cpu_limit}"
+    memory: "${memory_limit}"
+  disruption:
+    consolidationPolicy: ${consolidation_policy}
+    consolidateAfter: ${consolidate_after}
+YAML
+}
