@@ -192,6 +192,30 @@ kubectl -n osmo port-forward svc/osmo-ui 9001:80
 kubectl -n osmo port-forward svc/osmo-internal-router 9000:80
 ```
 
+### CLI 워크플로 소유자 (누가 제출했는지)
+
+`osmo-internal-router`는 no-auth 경로입니다: Cognito JWT를 검증하지 않으므로,
+`127.0.0.1:9000` 포트포워드로 제출한 워크플로는 모두 CLI를 실행한 사람이 아니라
+서비스 토큰의 신원으로 기록됩니다(부트스트랩 `default-admin-token`은
+`admin`/`testuser`로 찍힘). 이 경로는 배포 시 부트스트랩과 로컬 스모크 테스트
+전용입니다.
+
+실사용자는 워크플로 소유자가 각자의 Cognito `sub`여야 합니다. 게이트웨이 Envoy
+`jwt_authn`이 Cognito `sub` 클레임을 `x-osmo-user`로 매핑하므로
+(`deploy-osmo.sh`의 `user_claim: sub`), Cognito ID 토큰으로 CloudFront
+게이트웨이를 통해 인증한 CLI 호출은 그 사용자의 `sub`로 기록됩니다. 라이브
+검증 완료: `https://<osmo-ui-cloudfront-domain>`을 통해 사용자의 Cognito ID
+토큰으로 제출하면 워크플로 소유자가 그 사용자의 `sub`로 기록되며, 이는 웹 UI의
+"내 워크플로" 필터가 기대하는 값과 일치합니다.
+
+6.3.1 CLI 로그인 제약에 유의하세요: OSMO API에는 device-code 엔드포인트가 없어
+(`osmo login --method code`는 이 게이트웨이에 대해 동작하지 않음),
+`osmo login --method token`은 Cognito 토큰이 아니라 OSMO refresh 토큰을
+기대합니다. 동작하는 경로는 사용자의 Cognito ID 토큰을 획득해(Cognito hosted
+UI / 앱 클라이언트 SRP) 게이트웨이에 `Authorization: Bearer`로 실어 보내는
+것입니다. 프로덕션 CLI 사용자를 `osmo-internal-router`로 연결하지 마세요.
+그러면 모든 제출이 하나의 공유 서비스 신원으로 뭉쳐집니다.
+
 ## G6(NVIDIA L4) 용량 폴백 경로
 
 G7e(RTX PRO 6000, 96GB)가 특정 리전에서 재고 부족(InsufficientInstanceCapacity)일 때, 이 리포는 G6(NVIDIA L4, 24GB)로 폴백하는 경로를 제공합니다. 기본 G7e 로직은 그대로 두고, 환경변수로 G6 경로를 추가로 켜는 방식입니다.

@@ -195,6 +195,31 @@ to the API):
 kubectl -n osmo port-forward svc/osmo-internal-router 9000:80
 ```
 
+### CLI workflow ownership (who submitted a workflow)
+
+`osmo-internal-router` is a no-auth path: it does not verify a Cognito JWT, so
+every workflow submitted through the `127.0.0.1:9000` port-forward is recorded
+under the service token's identity (the bootstrap `default-admin-token` shows up
+as `admin`/`testuser`), not under the human who ran the CLI. That path is only
+for deploy-time bootstrap and local smoke tests.
+
+For real users, the workflow owner must be the caller's Cognito `sub`. The
+gateway Envoy `jwt_authn` maps the Cognito `sub` claim to `x-osmo-user`
+(`deploy-osmo.sh`, `user_claim: sub`), so a CLI call authenticated with a
+Cognito ID token through the CloudFront gateway is recorded under that user's
+`sub`. Verified live: submitting through
+`https://<osmo-ui-cloudfront-domain>` with a user's Cognito ID token records the
+workflow owner as that user's `sub`, matching what the web UI's "my workflows"
+filter expects.
+
+Note the 6.3.1 CLI login limits: the OSMO API exposes no device-code endpoint
+(so `osmo login --method code` does not work against this gateway), and
+`osmo login --method token` expects an OSMO refresh token, not a Cognito token.
+The working path is to obtain the user's Cognito ID token (Cognito hosted UI /
+SRP against the app client) and send it as the `Authorization: Bearer` token to
+the gateway. Do not point production CLI users at `osmo-internal-router`, or
+their submissions will all collapse into one shared service identity.
+
 ## EFA Modes
 
 The baseline installs the AWS EFA device plugin so EFA-capable G7e nodes can expose `vpc.amazonaws.com/efa`. Installing the plugin is safe on clusters or nodes without EFA support: the upstream chart only schedules the DaemonSet on supported instance labels, so unsupported instances such as `g7e.2xlarge` and `g7e.4xlarge` simply do not register an EFA resource.
