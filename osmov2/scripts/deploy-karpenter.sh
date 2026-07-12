@@ -34,6 +34,12 @@ GPU_FALLBACK_ZONE="${GPU_FALLBACK_ZONE:-ap-northeast-2a}"
 GPU_FALLBACK_CPU_LIMIT="${GPU_FALLBACK_CPU_LIMIT:-96}"
 GPU_FALLBACK_MEMORY_LIMIT="${GPU_FALLBACK_MEMORY_LIMIT:-768Gi}"
 
+GPU_PROVISIONER="${GPU_PROVISIONER:-karpenter}"
+if [[ "${GPU_PROVISIONER}" != "karpenter" ]]; then
+  log "GPU_PROVISIONER=${GPU_PROVISIONER}; skipping Karpenter GPU provisioning (using managed node groups)."
+  exit 0
+fi
+
 configure_kubectl
 
 AWS_REGION="$(terraform_output aws_region)"
