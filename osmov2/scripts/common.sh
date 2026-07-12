@@ -202,3 +202,23 @@ ${instance_values}
     consolidateAfter: ${consolidate_after}
 YAML
 }
+
+# gpu_fallback_family_field: static registry for GPU capacity-fallback families.
+# Reads instance types and nodepool names from versions.yaml. Pure; stdout only.
+gpu_fallback_family_field() {
+  local family="$1" field="$2" gpu_label version_key nodepool_key
+  case "${family}" in
+    g6)  gpu_label="l4";   version_key="g6_instance_types";  nodepool_key="karpenter_g6_nodepool_name" ;;
+    g5)  gpu_label="a10g"; version_key="g5_instance_types";  nodepool_key="karpenter_g5_nodepool_name" ;;
+    g6e) gpu_label="l40s"; version_key="g6e_instance_types"; nodepool_key="karpenter_g6e_nodepool_name" ;;
+    *)   die "unknown GPU fallback family: ${family} (supported: g6 g5 g6e)" ;;
+  esac
+  case "${field}" in
+    gpu_label)                   printf '%s' "${gpu_label}" ;;
+    instance_types_version_key)  printf '%s' "${version_key}" ;;
+    nodepool_key)                printf '%s' "${nodepool_key}" ;;
+    nodepool_name)               version_value "${nodepool_key}" ;;
+    instance_types)              version_value "${version_key}" ;;
+    *) die "unknown gpu_fallback_family_field: ${field}" ;;
+  esac
+}
