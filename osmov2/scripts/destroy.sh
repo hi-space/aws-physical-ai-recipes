@@ -68,6 +68,8 @@ if [[ "${SKIP_OSMO_UNINSTALL:-false}" != "true" ]] && terraform_output_clean clu
     GPU_OPERATOR_RELEASE_NAME="$(version_value gpu_operator_release_name 2>/dev/null || printf 'gpu-operator')"
     EFA_DEVICE_PLUGIN_NAMESPACE="$(version_value efa_device_plugin_namespace 2>/dev/null || printf 'kube-system')"
     EFA_DEVICE_PLUGIN_RELEASE_NAME="$(version_value efa_device_plugin_release_name 2>/dev/null || printf 'aws-efa-k8s-device-plugin')"
+    # osmo-ui was a separate release before 6.3.1; harmless no-op on current
+    # deployments where the UI ships inside the osmo-service release.
     helm uninstall osmo-ui --namespace "${OSMO_NAMESPACE}" >/dev/null 2>&1 || true
     helm uninstall osmo-backend --namespace "${OSMO_NAMESPACE}" >/dev/null 2>&1 || true
     helm uninstall osmo-service --namespace "${OSMO_NAMESPACE}" >/dev/null 2>&1 || true

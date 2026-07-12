@@ -7,17 +7,19 @@ Domain-free HTTPS access to OSMO Admin UI and Grafana via CloudFront default cer
 ```
 User (whitelisted IP)
   -> CloudFront (HTTPS, WAF IP check)
-    -> ALB (HTTP, port 80)
-      -> EKS (osmo-ui / grafana)
+    -> osmo-gateway LB / grafana ALB (HTTP, port 80)
+      -> EKS (osmo gateway: envoy + oauth2-proxy / grafana)
 ```
 
 A single WAF WebACL with an IP set is shared across both distributions. Only IPs in the allow list can reach the services; all others receive 403.
 
+When SSO is enabled, the OSMO origin must be the `osmo-gateway` Service LoadBalancer (envoy + oauth2-proxy), not the plain `osmo-ui` ingress. Pointing CloudFront at the UI ingress bypasses oauth2-proxy and produces a redirect loop.
+
 ## Prerequisites
 
-- OSMO UI ALB deployed via `infra/ingress`
+- OSMO gateway LoadBalancer available: `kubectl get svc -n osmo osmo-gateway`
 - Grafana ALB deployed via `scripts/deploy-observability-incluster.sh`
-- ALB security groups must allow inbound from CloudFront (add the AWS-managed prefix list `com.amazonaws.global.cloudfront.origin-facing` to port 80)
+- Origin security groups must allow inbound from CloudFront (the `osmo-gateway` Service LB already allows 0.0.0.0/0 on 80/443; for ingress-based origins add the AWS-managed prefix list `com.amazonaws.global.cloudfront.origin-facing` to port 80)
 
 ## Deploy
 

@@ -89,7 +89,8 @@ helm status osmo-backend --namespace "${OSMO_NAMESPACE}" >/dev/null
 kubectl -n "${OSMO_NAMESPACE}" rollout status "deployment/${OSMO_INTERNAL_ROUTER_NAME}" --timeout=5m >/dev/null
 kubectl -n "${OSMO_NAMESPACE}" get service "${OSMO_INTERNAL_ROUTER_NAME}" >/dev/null
 if [[ "${OSMO_VALIDATE_WEB_UI}" == "true" ]]; then
-  helm status osmo-ui --namespace "${OSMO_NAMESPACE}" >/dev/null
+  # UI ships in the merged osmo-service release (6.3.1); there is no separate
+  # osmo-ui Helm release to status-check.
   kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m >/dev/null
   kubectl -n "${OSMO_NAMESPACE}" get service osmo-ui >/dev/null
 fi

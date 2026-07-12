@@ -1,4 +1,7 @@
-osmo_alb_dns_name   = "aws-osmo-dev-repro-eks-admin-2123158171.ap-northeast-2.elb.amazonaws.com"
+# OSMO origin must be the osmo-gateway Service LoadBalancer (SSO entrypoint: envoy + oauth2-proxy),
+# not the plain osmo-ui ingress. Get it with:
+#   kubectl get svc -n osmo osmo-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+osmo_alb_dns_name    = "k8s-osmo-osmogate-b2ffd523b8-a48eb8a542f6aa45.elb.ap-northeast-2.amazonaws.com"
 grafana_alb_dns_name = "aws-osmo-grafana-1593990760.ap-northeast-2.elb.amazonaws.com"
 alb_region           = "ap-northeast-2"
 

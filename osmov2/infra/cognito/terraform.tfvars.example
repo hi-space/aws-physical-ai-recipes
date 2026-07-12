@@ -1,0 +1,13 @@
+aws_region  = "ap-northeast-2"
+name        = "osmo-admin"
+client_name = "osmo-gateway-oauth2"
+
+# CloudFront domain from `infra/cloudfront` output `osmo_ui_cloudfront_domain`.
+ui_hostname = "d111111abcdef8.cloudfront.net"
+
+deletion_protection = false
+
+tags = {
+  Project     = "aws-osmo"
+  Environment = "dev-repro"
+}

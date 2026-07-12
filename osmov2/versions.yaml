@@ -1,9 +1,9 @@
 osmo:
-  release: "6.2.10"
+  release: "6.3.1"
   chart_repository: "https://helm.ngc.nvidia.com/nvidia/osmo"
-  chart_version: "1.2.1"
+  chart_version: "1.3.1"
   image_registry: "nvcr.io/nvidia/osmo"
-  image_tag: "6.2"
+  image_tag: "6.3.1"
   compatibility_note: "https://github.com/NVIDIA/OSMO/pull/894"
   cookbook_ref: "c2c30e55f84969fff55d51cd2044a03d40d6a1a5"
   cosmos_transfer_ref: "0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b"

@@ -72,9 +72,10 @@ resource "aws_wafv2_web_acl" "this" {
 }
 
 resource "aws_cloudfront_distribution" "osmo_ui" {
-  provider = aws.global
-  comment  = "OSMO Admin UI via ALB"
-  enabled  = true
+  provider        = aws.global
+  comment         = "OSMO Admin UI via ALB"
+  enabled         = true
+  is_ipv6_enabled = true
 
   origin {
     domain_name = var.osmo_alb_dns_name
@@ -115,9 +116,10 @@ resource "aws_cloudfront_distribution" "osmo_ui" {
 }
 
 resource "aws_cloudfront_distribution" "grafana" {
-  provider = aws.global
-  comment  = "OSMO Grafana via ALB"
-  enabled  = true
+  provider        = aws.global
+  comment         = "OSMO Grafana via ALB"
+  enabled         = true
+  is_ipv6_enabled = true
 
   origin {
     domain_name = var.grafana_alb_dns_name

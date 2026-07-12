@@ -5,7 +5,7 @@ variable "name_prefix" {
 }
 
 variable "osmo_alb_dns_name" {
-  description = "OSMO Admin UI ALB DNS name to use as CloudFront origin."
+  description = "OSMO gateway LoadBalancer DNS name (osmo-gateway Service) to use as CloudFront origin. This is the SSO-enabled entrypoint (envoy + oauth2-proxy), not the plain UI ingress."
   type        = string
 }
 

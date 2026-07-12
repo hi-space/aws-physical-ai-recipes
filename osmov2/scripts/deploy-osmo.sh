@@ -38,10 +38,14 @@ else
   OSMO_INSTALL_PODGROUP_COMPAT_CRD="${OSMO_INSTALL_PODGROUP_COMPAT_CRD:-true}"
 fi
 OSMO_DEPLOY_WEB_UI="${OSMO_DEPLOY_WEB_UI:-true}"
-OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-osmo-service:80}"
 OSMO_DATASET_BUCKET_NAME="${OSMO_DATASET_BUCKET_NAME:-aws-osmo}"
 OSMO_DEPLOY_INTERNAL_ROUTER="${OSMO_DEPLOY_INTERNAL_ROUTER:-true}"
 OSMO_INTERNAL_ROUTER_NAME="${OSMO_INTERNAL_ROUTER_NAME:-osmo-internal-router}"
+# The UI server (Next.js) fetches the API in-cluster over plain http. In 6.3.1
+# osmo-service serves only self-signed TLS on its port, so SSR fetches to it die
+# with "other side closed" (dataset/detail pages 500). Route UI SSR through the
+# internal-router, which re-proxies to the TLS backend and needs no gateway JWT.
+OSMO_UI_API_HOSTNAME="${OSMO_UI_API_HOSTNAME:-${OSMO_INTERNAL_ROUTER_NAME}:80}"
 OSMO_INTERNAL_ROUTER_IMAGE="${OSMO_INTERNAL_ROUTER_IMAGE:-$(version_value internal_router_image)}"
 BACKEND_TOKEN_EXPIRES_AT="${BACKEND_TOKEN_EXPIRES_AT:-}"
 
@@ -92,6 +96,49 @@ DEFAULT_ADMIN_TOKEN="$(secret_field default_admin_token)"
 OSMO_ARTIFACTS_BUCKET="$(secret_field osmo_artifacts_bucket)"
 WORKFLOW_DATA_ACCESS_KEY_ID="$(secret_field workflow_data_access_key_id)"
 WORKFLOW_DATA_SECRET_ACCESS_KEY="$(secret_field workflow_data_secret_access_key)"
+
+# ---------------------------------------------------------------------------
+# Cognito SSO + CloudFront entrypoint.
+#
+# The 6.3.1 service chart merges the UI and the gateway (Envoy + oauth2-proxy +
+# authz) into a single release. Browser users authenticate against a Cognito
+# user pool through oauth2-proxy; Envoy's jwt_authn then validates both the
+# osmo-issued backend/API token and the Cognito ID token forwarded as a Bearer
+# header. Public HTTPS is fronted by the CloudFront distribution from
+# infra/cloudfront (WAF IP allow list, *.cloudfront.net cert).
+#
+# Config values come from the infra/cognito and infra/cloudfront Terraform
+# roots by default. Each can be overridden with the matching OSMO_* env var
+# (useful when those roots live elsewhere or are managed out of band).
+# ---------------------------------------------------------------------------
+COGNITO_TF_DIR="${COGNITO_TF_DIR:-${ROOT_DIR}/infra/cognito}"
+CLOUDFRONT_TF_DIR="${CLOUDFRONT_TF_DIR:-${ROOT_DIR}/infra/cloudfront}"
+
+tf_output_from() {
+  terraform -chdir="$1" output -raw "$2" 2>/dev/null || true
+}
+
+OSMO_HOSTNAME="${OSMO_HOSTNAME:-$(tf_output_from "${CLOUDFRONT_TF_DIR}" osmo_ui_cloudfront_domain)}"
+OSMO_COGNITO_ISSUER_URL="${OSMO_COGNITO_ISSUER_URL:-$(tf_output_from "${COGNITO_TF_DIR}" oidc_issuer_url)}"
+OSMO_COGNITO_CLIENT_ID="${OSMO_COGNITO_CLIENT_ID:-$(tf_output_from "${COGNITO_TF_DIR}" client_id)}"
+OSMO_COGNITO_CLIENT_SECRET="${OSMO_COGNITO_CLIENT_SECRET:-$(tf_output_from "${COGNITO_TF_DIR}" client_secret)}"
+OSMO_COGNITO_HOSTED_UI_URL="${OSMO_COGNITO_HOSTED_UI_URL:-$(tf_output_from "${COGNITO_TF_DIR}" hosted_ui_url)}"
+
+[[ -n "${OSMO_HOSTNAME}" ]] || die "OSMO_HOSTNAME is unset and infra/cloudfront output osmo_ui_cloudfront_domain is unavailable; apply infra/cloudfront or set OSMO_HOSTNAME"
+[[ -n "${OSMO_COGNITO_ISSUER_URL}" ]] || die "OSMO_COGNITO_ISSUER_URL is unset and infra/cognito output oidc_issuer_url is unavailable; apply infra/cognito or set OSMO_COGNITO_ISSUER_URL"
+[[ -n "${OSMO_COGNITO_CLIENT_ID}" ]] || die "OSMO_COGNITO_CLIENT_ID is unset and infra/cognito output client_id is unavailable; apply infra/cognito or set OSMO_COGNITO_CLIENT_ID"
+[[ -n "${OSMO_COGNITO_CLIENT_SECRET}" ]] || die "OSMO_COGNITO_CLIENT_SECRET is unset and infra/cognito output client_secret is unavailable; apply infra/cognito or set OSMO_COGNITO_CLIENT_SECRET"
+[[ -n "${OSMO_COGNITO_HOSTED_UI_URL}" ]] || die "OSMO_COGNITO_HOSTED_UI_URL is unset and infra/cognito output hosted_ui_url is unavailable; apply infra/cognito or set OSMO_COGNITO_HOSTED_UI_URL"
+
+# jwks endpoint and the STRICT_DNS host Envoy uses to reach Cognito.
+OSMO_COGNITO_JWKS_URI="${OSMO_COGNITO_ISSUER_URL%/}/.well-known/jwks.json"
+OSMO_COGNITO_IDP_HOST="${OSMO_COGNITO_ISSUER_URL#https://}"
+OSMO_COGNITO_IDP_HOST="${OSMO_COGNITO_IDP_HOST%%/*}"
+# Hosted-UI host must be whitelisted so oauth2-proxy honors the logout rd=.
+OSMO_COGNITO_HOSTED_UI_DOMAIN="${OSMO_COGNITO_HOSTED_UI_URL#https://}"
+OSMO_COGNITO_HOSTED_UI_DOMAIN="${OSMO_COGNITO_HOSTED_UI_DOMAIN%%/*}"
+# Logout tears down the Cognito SSO session, not just the local proxy cookie.
+OSMO_LOGOUT_ENDPOINT="${OSMO_COGNITO_HOSTED_UI_URL%/}/logout?client_id=${OSMO_COGNITO_CLIENT_ID}&logout_uri=https://${OSMO_HOSTNAME}"
 
 kubectl create namespace "${OSMO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace "${OSMO_WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
@@ -157,6 +204,21 @@ kubectl -n "${OSMO_NAMESPACE}" create secret generic osmo-default-admin \
   --from-literal=password="${DEFAULT_ADMIN_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# oauth2-proxy needs the Cognito client secret plus a stable cookie secret used
+# to encrypt session cookies. Reuse an existing cookie secret so re-running the
+# script does not invalidate every active browser session.
+if EXISTING_COOKIE_SECRET="$(kubectl -n "${OSMO_NAMESPACE}" get secret oauth2-proxy-secrets -o jsonpath='{.data.cookie_secret}' 2>/dev/null | base64 -d 2>/dev/null)" &&
+  [[ -n "${EXISTING_COOKIE_SECRET}" ]]; then
+  OAUTH2_COOKIE_SECRET="${EXISTING_COOKIE_SECRET}"
+else
+  OAUTH2_COOKIE_SECRET="$(openssl rand -base64 32 | tr -d '\n' | tr '+/' '-_' | cut -c1-32)"
+fi
+
+kubectl -n "${OSMO_NAMESPACE}" create secret generic oauth2-proxy-secrets \
+  --from-literal=client_secret="${OSMO_COGNITO_CLIENT_SECRET}" \
+  --from-literal=cookie_secret="${OAUTH2_COOKIE_SECRET}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 if MEK_YAML="$(kubectl -n "${OSMO_NAMESPACE}" get configmap mek-config -o jsonpath='{.data.mek\.yaml}' 2>/dev/null)"; then
   log "reusing existing OSMO MEK config"
 else
@@ -203,14 +265,13 @@ osmo_chart_ref() {
 
 SERVICE_VALUES="$(mktemp)"
 BACKEND_VALUES="$(mktemp)"
-UI_VALUES="$(mktemp)"
 SERVICE_CONFIG="$(mktemp)"
 WORKFLOW_CONFIG="$(mktemp)"
 DATASET_CONFIG="$(mktemp)"
 BACKEND_CONFIG="$(mktemp)"
 POOL_CONFIG="$(mktemp)"
 GPU_POD_TEMPLATE_CONFIG="$(mktemp)"
-trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${UI_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+trap 'rm -f "${SERVICE_VALUES}" "${BACKEND_VALUES}" "${SERVICE_CONFIG}" "${WORKFLOW_CONFIG}" "${DATASET_CONFIG}" "${BACKEND_CONFIG}" "${POOL_CONFIG}" "${GPU_POD_TEMPLATE_CONFIG}"; [[ -n "${PORT_FORWARD_PID:-}" ]] && kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
 
 cat >"${SERVICE_VALUES}" <<EOF
 global:
@@ -218,10 +279,75 @@ global:
   osmoImageTag: "${OSMO_IMAGE_TAG}"
   imagePullSecret: "${IMAGE_PULL_SECRET}"
   serviceAccountName: "${OSMO_SERVICE_ACCOUNT_NAME}"
+  hostname: "${OSMO_HOSTNAME}"
 
 serviceAccount:
   create: false
   name: "${OSMO_SERVICE_ACCOUNT_NAME}"
+
+# ---------------------------------------------------------------------------
+# Gateway (Envoy + oauth2-proxy + authz) — the SSO entrypoint. CloudFront
+# fronts this Service LoadBalancer. oauth2-proxy runs the Cognito OIDC login;
+# Envoy jwt_authn validates two issuers:
+#   - osmo:    backend/API tokens issued by osmo-service
+#   - cognito: ID token forwarded by oauth2-proxy after browser SSO login
+# The provider list must have >=2 entries (the chart wraps them in Envoy
+# requires_any, which rejects fewer than 2).
+# ---------------------------------------------------------------------------
+gateway:
+  envoy:
+    hostname: "${OSMO_HOSTNAME}"
+    internalJwks:
+      enabled: true
+      cluster: osmo-service-jwks
+    idp:
+      host: "${OSMO_COGNITO_IDP_HOST}"
+    jwt:
+      user_header: x-osmo-user
+      providers:
+        - issuer: osmo
+          audience: osmo
+          jwks_uri: https://osmo-service:80/api/auth/keys
+          cluster: osmo-service-jwks
+          user_claim: unique_name
+        - issuer: "${OSMO_COGNITO_ISSUER_URL}"
+          audience: "${OSMO_COGNITO_CLIENT_ID}"
+          jwks_uri: "${OSMO_COGNITO_JWKS_URI}"
+          cluster: idp
+          # Use the Cognito subject (sub) as the OSMO user identity. The web UI
+          # filters "my workflows" by the sub it reads from the session, so the
+          # workflow owner recorded from x-osmo-user must also be the sub; using
+          # email here makes owned jobs invisible in the UI's default filter.
+          user_claim: sub
+  oauth2Proxy:
+    enabled: true
+    provider: oidc
+    clientId: "${OSMO_COGNITO_CLIENT_ID}"
+    oidcIssuerUrl: "${OSMO_COGNITO_ISSUER_URL}"
+    useKubernetesSecrets: true
+    secretName: oauth2-proxy-secrets
+    clientSecretKey: client_secret
+    cookieSecretKey: cookie_secret
+    cookieSecure: true
+    cookieDomain: "${OSMO_HOSTNAME}"
+    scope: "openid email profile"
+    redisSessionStore: true
+    redis:
+      serviceName: "${REDIS_HOST}"
+      port: ${REDIS_PORT}
+      tlsEnabled: true
+    # Allow the /signout rd= redirect to reach the Cognito hosted-UI logout
+    # endpoint. Without this, oauth2-proxy drops the rd target and logout only
+    # clears the local session cookie, leaving the Cognito SSO session alive
+    # (which then silently re-authenticates the user).
+    extraArgs:
+      - "--whitelist-domain=${OSMO_COGNITO_HOSTED_UI_DOMAIN}"
+    extraEnv:
+      - name: OAUTH2_PROXY_REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: redis-secret
+            key: redis-password
 
 services:
   configFile:
@@ -268,13 +394,28 @@ services:
   configs:
     enabled: false
   service:
+    # logout_endpoint drives the gateway /signout -> /oauth2/sign_out?rd=<...>
+    # redirect so browser logout also tears down the Cognito hosted-UI SSO
+    # session. auth.enabled stays false: the api-service auth flow is unchanged
+    # (the Envoy /signout route reads logout_endpoint directly, ungated).
+    auth:
+      logout_endpoint: "${OSMO_LOGOUT_ENDPOINT}"
     scaling:
       minReplicas: 1
     extraPodAnnotations:
       aws.osmo.reference/runtime-config-checksum: "${RUNTIME_CONFIG_CHECKSUM}"
     ingress:
       enabled: false
+  # UI ships in the merged service chart (6.3.1). It talks to the API in-cluster
+  # and is exposed to browsers only through the gateway, so no UI ingress.
+  ui:
+    enabled: true
+    apiHostname: "${OSMO_UI_API_HOSTNAME}"
+    ingress:
+      enabled: false
 
+# Legacy per-service sidecars stay off: the gateway block above is the
+# canonical SSO path (its own envoy/oauth2-proxy/authz deployments).
 sidecars:
   envoy:
     enabled: false
@@ -323,12 +464,20 @@ data:
       proxy_set_header Upgrade \$http_upgrade;
       proxy_set_header Connection "upgrade";
 
+      # OSMO 6.3.1 serves osmo-service/osmo-logger on 8000 over self-signed TLS
+      # only; the ClusterIP maps port 80 -> 8000. Proxy over https (with the
+      # explicit :80 so nginx does not default to 443) and skip verification of
+      # the self-signed upstream certificate. Plain http here yields 502s that
+      # leave osmo-ctrl unable to fetch its JWT (workflows hang in RUNNING).
+      proxy_ssl_verify off;
+      proxy_ssl_server_name on;
+
       location /api/logger/ {
-        proxy_pass http://osmo-logger.${OSMO_NAMESPACE}.svc.cluster.local;
+        proxy_pass https://osmo-logger.${OSMO_NAMESPACE}.svc.cluster.local:80;
       }
 
       location / {
-        proxy_pass http://osmo-service.${OSMO_NAMESPACE}.svc.cluster.local;
+        proxy_pass https://osmo-service.${OSMO_NAMESPACE}.svc.cluster.local:80;
       }
     }
 ---
@@ -400,7 +549,16 @@ YAML
   kubectl -n "${OSMO_NAMESPACE}" rollout status "deployment/${OSMO_INTERNAL_ROUTER_NAME}" --timeout=5m
 fi
 
-kubectl -n "${OSMO_NAMESPACE}" port-forward svc/osmo-service 9000:80 >/tmp/osmo-service-port-forward.log 2>&1 &
+# In 6.3.1 the osmo-service ClusterIP terminates self-signed TLS on its target
+# port, so a plain-http port-forward to it can no longer be used for CLI login.
+# Route the login through the internal-router (which re-proxies over https) when
+# it is deployed; otherwise fall back to the service port-forward.
+if [[ "${OSMO_DEPLOY_INTERNAL_ROUTER}" == "true" ]]; then
+  OSMO_LOGIN_PF_TARGET="svc/${OSMO_INTERNAL_ROUTER_NAME}"
+else
+  OSMO_LOGIN_PF_TARGET="svc/osmo-service"
+fi
+kubectl -n "${OSMO_NAMESPACE}" port-forward "${OSMO_LOGIN_PF_TARGET}" 9000:80 >/tmp/osmo-service-port-forward.log 2>&1 &
 PORT_FORWARD_PID="$!"
 
 for _ in $(seq 1 60); do
@@ -551,7 +709,7 @@ global:
   osmoImageLocation: "${OSMO_IMAGE_REGISTRY}"
   osmoImageTag: "${OSMO_IMAGE_TAG}"
   imagePullSecret: "${IMAGE_PULL_SECRET}"
-  serviceUrl: "http://osmo-agent.${OSMO_NAMESPACE}.svc.cluster.local"
+  serviceUrl: "http://osmo-gateway.${OSMO_NAMESPACE}.svc.cluster.local:80"
   backendName: "${OSMO_BACKEND_NAME}"
   backendNamespace: "${OSMO_WORKLOAD_NAMESPACE}"
   agentNamespace: "${OSMO_NAMESPACE}"
@@ -824,34 +982,12 @@ if [[ "${OSMO_CONFIGURE_G6_PLATFORM}" == "true" ]]; then
   fi
 fi
 
+# The web UI is part of the merged service chart in 6.3.1 (services.ui above),
+# so there is no separate web-ui release. Wait for the UI rollout that the
+# service chart created.
 if [[ "${OSMO_DEPLOY_WEB_UI}" == "true" ]]; then
-  cat >"${UI_VALUES}" <<EOF
-global:
-  osmoImageLocation: "${OSMO_IMAGE_REGISTRY}"
-  osmoImageTag: "${OSMO_IMAGE_TAG}"
-  imagePullSecret: "${IMAGE_PULL_SECRET}"
-
-services:
-  ui:
-    apiHostname: "${OSMO_UI_API_HOSTNAME}"
-    ingress:
-      enabled: false
-
-sidecars:
-  envoy:
-    enabled: false
-  oauth2Proxy:
-    enabled: false
-EOF
-
-  helm upgrade --install osmo-ui "$(osmo_chart_ref web-ui)" \
-    --namespace "${OSMO_NAMESPACE}" \
-    --version "${OSMO_CHART_VERSION}" \
-    --values "${UI_VALUES}" \
-    --wait \
-    --timeout 10m
-
   kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-ui --timeout=10m
 fi
 
-log "OSMO service and backend operator deployment completed"
+log "OSMO service (UI + gateway SSO) and backend operator deployment completed"
+log "OSMO UI: https://${OSMO_HOSTNAME} (Cognito SSO; access restricted by the infra/cloudfront WAF IP allow list)"

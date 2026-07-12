@@ -452,9 +452,12 @@ resource "aws_iam_role" "osmo_service_account" {
 
 data "aws_iam_policy_document" "osmo_service_account" {
   statement {
-    sid       = "ListOsmoBucket"
-    effect    = "Allow"
-    actions   = ["s3:ListBucket"]
+    sid    = "ListOsmoBucket"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket"
+    ]
     resources = [aws_s3_bucket.osmo.arn]
   }
 
