@@ -216,6 +216,25 @@ UI / 앱 클라이언트 SRP) 게이트웨이에 `Authorization: Bearer`로 실�
 것입니다. 프로덕션 CLI 사용자를 `osmo-internal-router`로 연결하지 마세요.
 그러면 모든 제출이 하나의 공유 서비스 신원으로 뭉쳐집니다.
 
+`scripts/osmo-cli-login.sh`가 이 경로를 자동화합니다: `pycognito`로 SRP
+인증하여 Cognito ID 토큰을 얻고, CloudFront 게이트웨이를 가리키는
+`~/.config/osmo/login.yaml`을 작성합니다. 그러면 envoy가 호출자의 `sub`를
+기록합니다.
+
+```bash
+pip install pycognito   # SRP 의존성, 최초 1회
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+# 비밀번호는 OSMO_CLI_PASSWORD 미설정 시 대화형으로 입력받음
+osmo workflow query      # 이제 alice의 Cognito sub로 기록됨
+```
+
+이 스크립트를 실행하는 머신의 egress IP가 `infra/cloudfront`의
+`allowed_cidr_blocks`에 등록되어 있어야 WAF를 통과해 게이트웨이에 닿습니다.
+Cognito/CloudFront 값은 `infra/cognito`·`infra/cloudfront` terraform output에서
+읽으며, terraform state가 로컬에 없으면 `OSMO_GATEWAY_URL`,
+`OSMO_COGNITO_USER_POOL_ID`, `OSMO_COGNITO_CLIENT_ID`,
+`OSMO_COGNITO_CLIENT_SECRET`로 오버라이드할 수 있습니다.
+
 ## G6(NVIDIA L4) 용량 폴백 경로
 
 G7e(RTX PRO 6000, 96GB)가 특정 리전에서 재고 부족(InsufficientInstanceCapacity)일 때, 이 리포는 G6(NVIDIA L4, 24GB)로 폴백하는 경로를 제공합니다. 기본 G7e 로직은 그대로 두고, 환경변수로 G6 경로를 추가로 켜는 방식입니다.

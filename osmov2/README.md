@@ -220,6 +220,25 @@ SRP against the app client) and send it as the `Authorization: Bearer` token to
 the gateway. Do not point production CLI users at `osmo-internal-router`, or
 their submissions will all collapse into one shared service identity.
 
+`scripts/osmo-cli-login.sh` automates that path: it authenticates the user
+against Cognito with SRP (via `pycognito`), then writes
+`~/.config/osmo/login.yaml` pointed at the CloudFront gateway so Envoy records
+the caller's `sub`.
+
+```bash
+pip install pycognito   # one-time, SRP dependency
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+# password is read interactively unless OSMO_CLI_PASSWORD is set
+osmo workflow query      # now recorded under alice's Cognito sub
+```
+
+The machine running it must have its egress IP whitelisted in
+`infra/cloudfront` (`allowed_cidr_blocks`) to reach the gateway through the WAF.
+Cognito/CloudFront values are read from the `infra/cognito` and
+`infra/cloudfront` terraform outputs; override with `OSMO_GATEWAY_URL`,
+`OSMO_COGNITO_USER_POOL_ID`, `OSMO_COGNITO_CLIENT_ID`,
+`OSMO_COGNITO_CLIENT_SECRET` if terraform state is not local.
+
 ## G6 (NVIDIA L4) capacity-fallback path
 
 When g7e (RTX PRO 6000, 96GB) is out of capacity in a region
