@@ -236,3 +236,49 @@ variable "osmo_service_account_name" {
   type        = string
   default     = "osmo"
 }
+
+variable "gpu_provisioner" {
+  description = "GPU node provisioner. karpenter (dynamic, default) or managed-nodegroup (EKS managed node group + Cluster Autoscaler)."
+  type        = string
+  default     = "karpenter"
+
+  validation {
+    condition     = contains(["karpenter", "managed-nodegroup"], var.gpu_provisioner)
+    error_message = "gpu_provisioner must be karpenter or managed-nodegroup."
+  }
+}
+
+variable "gpu_capacity_type" {
+  description = "Capacity type for the managed GPU node group. ON_DEMAND (default, reproducible) or SPOT."
+  type        = string
+  default     = "ON_DEMAND"
+
+  validation {
+    condition     = contains(["ON_DEMAND", "SPOT"], var.gpu_capacity_type)
+    error_message = "gpu_capacity_type must be ON_DEMAND or SPOT."
+  }
+}
+
+variable "gpu_managed_node_instance_types" {
+  description = "Instance types for the managed GPU node group (managed-nodegroup provisioner only)."
+  type        = list(string)
+  default     = ["g6.2xlarge"]
+}
+
+variable "gpu_managed_node_min_size" {
+  description = "Minimum managed GPU nodes. Zero enables scale-to-zero via Cluster Autoscaler."
+  type        = number
+  default     = 0
+}
+
+variable "gpu_managed_node_desired_size" {
+  description = "Desired managed GPU nodes."
+  type        = number
+  default     = 0
+}
+
+variable "gpu_managed_node_max_size" {
+  description = "Maximum managed GPU nodes."
+  type        = number
+  default     = 4
+}

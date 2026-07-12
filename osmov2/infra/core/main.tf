@@ -156,26 +156,62 @@ module "eks" {
     }
   }
 
-  eks_managed_node_groups = {
-    system = {
-      name           = "system"
-      ami_type       = "AL2023_x86_64_STANDARD"
-      capacity_type  = "ON_DEMAND"
-      instance_types = var.system_node_instance_types
+  eks_managed_node_groups = merge(
+    {
+      system = {
+        name           = "system"
+        ami_type       = "AL2023_x86_64_STANDARD"
+        capacity_type  = "ON_DEMAND"
+        instance_types = var.system_node_instance_types
 
-      min_size     = var.system_node_min_size
-      max_size     = var.system_node_max_size
-      desired_size = var.system_node_desired_size
+        min_size     = var.system_node_min_size
+        max_size     = var.system_node_max_size
+        desired_size = var.system_node_desired_size
 
-      labels = {
-        role = "system"
+        labels = {
+          role = "system"
+        }
+
+        iam_role_additional_policies = {
+          AmazonSSMManagedInstanceCore = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        }
       }
+    },
+    var.gpu_provisioner == "managed-nodegroup" ? {
+      gpu = {
+        name           = "gpu"
+        ami_type       = "AL2023_x86_64_NVIDIA"
+        capacity_type  = var.gpu_capacity_type
+        instance_types = var.gpu_managed_node_instance_types
 
-      iam_role_additional_policies = {
-        AmazonSSMManagedInstanceCore = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        min_size     = var.gpu_managed_node_min_size
+        max_size     = var.gpu_managed_node_max_size
+        desired_size = var.gpu_managed_node_desired_size
+
+        labels = {
+          "aws.osmo.reference/nodepool"   = "g7e"
+          "aws.osmo.reference/gpu-family" = "rtx-pro-6000"
+        }
+
+        taints = {
+          gpu = {
+            key    = "nvidia.com/gpu"
+            value  = "true"
+            effect = "NO_SCHEDULE"
+          }
+        }
+
+        tags = {
+          "k8s.io/cluster-autoscaler/enabled"               = "true"
+          "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
+        }
+
+        iam_role_additional_policies = {
+          AmazonSSMManagedInstanceCore = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        }
       }
-    }
-  }
+    } : {}
+  )
 }
 
 module "karpenter" {
