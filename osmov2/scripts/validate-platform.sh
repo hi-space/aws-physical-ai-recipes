@@ -152,4 +152,17 @@ if [[ "${SERVICE_POD_MONITOR}" == "true" || "${BACKEND_POD_MONITOR}" == "true" ]
   kubectl get crd podmonitors.monitoring.coreos.com >/dev/null || die "PodMonitor is enabled without Prometheus Operator CRDs"
 fi
 
+OSMO_VALIDATE_AUTH="${OSMO_VALIDATE_AUTH:-false}"
+if [[ "${OSMO_VALIDATE_AUTH}" == "true" ]]; then
+  kubectl -n "${OSMO_NAMESPACE}" get secret oauth2-proxy-secrets >/dev/null ||
+    die "oauth2-proxy-secrets secret missing"
+  kubectl -n "${OSMO_NAMESPACE}" rollout status deployment/osmo-gateway --timeout=5m >/dev/null 2>&1 ||
+    kubectl -n "${OSMO_NAMESPACE}" get deploy -l app.kubernetes.io/name=osmo-gateway >/dev/null ||
+    die "osmo-gateway deployment not found (gateway not enabled?)"
+  osmo config show POOL default | jq -e \
+    '.roles["osmo-admin"].external_roles == ["osmo-admin"]' >/dev/null ||
+    die "external_roles mapping for osmo-admin missing"
+  log "auth validation passed"
+fi
+
 log "platform validation passed"
