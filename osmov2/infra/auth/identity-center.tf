@@ -24,7 +24,7 @@ resource "aws_ssoadmin_application" "osmo" {
     visibility = "ENABLED"
 
     sign_in_options {
-      origin = var.osmo_hostname != "" ? "https://${var.osmo_hostname}" : ""
+      origin = "IDENTITY_CENTER"
     }
   }
 }
