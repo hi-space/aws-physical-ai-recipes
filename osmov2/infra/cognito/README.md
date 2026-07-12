@@ -42,20 +42,42 @@ kubectl create secret generic oauth2-proxy-secrets -n osmo \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## Create a login user
+## Initial login user
+
+Self-registration is disabled (`allow_admin_create_user_only = true`), so the
+pool needs at least one admin-created user. Set `admin_email` and
+`admin_password` in the tfvars and Terraform provisions the user with a
+permanent password (no temp-password email), so the deploy is non-interactive:
+
+```hcl
+admin_email    = "admin@example.com"
+admin_password = "<choose-a-strong-password>"
+```
+
+`deploy-osmo.sh` then reads the `admin_user_sub` output and grants that Cognito
+subject the `osmo-admin` role in OSMO, so the very first SSO login already has
+full admin access — no manual `osmo user update` afterwards. Override the roles
+with `OSMO_SSO_ADMIN_ROLES` if you want something other than `osmo-admin`.
+
+To create additional users later, or to skip Terraform-managed users
+(`admin_email = ""`), use the admin API directly:
 
 ```bash
 POOL=$(terraform output -raw user_pool_id)
 aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
-  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
+  --username user@example.com \
   --password 'ChangeMe1!' --permanent
 ```
+
+New users provisioned outside Terraform are auto-created in OSMO with only
+`osmo-default` on first login; grant them roles with
+`osmo user update <cognito-sub> --add-roles osmo-admin`.
 
 ## Outputs
 
@@ -66,3 +88,5 @@ aws cognito-idp admin-set-user-password \
 | `oidc_issuer_url` | OIDC issuer for `gateway.oauth2Proxy.oidcIssuerUrl` |
 | `client_id` | App client ID for `gateway.oauth2Proxy.clientId` |
 | `client_secret` | App client secret (sensitive) for the `oauth2-proxy-secrets` K8s secret |
+| `admin_user_sub` | Cognito subject of the initial login user; OSMO user id granted `osmo-admin` by `deploy-osmo.sh` |
+| `admin_user_email` | Email/username of the initial login user |

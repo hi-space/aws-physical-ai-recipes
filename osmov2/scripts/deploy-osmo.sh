@@ -124,6 +124,14 @@ OSMO_COGNITO_CLIENT_ID="${OSMO_COGNITO_CLIENT_ID:-$(tf_output_from "${COGNITO_TF
 OSMO_COGNITO_CLIENT_SECRET="${OSMO_COGNITO_CLIENT_SECRET:-$(tf_output_from "${COGNITO_TF_DIR}" client_secret)}"
 OSMO_COGNITO_HOSTED_UI_URL="${OSMO_COGNITO_HOSTED_UI_URL:-$(tf_output_from "${COGNITO_TF_DIR}" hosted_ui_url)}"
 
+# Initial SSO admin identity. OSMO keys the SSO user on the Cognito subject
+# (sub), so we grant osmo-admin to the sub emitted by infra/cognito. Both may be
+# empty when no admin user was provisioned (admin_email unset); the grant step
+# is skipped in that case. OSMO_SSO_ADMIN_ROLES is the role list to assign.
+OSMO_SSO_ADMIN_SUB="${OSMO_SSO_ADMIN_SUB:-$(tf_output_from "${COGNITO_TF_DIR}" admin_user_sub)}"
+OSMO_SSO_ADMIN_EMAIL="${OSMO_SSO_ADMIN_EMAIL:-$(tf_output_from "${COGNITO_TF_DIR}" admin_user_email)}"
+OSMO_SSO_ADMIN_ROLES="${OSMO_SSO_ADMIN_ROLES:-osmo-admin}"
+
 [[ -n "${OSMO_HOSTNAME}" ]] || die "OSMO_HOSTNAME is unset and infra/cloudfront output osmo_ui_cloudfront_domain is unavailable; apply infra/cloudfront or set OSMO_HOSTNAME"
 [[ -n "${OSMO_COGNITO_ISSUER_URL}" ]] || die "OSMO_COGNITO_ISSUER_URL is unset and infra/cognito output oidc_issuer_url is unavailable; apply infra/cognito or set OSMO_COGNITO_ISSUER_URL"
 [[ -n "${OSMO_COGNITO_CLIENT_ID}" ]] || die "OSMO_COGNITO_CLIENT_ID is unset and infra/cognito output client_id is unavailable; apply infra/cognito or set OSMO_COGNITO_CLIENT_ID"
@@ -674,6 +682,28 @@ if ! osmo user create backend-operator --roles osmo-backend >/tmp/osmo-backend-u
     cat /tmp/osmo-backend-user.log >&2
     die "failed to create or verify backend-operator user"
   }
+fi
+
+# Pre-provision the initial SSO admin. When a browser user first logs in via
+# Cognito, idp-sync auto-creates their OSMO user with only osmo-default, which
+# cannot submit workflows or administer the pool. Creating the user here keyed
+# on the Cognito sub and granting osmo-admin means the very first SSO login
+# already has full access — no manual `osmo user update` after deploy.
+if [[ -n "${OSMO_SSO_ADMIN_SUB}" ]]; then
+  read -r -a OSMO_SSO_ADMIN_ROLE_ARR <<<"${OSMO_SSO_ADMIN_ROLES}"
+  if osmo user create "${OSMO_SSO_ADMIN_SUB}" --roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >/tmp/osmo-sso-admin-user.log 2>&1; then
+    log "created SSO admin user ${OSMO_SSO_ADMIN_EMAIL:-${OSMO_SSO_ADMIN_SUB}} with roles: ${OSMO_SSO_ADMIN_ROLES}"
+  else
+    # Already exists (idp-sync or a prior run): ensure the roles are present.
+    if osmo user update "${OSMO_SSO_ADMIN_SUB}" --add-roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >>/tmp/osmo-sso-admin-user.log 2>&1; then
+      log "ensured SSO admin roles on ${OSMO_SSO_ADMIN_EMAIL:-${OSMO_SSO_ADMIN_SUB}}: ${OSMO_SSO_ADMIN_ROLES}"
+    else
+      cat /tmp/osmo-sso-admin-user.log >&2
+      die "failed to create or grant roles to SSO admin user ${OSMO_SSO_ADMIN_SUB}"
+    fi
+  fi
+else
+  log "no SSO admin sub available (infra/cognito admin_email unset); skipping SSO admin role grant"
 fi
 
 osmo token delete backend-token --user backend-operator >/tmp/osmo-backend-token-delete.log 2>&1 || true

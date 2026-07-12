@@ -144,24 +144,32 @@ hosted login UI, and after login oauth2-proxy establishes the session.
 
 Access is restricted at two layers: the `infra/cloudfront` WAF IP allow list
 gates who can reach the distribution at all, and Cognito gates who can log in.
-Create a login user (username/password) in the Cognito user pool before first
-access:
+The initial login user is provisioned automatically: set `admin_email` and
+`admin_password` in `infra/cognito/terraform.tfvars`, and the bootstrap creates
+the Cognito user (permanent password, no temp-password email) while
+`deploy-osmo.sh` grants that identity the `osmo-admin` role in OSMO. The first
+SSO login therefore already has full admin access with no manual steps.
+
+To add more users later — or if you left `admin_email` empty to manage users by
+hand — create them with the admin API and grant OSMO roles by Cognito sub:
 
 ```bash
 POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
 aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
-  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
+  --username user@example.com \
   --password '<choose-a-strong-password>' --permanent
 ```
 
-Then open `https://<osmo-ui-cloudfront-domain>` from a whitelisted IP and sign in
-with that username and password. Retrieve the domain any time with:
+Users created this way sign in with `osmo-default` only; grant them more with
+`osmo user update <cognito-sub> --add-roles osmo-admin`. Open
+`https://<osmo-ui-cloudfront-domain>` from a whitelisted IP and sign in with the
+username and password. Retrieve the domain any time with:
 
 ```bash
 terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain

@@ -104,3 +104,29 @@ resource "aws_cognito_user_pool_client" "oauth2" {
     ignore_changes = [generate_secret]
   }
 }
+
+# Initial SSO login user. Self-registration is disabled, so the pool needs at
+# least one admin-created user to sign in. Terraform provisions it with a
+# permanent password (message_action SUPPRESS, no temp-password email) so the
+# full deploy is non-interactive. Set admin_email/admin_password to enable;
+# leave admin_email empty to manage users manually with admin-create-user.
+resource "aws_cognito_user" "admin" {
+  count = var.admin_email != "" ? 1 : 0
+
+  user_pool_id = aws_cognito_user_pool.this.id
+  username     = var.admin_email
+
+  attributes = {
+    email          = var.admin_email
+    email_verified = "true"
+  }
+
+  password       = var.admin_password
+  message_action = "SUPPRESS"
+
+  lifecycle {
+    # The API never returns the password, so ignore it to avoid a perpetual
+    # diff; rotate credentials with admin-set-user-password out of band.
+    ignore_changes = [password]
+  }
+}

@@ -7,6 +7,14 @@ ui_hostname = "d111111abcdef8.cloudfront.net"
 
 deletion_protection = false
 
+# Initial SSO login user, created with a permanent password so the deploy is
+# fully non-interactive. deploy-osmo.sh grants this user osmo-admin in OSMO
+# (keyed on the Cognito sub). Leave admin_email empty to manage users manually
+# with admin-create-user. Do not commit a real password; set it via a
+# gitignored terraform.<region>.tfvars or -var on apply.
+admin_email    = "admin@example.com"
+admin_password = "<choose-a-strong-password>"
+
 tags = {
   Project     = "aws-osmo"
   Environment = "dev-repro"

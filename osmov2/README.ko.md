@@ -143,23 +143,32 @@ karpenter_az_count = 4   # GPU 노드는 a/b/c/d 중 어디든
 
 접근은 두 계층으로 제한됩니다: `infra/cloudfront`의 WAF IP 허용 목록이 배포에
 도달할 수 있는 대상을 통제하고, Cognito가 로그인할 수 있는 사용자를 통제합니다.
-최초 접속 전에 Cognito user pool에 로그인 사용자(아이디/비밀번호)를 생성하세요:
+최초 로그인 사용자는 자동으로 프로비저닝됩니다: `infra/cognito/terraform.tfvars`에
+`admin_email`과 `admin_password`를 설정하면 부트스트랩이 Cognito 사용자를
+(영구 비밀번호, 임시 비밀번호 메일 없이) 생성하고, `deploy-osmo.sh`가 그 identity에
+OSMO `osmo-admin` 역할을 부여합니다. 따라서 최초 SSO 로그인부터 별도 수동 작업 없이
+관리자 권한을 가집니다.
+
+이후 사용자를 추가하거나 `admin_email`을 비워 수동 관리하려면, admin API로
+사용자를 만들고 Cognito sub 기준으로 OSMO 역할을 부여하세요:
 
 ```bash
 POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
 aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
-  --user-attributes Name=email,Value=admin@example.com Name=email_verified,Value=true \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL" \
-  --username admin@example.com \
+  --username user@example.com \
   --password '<강력한-비밀번호>' --permanent
 ```
 
+이렇게 만든 사용자는 처음엔 `osmo-default`만 갖습니다.
+`osmo user update <cognito-sub> --add-roles osmo-admin`으로 역할을 추가하세요.
 그다음 화이트리스트에 등록된 IP에서 `https://<osmo-ui-cloudfront-domain>`을 열고
-위 아이디/비밀번호로 로그인합니다. 도메인은 언제든 다음으로 조회할 수 있습니다:
+아이디/비밀번호로 로그인합니다. 도메인은 언제든 다음으로 조회할 수 있습니다:
 
 ```bash
 terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain

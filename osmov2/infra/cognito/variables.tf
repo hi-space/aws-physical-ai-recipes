@@ -27,6 +27,19 @@ variable "deletion_protection" {
   default     = false
 }
 
+variable "admin_email" {
+  description = "Email/username of the initial SSO login user to create in the pool. Leave empty to skip user creation (create users manually with admin-create-user)."
+  type        = string
+  default     = ""
+}
+
+variable "admin_password" {
+  description = "Permanent password for the initial SSO login user. Required when admin_email is set. Must satisfy the pool password policy (>=8 chars, upper, lower, number)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "tags" {
   description = "Tags applied to all resources."
   type        = map(string)
