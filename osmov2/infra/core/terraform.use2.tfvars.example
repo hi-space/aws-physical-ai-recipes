@@ -1,0 +1,33 @@
+# project_name carries a region suffix so account-global IAM resource names
+# (role/policy/user) do not collide with a same-account deploy in another region.
+aws_region   = "us-east-2"
+project_name = "aws-osmo-use2"
+environment  = "dev-repro"
+
+# G7e (RTX PRO 6000) in us-east-2 is offered in us-east-2a and us-east-2b.
+# Leaving availability_zones empty lets main.tf's g7e_azs_by_region map pick
+# 2a/2b automatically; the explicit list below documents that pin.
+availability_zones = ["us-east-2a", "us-east-2b"]
+az_count           = 2
+karpenter_az_count = 2
+
+# The EKS API endpoint is private-only by default. Add narrow CIDRs only when
+# your network path requires temporary public access. Never 0.0.0.0/0.
+cluster_endpoint_public_access_cidrs = []
+
+single_nat_gateway = true
+
+eks_cluster_version = "1.35"
+
+system_node_instance_types = ["m7i.2xlarge"]
+system_node_min_size       = 3
+system_node_desired_size   = 3
+system_node_max_size       = 5
+
+reference_ha        = false
+deletion_protection = false
+
+tags = {
+  Project     = "aws-osmo-use2"
+  Environment = "dev-repro"
+}

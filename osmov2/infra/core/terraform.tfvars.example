@@ -2,11 +2,13 @@ aws_region   = "ap-northeast-2"
 project_name = "aws-osmo"
 environment  = "dev-repro"
 
-# Pin subnets to AZs that actually offer the GPU family you deploy. In Seoul,
-# G7e (RTX PRO 6000) is only offered in ap-northeast-2a and ap-northeast-2b, so
-# pin those two and set az_count/karpenter_az_count to 2 to avoid provisioning
-# subnets in zones that can never place a GPU node.
-availability_zones = ["ap-northeast-2a", "ap-northeast-2b"]
+# Leaving availability_zones empty makes main.tf pick the region's G7e-capable
+# AZs from its built-in g7e_azs_by_region map (Seoul resolves to
+# ap-northeast-2a/2b). Set it explicitly only to override that pin. See the
+# per-region examples (terraform.use1/use2/usw2.tfvars.example) for other
+# regions. az_count sizes EKS + stateful services; karpenter_az_count sizes the
+# GPU private subnets.
+availability_zones = []
 az_count           = 2
 karpenter_az_count = 2
 

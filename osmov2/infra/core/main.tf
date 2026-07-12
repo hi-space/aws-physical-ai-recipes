@@ -38,10 +38,22 @@ locals {
   short_name   = substr(local.name_prefix, 0, 24)
   cluster_name = "${local.name_prefix}-eks"
 
-  # Prefer an explicit AZ list when provided so capacity-constrained GPU
-  # families (for example Seoul G7e in ap-northeast-2a/2b) always land in a
-  # supported zone. Fall back to the first discovered AZs otherwise.
-  available_azs = length(var.availability_zones) > 0 ? var.availability_zones : data.aws_availability_zones.available.names
+  # G7e (RTX PRO 6000) is only offered in a subset of each region's AZs, so a
+  # naive "first N discovered AZs" pick can land private subnets in zones that
+  # cannot place a GPU node. This map pins the g7e-capable zones per region
+  # (ordered), verified via `aws ec2 describe-instance-type-offerings`. Regions
+  # absent from the map fall back to discovered AZs. Note us-east-1 is
+  # non-contiguous (1b/1d only), so the explicit map is required there.
+  g7e_azs_by_region = {
+    "ap-northeast-2" = ["ap-northeast-2a", "ap-northeast-2b"]
+    "us-east-1"      = ["us-east-1b", "us-east-1d"]
+    "us-east-2"      = ["us-east-2a", "us-east-2b"]
+    "us-west-2"      = ["us-west-2a", "us-west-2b", "us-west-2c", "us-west-2d"]
+  }
+
+  # AZ selection precedence: an explicit availability_zones var wins; otherwise
+  # use the region's g7e-capable zones; otherwise the first discovered AZs.
+  available_azs = length(var.availability_zones) > 0 ? var.availability_zones : lookup(local.g7e_azs_by_region, var.aws_region, data.aws_availability_zones.available.names)
   azs           = slice(local.available_azs, 0, min(var.az_count, length(local.available_azs)))
   network_azs   = slice(local.available_azs, 0, min(max(var.az_count, var.karpenter_az_count), length(local.available_azs)))
 

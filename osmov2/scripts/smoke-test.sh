@@ -28,7 +28,9 @@ SECRET_JSON="$(aws secretsmanager get-secret-value \
   --output text)"
 DEFAULT_ADMIN_TOKEN="$(printf '%s' "${SECRET_JSON}" | jq -er '.default_admin_token')"
 
-kubectl -n "${OSMO_NAMESPACE}" port-forward svc/osmo-service 9000:80 >/tmp/osmo-smoke-port-forward.log 2>&1 &
+# osmo-service:80 serves self-signed TLS only in 6.3.1; the plaintext OSMO CLI
+# login must go through osmo-internal-router (no-auth plain-HTTP path to the API).
+kubectl -n "${OSMO_NAMESPACE}" port-forward svc/osmo-internal-router 9000:80 >/tmp/osmo-smoke-port-forward.log 2>&1 &
 PORT_FORWARD_PID="$!"
 # shellcheck disable=SC2329,SC2317
 cleanup() {
