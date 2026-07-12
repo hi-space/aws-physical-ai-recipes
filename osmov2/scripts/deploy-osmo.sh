@@ -297,10 +297,48 @@ podMonitor:
   enabled: ${POD_MONITOR_ENABLED}
 EOF
 
+OSMO_HELM_AUTH_ARGS=()
+if [[ "${OSMO_AUTH_ENABLED}" == "true" ]]; then
+  OSMO_OIDC_ISSUER="${OSMO_OIDC_ISSUER:-$(auth_terraform_output oidc_issuer_url)}"
+  OSMO_OIDC_JWKS="${OSMO_OIDC_JWKS:-$(auth_terraform_output oidc_jwks_uri)}"
+  OSMO_OIDC_BROWSER_CLIENT_ID="${OSMO_OIDC_BROWSER_CLIENT_ID:-$(auth_terraform_output browser_client_id)}"
+  OSMO_COOKIE_DOMAIN="${OSMO_COOKIE_DOMAIN:-$(auth_terraform_output cookie_domain)}"
+  [[ -n "${OSMO_HOSTNAME:-}" ]] || die "OSMO_HOSTNAME (ALB FQDN) is required when OSMO_AUTH_ENABLED=true"
+  [[ -n "${OSMO_OIDC_ISSUER}" ]] || die "OIDC issuer is empty; run deploy-auth.sh first"
+  [[ -n "${OSMO_OIDC_CLIENT_SECRET:-}" ]] || die "OSMO_OIDC_CLIENT_SECRET is required (browser client secret)"
+
+  # oauth2-proxy secrets (client_secret + random cookie_secret).
+  OAUTH2_COOKIE_SECRET="${OAUTH2_COOKIE_SECRET:-$(openssl rand -base64 32 | tr -d '\n')}"
+  kubectl -n "${OSMO_NAMESPACE}" create secret generic oauth2-proxy-secrets \
+    --from-literal=client_secret="${OSMO_OIDC_CLIENT_SECRET}" \
+    --from-literal=cookie_secret="${OAUTH2_COOKIE_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  OSMO_HELM_AUTH_ARGS=(
+    --set "global.hostname=${OSMO_HOSTNAME}"
+    --set "services.service.hostname=${OSMO_HOSTNAME}"
+    --set "services.service.auth.browser_client_id=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.envoy.hostname=${OSMO_HOSTNAME}"
+    --set "gateway.envoy.jwt.providers[0].issuer=${OSMO_OIDC_ISSUER}"
+    --set "gateway.envoy.jwt.providers[0].jwks_uri=${OSMO_OIDC_JWKS}"
+    --set "gateway.envoy.jwt.providers[0].audience=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.envoy.jwt.providers[0].user_claim=email"
+    --set "gateway.oauth2Proxy.oidcIssuerUrl=${OSMO_OIDC_ISSUER}"
+    --set "gateway.oauth2Proxy.clientId=${OSMO_OIDC_BROWSER_CLIENT_ID}"
+    --set "gateway.oauth2Proxy.cookieDomain=${OSMO_COOKIE_DOMAIN}"
+    --set "gateway.oauth2Proxy.redis.serviceName=${REDIS_HOST}"
+    --set "gateway.oauth2Proxy.redis.port=${REDIS_PORT}"
+  )
+  if [[ -n "${OSMO_ACM_CERT_ARN:-}" ]]; then
+    OSMO_HELM_AUTH_ARGS+=(--set "gateway.envoy.ingress.albAnnotations.sslCertArn=${OSMO_ACM_CERT_ARN}")
+  fi
+fi
+
 helm upgrade --install osmo-service "$(osmo_chart_ref service)" \
   --namespace "${OSMO_NAMESPACE}" \
   --version "${OSMO_CHART_VERSION}" \
   --values "${SERVICE_VALUES}" \
+  "${OSMO_HELM_AUTH_ARGS[@]}" \
   --wait \
   --timeout 15m
 
@@ -526,6 +564,22 @@ if ! osmo credential set aws-osmo-dataset \
 fi
 
 osmo profile set bucket "${OSMO_DATASET_BUCKET_NAME}" >/dev/null
+
+if [[ "${OSMO_AUTH_ENABLED}" == "true" ]]; then
+  POOL_CURRENT="$(osmo config show POOL default)"
+  printf '%s' "${POOL_CURRENT}" | jq \
+    'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+     .roles["osmo-admin"].external_roles = ["osmo-admin"] |
+     .roles["osmo-user"].external_roles  = ["osmo-user"] |
+     .roles["osmo-ctrl"].external_roles  = ["osmo-ctrl"] |
+     .roles["osmo-backend"].external_roles = ["osmo-backend"]' >"${POOL_CONFIG}"
+  if ! osmo config update POOL default --file "${POOL_CONFIG}" \
+    --description "Configure IdP external_roles mapping" >/tmp/osmo-roles-config.log 2>&1; then
+    cat /tmp/osmo-roles-config.log >&2
+    die "failed to configure OSMO external_roles mapping"
+  fi
+  log "OSMO external_roles mapping configured"
+fi
 
 if ! osmo user create backend-operator --roles osmo-backend >/tmp/osmo-backend-user.log 2>&1; then
   osmo user get backend-operator >/dev/null 2>&1 || {
