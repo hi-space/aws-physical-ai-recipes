@@ -5,12 +5,6 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-# Temporary shims for GPU label provisioning (Task 4). Will be replaced by provisioner-aware
-# versions in common.sh during Task 6. These currently resolve label values to nodepool names
-# from the GPU fallback family registry.
-osmo_gpu_label_key() { printf 'karpenter.sh/nodepool'; }
-osmo_gpu_label_value() { gpu_fallback_family_field "$1" nodepool_name; }
-
 require_cmds aws kubectl helm jq openssl terraform osmo
 
 OSMO_VERSION="${OSMO_VERSION:-$(version_value release)}"
@@ -24,8 +18,13 @@ OSMO_BACKEND_NAME="${OSMO_BACKEND_NAME:-default}"
 OSMO_CONFIGURE_GPU_PLATFORM="${OSMO_CONFIGURE_GPU_PLATFORM:-true}"
 OSMO_GPU_PLATFORM_NAME="${OSMO_GPU_PLATFORM_NAME:-g7e-rtx-pro-6000}"
 OSMO_GPU_POD_TEMPLATE_NAME="${OSMO_GPU_POD_TEMPLATE_NAME:-aws-g7e-rtx-pro-6000}"
-OSMO_GPU_PLATFORM_LABEL_KEY="${OSMO_GPU_PLATFORM_LABEL_KEY:-karpenter.sh/nodepool}"
-OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-$(version_value karpenter_nodepool_name)}"
+GPU_PROVISIONER="${GPU_PROVISIONER:-karpenter}"
+OSMO_GPU_PLATFORM_LABEL_KEY="${OSMO_GPU_PLATFORM_LABEL_KEY:-$(osmo_gpu_label_key)}"
+if [[ "${GPU_PROVISIONER}" == "managed-nodegroup" ]]; then
+  OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-g7e}"
+else
+  OSMO_GPU_PLATFORM_LABEL_VALUE="${OSMO_GPU_PLATFORM_LABEL_VALUE:-$(version_value karpenter_nodepool_name)}"
+fi
 OSMO_GPU_POD_DO_NOT_DISRUPT="${OSMO_GPU_POD_DO_NOT_DISRUPT:-true}"
 OSMO_GPU_POD_SHM_SIZE="${OSMO_GPU_POD_SHM_SIZE:-32Gi}"
 # Optional GPU capacity-fallback platforms (comma-separated family names: g6, g5, g6e).

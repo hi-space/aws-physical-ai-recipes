@@ -261,3 +261,20 @@ gpu_pool_platform_json() {
        override_pod_template: [$pod_template]
      }'
 }
+
+osmo_gpu_label_key() {
+  if [[ "${GPU_PROVISIONER:-karpenter}" == "managed-nodegroup" ]]; then
+    printf 'aws.osmo.reference/nodepool'
+  else
+    printf 'karpenter.sh/nodepool'
+  fi
+}
+
+osmo_gpu_label_value() {
+  local family="$1"
+  if [[ "${GPU_PROVISIONER:-karpenter}" == "managed-nodegroup" ]]; then
+    printf '%s' "${family}"
+  else
+    gpu_fallback_family_field "${family}" nodepool_name
+  fi
+}

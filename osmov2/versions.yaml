@@ -82,6 +82,12 @@ ai_workflows:
   moge_repository: "https://github.com/microsoft/MoGe.git"
   moge_ref: "07444410f1e33f402353b99d6ccd26bd31e469e8"
 
+cluster_autoscaler:
+  cluster_autoscaler_repo: "https://kubernetes.github.io/autoscaler"
+  cluster_autoscaler_chart_version: "9.46.0"
+  cluster_autoscaler_namespace: "kube-system"
+  cluster_autoscaler_release_name: "cluster-autoscaler"
+
 aws:
   default_region: "ap-northeast-2"
   eks_cluster_version: "1.35"
