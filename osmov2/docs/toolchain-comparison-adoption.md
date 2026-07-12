@@ -63,7 +63,7 @@
 
 | 항목 | osmov2 | toolchain |
 |------|--------|-----------|
-| 인증 (IdP) | ❌ (backend-operator 토큰만) | ✅ Keycloak / Cognito / IAM Identity Center |
+| 인증 (IdP) | ✅ 도입됨 (Plan B, Cognito/IdC, reference-ha 전용) | ✅ Keycloak / Cognito / IAM Identity Center |
 | 배포 모드 | 단일 (full) | ✅ full / control-plane-only / backend-only |
 | Secrets 동기화 | 수동/스크립트 | ✅ External Secrets Operator |
 | 보안 스캔 | 부분 (`scan-public-ingress.sh`) | ✅ pre-commit (Checkov/TFLint/ShellCheck/Gitleaks) |
@@ -115,6 +115,7 @@
 ### 🟡 우선순위 Medium — 가치 높으나 osmov2 철학과 부분 상충 (opt-in 권장)
 
 #### D. 인증 / IdP 통합 (Keycloak / Cognito / IAM Identity Center)
+- ✅ **도입됨 (Plan B)**: opt-in `infra/auth` 모듈(Cognito/IdC) + `deploy-auth.sh` + `deploy-osmo.sh` gateway/oauth2-proxy 연동 + external_roles 매핑. reference-ha 전용, 기본 dev-repro 경로는 인증 없이 불변.
 - **toolchain 구현**: `03-deploy-keycloak.sh` + `modules/platform/cognito.tf` + `identity-center.tf`. realm `osmo`, 클라이언트 `osmo-browser-flow`(브라우저) / `osmo-device`(CLI device flow)
 - **왜 가져오나**: osmov2에는 사용자 인증이 전혀 없음(backend-operator 토큰만). 여러 사용자가 공유하거나 장기 운영하는 시나리오에서는 필수.
 - **osmov2 적용 설계**:

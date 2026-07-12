@@ -168,6 +168,21 @@ GPU 노드 프로비저닝은 Karpenter(기본, 재현성 경로 유지) 또는 
 
 **GPU 폴백**: `GPU_FALLBACK_FAMILIES=g6,g5,g6e`을 설정하면 주력 GPU(G7e)를 사용할 수 없을 때 폴백 GPU를 자동으로 전환합니다. 폴백 매핑: `g6` (NVIDIA L4), `g5` (NVIDIA A10G), `g6e` (NVIDIA L40S). 이 옵션은 기본값으로는 비활성이며, 벤치마크 재현성에 영향을 주지 않습니다.
 
+## Authentication (Cognito / IAM Identity Center)
+
+인증은 opt-in 기능이며, `reference-ha` 환경 프리셋 전용입니다. 기본 dev-repro 경로는 인증 없이 유지되어 재현성과 저비용 워크플로우를 보장합니다.
+
+| 변수 | 위치 | 기본 | 설명 |
+|------|------|------|------|
+| `deploy_cognito` / `deploy_identity_center` | tfvars(auth) | `false` | provider 선택(배타) |
+| `OSMO_AUTH_ENABLED` | env | `false` | deploy-osmo gateway 활성 |
+| `AUTH_PROVIDER` | env | `cognito` | deploy-auth provider |
+| `OSMO_HOSTNAME` | env | — | ALB FQDN(인증 시 필수) |
+| `OSMO_OIDC_CLIENT_SECRET` | env | — | browser client secret(필수) |
+| `OSMO_ACM_CERT_ARN` | env | — | gateway ALB TLS |
+
+배포 절차 및 IAM Identity Center 수동 클라이언트 시크릿 설정은 `infra/auth/README.md`를 참조하세요.
+
 ## Current Scope
 
 This reference focuses on the AWS integration layer for NVIDIA OSMO. It is not a general-purpose NVIDIA robotics platform distribution; it demonstrates repeatable AWS infrastructure, EKS GPU scheduling, OSMO deployment, and validated workflow execution for NVIDIA robotics and physical AI workloads.
