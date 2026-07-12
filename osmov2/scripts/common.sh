@@ -278,3 +278,15 @@ osmo_gpu_label_value() {
     gpu_fallback_family_field "${family}" nodepool_name
   fi
 }
+
+AUTH_TF_DIR="${AUTH_TF_DIR:-${ROOT_DIR}/infra/auth}"
+
+auth_terraform_output() {
+  local key="$1" env_key
+  env_key="TF_AUTH_OUTPUT_$(printf '%s' "${key}" | tr '[:lower:]' '[:upper:]')"
+  if [[ -n "${!env_key:-}" ]]; then
+    printf '%s' "${!env_key}"
+    return 0
+  fi
+  terraform -chdir="${AUTH_TF_DIR}" output -raw "${key}"
+}
