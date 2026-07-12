@@ -1,0 +1,8 @@
+# One of the two providers (mutually exclusive).
+# deploy_cognito          = true
+# deploy_identity_center  = false
+name_prefix = "aws-osmo-reference-ha"
+aws_region  = "ap-northeast-2"
+# osmo_hostname      = "osmo.example.com"
+# osmo_auth_hostname = "osmo-auth.example.com"
+# route53_zone_id    = "Z0123456789ABCDEFGHIJ"

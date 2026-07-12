@@ -5,12 +5,12 @@ output "auth_provider" {
 
 output "oidc_issuer_url" {
   description = "OIDC issuer URL for the OSMO gateway."
-  value       = var.deploy_cognito ? local.cognito_issuer : ""
+  value       = var.deploy_cognito ? local.cognito_issuer : (var.deploy_identity_center ? local.idc_issuer : "")
 }
 
 output "oidc_jwks_uri" {
   description = "OIDC JWKS URI."
-  value       = var.deploy_cognito ? "${local.cognito_issuer}/.well-known/jwks.json" : ""
+  value       = var.deploy_cognito ? "${local.cognito_issuer}/.well-known/jwks.json" : (var.deploy_identity_center && local.idc_issuer != "" ? "${local.idc_issuer}/.well-known/jwks.json" : "")
 }
 
 output "browser_client_id" {
