@@ -62,6 +62,16 @@ GRAFANA_INBOUND_CIDRS=<your-ip>/32 \
 Validated deployment used `https://grafana.yeonkp.xyz` restricted to a single
 operator IP.
 
+Alternatively, use `infra/cloudfront` to place CloudFront in front of the
+Grafana ALB. This avoids the need for a custom domain, ACM certificate, and
+Route 53 record while still providing HTTPS via CloudFront's default
+`*.cloudfront.net` certificate. A shared WAF IP whitelist restricts access.
+After deploying the CloudFront module, update the OSMO backend Grafana URL:
+
+```bash
+GRAFANA_URL=https://<grafana-cf-domain>.cloudfront.net scripts/update-grafana-url.sh
+```
+
 ## Dashboards (persistent)
 
 Dashboards are provisioned as ConfigMaps labelled `grafana_dashboard=1` from
@@ -117,8 +127,10 @@ tensorboard --logdir ./out/aws-isaaclab-rsl-rl-video-g6-artifacts/artifacts/tens
 
 - This is a repo addition on top of the upstream AMG path; the AMP+AMG
   `infra/observability` module is left unchanged.
-- Grafana is ClusterIP + port-forward by default. To expose via HTTPS, reuse the
-  ALB+ACM pattern from `infra/ingress` (e.g. `grafana.<domain>`), but the
-  in-cluster Grafana login is weaker than SSO — prefer port-forward.
+- Grafana is ClusterIP + port-forward by default. To expose via HTTPS, either
+  reuse the ALB+ACM pattern from `infra/ingress` (e.g. `grafana.<domain>`) or
+  use `infra/cloudfront` for domain-free HTTPS via `*.cloudfront.net`.
+  In-cluster Grafana login is weaker than SSO — prefer port-forward or
+  CloudFront+WAF IP restriction for controlled access.
 - DCGM exporter is installed by the GPU Operator (`scripts/deploy-gpu-operator.sh`);
   this path only adds the ServiceMonitor to scrape it.

@@ -178,6 +178,12 @@ scripts/destroy.sh
 
 HTTPS admin UI 접근은 `infra/ingress` 아래에서 선택적으로 제공됩니다. 이 Terraform 루트는 AWS Load Balancer Controller를 설치하고, ACM 인증서를 요청하며, `osmo-ui`를 위한 ALB 기반 Kubernetes Ingress를 만들고, Route 53 레코드를 게시합니다. 명시적인 도메인 이름, 호스티드 존 ID, 그리고 공개(0.0.0.0/0)가 아닌 소스 CIDR 허용 목록이 필요합니다.
 
+도메인 없이 HTTPS 접근이 필요하면 `infra/cloudfront`를 사용하세요. OSMO UI ALB와 Grafana ALB 앞에 CloudFront 배포를 배치하고, 공유 WAF WebACL로 화이트리스트 IP만 허용합니다. CloudFront 기본 인증서(`*.cloudfront.net`)를 사용하므로 커스텀 도메인이나 Route 53 호스티드 존 없이도 브라우저 인증서 경고가 발생하지 않습니다. 배포 후 OSMO 백엔드의 Grafana URL을 CloudFront 엔드포인트로 업데이트하세요:
+
+```bash
+GRAFANA_URL=https://<grafana-cloudfront-domain>.cloudfront.net scripts/update-grafana-url.sh
+```
+
 AWS 관리형 관측성은 [infra/observability/](infra/observability/README.md)와 [docs/observability.md](docs/observability.md)를 참고하세요. 배포 가능한 경로는 OSMO의 Prometheus·Grafana 관측성 흐름을 Amazon Managed Service for Prometheus와 Amazon Managed Grafana로 매핑합니다.
 
 전체 NVIDIA nut pouring 쿡북은 외부 고정 의존성으로 취급됩니다. GPU 스모크 경로가 성공한 뒤 래퍼를 통해 실행하세요:

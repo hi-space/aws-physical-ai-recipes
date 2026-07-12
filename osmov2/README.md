@@ -156,6 +156,12 @@ The current baseline uses S3-backed OSMO workflow and dataset storage plus per-w
 
 HTTPS admin UI access is optional under `infra/ingress`. That Terraform root installs AWS Load Balancer Controller, requests an ACM certificate, creates an ALB-backed Kubernetes Ingress for `osmo-ui`, and publishes a Route 53 record. It requires an explicit domain name, hosted zone ID, and non-public source CIDR allow list.
 
+For domain-free HTTPS access, `infra/cloudfront` places CloudFront distributions in front of both the OSMO UI ALB and the Grafana ALB. A shared WAF WebACL restricts access to whitelisted IPs only. CloudFront's default `*.cloudfront.net` certificate eliminates browser certificate warnings without requiring a custom domain or Route 53 hosted zone. After deployment, update the OSMO backend to point at the Grafana CloudFront URL:
+
+```bash
+GRAFANA_URL=https://<grafana-cloudfront-domain>.cloudfront.net scripts/update-grafana-url.sh
+```
+
 For AWS managed observability, see [infra/observability/](infra/observability/README.md) and [docs/observability.md](docs/observability.md). The deployable path maps OSMO's Prometheus and Grafana observability flow to Amazon Managed Service for Prometheus and Amazon Managed Grafana.
 
 The full NVIDIA nut pouring cookbook is treated as an external pinned dependency. Run it through the wrapper after the GPU smoke path succeeds:
