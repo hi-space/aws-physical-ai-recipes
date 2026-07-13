@@ -8,4 +8,4 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 require_cmds aws terraform
 
 terraform -chdir="${TF_DIR}" init -input=false
-terraform -chdir="${TF_DIR}" apply "$@"
+terraform -chdir="${TF_DIR}" apply -input=false -auto-approve "$@"
