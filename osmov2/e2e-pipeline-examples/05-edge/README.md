@@ -7,8 +7,9 @@ counterpart to Stage 4's in-cluster closed-loop eval: same GR00T ZMQ policy
 server, same protocol, different host.
 
 Generalized from `e2e-workshop/edge/workshop-components/N1.6/`. The workshop
-version hardcoded a CloudFront model tarball and a specific ECR image; these
-components take the model from S3 and the image from your own ECR.
+version hardcoded a CloudFront model tarball and a specific ECR image; here the
+model comes from S3 (your Stage 3 checkpoint) and the image is built by
+`build-inference-image.sh` into your own ECR.
 
 ## Components
 
@@ -18,6 +19,20 @@ components take the model from S3 and the image from your own ECR.
 | `com.aws.groot.inference` | Run `gr00t.eval.run_gr00t_server` in a container, exposing the ZMQ policy server on port 5555. |
 
 `com.aws.groot.inference` depends on `com.aws.groot.setup` (HARD dependency).
+
+## Scripts
+
+| Script | When | Purpose |
+| --- | --- | --- |
+| `build-inference-image.sh` | once (rebuild on GR00T version change) | Build the GR00T server Docker image (PyTorch + TRT + Isaac-GR00T) and push to your ECR. The image `com.aws.groot.inference` pulls. |
+| `bootstrap-device.sh` | once per device | Install the Greengrass v2 nucleus, provision the IoT thing/group/cert, and grant the device role (TES) S3/ECR/logs permissions. |
+| `register-components.sh` | whenever the model or image changes | Register the two recipes as component versions, and optionally create the deployment. |
+| `fetch-demo-model.sh` | optional, for a dry run | Push the workshop's pre-trained Pick-Orange demo checkpoint to S3 so you can smoke-check the edge deploy without running Stage 3 first. |
+
+The scripts split the single-file workshop installer
+(`e2e-workshop/edge/scripts/setup-greengrass-workshop-N16.sh`) into separate
+concerns: image build, one-time device provisioning, and repeatable component
+registration/deployment.
 
 ## Getting the model onto the device
 
@@ -33,32 +48,45 @@ aws s3 sync ./ckpt s3://<your-bucket>/models/e2e-pipeline-groot-checkpoint
 
 Set `modelS3Uri` in `com.aws.groot.setup/recipe.yaml` to that S3 URI.
 
-## Deploying
-
-These are standard Greengrass v2 component recipes. Publish them and create a
-deployment targeting your device/thing group:
+Haven't run Stage 3 yet? Use the workshop's pre-trained demo checkpoint to
+dry-run the edge path first:
 
 ```bash
-# Prereq: Greengrass v2 nucleus installed and provisioned on the device
-# (see e2e-workshop/edge/scripts/setup-greengrass-workshop-N16.sh for a full
-#  provisioning example, including the IAM permissions the device role needs).
-
-# 1) Edit both recipe.yaml files: replace REPLACE_ME S3 URI and ECR image.
-# 2) Create the components (per component):
-aws greengrassv2 create-component-version \
-  --inline-recipe fileb://com.aws.groot.setup/recipe.yaml
-aws greengrassv2 create-component-version \
-  --inline-recipe fileb://com.aws.groot.inference/recipe.yaml
-
-# 3) Deploy to your thing group:
-aws greengrassv2 create-deployment \
-  --target-arn "arn:aws:iot:<region>:<account>:thinggroup/<group>" \
-  --components '{
-    "com.aws.groot.inference": {"componentVersion": "1.0.0"}
-  }'
+bash fetch-demo-model.sh \
+  --s3-uri s3://<your-bucket>/models/groot-demo-pick-orange \
+  --region <region>
 ```
 
-Greengrass resolves the `com.aws.groot.setup` dependency automatically.
+## Deploying
+
+```bash
+# 1) Build the GR00T inference image and push to ECR (once).
+bash build-inference-image.sh --repo groot-inference --region <region>
+
+# 2) One-time: provision the device (run ON the device, as root).
+#    Creates the IoT thing/group/cert and grants the device role S3/ECR access.
+sudo bash bootstrap-device.sh \
+  --thing-name groot-edge-01 \
+  --region <region> \
+  --s3-bucket <your-bucket>
+
+# 3) Edit both recipe.yaml files: replace the REPLACE_ME model S3 URI
+#    (com.aws.groot.setup) and ECR image (com.aws.groot.inference — use the
+#    image URI build-inference-image.sh printed).
+
+# 4) Register the components and deploy (run anywhere with AWS credentials):
+bash register-components.sh \
+  --region <region> \
+  --deploy --thing-group groot-edge-01-group
+```
+
+`register-components.sh` targets `com.aws.groot.inference`; Greengrass resolves
+the `com.aws.groot.setup` HARD dependency automatically. To tear a device down,
+run `sudo bash bootstrap-device.sh --thing-name groot-edge-01 --uninstall`.
+
+The `e2e-workshop/edge/scripts/setup-greengrass-workshop-N16.sh` original bundles
+all of this (plus a workshop-specific ECR image build) into one file; see it for
+the full IAM permission list the provisioning step requires.
 
 ## Talking to the policy server
 
