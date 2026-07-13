@@ -62,17 +62,68 @@ The deploy wrapper also accepts a raw key in `~/.nvidia`, or another file path t
 
 ## Quick Start
 
+Prepare the three tfvars files (only `allowed_cidrs` in cloudfront is
+mandatory; core and cognito have working defaults), then run the whole deploy
+with one command:
+
 ```bash
-cp infra/core/terraform.tfvars.example infra/core/terraform.tfvars
-scripts/preflight.sh
-scripts/deploy-infra.sh
-scripts/deploy-karpenter.sh
-scripts/deploy-gpu-operator.sh
-scripts/deploy-efa-device-plugin.sh
-scripts/deploy-osmo-sso-bootstrap.sh   # first SSO deploy: see note below
-scripts/validate-platform.sh
-scripts/smoke-test.sh
+cp infra/core/terraform.tfvars.example       infra/core/terraform.tfvars
+cp infra/cognito/terraform.tfvars.example     infra/cognito/terraform.tfvars
+cp infra/cloudfront/terraform.tfvars.example  infra/cloudfront/terraform.tfvars
+# edit infra/cloudfront/terraform.tfvars: set allowed_cidrs to your CIDR(s)
+
+scripts/deploy-all.sh
 ```
+
+`scripts/deploy-all.sh` runs the eight steps below in dependency order. On
+failure it prints the failed step and the exact resume command
+(`RESUME_FROM=N scripts/deploy-all.sh`); each step is idempotent so resuming
+re-runs it cleanly. Useful knobs: `DRY_RUN=true` prints the plan without
+executing, `SKIP_STEPS="5 8"` skips the EFA plugin and CPU smoke test.
+
+To run the steps by hand (or to understand what the orchestrator does):
+
+```bash
+scripts/preflight.sh                   # 1  tooling, creds, tfvars, terraform validate
+scripts/deploy-infra.sh                # 2  EKS + RDS + Redis + S3/ECR/KMS/IRSA
+scripts/deploy-karpenter.sh            # 3  GPU NodePool(s)
+scripts/deploy-gpu-operator.sh         # 4  NVIDIA GPU Operator
+scripts/deploy-efa-device-plugin.sh    # 5  EFA device plugin
+scripts/deploy-osmo-sso-bootstrap.sh   # 6  OSMO + Cognito SSO + CloudFront (see note)
+scripts/validate-platform.sh           # 7  cluster / OSMO / KAI / GPU checks
+scripts/smoke-test.sh                  # 8  CPU smoke workflow
+```
+
+### Deploy order and dependencies
+
+Each step consumes what the previous ones produce. The key non-obvious edge is
+step 6, which resolves a circular dependency (CloudFront ↔ gateway LB ↔ Cognito)
+that no single Terraform apply can satisfy:
+
+```
+1 preflight ──────────────▶ validates tooling + tfvars, gates everything
+2 deploy-infra ──▶ EKS cluster, IRSA roles, RDS/Redis, S3/ECR/KMS
+       │                    (kubeconfig + terraform outputs)
+       ▼
+3 deploy-karpenter ──▶ GPU NodePool(s)   ┐
+4 deploy-gpu-operator ──▶ NVIDIA runtime │ all need the cluster from step 2;
+5 deploy-efa-device-plugin ──▶ EFA plugin┘ independent of each other
+       │
+       ▼
+6 deploy-osmo-sso-bootstrap ──▶ OSMO (auto-runs deploy-kai.sh) + Cognito + CloudFront
+       │   breaks the cycle: cognito(placeholder) → deploy-osmo (creates
+       │   gateway LB) → cloudfront(LB origin) → cognito(real domain) → deploy-osmo
+       ▼
+7 validate-platform ──▶ confirms cluster / OSMO / KAI / GPU runtime
+       │
+       ▼
+8 smoke-test ──▶ submits examples/osmo-smoke/workflow.yaml (needs HF token)
+```
+
+KAI Scheduler is not a separate step: `deploy-osmo.sh` auto-runs `deploy-kai.sh`
+when `OSMO_INSTALL_KAI=true` (the default). Steps 3–5 all depend only on the
+cluster from step 2 and can be reordered among themselves; the EFA plugin
+(step 5) is safe to skip on non-EFA setups.
 
 The 6.3.1 SSO gateway has a bootstrap ordering problem: `deploy-osmo.sh`
 requires the `infra/cloudfront` `osmo_ui_cloudfront_domain` output, but

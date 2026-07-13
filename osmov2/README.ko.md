@@ -64,17 +64,67 @@ export NGC_API_KEY="<your-ngc-api-key>"
 
 ## 빠른 시작
 
+tfvars 3개를 준비하고(필수 입력은 cloudfront의 `allowed_cidrs`뿐이며, core와
+cognito는 동작하는 기본값이 있습니다) 한 번의 명령으로 전체 배포를 실행하세요:
+
 ```bash
-cp infra/core/terraform.tfvars.example infra/core/terraform.tfvars
-scripts/preflight.sh
-scripts/deploy-infra.sh
-scripts/deploy-karpenter.sh
-scripts/deploy-gpu-operator.sh
-scripts/deploy-efa-device-plugin.sh
-scripts/deploy-osmo-sso-bootstrap.sh   # 최초 SSO 배포: 아래 노트 참고
-scripts/validate-platform.sh
-scripts/smoke-test.sh
+cp infra/core/terraform.tfvars.example       infra/core/terraform.tfvars
+cp infra/cognito/terraform.tfvars.example     infra/cognito/terraform.tfvars
+cp infra/cloudfront/terraform.tfvars.example  infra/cloudfront/terraform.tfvars
+# infra/cloudfront/terraform.tfvars 편집: allowed_cidrs 를 본인 CIDR 로 설정
+
+scripts/deploy-all.sh
 ```
+
+`scripts/deploy-all.sh`는 아래 8단계를 의존성 순서대로 실행합니다. 실패 시
+멈춘 단계와 재개 명령(`RESUME_FROM=N scripts/deploy-all.sh`)을 정확히
+출력합니다. 각 단계는 멱등(idempotent)이라 재개하면 깨끗하게 다시 돕니다.
+유용한 옵션: `DRY_RUN=true`는 실행 없이 계획만 출력하고,
+`SKIP_STEPS="5 8"`은 EFA 플러그인과 CPU 스모크 테스트를 건너뜁니다.
+
+단계를 수동으로 실행하려면(또는 오케스트레이터가 하는 일을 이해하려면):
+
+```bash
+scripts/preflight.sh                   # 1  툴링, 자격증명, tfvars, terraform validate
+scripts/deploy-infra.sh                # 2  EKS + RDS + Redis + S3/ECR/KMS/IRSA
+scripts/deploy-karpenter.sh            # 3  GPU NodePool(s)
+scripts/deploy-gpu-operator.sh         # 4  NVIDIA GPU Operator
+scripts/deploy-efa-device-plugin.sh    # 5  EFA device plugin
+scripts/deploy-osmo-sso-bootstrap.sh   # 6  OSMO + Cognito SSO + CloudFront (노트 참고)
+scripts/validate-platform.sh           # 7  클러스터 / OSMO / KAI / GPU 점검
+scripts/smoke-test.sh                  # 8  CPU 스모크 워크플로
+```
+
+### 배포 순서와 의존성
+
+각 단계는 이전 단계의 산출물을 소비합니다. 가장 비직관적인 지점은 6단계로,
+단일 Terraform apply로는 풀 수 없는 순환 의존(CloudFront ↔ gateway LB ↔
+Cognito)을 해소합니다:
+
+```
+1 preflight ──────────────▶ 툴링 + tfvars 검증, 전체의 게이트
+2 deploy-infra ──▶ EKS 클러스터, IRSA 롤, RDS/Redis, S3/ECR/KMS
+       │                    (kubeconfig + terraform outputs)
+       ▼
+3 deploy-karpenter ──▶ GPU NodePool(s)   ┐
+4 deploy-gpu-operator ──▶ NVIDIA 런타임   │ 모두 2단계 클러스터가 필요;
+5 deploy-efa-device-plugin ──▶ EFA 플러그인┘ 서로 간에는 독립적
+       │
+       ▼
+6 deploy-osmo-sso-bootstrap ──▶ OSMO (deploy-kai.sh 자동 실행) + Cognito + CloudFront
+       │   순환 해소: cognito(placeholder) → deploy-osmo(게이트웨이 LB 생성)
+       │   → cloudfront(LB 오리진) → cognito(실제 도메인) → deploy-osmo
+       ▼
+7 validate-platform ──▶ 클러스터 / OSMO / KAI / GPU 런타임 확인
+       │
+       ▼
+8 smoke-test ──▶ examples/osmo-smoke/workflow.yaml 제출 (HF 토큰 필요)
+```
+
+KAI 스케줄러는 별도 단계가 아닙니다: `deploy-osmo.sh`가 `OSMO_INSTALL_KAI=true`
+(기본값)일 때 `deploy-kai.sh`를 자동 실행합니다. 3~5단계는 2단계 클러스터에만
+의존하므로 서로 순서를 바꿔도 되며, EFA 플러그인(5단계)은 EFA가 없는 환경에서는
+건너뛰어도 안전합니다.
 
 6.3.1 SSO 게이트웨이에는 부트스트랩 순서 문제가 있습니다. `deploy-osmo.sh`는
 `infra/cloudfront`의 `osmo_ui_cloudfront_domain` 출력을 요구하지만,
