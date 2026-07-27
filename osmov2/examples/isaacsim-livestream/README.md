@@ -9,6 +9,12 @@ Two workflow files are provided:
 | `workflow.yaml` | 4.5.0 (stable) | 16Gi | e2e-workshop stable 프로필과 동일 |
 | `workflow-5.1.yaml` | 5.1.0 (latest) | 32Gi | 더 큰 메모리 할당 (5.1 기본 요구량 증가) |
 
+Isaac Sim 5.0.0은 별도 워크플로우를 두지 않습니다. 5.0은 5.1로 빠르게 대체된
+과도기 릴리스라, e2e-workshop과 동일하게 stable(4.5)/latest(5.1) 두 프로필만
+유지합니다. 5.0에서 실행해야 한다면 `isaac_sim_image`를
+`nvcr.io/nvidia/isaac-sim:5.0.0`으로 오버라이드하면 되지만(포트/`runheadless.sh`
+경로는 5.1과 동일), 검증 대상은 아닙니다.
+
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.2xlarge scripts/prewarm-gpu-node.sh
 

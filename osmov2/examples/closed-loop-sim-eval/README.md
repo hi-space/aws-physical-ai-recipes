@@ -29,6 +29,16 @@ Two workflow files:
 | `workflow.yaml` | 2.2.0 (Isaac Sim 4.5.0) | 64Gi | stable |
 | `workflow-5.1.yaml` | 2.3.0 (Isaac Sim 5.1.0) | 96Gi | latest |
 
+Isaac Lab 2.x 버전 매핑: 2.2.0 = Isaac Sim 4.5.0(stable), 2.3.0 = Isaac Sim
+5.1.0(latest). Isaac Sim 5.0.0(Isaac Lab 2.2.x 계열)은 별도 워크플로우를 두지
+않습니다 — 5.0은 5.1로 빠르게 대체된 과도기 릴리스라 e2e-workshop과 동일하게
+4.5/5.1 두 프로필만 유지합니다.
+
+검증 상태: 2026-07-27 g6e(L40S) fallback에서 end-to-end 런타임 검증 통과
+(`success rate: 1.0`, 1 episode). g7e 용량이 없어 g6e로 검증했으며 코드 경로는
+동일합니다. 상세 및 런타임에서 발견/수정한 deepspeed 결함은
+[validation.md](validation.md) 참고.
+
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.2xlarge scripts/prewarm-gpu-node.sh
 
@@ -50,30 +60,34 @@ scripts/wait-gpu-node-cleanup.sh
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `model_path` | `nvidia/GR00T-N1.6-3B` | HuggingFace model ID or path |
-| `embodiment_tag` | `NEW_EMBODIMENT` | Robot embodiment tag |
-| `env_name` | `robocasa_gr1/PnPCounterToCab` | Isaac Sim evaluation environment |
+| `embodiment_tag` | `GR1` | Robot embodiment tag (must match the env) |
+| `env_name` | `gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env` | RoboCasa GR1 tabletop eval environment |
 | `n_episodes` | 5 | Number of evaluation episodes |
 | `n_action_steps` | 8 | Action steps per inference call |
+| `n_envs` | 1 | Parallel envs (raise only with more pod memory) |
+| `max_episode_steps` | 720 | Max steps per episode |
 
 ## Fine-tuned model evaluation
 
-학습 완료된 모델을 평가하려면 `model_path`를 커스텀 모델 경로로 오버라이드:
+학습 완료된 모델을 평가하려면 `model_path`를 커스텀 모델 경로로 오버라이드
+(`embodiment_tag`는 반드시 평가 env와 일치해야 함):
 
 ```bash
 osmo workflow submit examples/closed-loop-sim-eval/workflow.yaml \
-  --set model_path=<your-hf-model-id-or-s3-path> \
-  --set embodiment_tag=SO100
+  --set model_path=<your-hf-model-id-or-s3-path>
 ```
 
 ## Available environments
 
-Isaac-GR00T 리포에 포함된 평가 환경:
+RoboCasa GR1 tabletop 벤치마크(24개 태스크)의 gym env id. 전체 목록과
+레퍼런스 성공률은 Isaac-GR00T `examples/robocasa-gr1-tabletop-tasks/README.md`
+참조. 예:
 
-| Environment | Robot | Difficulty |
-| --- | --- | --- |
-| `robocasa_gr1/PnPCounterToCab` | GR1 | Easy |
-| `robocasa_gr1/PnPCabToCounter` | GR1 | Easy |
-| `robocasa_panda/PnPCounterToCab` | Franka Panda | Easy |
+| Environment | Robot |
+| --- | --- |
+| `gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env` | GR1 |
+| `gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env` | GR1 |
+| `gr1_unified/PosttrainPnPNovelFromPlateToPlateSplitA_GR1ArmsAndWaistFourierHands_Env` | GR1 |
 
 ## Outputs
 

@@ -35,25 +35,28 @@ workflow:
 
         ISAAC_GROOT_REPO="{{ isaac_groot_repository }}"
         ISAAC_GROOT_REF="{{ isaac_groot_ref }}"
-        LEISAAC_REPO="{{ leisaac_repository }}"
-        LEISAAC_REF="{{ leisaac_ref }}"
         MODEL_PATH="{{ model_path }}"
         EMBODIMENT_TAG="{{ embodiment_tag }}"
         ENV_NAME="{{ env_name }}"
         N_EPISODES="{{ n_episodes }}"
         N_ACTION_STEPS="{{ n_action_steps }}"
+        N_ENVS="{{ n_envs }}"
+        MAX_EPISODE_STEPS="{{ max_episode_steps }}"
         POLICY_HOST="127.0.0.1"
         POLICY_PORT="{{ policy_port }}"
         ARTIFACT_DIR="{{output}}/artifacts"
 
+        export MUJOCO_GL=egl
+        export PYOPENGL_PLATFORM=egl
+
         nvidia-smi
         mkdir -p "${ARTIFACT_DIR}/logs" "${ARTIFACT_DIR}/videos"
 
-        # Install system deps
+        # Install system deps (libegl/libglu required by robosuite/MuJoCo EGL)
         apt-get update >/dev/null
         apt-get install -y --no-install-recommends \
           ca-certificates curl git git-lfs libgl1 libglib2.0-0 \
-          ffmpeg tmux >/dev/null
+          libegl1-mesa-dev libglu1-mesa ffmpeg tmux >/dev/null
         git lfs install --skip-repo >/dev/null
         curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
         export PATH="${HOME}/.local/bin:${PATH}"
@@ -62,16 +65,17 @@ workflow:
         git clone --recurse-submodules "${ISAAC_GROOT_REPO}" /tmp/Isaac-GR00T
         cd /tmp/Isaac-GR00T
         git checkout "${ISAAC_GROOT_REF}"
+        git submodule update --init --recursive
 
-        # Install dependencies
-        uv venv /tmp/groot-venv
-        source /tmp/groot-venv/bin/activate
-        uv pip install -e ".[eval]" 2>/dev/null || uv pip install -e .
-        uv pip install lerobot zmq msgpack-python
+        # Build the RoboCasa GR1 tabletop eval venv (robocasa_uv/.venv) and
+        # download sim assets. This is the only supported way to get robocasa +
+        # robosuite for rollout_policy.py; the workshop README runs it once.
+        ROBOCASA_PY=/tmp/Isaac-GR00T/gr00t/eval/sim/robocasa-gr1-tabletop-tasks/robocasa_uv/.venv/bin/python
+        bash gr00t/eval/sim/robocasa-gr1-tabletop-tasks/setup_RoboCasaGR1TabletopTasks.sh
 
         # Download model weights
         echo "Downloading model: ${MODEL_PATH}..."
-        python -c "
+        uv run --no-project --with huggingface_hub python -c "
         from huggingface_hub import snapshot_download
         snapshot_download('${MODEL_PATH}', local_dir='/tmp/model-weights')
         " || {
@@ -79,20 +83,31 @@ workflow:
           GIT_LFS_SKIP_SMUDGE=0 git clone "https://huggingface.co/${MODEL_PATH}" /tmp/model-weights
         }
 
-        # Start GR00T inference server in background
+        # transformers imports deepspeed whenever the package is importable, and
+        # deepspeed's op-compat check shells out to nvcc — which the isaac-lab
+        # image does not ship. GR00T inference needs none of deepspeed, so drop it
+        # from the server venv; transformers then skips the import entirely.
+        # deepspeed==0.17.6 is a locked gr00t dependency, so sync the venv first,
+        # remove deepspeed, then run with --no-sync so uv does not reinstall it.
+        uv sync
+        uv pip uninstall deepspeed >/dev/null 2>&1 || true
+
+        # Start GR00T inference server in background (main gr00t project venv
+        # via `uv run`; GR1 robocasa eval needs the sim policy wrapper).
         echo "Starting GR00T inference server on port ${POLICY_PORT}..."
-        python gr00t/eval/run_gr00t_server.py \
+        uv run --no-sync python gr00t/eval/run_gr00t_server.py \
           --model_path /tmp/model-weights \
           --embodiment_tag "${EMBODIMENT_TAG}" \
+          --use_sim_policy_wrapper \
           --host 0.0.0.0 \
           --port "${POLICY_PORT}" \
           > "${ARTIFACT_DIR}/logs/server.log" 2>&1 &
         SERVER_PID=$!
 
-        # Wait for server to be ready
+        # Wait for server to be ready (ping over ZMQ/msgpack)
         echo "Waiting for inference server..."
-        for i in $(seq 1 120); do
-          if python -c "
+        for i in $(seq 1 180); do
+          if "${ROBOCASA_PY}" -c "
         import zmq, msgpack
         ctx = zmq.Context()
         sock = ctx.socket(zmq.REQ)
@@ -112,23 +127,31 @@ workflow:
           sleep 5
         done
 
-        # Run closed-loop evaluation via rollout_policy.py
+        # Run closed-loop evaluation via rollout_policy.py (robocasa venv).
+        # rollout_policy.py has no --record_dir; it writes videos to an internal
+        # /tmp/sim_eval_videos_* dir, which we collect afterwards.
         echo "Starting closed-loop evaluation: ${ENV_NAME}, ${N_EPISODES} episodes..."
-        python gr00t/eval/rollout_policy.py \
+        "${ROBOCASA_PY}" gr00t/eval/rollout_policy.py \
           --policy_client_host "${POLICY_HOST}" \
           --policy_client_port "${POLICY_PORT}" \
           --env_name "${ENV_NAME}" \
           --n_episodes "${N_EPISODES}" \
           --n_action_steps "${N_ACTION_STEPS}" \
-          --record_dir "${ARTIFACT_DIR}/videos" \
+          --n_envs "${N_ENVS}" \
+          --max_episode_steps="${MAX_EPISODE_STEPS}" \
           2>&1 | tee "${ARTIFACT_DIR}/logs/rollout.log" || true
+
+        # Collect rollout videos from the script's internal output dir
+        for d in /tmp/sim_eval_videos_*; do
+          [ -d "$d" ] && cp -r "$d"/. "${ARTIFACT_DIR}/videos/" 2>/dev/null || true
+        done
 
         # Collect results
         kill "${SERVER_PID}" 2>/dev/null || true
         wait "${SERVER_PID}" 2>/dev/null || true
 
         # Generate summary
-        python - "${ARTIFACT_DIR}" "${ENV_NAME}" "${N_EPISODES}" "${MODEL_PATH}" <<'PY'
+        "${ROBOCASA_PY}" - "${ARTIFACT_DIR}" "${ENV_NAME}" "${N_EPISODES}" "${MODEL_PATH}" <<'PY'
         import json
         import sys
         from pathlib import Path
@@ -170,12 +193,12 @@ default-values:
   isaac_lab_image: nvcr.io/nvidia/isaac-lab:2.3.0
   isaac_groot_repository: "https://github.com/NVIDIA/Isaac-GR00T"
   isaac_groot_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"
-  leisaac_repository: "https://github.com/LightwheelAI/leisaac"
-  leisaac_ref: "24d3bcd3f1e4585740fc79921782c41617237812"
   model_path: nvidia/GR00T-N1.6-3B
-  embodiment_tag: NEW_EMBODIMENT
-  env_name: "robocasa_gr1/PnPCounterToCab"
+  embodiment_tag: GR1
+  env_name: "gr1_unified/PnPBottleToCabinetClose_GR1ArmsAndWaistFourierHands_Env"
   n_episodes: 5
   n_action_steps: 8
+  n_envs: 1
+  max_episode_steps: 720
   policy_port: 5555
   output_dataset: closed-loop-sim-eval-51-artifacts
