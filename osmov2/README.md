@@ -360,6 +360,60 @@ Defaults: `karpenter_g6e_nodepool_name` (default `aws-osmo-g6e`),
 Override the AZ with `KARPENTER_G6E_ZONE`. The GPU smoke validation workflow is
 `examples/gpu-smoke/workflow-g6e.yaml` (platform `g6e-l40s`).
 
+## Troubleshooting
+
+Issues seen during real deploys and GPU runs, with the fix. `deploy-all.sh` is
+idempotent and prints a `RESUME_FROM=N` command on failure, so resume from the
+failed step after applying a fix.
+
+### Prewarmed GPU node disappears mid-run ("imminent node shutdown")
+
+A prewarmed node registers GPU capacity via a busybox *hold* pod
+(`prewarm-gpu-node.sh`). That hold pod carries no `karpenter.sh/do-not-disrupt`
+annotation, so when it exits the node looks Empty and Karpenter consolidates it
+(`consolidationPolicy: WhenEmptyOrUnderutilized`, `consolidateAfter: 5m`) —
+Karpenter logs `Empty/... delete: nodepools=[...] savings: $…`. This is not AWS
+capacity reclamation. Real OSMO workflow pods are unaffected: `deploy-osmo.sh`
+stamps them with `karpenter.sh/do-not-disrupt` (`OSMO_GPU_POD_DO_NOT_DISRUPT`,
+default `true`). To hold a manually prewarmed node alive during a long
+setup/run, temporarily lock the NodePool's disruption budget and restore it
+after:
+
+```bash
+# lock (no consolidation), do the run, then restore to the default 10%
+kubectl patch nodepool <name> --type merge \
+  -p '{"spec":{"disruption":{"budgets":[{"nodes":"0"}]}}}'
+kubectl patch nodepool <name> --type merge \
+  -p '{"spec":{"disruption":{"budgets":[{"nodes":"10%"}]}}}'
+```
+
+### `kubectl` / OSMO CLI times out against the EKS API
+
+The cluster's public API endpoint is locked to `cluster_endpoint_public_access_cidrs`
+(`infra/core/variables.tf`, which also rejects `0.0.0.0/0`). If the operator
+host's egress IP is not in that list, every `kubectl`/`osmo` call hangs and
+times out. Add the operator's public IP (`/32`) to that var and re-apply
+`infra/core`. This is the most common first-call failure on a fresh operator
+host or after an IP change.
+
+### `EntityAlreadyExists` / WAF name collision on a same-account, multi-region deploy
+
+IAM role/policy/user names and WAF `WebACL`/`IPSet` names are account-global
+(WAF for CloudFront is scoped to `us-east-1`). A second region in the same
+account collides with the first. Give each region a distinct `project_name`
+(the IAM name prefix) and a distinct CloudFront `name_prefix` (the WAF name
+prefix) — the per-region `infra/core/terraform.<region>.tfvars.example` files
+already carry region-suffixed values.
+
+### GR00T eval server exits with `MissingCUDAException` / `nvcc not found`
+
+`transformers` imports `deepspeed` whenever it is importable, and deepspeed's
+op-compat check shells out to `nvcc`, which the `nvcr.io/nvidia/isaac-lab`
+image does not ship (`DS_SKIP_CUDA_CHECK`/`DS_BUILD_OPS` do not bypass it). GR00T
+inference needs none of deepspeed, so the eval workflows uninstall it after
+`uv sync` and start the server with `uv run --no-sync`. See
+[examples/closed-loop-sim-eval/validation.md](examples/closed-loop-sim-eval/validation.md).
+
 ## EFA Modes
 
 The baseline installs the AWS EFA device plugin so EFA-capable G7e nodes can expose `vpc.amazonaws.com/efa`. Installing the plugin is safe on clusters or nodes without EFA support: the upstream chart only schedules the DaemonSet on supported instance labels, so unsupported instances such as `g7e.2xlarge` and `g7e.4xlarge` simply do not register an EFA resource.

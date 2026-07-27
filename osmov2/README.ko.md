@@ -334,6 +334,34 @@ GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge \
 
 관련 기본값: `karpenter_g6e_nodepool_name`(기본 `aws-osmo-g6e`), `g6e_instance_types`(기본 `g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge`). AZ는 `KARPENTER_G6E_ZONE`으로 오버라이드합니다. GPU 스모크 검증용 워크플로는 `examples/gpu-smoke/workflow-g6e.yaml`(플랫폼 `g6e-l40s`)입니다.
 
+## 트러블슈팅
+
+실제 배포와 GPU 실행 중 겪은 이슈와 해결책입니다. `deploy-all.sh`는 idempotent하며 실패 시 `RESUME_FROM=N` 명령을 출력하므로, 수정 후 실패한 단계부터 재개하면 됩니다.
+
+### 프리워밍한 GPU 노드가 실행 중 사라짐("imminent node shutdown")
+
+프리워밍 노드는 busybox hold pod(`prewarm-gpu-node.sh`)로 GPU 용량을 등록합니다. 이 hold pod에는 `karpenter.sh/do-not-disrupt` 어노테이션이 없어서, pod가 종료되면 노드가 Empty로 보이고 Karpenter가 consolidation으로 회수합니다(`consolidationPolicy: WhenEmptyOrUnderutilized`, `consolidateAfter: 5m`; Karpenter 로그에 `Empty/... delete: nodepools=[...] savings: $…`). 이는 AWS 용량 회수가 아닙니다. 실제 OSMO 워크플로 pod는 영향받지 않습니다 — `deploy-osmo.sh`가 `karpenter.sh/do-not-disrupt`를 붙입니다(`OSMO_GPU_POD_DO_NOT_DISRUPT`, 기본 `true`). 수동으로 프리워밍한 노드를 긴 setup/run 동안 유지하려면 NodePool의 disruption budget을 임시로 잠갔다가 이후 복원하세요:
+
+```bash
+# 잠금(consolidation 없음), 실행, 그 다음 기본값 10%로 복원
+kubectl patch nodepool <name> --type merge \
+  -p '{"spec":{"disruption":{"budgets":[{"nodes":"0"}]}}}'
+kubectl patch nodepool <name> --type merge \
+  -p '{"spec":{"disruption":{"budgets":[{"nodes":"10%"}]}}}'
+```
+
+### `kubectl` / OSMO CLI가 EKS API에 timeout
+
+클러스터 public API 엔드포인트는 `cluster_endpoint_public_access_cidrs`로 잠겨 있습니다(`infra/core/variables.tf`, `0.0.0.0/0`은 거부). 오퍼레이터 호스트의 egress IP가 이 목록에 없으면 모든 `kubectl`/`osmo` 호출이 멈추고 timeout됩니다. 오퍼레이터의 public IP(`/32`)를 이 변수에 추가하고 `infra/core`를 재적용하세요. 새 오퍼레이터 호스트나 IP 변경 후 가장 흔한 첫 호출 실패입니다.
+
+### 동일 계정 멀티리전 배포 시 `EntityAlreadyExists` / WAF 이름 충돌
+
+IAM role/policy/user 이름과 WAF `WebACL`/`IPSet` 이름은 account-global입니다(CloudFront용 WAF는 `us-east-1` 스코프). 같은 계정의 두 번째 리전이 첫 리전과 충돌합니다. 리전마다 별도의 `project_name`(IAM 이름 prefix)과 별도의 CloudFront `name_prefix`(WAF 이름 prefix)를 주세요 — 리전별 `infra/core/terraform.<region>.tfvars.example` 파일에 이미 리전 suffix가 붙은 값이 들어 있습니다.
+
+### GR00T eval 서버가 `MissingCUDAException` / `nvcc not found`로 종료
+
+`transformers`는 `deepspeed`가 import 가능하면 무조건 import하고, deepspeed의 op-compat 체크가 `nvcc`를 호출하는데 `nvcr.io/nvidia/isaac-lab` 이미지에는 nvcc가 없습니다(`DS_SKIP_CUDA_CHECK`/`DS_BUILD_OPS`로도 우회 안 됨). GR00T 추론에는 deepspeed가 전혀 필요 없으므로 eval 워크플로는 `uv sync` 후 deepspeed를 uninstall하고 `uv run --no-sync`로 서버를 기동합니다. [examples/closed-loop-sim-eval/validation.md](examples/closed-loop-sim-eval/validation.md) 참고.
+
 ## EFA 모드
 
 베이스라인은 AWS EFA 디바이스 플러그인을 설치하여 EFA 지원 G7e 노드가 `vpc.amazonaws.com/efa`를 노출할 수 있게 합니다. 플러그인 설치는 EFA 미지원 클러스터·노드에서도 안전합니다: 업스트림 차트는 지원되는 인스턴스 라벨에서만 DaemonSet을 스케줄하므로, `g7e.2xlarge`·`g7e.4xlarge` 같은 미지원 인스턴스는 EFA 리소스를 등록하지 않습니다.
