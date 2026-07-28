@@ -63,6 +63,31 @@ scripts/wait-gpu-node-cleanup.sh
 Cosmos Transfer is a heavy diffusion workload — the `exec_timeout` is 3 days and
 runtime scales with episode/frame count. Start with a small dataset.
 
+### Runtime and the `num_steps` knob
+
+Measured on a single L40S (`g6e.8xlarge`): one 774-frame episode is processed as
+9 chunks × `num_steps` sampling steps, ≈ **80 min/episode at the default
+`num_steps=35`** (≈ 8.5 min/chunk). Wall-clock is roughly linear in `num_steps`,
+so the full 120-clip dataset at 35 steps (~160h) does **not** finish inside the
+3-day `exec_timeout`. For time-boxed runs, trade fidelity for speed:
+
+```bash
+# ~half the time (some photorealism loss), lower resolution cuts per-chunk compute
+osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos \
+  --set num_steps=15 --set resolution=480
+```
+
+| `num_steps` | Approx. per-episode | Use |
+| --- | --- | --- |
+| `35` (default) | ~80 min | training-grade augmentation |
+| `15` | ~35 min | fast iteration / functional checks |
+| `10` | ~23 min | smoke runs |
+
+For training-grade output on the full dataset, keep `num_steps=35` and instead run
+an **episode subset**, parallelize across GPUs, or raise `exec_timeout`.
+
 Cosmos may OOM on the default 48GB g6e card at higher resolutions / frame counts.
 To run on the 96GB g7e (RTX PRO 6000, `g7e.12xlarge`) card instead, prewarm a g7e
 node and add `--set platform=g7e-rtx-pro-6000` (the g7e NodePool is always
@@ -85,6 +110,8 @@ osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
 | `output_dataset` | `e2e-pipeline-lerobot-dataset-cosmos` | Augmented dataset name |
 | `control_mode` | `edge` | Cosmos control hint (`edge` for RGB-only; `depth` if you add depth) |
 | `prompt` | `A robot arm … photorealistic kitchen …` | Text prompt steering the augmentation |
+| `num_steps` | `35` | Diffusion sampling steps — dominant runtime knob (wall-clock ~linear); lower for time-boxed runs (`15` ≈ half, `10` ≈ third) |
+| `resolution` | `720` | Output resolution (`720` or `480`); `480` cuts per-chunk compute/VRAM at lower fidelity |
 | `cosmos_transfer_ref` | `0033b77a…` | Pinned `cosmos-transfer2.5` commit (from `versions.yaml`) |
 | `tokenizer_revision_from` / `tokenizer_revision_to` | `6787e176…` / `f176dc95…` | Cosmos Predict tokenizer revision patch |
 | `cpu` / `memory` / `storage` | `30` / `128Gi` / `200Gi` | Pod resources |
@@ -108,15 +135,48 @@ of depth because the leisaac dataset has no depth videos.
 ## Verify at runtime
 
 This stage's source-level shape is correct (LeRobot discovery + in-place mp4
-replacement mirror Stage 3 / the nut-pouring Cosmos step), but the following are
-**pending GPU runtime validation**:
+replacement mirror Stage 3 / the nut-pouring Cosmos step).
 
-- [ ] The exact Cosmos Transfer 2.5 **edge** spec asset path/schema at the pinned
-      ref. The workflow probes a few candidate spec templates and falls back to a
-      minimal edge spec; confirm against the pinned repo's `assets/robot_example`
-      and adjust `SPEC_TEMPLATE` if needed.
-- [ ] Frame-count / fps re-alignment: the augmented clip is re-encoded to the
-      source `nb_read_frames` + `r_frame_rate` so LeRobot per-episode indexing
-      stays valid. Verify Cosmos preserves (or the re-encode restores) frame count
-      so `meta/episodes.jsonl` lengths still match.
-- [ ] End-to-end: run Stage 3 on the augmented dataset and confirm it trains.
+### Verified against the pinned ref (2026-07-28)
+
+Source-level audit against `cosmos-transfer2.5@0033b77a` (cloned the ref and
+reproduced `inference.py` / `config.py` validation):
+
+- [x] **Edge spec path.** `assets/robot_example/edge/robot_edge_spec.json` (the
+      first `SPEC_TEMPLATE` candidate) exists at the pinned ref, so the workflow
+      uses it and never hits the minimal fallback.
+- [x] **Spec mutation fixed.** The shipped edge template carries
+      `prompt_path: "../robot_prompt.txt"` and `edge.control_path: "robot_edge.mp4"`
+      — both dangling relative paths once the spec is copied to `/tmp/cosmos_specs`.
+      Cosmos validates them as `pydantic.FilePath` after `os.chdir(spec.parent)`,
+      so the un-patched spec failed with two `path_not_file` errors (reproduced).
+      The PYSPEC block now drops `prompt_path` (using an inline `prompt`) and
+      clears every control key before setting `edge: {control_weight: 1.0}` with
+      **no** `control_path`, so Cosmos derives the edge hint on-the-fly from the
+      RGB frames (CannyEdge). The patched spec validates clean against the pinned
+      schema.
+- [x] **`inference.py -i/-o`** are valid tyro aliases (`input_files` / `output_dir`).
+
+### GPU runtime validation (2026-07-28)
+
+Ran on a single L40S (`g6e.8xlarge`, `--set cpu=16 memory=200Gi`). The first
+episode completed end-to-end; the run was then cancelled after confirming output
+(the full 120-clip dataset would exceed `exec_timeout` at `num_steps=35` — see the
+runtime note above).
+
+- [x] **Model load + diffusion.** All gated models (Cosmos-Transfer2.5-2B,
+      Predict2.5-2B, Reason1-7B, Qwen2.5-VL-7B, Wan2.1 VAE) download and load; the
+      guardrail import-time gated download is bypassed by the `core.py` patch +
+      `--disable-guardrails`, and edge hints are computed online (no control file).
+- [x] **Frame-count / fps re-alignment.** The augmented episode re-encodes to the
+      source `nb_read_frames` + `r_frame_rate`: verified the output mp4 is **774
+      frames @ 30fps, 640×480 — identical to the source**, so LeRobot per-episode
+      indexing stays valid. The `tpad`-clone-then-`-frames:v` trim behaves as
+      intended.
+- [x] **Host RAM.** `num_steps` diffusion loads all 5 models simultaneously;
+      `g6e.8xlarge` (256GB) is comfortable (~12GB used), but `g6e.2xlarge` (64GB)
+      OOM-reboots the node at the diffusion step. Size the node for host RAM, not
+      just the 48GB L40S.
+
+- [ ] End-to-end: run Stage 3 on the augmented dataset and confirm it trains
+      (still pending — only the augmentation step is runtime-verified).
