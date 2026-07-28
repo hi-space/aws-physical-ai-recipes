@@ -442,9 +442,9 @@ workflow:
 
 default-values:
   cpu: 8
-  memory: 64Gi
+  memory: 90Gi
   storage: 200Gi
-  platform: g7e-rtx-pro-6000
+  platform: g6e-l40s
   isaac_lab_image: nvcr.io/nvidia/isaac-lab:2.3.0
   gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
   # leisaac's N1.6 doc pins this GR00T commit for ZMQ/server compat; N1.6

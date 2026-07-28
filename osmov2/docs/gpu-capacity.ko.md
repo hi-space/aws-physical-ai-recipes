@@ -52,6 +52,13 @@
 제대로 된 대체 수단으로 쓰려면 Service Quotas에서 한도 증설(코드 `L-DB2E81BA`,
 "Running On-Demand G and VT instances")을 먼저 신청해야 합니다.
 
+e2e 파이프라인 스테이지는 각자의 `cpu`/`memory` 요청에 따라 이 사이즈로
+매핑됩니다: RL(02-sim)·closed-loop 평가(04)는 `g6e.4xlarge`, VLA 파인튜닝(03)은
+`g6e.8xlarge`, Cosmos 증강(06)은 `g6e.12xlarge`. 단일 스테이지 중 가장 큰 게
+`g6e.12xlarge`(48 vCPU)라, `us-east-2`의 64 쿼터로도 파이프라인을 순차로는 돌릴
+수 있습니다 — 병렬/동시 실행에만 증설이 필요합니다. 스테이지별 권장 표는
+[e2e-pipeline-examples/README.md](../e2e-pipeline-examples/README.ko.md) 참고.
+
 인스턴스 판매 자체는 4개 리전 모두 문제없고, `us-east-2`만 쿼터가 발목을 잡습니다.
 
 ## g6e를 폴백으로 켜기

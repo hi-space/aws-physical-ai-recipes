@@ -34,10 +34,19 @@ derives an edge/structure hint from the RGB frames themselves, needing no extra
 depth-generation step. If you later add a depth pass, switch with
 `--set control_mode=depth`.
 
+## Recommended GPU
+
+This is the heaviest stage: it requests `cpu: 30`, `memory: 128Gi`, `gpu: 1`.
+The recommended node is `g6e.12xlarge` (48 vCPU / 384GB) — the `cpu: 30` request
+does not fit `g6e.8xlarge` (32 vCPU) once DaemonSet overhead is subtracted, so
+this is the one stage that needs a larger g6e size. It still uses a single L40S
+(48GB), but Cosmos is a diffusion workload that may OOM on 48GB at higher
+resolutions / frame counts — see the g7e note below if that happens.
+
 ## Running
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.12xlarge scripts/prewarm-gpu-node.sh
 
 osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
@@ -54,6 +63,20 @@ scripts/wait-gpu-node-cleanup.sh
 Cosmos Transfer is a heavy diffusion workload — the `exec_timeout` is 3 days and
 runtime scales with episode/frame count. Start with a small dataset.
 
+Cosmos may OOM on the default 48GB g6e card at higher resolutions / frame counts.
+To run on the 96GB g7e (RTX PRO 6000, `g7e.12xlarge`) card instead, prewarm a g7e
+node and add `--set platform=g7e-rtx-pro-6000` (the g7e NodePool is always
+deployed, so no redeploy is needed):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.12xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
+```
+
 ## Parameters (default-values)
 
 | Parameter | Default | Description |
@@ -65,7 +88,7 @@ runtime scales with episode/frame count. Start with a small dataset.
 | `cosmos_transfer_ref` | `0033b77a…` | Pinned `cosmos-transfer2.5` commit (from `versions.yaml`) |
 | `tokenizer_revision_from` / `tokenizer_revision_to` | `6787e176…` / `f176dc95…` | Cosmos Predict tokenizer revision patch |
 | `cpu` / `memory` / `storage` | `30` / `128Gi` / `200Gi` | Pod resources |
-| `platform` | `g7e-rtx-pro-6000` | OSMO GPU platform |
+| `platform` | `g6e-l40s` | OSMO GPU platform (g6e L40S, recommended `g6e.12xlarge` for the cpu:30 request; --set platform=g7e-rtx-pro-6000 for the 96GB `g7e.12xlarge`) |
 
 ## Outputs
 

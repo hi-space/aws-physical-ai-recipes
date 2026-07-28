@@ -23,8 +23,8 @@
 | EKS AL2023 NVIDIA AMI | `amazon-eks-node-al2023-x86_64-nvidia-1.35-v20260423` |
 | G7e GPU pool | `g7e.2xlarge`, `g7e.4xlarge`, `g7e.8xlarge`, `g7e.12xlarge`, `g7e.24xlarge` |
 | EFA-capable G7e sizes | `g7e.8xlarge`, `g7e.12xlarge`, `g7e.24xlarge` |
-| G6 GPU pool (L4 24GB fallback) | `g6.2xlarge`, `g6.4xlarge`, `g6.8xlarge`, `g6.12xlarge` (NodePool `aws-osmo-g6`) |
-| G6e GPU pool (L40S 48GB fallback) | `g6e.2xlarge`, `g6e.4xlarge`, `g6e.8xlarge`, `g6e.12xlarge` (NodePool `aws-osmo-g6e`) |
+| G6 GPU pool (L4 24GB fallback) | `g6.2xlarge`, `g6.4xlarge`, `g6.8xlarge`, `g6.12xlarge`, `g6.16xlarge`, `g6.24xlarge` (NodePool `aws-osmo-g6`) |
+| G6e GPU pool (L40S 48GB fallback) | `g6e.2xlarge`, `g6e.4xlarge`, `g6e.8xlarge`, `g6e.12xlarge`, `g6e.16xlarge`, `g6e.24xlarge` (NodePool `aws-osmo-g6e`) |
 | OSMO cookbook ref | `c2c30e55f84969fff55d51cd2044a03d40d6a1a5` |
 | GR00T repository ref (N1.6, default) | `NVIDIA/Isaac-GR00T@ead52833afbbf4243f8cd5e7664f48a94de03b19` |
 | GR00T base model (N1.6, default) | `nvidia/GR00T-N1.6-3B` |

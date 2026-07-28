@@ -509,7 +509,11 @@ default-values:
   cpu: 16
   memory: 96Gi
   storage: 256Gi
-  platform: g7e-rtx-pro-6000
+  # g6e-l40s (48GB VRAM) is the default fallback. N1.7 uses the larger gated
+  # Cosmos-Reason2-2B backbone, so 48GB may OOM at larger batch sizes; keep
+  # global_batch_size small on g6e, or override --set platform=g7e-rtx-pro-6000
+  # for the 96GB g7e.8xlarge card.
+  platform: g6e-l40s
   image_name: "nvcr.io/nvidia/pytorch:25.03-py3"
   gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
   gr00t_ref: "23ace64f17aa5015259b8609d371eb61a357c776"

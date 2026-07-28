@@ -17,9 +17,9 @@ workflow:
     gpu:
       cpu: 8
       gpu: 1
-      memory: 64Gi
+      memory: 90Gi
       storage: 200Gi
-      platform: g7e-rtx-pro-6000
+      platform: g6e-l40s
 
   tasks:
   - name: train-and-render

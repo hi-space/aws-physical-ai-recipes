@@ -214,7 +214,10 @@ default-values:
   cpu: 30
   memory: 128Gi
   storage: 200Gi
-  platform: g7e-rtx-pro-6000
+  # g6e-l40s (48GB VRAM) is the default fallback. Cosmos Transfer 2.5 is a heavy
+  # diffusion workload and may OOM on 48GB at higher resolutions / frame counts;
+  # override --set platform=g7e-rtx-pro-6000 (96GB) if augmentation hits CUDA OOM.
+  platform: g6e-l40s
   image_name: "nvcr.io/nvidia/cosmos/cosmos-predict2-container:1.2"
   input_dataset: e2e-pipeline-lerobot-dataset
   output_dataset: e2e-pipeline-lerobot-dataset-cosmos

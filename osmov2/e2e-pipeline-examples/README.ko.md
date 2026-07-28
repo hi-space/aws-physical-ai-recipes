@@ -1,8 +1,13 @@
 # E2E 파이프라인 예제
 
 [e2e-workshop](../../e2e-workshop/)의 전체 physical-AI 파이프라인을 AWS 레퍼런스
-아키텍처(`g7e-rtx-pro-6000` 플랫폼, Karpenter, OSMO 데이터셋) 위에서 돌아가는
-OSMO 워크플로우로 재패키징한 것입니다.
+아키텍처(기본 `g6e-l40s` 플랫폼, Karpenter, OSMO 데이터셋) 위에서 돌아가는
+OSMO 워크플로우로 재패키징한 것입니다. GPU 스테이지는 4개 타깃 리전에서 용량이
+가장 넓은 `g6e-l40s`(NVIDIA L40S, 48GB, `g6e.8xlarge`)를 기본 플랫폼으로 씁니다.
+96GB `g7e.8xlarge` 카드가 필요하면 스테이지별로
+`--set platform=g7e-rtx-pro-6000`으로 오버라이드하세요.
+이 기본값의 근거가 되는 리전/AZ 가용성과 g6e NodePool 활성화 방법은
+[docs/gpu-capacity.md](../docs/gpu-capacity.ko.md) 참고.
 
 > 이 문서는 [README.md](README.md)(영문)의 한국어 번역본입니다. 상세 원문은 영문
 > README를 기준으로 삼으세요.
@@ -32,6 +37,26 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 | [05-edge](05-edge/README.md) | 로봇 위에서 GR00T 정책 서버를 돌리는 Greengrass 컴포넌트. | S3 모델 → 온디바이스 서버 |
 | [06-cosmos-augment](06-cosmos-augment/README.md) | (선택적) Stage 1 LeRobot 비디오를 Cosmos Transfer 2.5로 photorealistic 증강(edge control, RGB만); Stage 3에 다시 투입. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
 
+## 스테이지별 권장 GPU
+
+모든 GPU 스테이지는 L40S(48GB) 한 장에서 돕니다 — 기본값 `g6e-l40s`. Karpenter가
+각 스테이지의 `cpu`/`memory` 요청을 보고 인스턴스 사이즈를 고르므로, "권장
+사이즈"는 프리워밍할 사이즈를 뜻합니다. `g6e-l40s` NodePool은
+`g6e.{2,4,8,12}xlarge`를 제공하며, 아래 모든 스테이지를 커버합니다.
+
+| 스테이지 | 워크로드 | cpu / memory | 권장 g6e | 96GB g7e 오버라이드 |
+| --- | --- | --- | --- | --- |
+| 01-data-prep | 데이터 준비 (CPU 전용) | — | — (GPU 없음) | — |
+| 02-sim | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 03-training | VLA 파인튜닝 (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
+| 04-closeloop | closed-loop 평가 | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 06-cosmos-augment | Cosmos 증강 | 30 / 128Gi | `g6e.12xlarge` | `g7e.12xlarge` |
+
+96GB `g7e` 오버라이드(`--set platform=g7e-rtx-pro-6000`)는 48GB 카드 한 장으로
+부족할 때만 필요합니다 — 더 큰 학습 `global_batch_size`, N1.7 게이트 백본,
+고해상도에서의 Cosmos OOM 등. g7e NodePool은 항상 배포되어 있으므로 재배포가
+필요 없습니다.
+
 ## e2e-workshop 매핑
 
 | 이 스테이지 | e2e-workshop 소스 | 주요 적응 사항 |
@@ -45,10 +70,14 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 
 ## 체인 실행
 
-GPU 스테이지는 OSMO 검증 전에 G7e 용량이 관측 가능해야 합니다:
+GPU 스테이지는 OSMO 검증 전에 g6e 용량이 관측 가능해야 합니다(배포 시 g6e
+NodePool을 `DEPLOY_G6E_NODEPOOL=true OSMO_CONFIGURE_G6E_PLATFORM=true`로 활성화).
+아래 프리워밍은 `g6e.8xlarge`를 쓰며 Stage 2/3/4를 커버합니다; 선택적 Stage
+6(Cosmos, `cpu: 30`)을 돌린다면 `g6e.12xlarge`로 프리워밍하세요 — 위 스테이지별
+표 참고.
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
 
 # Stage 1 — 데이터 준비 (CPU)
 osmo workflow submit e2e-pipeline-examples/01-data-prep/workflow.yaml \
@@ -77,6 +106,21 @@ osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
   --set input_dataset=e2e-pipeline-groot-checkpoint
 
 scripts/wait-gpu-node-cleanup.sh
+```
+
+어떤 GPU 스테이지든 g7e 노드를 프리워밍하고 submit 커맨드에
+`--set platform=g7e-rtx-pro-6000`을 추가하면 96GB g7e(RTX PRO 6000,
+`g7e.8xlarge`) 카드로 옮길 수 있습니다(g7e NodePool은 항상 배포되어 있으므로
+재배포가 필요 없습니다) — 더 큰 학습 `global_batch_size`, N1.7 게이트 백본,
+고해상도에서의 Cosmos OOM 등에 유용합니다:
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set max_steps=10000 --set save_steps=10000
 ```
 
 Stage 2(RL)는 독립적이라 언제든 실행할 수 있습니다:

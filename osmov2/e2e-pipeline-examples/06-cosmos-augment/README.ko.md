@@ -36,10 +36,19 @@ Cosmos가 RGB 프레임 자체에서 edge/구조 힌트를 추출하므로 별�
 필요 없습니다. 나중에 depth 패스를 추가한다면 `--set control_mode=depth`로
 전환하세요.
 
+## 권장 GPU
+
+이 스테이지가 가장 무겁습니다: `cpu: 30`, `memory: 128Gi`, `gpu: 1`을
+요청합니다. 권장 노드는 `g6e.12xlarge`(48 vCPU / 384GB)입니다 — `cpu: 30`
+요청은 DaemonSet 오버헤드를 빼면 `g6e.8xlarge`(32 vCPU)에 안 들어가므로, 이
+스테이지만 더 큰 g6e 사이즈가 필요합니다. GPU는 여전히 L40S(48GB) 한 장이지만,
+Cosmos는 해상도/프레임 수가 높을 때 48GB에서 OOM이 날 수 있는 diffusion
+워크로드입니다 — 그럴 경우 아래 g7e 안내를 참고하세요.
+
 ## 실행
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.12xlarge scripts/prewarm-gpu-node.sh
 
 osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
@@ -56,6 +65,20 @@ scripts/wait-gpu-node-cleanup.sh
 Cosmos Transfer는 무거운 diffusion 워크로드입니다 — `exec_timeout`이 3일이며,
 런타임은 에피소드/프레임 수에 비례합니다. 작은 데이터셋으로 시작하세요.
 
+Cosmos는 해상도/프레임 수가 높을 때 기본 48GB g6e 카드에서 OOM이 날 수 있습니다.
+96GB g7e(RTX PRO 6000, `g7e.12xlarge`) 카드에서 돌리려면 g7e 노드를 프리워밍하고
+`--set platform=g7e-rtx-pro-6000`을 추가하세요(g7e NodePool은 항상 배포되어
+있으므로 재배포가 필요 없습니다):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.12xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
+```
+
 ## 파라미터 (default-values)
 
 | 파라미터 | 기본값 | 설명 |
@@ -67,7 +90,7 @@ Cosmos Transfer는 무거운 diffusion 워크로드입니다 — `exec_timeout`�
 | `cosmos_transfer_ref` | `0033b77a…` | 고정된 `cosmos-transfer2.5` 커밋 (`versions.yaml` 기준) |
 | `tokenizer_revision_from` / `tokenizer_revision_to` | `6787e176…` / `f176dc95…` | Cosmos Predict tokenizer revision 패치 |
 | `cpu` / `memory` / `storage` | `30` / `128Gi` / `200Gi` | Pod 리소스 |
-| `platform` | `g7e-rtx-pro-6000` | OSMO GPU 플랫폼 |
+| `platform` | `g6e-l40s` | OSMO GPU 플랫폼 (g6e L40S, cpu:30 요청 때문에 권장 `g6e.12xlarge`; 96GB `g7e.12xlarge` 필요시 --set platform=g7e-rtx-pro-6000) |
 
 ## 출력
 

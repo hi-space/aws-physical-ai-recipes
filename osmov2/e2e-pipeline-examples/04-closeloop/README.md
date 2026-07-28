@@ -7,15 +7,34 @@ and the LeIsaac rollout, measuring task success rate.
 - OSMO input:  `e2e-pipeline-groot-checkpoint` (from Stage 3)
 - OSMO output: `e2e-pipeline-closeloop-artifacts`
 
+## Recommended GPU
+
+This eval stage runs the GR00T policy server + LeIsaac rollout in one pod,
+requesting `cpu: 8`, `memory: 90Gi`, `gpu: 1` — one L40S (48GB) is enough. The
+recommended node is `g6e.4xlarge` (16 vCPU / 128GB); the memory request rules out
+`g6e.2xlarge` (64GB). Karpenter picks the size from the pod request.
+
 ## Running
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge scripts/prewarm-gpu-node.sh
 
 osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
   --set input_dataset=e2e-pipeline-groot-checkpoint
 
 scripts/wait-gpu-node-cleanup.sh
+```
+
+To run on the 96GB g7e (RTX PRO 6000, `g7e.4xlarge`) card instead, prewarm a g7e
+node and add `--set platform=g7e-rtx-pro-6000` (the g7e NodePool is always
+deployed, so no redeploy is needed):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.4xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-groot-checkpoint
 ```
 
 ## Parameters (default-values)
@@ -33,7 +52,7 @@ scripts/wait-gpu-node-cleanup.sh
 | `policy_action_horizon` / `policy_timeout_ms` / `policy_port` | `16` / `5000` / `5555` | ZMQ policy client knobs |
 | `step_hz` | `30` | Control loop rate |
 | `cpu` / `memory` / `storage` | `8` / `64Gi` / `200Gi` | Pod resources |
-| `platform` | `g7e-rtx-pro-6000` | OSMO GPU platform |
+| `platform` | `g6e-l40s` | OSMO GPU platform (g6e L40S, recommended `g6e.4xlarge`; --set platform=g7e-rtx-pro-6000 for the 96GB `g7e.4xlarge`) |
 
 ## N1.6-pinned (chaining with N1.7)
 

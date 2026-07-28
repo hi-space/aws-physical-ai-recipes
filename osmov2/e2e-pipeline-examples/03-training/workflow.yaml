@@ -279,7 +279,7 @@ default-values:
   cpu: 16
   memory: 96Gi
   storage: 256Gi
-  platform: g7e-rtx-pro-6000
+  platform: g6e-l40s
   image_name: "nvcr.io/nvidia/pytorch:25.03-py3"
   gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
   gr00t_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"

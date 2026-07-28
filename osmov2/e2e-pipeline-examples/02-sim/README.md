@@ -8,10 +8,17 @@ or consume their datasets.
 - OSMO input:  none
 - OSMO output: `e2e-pipeline-sim-rl-artifacts` (checkpoint + TensorBoard + video)
 
+## Recommended GPU
+
+This RL stage requests `cpu: 8`, `memory: 90Gi`, `gpu: 1` — one L40S (48GB) is
+plenty. The recommended node is `g6e.4xlarge` (16 vCPU / 128GB); the memory
+request rules out `g6e.2xlarge` (64GB). Karpenter picks the size from the pod
+request, so prewarming a matching size is all that's needed.
+
 ## Running
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge scripts/prewarm-gpu-node.sh
 
 osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
 
@@ -23,6 +30,18 @@ For the Isaac Sim 5.1 stack, override the image (allow more memory):
 ```bash
 osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
   --set isaac_lab_image=nvcr.io/nvidia/isaac-lab:2.3.0
+```
+
+This stage defaults to the g6e (NVIDIA L40S, 48GB) platform. To run on the 96GB
+g7e (RTX PRO 6000, `g7e.4xlarge`) card instead, prewarm a g7e node and add
+`--set platform=g7e-rtx-pro-6000` (the g7e NodePool is always deployed, so no
+redeploy is needed):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.4xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000
 ```
 
 ## Parameters (default-values)

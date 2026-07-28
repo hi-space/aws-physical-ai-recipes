@@ -96,10 +96,19 @@ aws:
   g7e_smoke_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge"
   g7e_nut_pouring_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge,g7e.12xlarge,g7e.24xlarge"
   # G6 (NVIDIA L4, 24GB) fallback sizes. Single-AZ to match g7e AZ pinning.
-  g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge"
+  # 16xlarge (single L4, 64 vCPU) and 24xlarge (4x L4) added for larger CPU/RAM
+  # headroom; all offered in the four target regions (verified 2026-07-28).
+  g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge,g6.16xlarge,g6.24xlarge"
   # G6e (NVIDIA L40S, 48GB) fallback sizes. Larger GPU than g6/L4 for models
   # that need more VRAM but still cannot get g7e capacity. Single-AZ.
-  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge"
+  # Karpenter bin-packs the e2e-pipeline stages onto these by cpu/memory request:
+  # 4xlarge for RL (02-sim) + closed-loop eval (04), 8xlarge for VLA fine-tune
+  # (03, cpu:16), 12xlarge for Cosmos augmentation (06, cpu:30). 16xlarge (single
+  # L40S, 64 vCPU) and 24xlarge (4x L40S) give extra CPU/RAM headroom; all offered
+  # in the four target regions (verified 2026-07-28). Note: us-east-2 quota is 64
+  # vCPU, so 24xlarge there needs an L-DB2E81BA increase (see docs/gpu-capacity.md).
+  # See e2e-pipeline-examples/README.md "Recommended GPU" for the per-stage sizes.
+  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge,g6e.16xlarge,g6e.24xlarge"
 
 terraform:
   cli: ">= 1.5.0, < 2.0.0"

@@ -9,15 +9,35 @@ Stage 3 GR00T 체크포인트를 LeIsaac(SO-101 + 주방 씬) Isaac Sim에서 cl
 - OSMO 입력: `e2e-pipeline-groot-checkpoint` (Stage 3 산출물)
 - OSMO 출력: `e2e-pipeline-closeloop-artifacts`
 
+## 권장 GPU
+
+이 평가 스테이지는 GR00T 정책 서버 + LeIsaac rollout을 한 pod에서 돌리며
+`cpu: 8`, `memory: 90Gi`, `gpu: 1`을 요청합니다 — L40S(48GB) 한 장이면
+충분합니다. 권장 노드는 `g6e.4xlarge`(16 vCPU / 128GB)이며, memory 요청 때문에
+`g6e.2xlarge`(64GB)는 불가합니다. Karpenter가 pod 요청값을 보고 사이즈를
+고릅니다.
+
 ## 실행
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge scripts/prewarm-gpu-node.sh
 
 osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
   --set input_dataset=e2e-pipeline-groot-checkpoint
 
 scripts/wait-gpu-node-cleanup.sh
+```
+
+96GB g7e(RTX PRO 6000, `g7e.4xlarge`) 카드에서 돌리려면 g7e 노드를 프리워밍하고
+`--set platform=g7e-rtx-pro-6000`을 추가하세요(g7e NodePool은 항상 배포되어
+있으므로 재배포가 필요 없습니다):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.4xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-groot-checkpoint
 ```
 
 ## 파라미터 (default-values)
@@ -35,7 +55,7 @@ scripts/wait-gpu-node-cleanup.sh
 | `policy_action_horizon` / `policy_timeout_ms` / `policy_port` | `16` / `5000` / `5555` | ZMQ 정책 클라이언트 노브 |
 | `step_hz` | `30` | 제어 루프 주기 |
 | `cpu` / `memory` / `storage` | `8` / `64Gi` / `200Gi` | Pod 리소스 |
-| `platform` | `g7e-rtx-pro-6000` | OSMO GPU 플랫폼 |
+| `platform` | `g6e-l40s` | OSMO GPU 플랫폼 (g6e L40S, 권장 `g6e.4xlarge`; 96GB `g7e.4xlarge` 필요시 --set platform=g7e-rtx-pro-6000) |
 
 ## N1.6 고정 (N1.7 체이닝 시)
 

@@ -2,7 +2,12 @@
 
 The full physical-AI pipeline from the [e2e-workshop](../../e2e-workshop/),
 repackaged as OSMO workflows that run on the AWS reference architecture
-(`g7e-rtx-pro-6000` platform, Karpenter, OSMO datasets).
+(`g6e-l40s` platform by default, Karpenter, OSMO datasets). GPU stages default to
+the `g6e-l40s` (NVIDIA L40S, 48GB) platform because it has the broadest capacity
+across the four target regions; override any stage with
+`--set platform=g7e-rtx-pro-6000` for the 96GB `g7e.8xlarge` card. See
+[docs/gpu-capacity.md](../docs/gpu-capacity.md) for the region/AZ availability
+behind this default and how to enable the g6e NodePool.
 
 Where `examples/` holds standalone single-purpose workflows, this directory is
 an ordered pipeline: each stage's OSMO **output dataset** feeds the next stage's
@@ -28,6 +33,26 @@ chain, or run any stage on its own.
 | [05-edge](05-edge/README.md) | Greengrass components that run the GR00T policy server on a robot. | S3 model → on-device server |
 | [06-cosmos-augment](06-cosmos-augment/README.md) | *(optional)* Cosmos Transfer 2.5 photorealistic augmentation (edge control, RGB-only) of the Stage 1 LeRobot videos; re-feeds Stage 3. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
 
+## Recommended GPU per stage
+
+All GPU stages run on a single L40S (48GB) — the `g6e-l40s` default. Karpenter
+picks the instance size from each stage's `cpu`/`memory` request, so "recommended
+size" is just the size to prewarm. The `g6e-l40s` NodePool offers
+`g6e.{2,4,8,12}xlarge`, which covers every stage below.
+
+| Stage | Workload | cpu / memory | Recommended g6e | 96GB g7e override |
+| --- | --- | --- | --- | --- |
+| 01-data-prep | data prep (CPU only) | — | — (no GPU) | — |
+| 02-sim | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 03-training | VLA fine-tune (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
+| 04-closeloop | closed-loop eval | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 06-cosmos-augment | Cosmos augmentation | 30 / 128Gi | `g6e.12xlarge` | `g7e.12xlarge` |
+
+The 96GB `g7e` override (`--set platform=g7e-rtx-pro-6000`) is only needed when a
+single 48GB card is too small — a larger training `global_batch_size`, N1.7's
+gated backbone, or Cosmos OOM at higher resolutions. The g7e NodePool is always
+deployed, so it needs no redeploy.
+
 ## Mapping to the e2e-workshop
 
 | This stage | e2e-workshop source | Key adaptations |
@@ -41,10 +66,14 @@ chain, or run any stage on its own.
 
 ## Running the chain
 
-GPU stages need visible G7e capacity before OSMO validation:
+GPU stages need visible g6e capacity before OSMO validation (enable the g6e
+NodePool at deploy with `DEPLOY_G6E_NODEPOOL=true OSMO_CONFIGURE_G6E_PLATFORM=true`).
+The prewarm below uses `g6e.8xlarge`, which covers Stages 2/3/4; if you run the
+optional Stage 6 (Cosmos, `cpu: 30`), prewarm `g6e.12xlarge` instead — see the
+per-stage table above.
 
 ```bash
-GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
 
 # Stage 1 — data prep (CPU)
 osmo workflow submit e2e-pipeline-examples/01-data-prep/workflow.yaml \
@@ -73,6 +102,21 @@ osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
   --set input_dataset=e2e-pipeline-groot-checkpoint
 
 scripts/wait-gpu-node-cleanup.sh
+```
+
+Any GPU stage can be moved to the 96GB g7e (RTX PRO 6000, `g7e.8xlarge`) card by
+prewarming a g7e node and adding `--set platform=g7e-rtx-pro-6000` to its submit
+command (the g7e NodePool is always deployed, so no redeploy is needed) — useful
+for a larger training `global_batch_size`, N1.7's gated backbone, or Cosmos OOM
+at higher resolutions:
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+  --set platform=g7e-rtx-pro-6000 \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set max_steps=10000 --set save_steps=10000
 ```
 
 Stage 2 (RL) is independent and can run anytime:
