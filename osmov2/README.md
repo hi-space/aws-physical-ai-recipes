@@ -42,7 +42,7 @@ infra/ingress/     Optional HTTPS admin ingress for OSMO UI
 infra/observability/ Optional AMP and AMG observability root
 scripts/           preflight, deploy, validate, submit, cleanup, destroy wrappers
 examples/          self-contained OSMO example workflows, docs, and validation artifacts
-docs/              architecture, observability, reproducibility, security, version matrix, compatibility
+docs/              architecture, GPU capacity/region fallback, observability, reproducibility, security, version matrix, compatibility
 versions.yaml      pinned external versions and tested ranges
 ```
 

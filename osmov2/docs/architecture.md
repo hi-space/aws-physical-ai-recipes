@@ -34,6 +34,7 @@ flowchart LR
 - KAI Scheduler installed from the pinned OCI Helm chart. OSMO backend scheduling is configured with `scheduler_type: kai` and `scheduler_name: kai-scheduler`.
 - Karpenter controller IAM, Pod Identity, node role, and interruption queue are created by Terraform.
 - The G7e NodePool uses private subnet and node security group discovery tags, On-Demand capacity, IMDSv2, encrypted gp3 root volumes, the pinned EKS AL2023 NVIDIA AMI, and underutilized consolidation so GPU nodes can be removed after workload pods exit even when only DaemonSet pods remain.
+- Optional g6e (NVIDIA L40S) / g6 (NVIDIA L4) capacity-fallback NodePools can be created alongside G7e when G7e capacity is short. g6e is the preferred fallback across the four target regions; see [docs/gpu-capacity.md](gpu-capacity.md) for per-region availability, quotas, and how to enable it.
 - The OSMO GPU pod template adds `karpenter.sh/do-not-disrupt=true` to active workflow pods and mounts a memory-backed `/dev/shm` volume. This prevents underutilized consolidation from evicting long-running training pods, supports NIM and TensorRT-style shared-memory needs, and preserves post-completion node cleanup.
 - NVIDIA GPU Operator installs device plugin and telemetry components while leaving driver and toolkit installation disabled because they are included in the EKS AL2023 NVIDIA AMI.
 - AWS EFA device plugin exposes `vpc.amazonaws.com/efa` on EFA-capable G7e nodes. Its DaemonSet tolerates `nvidia.com/gpu=true:NoSchedule`, matching the Karpenter G7e NodePool taint.

@@ -44,7 +44,7 @@ infra/ingress/       OSMO UI용 선택적 HTTPS admin ingress
 infra/observability/ 선택적 AMP·AMG 관측성 루트
 scripts/             preflight, deploy, validate, submit, cleanup, destroy 래퍼
 examples/            자체 완결형 OSMO 예제 워크플로·문서·검증 산출물
-docs/                아키텍처, 관측성, 재현성, 보안, 버전 매트릭스, 호환성
+docs/                아키텍처, GPU 용량/리전 폴백, 관측성, 재현성, 보안, 버전 매트릭스, 호환성
 versions.yaml        고정된 외부 버전 및 테스트된 범위
 ```
 
