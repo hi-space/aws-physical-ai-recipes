@@ -1,0 +1,225 @@
+# Stage 6 — Cosmos Transfer 2.5 Visual Augmentation (optional)
+# Photorealistic visual augmentation of the Stage 1 LeRobot dataset with Cosmos
+# Transfer 2.5, using EDGE control (RGB-only — the leisaac SO-101 dataset ships
+# no depth videos). Each per-episode camera mp4 is re-rendered through Cosmos and
+# written back into the same LeRobot layout, so Stage 3 (03-training) can consume
+# the augmented dataset with no changes other than --set input_dataset=...
+#
+# Optional middle step: the default chain is Stage 1 -> Stage 3. Insert this
+# stage only when you want domain-randomized / photorealistic training frames.
+#
+#   osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+#     --set input_dataset=e2e-pipeline-lerobot-dataset \
+#     --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
+#
+# then point Stage 3 at the augmented dataset:
+#
+#   osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+#     --set input_dataset=e2e-pipeline-lerobot-dataset-cosmos
+
+workflow:
+  name: aws-e2e-cosmos-augment
+  timeout:
+    exec_timeout: 3d
+    queue_timeout: 1d
+  resources:
+    gpu:
+      cpu: {{ cpu }}
+      gpu: 1
+      memory: {{ memory }}
+      storage: {{ storage }}
+      platform: {{ platform }}
+
+  tasks:
+  - name: cosmos-augment
+    resource: gpu
+    image: {{ image_name }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    environment:
+      ACCEPT_EULA: Y
+    inputs:
+    - dataset:
+        name: {{ input_dataset }}
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+        export TORCH_CUDA_ARCH_LIST="12.0"
+        export PYTHONUNBUFFERED=1
+        export HF_HOME=/tmp/hf-home
+
+        COSMOS_REF="{{ cosmos_transfer_ref }}"
+        TOKENIZER_FROM="{{ tokenizer_revision_from }}"
+        TOKENIZER_TO="{{ tokenizer_revision_to }}"
+        CONTROL="{{ control_mode }}"
+        PROMPT="{{ prompt }}"
+        ARTIFACT_DIR="{{output}}/artifacts"
+
+        echo "=== System Info ==="
+        nvidia-smi
+
+        # --- Locate the Stage 1 LeRobot root (same discovery as Stage 3) -------
+        DATASET_DIR="{{input:0}}/dataset"
+        if [ ! -d "${DATASET_DIR}/meta" ]; then
+          INFO_JSON="$(find "{{input:0}}" -maxdepth 6 -type f -path '*/meta/info.json' 2>/dev/null | sort | head -1)"
+          if [ -n "${INFO_JSON}" ]; then
+            DATASET_DIR="$(dirname "$(dirname "${INFO_JSON}")")"
+          else
+            DATASET_DIR="{{input:0}}"
+          fi
+        fi
+        test -d "${DATASET_DIR}/meta"
+        echo ">>> Using LeRobot dataset at ${DATASET_DIR}"
+
+        # --- Install Cosmos Transfer 2.5 (pinned, tokenizer patch) -------------
+        cd /workspace
+        git clone https://github.com/nvidia-cosmos/cosmos-transfer2.5.git
+        cd cosmos-transfer2.5
+        git checkout "${COSMOS_REF}"
+        grep -q "${TOKENIZER_FROM}" cosmos_transfer2/_src/imaginaire/utils/checkpoint_db.py
+        sed -i "s/${TOKENIZER_FROM}/${TOKENIZER_TO}/g" cosmos_transfer2/_src/imaginaire/utils/checkpoint_db.py
+        curl -LsSf https://astral.sh/uv/install.sh | sh && source "$HOME/.local/bin/env"
+        uv sync --extra=cu128
+        source .venv/bin/activate
+        pip3 install tyro
+
+        set +x
+        git config --global credential.helper store
+        huggingface-cli login --token "${HF_TOKEN}" --add-to-git-credential
+        set -x
+
+        # --- Stage the dataset to the output, then replace RGB mp4s in place ----
+        OUT_DS="${ARTIFACT_DIR}/dataset"
+        mkdir -p "${ARTIFACT_DIR}"
+        cp -r "${DATASET_DIR}" "${OUT_DS}"
+
+        # Cosmos Transfer edge control spec: copy the shipped robot example spec
+        # if present, otherwise fall back to a minimal edge spec. The exact asset
+        # path/schema at the pinned ref is a runtime-verification item (see README).
+        SPEC_TEMPLATE=""
+        for cand in \
+          assets/robot_example/edge/robot_edge_spec.json \
+          assets/robot_example/robot_edge_spec.json \
+          assets/robot_example/robot_spec.json; do
+          if [ -f "$cand" ]; then SPEC_TEMPLATE="$cand"; break; fi
+        done
+        mkdir -p /tmp/cosmos_specs
+
+        # Enumerate per-episode RGB mp4s the LeRobot v2.1 layout produces:
+        #   videos/chunk-XXX/<video_key>/episode_XXXXXX.mp4
+        MP4_LIST_FILE="$(mktemp)"
+        find "${OUT_DS}/videos" -type f -name 'episode_*.mp4' 2>/dev/null | sort > "${MP4_LIST_FILE}"
+        MP4_COUNT="$(wc -l < "${MP4_LIST_FILE}")"
+        echo ">>> LeRobot RGB mp4 count: ${MP4_COUNT}"
+        if [ "${MP4_COUNT}" -eq 0 ]; then
+          echo "No per-episode mp4 under ${OUT_DS}/videos" >&2
+          find "${OUT_DS}" -maxdepth 4 -type f | head -n 50
+          exit 1
+        fi
+
+        while IFS= read -r mp4_file; do
+          [ -f "${mp4_file}" ] || continue
+          rel="${mp4_file#${OUT_DS}/}"
+          echo "=== Augmenting ${rel} ==="
+
+          # Source frame count + fps: Cosmos output must be re-aligned to these
+          # so LeRobot per-episode frame indexing stays valid.
+          src_nframes="$(ffprobe -v error -select_streams v:0 -count_frames \
+            -show_entries stream=nb_read_frames -of csv=p=0 "${mp4_file}" 2>/dev/null || echo '')"
+          src_fps="$(ffprobe -v error -select_streams v:0 \
+            -show_entries stream=r_frame_rate -of csv=p=0 "${mp4_file}" 2>/dev/null || echo '')"
+          echo "   source frames=${src_nframes} fps=${src_fps}"
+
+          spec_file="/tmp/cosmos_specs/spec.json"
+          if [ -n "${SPEC_TEMPLATE}" ]; then
+            cp "${SPEC_TEMPLATE}" "${spec_file}"
+          else
+            printf '{}' > "${spec_file}"
+          fi
+          python3 - "${spec_file}" "${mp4_file}" "${CONTROL}" "${PROMPT}" <<'PYSPEC'
+        import json, sys
+        spec_path, video_path, control, prompt = sys.argv[1:5]
+        with open(spec_path) as f:
+            spec = json.load(f)
+        spec["video_path"] = video_path
+        if prompt:
+            spec["prompt"] = prompt
+        # EDGE control (RGB-only): derive an edge/canny hint from the RGB frames.
+        spec.setdefault(control, {})
+        spec[control].setdefault("control_weight", 1.0)
+        # Drop any depth control the template may carry — no depth videos here.
+        spec.pop("depth", None)
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=2)
+        print(f"spec: control={control} video={video_path}")
+        PYSPEC
+
+          rm -rf /workspace/cosmos-transfer2.5/outputs
+          python /workspace/cosmos-transfer2.5/examples/inference.py \
+            -i "${spec_file}" \
+            -o /workspace/cosmos-transfer2.5/outputs
+
+          gen="$(find /workspace/cosmos-transfer2.5/outputs -type f -name '*.mp4' | sort | head -1)"
+          if [ -z "${gen}" ]; then
+            echo "Cosmos produced no mp4 for ${rel}" >&2
+            exit 1
+          fi
+
+          # Re-align the augmented clip to the source frame count + fps and write
+          # it back into the LeRobot layout at the SAME relative path.
+          if [ -n "${src_fps}" ]; then
+            ffmpeg -hide_banner -loglevel error -y -i "${gen}" \
+              -r "${src_fps}" -frames:v "${src_nframes:-0}" \
+              -c:v libx264 -pix_fmt yuv420p "${mp4_file}.tmp.mp4" \
+              && mv "${mp4_file}.tmp.mp4" "${mp4_file}"
+          else
+            cp "${gen}" "${mp4_file}"
+          fi
+          echo "   wrote augmented ${rel}"
+        done < "${MP4_LIST_FILE}"
+
+        # --- Manifest ----------------------------------------------------------
+        python3 - "${OUT_DS}" "${ARTIFACT_DIR}" "${CONTROL}" "${MP4_COUNT}" <<'PYMAN'
+        import json, sys
+        from pathlib import Path
+        out_ds, artifact_dir, control, count = sys.argv[1:5]
+        info = json.loads((Path(out_ds) / "meta" / "info.json").read_text())
+        manifest = {
+            "augmentation": "cosmos-transfer-2.5",
+            "control_mode": control,
+            "videos_augmented": int(count),
+            "codebase_version": info.get("codebase_version"),
+            "total_episodes": info.get("total_episodes"),
+            "fps": info.get("fps"),
+        }
+        (Path(artifact_dir) / "augmentation-manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n")
+        print(json.dumps(manifest, indent=2))
+        PYMAN
+
+        echo "=== Cosmos augmentation complete ==="
+        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -100
+        exit 0
+    outputs:
+    - dataset:
+        name: {{ output_dataset }}
+        path: artifacts
+
+default-values:
+  cpu: 30
+  memory: 128Gi
+  storage: 200Gi
+  platform: g7e-rtx-pro-6000
+  image_name: "nvcr.io/nvidia/cosmos/cosmos-predict2-container:1.2"
+  input_dataset: e2e-pipeline-lerobot-dataset
+  output_dataset: e2e-pipeline-lerobot-dataset-cosmos
+  control_mode: edge
+  prompt: "A robot arm performing a manipulation task in a photorealistic kitchen, natural lighting, high detail"
+  cosmos_transfer_ref: "0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b"
+  tokenizer_revision_from: "6787e176dce74a101d922174a95dba29fa5f0c55"
+  tokenizer_revision_to: "f176dc95b4a70f53ce01c4b302851595e7322b00"

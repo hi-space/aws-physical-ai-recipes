@@ -15,14 +15,21 @@
 | Karpenter | `1.12.0` |
 | NVIDIA GPU Operator | `v26.3.1` |
 | AWS EFA device plugin | `v0.5.26` |
+| kube-prometheus-stack (in-cluster observability) | `84.5.0` |
+| Prometheus Pushgateway (in-cluster observability) | `3.6.1` |
 | EFA NCCL benchmark image | `public.ecr.aws/hpc-cloud/nccl-tests:latest` |
 | EFA NCCL benchmark NCCL package | `2.28.9-1+cuda13.0` |
 | EFA DDP benchmark image | `public.ecr.aws/deep-learning-containers/pytorch-training:2.9.0-gpu-py312-cu130-ubuntu22.04-ec2-v1.11` |
 | EKS AL2023 NVIDIA AMI | `amazon-eks-node-al2023-x86_64-nvidia-1.35-v20260423` |
 | G7e GPU pool | `g7e.2xlarge`, `g7e.4xlarge`, `g7e.8xlarge`, `g7e.12xlarge`, `g7e.24xlarge` |
 | EFA-capable G7e sizes | `g7e.8xlarge`, `g7e.12xlarge`, `g7e.24xlarge` |
+| G6 GPU pool (L4 24GB fallback) | `g6.2xlarge`, `g6.4xlarge`, `g6.8xlarge`, `g6.12xlarge` (NodePool `aws-osmo-g6`) |
+| G6e GPU pool (L40S 48GB fallback) | `g6e.2xlarge`, `g6e.4xlarge`, `g6e.8xlarge`, `g6e.12xlarge` (NodePool `aws-osmo-g6e`) |
 | OSMO cookbook ref | `c2c30e55f84969fff55d51cd2044a03d40d6a1a5` |
-| GR00T repository ref | `NVIDIA/Isaac-GR00T@ead52833afbbf4243f8cd5e7664f48a94de03b19` |
+| GR00T repository ref (N1.6, default) | `NVIDIA/Isaac-GR00T@ead52833afbbf4243f8cd5e7664f48a94de03b19` |
+| GR00T base model (N1.6, default) | `nvidia/GR00T-N1.6-3B` |
+| GR00T repository ref (N1.7, optional) | `NVIDIA/Isaac-GR00T@23ace64f17aa5015259b8609d371eb61a357c776` |
+| GR00T base model (N1.7, optional) | `nvidia/GR00T-N1.7-3B` (gated `nvidia/Cosmos-Reason2-2B` backbone; needs HF_TOKEN) |
 | GR00T runtime image | `nvcr.io/nvidia/pytorch:25.03-py3` |
 | OpenPI repository ref | `Physical-Intelligence/openpi@650c5b0283a49c42784fb5055a0507da2c6d347d` |
 | OpenPI runtime image | `nvcr.io/nvidia/pytorch:25.03-py3` |

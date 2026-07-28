@@ -11,19 +11,22 @@ chain, or run any stage on its own.
 
 ```
 01-data-prep ─▶ (lerobot dataset) ─▶ 03-training ─▶ (checkpoint) ─▶ 04-closeloop
-                                                          │
-02-sim  (standalone RL track)                             └──────▶ 05-edge (Greengrass)
+      │              ▲                     │
+      │  06-cosmos-augment (optional)     └──────▶ 05-edge (Greengrass)
+      └──────────────┘
+02-sim  (standalone RL track)
 ```
 
 ## Stages
 
 | Stage | What it does | OSMO in → out |
 | --- | --- | --- |
-| [01-data-prep](01-data-prep/workflow.yaml) | Download a LeRobot dataset from HF, auto-convert v3→v2.1, validate. | — → `e2e-pipeline-lerobot-dataset` |
-| [02-sim](02-sim/workflow.yaml) | Isaac Lab RL: train H1 humanoid to walk (PPO), replay + record video. | — → `e2e-pipeline-sim-rl-artifacts` |
-| [03-training](03-training/workflow.yaml) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. Default N1.6; [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml) is the optional N1.7 path. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
-| [04-closeloop](04-closeloop/workflow.yaml) | LeIsaac + SO-101 + kitchen scene closed-loop eval against the ZMQ policy server. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
+| [01-data-prep](01-data-prep/README.md) | Download a LeRobot dataset from HF, auto-convert v3→v2.1, validate. | — → `e2e-pipeline-lerobot-dataset` |
+| [02-sim](02-sim/README.md) | Isaac Lab RL: train H1 humanoid to walk (PPO), replay + record video. | — → `e2e-pipeline-sim-rl-artifacts` |
+| [03-training](03-training/README.md) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. Default N1.6; [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml) is the optional N1.7 path. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
+| [04-closeloop](04-closeloop/README.md) | LeIsaac + SO-101 + kitchen scene closed-loop eval against the ZMQ policy server. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
 | [05-edge](05-edge/README.md) | Greengrass components that run the GR00T policy server on a robot. | S3 model → on-device server |
+| [06-cosmos-augment](06-cosmos-augment/README.md) | *(optional)* Cosmos Transfer 2.5 photorealistic augmentation (edge control, RGB-only) of the Stage 1 LeRobot videos; re-feeds Stage 3. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
 
 ## Mapping to the e2e-workshop
 
@@ -34,6 +37,7 @@ chain, or run any stage on its own.
 | 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | Single-pod OSMO task; consumes Stage 1 dataset; SO-101 modality config. Default N1.6 (`launch_finetune.py`); N1.7 variant inlines the `finetune_gr00t.py` `experiment.run()` path. |
 | 04-closeloop | `groot/inference/run-isaaclab.sh` | Same LeIsaac install + N1.6 language-key patch + headless-keyboard patch + kitchen_with_orange/so101_follower assets, orchestrated by OSMO instead of Docker-on-DCV. |
 | 05-edge | `edge/workshop-components/N1.6/com.workshop.{setup,inference}` | Model from S3 (not CloudFront tarball); parameterized ECR image; TRT optional. |
+| 06-cosmos-augment | `examples/nut-pouring-pipeline/workflows/03_cosmos_augmentation.yaml` | Same pinned Cosmos Transfer 2.5 ref + tokenizer patch, adapted to the LeRobot per-episode mp4 layout; edge control (RGB-only) instead of depth. |
 
 ## Running the chain
 
@@ -45,6 +49,13 @@ GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 # Stage 1 — data prep (CPU)
 osmo workflow submit e2e-pipeline-examples/01-data-prep/workflow.yaml \
   --set hf_dataset_id=LightwheelAI/leisaac-pick-orange
+
+# Stage 6 (optional) — Cosmos Transfer 2.5 photorealistic augmentation (GPU).
+# Insert only for domain-randomized training frames; then point Stage 3 at
+# e2e-pipeline-lerobot-dataset-cosmos instead of the Stage 1 dataset.
+osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # Stage 3 — fine-tune (consumes Stage 1 output). Default is N1.6.
 osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
@@ -87,9 +98,17 @@ These OSMO recipes are derived from the e2e-workshop code. A source-level audit
 against the pinned upstream refs (`Isaac-GR00T@ead52833`, `leisaac@24d3bcd3`,
 tyro `0.9.17`) was done on 2026-07-12 — cloning the refs and reproducing the CLI
 parsing. The CLI defects that audit found have since been corrected in the
-workflow YAML (see "Fixed" below). Full end-to-end runtime validation on GPU is
-still pending; artifacts should land under
+workflow YAML (see "Fixed" below). Full end-to-end runtime validation of this
+ordered pipeline on GPU is still pending; artifacts should land under
 `e2e-pipeline-examples/<stage>/validation/` once each stage runs for real.
+
+That said, the GR00T inference code path this pipeline reuses (ZMQ policy
+server + rollout) has been runtime-validated out-of-band: the standalone
+[`examples/closed-loop-sim-eval`](../examples/closed-loop-sim-eval/README.md)
+(RoboCasa GR1) passed end-to-end on a G6e/L40S node on 2026-07-27
+(`success rate: 1.0`). It is a different task/embodiment than Stage 4 (leisaac
+SO-101), but shares the server + rollout mechanics, so that machinery is known
+to work on this platform.
 
 ### Verified OK (no change needed)
 

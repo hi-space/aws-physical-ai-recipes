@@ -60,7 +60,16 @@ observability_incluster:
 
 ai_workflows:
   gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
+  # GR00T N1.6 pin — default e2e training path (launch_finetune.py, Eagle
+  # backbone, nvidia/GR00T-N1.6-3B). Also the closed-loop/edge inference base.
   gr00t_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"
+  gr00t_base_model: "nvidia/GR00T-N1.6-3B"
+  # GR00T N1.7 pin — optional e2e training path
+  # (e2e-pipeline-examples/03-training/workflow-n1.7.yaml, finetune_gr00t.py
+  # experiment.run API, nvidia/GR00T-N1.7-3B). N1.7 uses the gated
+  # nvidia/Cosmos-Reason2-2B backbone, so it needs an HF_TOKEN with access.
+  gr00t_n17_ref: "23ace64f17aa5015259b8609d371eb61a357c776"
+  gr00t_n17_base_model: "nvidia/GR00T-N1.7-3B"
   gr00t_runtime_image: "nvcr.io/nvidia/pytorch:25.03-py3"
   openpi_repository: "https://github.com/Physical-Intelligence/openpi"
   openpi_ref: "650c5b0283a49c42784fb5055a0507da2c6d347d"

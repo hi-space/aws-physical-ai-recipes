@@ -15,19 +15,22 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 
 ```
 01-data-prep ─▶ (lerobot dataset) ─▶ 03-training ─▶ (checkpoint) ─▶ 04-closeloop
-                                                          │
-02-sim  (독립 RL 트랙)                                    └──────▶ 05-edge (Greengrass)
+      │              ▲                     │
+      │  06-cosmos-augment (선택적)       └──────▶ 05-edge (Greengrass)
+      └──────────────┘
+02-sim  (독립 RL 트랙)
 ```
 
 ## 스테이지
 
 | 스테이지 | 하는 일 | OSMO 입력 → 출력 |
 | --- | --- | --- |
-| [01-data-prep](01-data-prep/workflow.yaml) | HF에서 LeRobot 데이터셋 다운로드, v3→v2.1 자동 변환, 검증. | — → `e2e-pipeline-lerobot-dataset` |
-| [02-sim](02-sim/workflow.yaml) | Isaac Lab RL: H1 휴머노이드 보행 학습(PPO), replay + 비디오 녹화. | — → `e2e-pipeline-sim-rl-artifacts` |
-| [03-training](03-training/workflow.yaml) | 워크샵 SO-101 modality config로 SO-101 데이터셋에 GR00T VLA 파인튜닝. 기본은 N1.6이며, [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml)이 선택적 N1.7 경로. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
-| [04-closeloop](04-closeloop/workflow.yaml) | LeIsaac + SO-101 + 주방 씬으로 ZMQ 정책 서버에 대한 closed-loop 평가. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
+| [01-data-prep](01-data-prep/README.md) | HF에서 LeRobot 데이터셋 다운로드, v3→v2.1 자동 변환, 검증. | — → `e2e-pipeline-lerobot-dataset` |
+| [02-sim](02-sim/README.md) | Isaac Lab RL: H1 휴머노이드 보행 학습(PPO), replay + 비디오 녹화. | — → `e2e-pipeline-sim-rl-artifacts` |
+| [03-training](03-training/README.md) | 워크샵 SO-101 modality config로 SO-101 데이터셋에 GR00T VLA 파인튜닝. 기본은 N1.6이며, [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml)이 선택적 N1.7 경로. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
+| [04-closeloop](04-closeloop/README.md) | LeIsaac + SO-101 + 주방 씬으로 ZMQ 정책 서버에 대한 closed-loop 평가. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
 | [05-edge](05-edge/README.md) | 로봇 위에서 GR00T 정책 서버를 돌리는 Greengrass 컴포넌트. | S3 모델 → 온디바이스 서버 |
+| [06-cosmos-augment](06-cosmos-augment/README.md) | (선택적) Stage 1 LeRobot 비디오를 Cosmos Transfer 2.5로 photorealistic 증강(edge control, RGB만); Stage 3에 다시 투입. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
 
 ## e2e-workshop 매핑
 
@@ -38,6 +41,7 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 | 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | 단일 pod OSMO 태스크; Stage 1 데이터셋 소비; SO-101 modality config. 기본 N1.6(`launch_finetune.py`); N1.7 변형은 `finetune_gr00t.py`의 `experiment.run()` 경로를 인라인. |
 | 04-closeloop | `groot/inference/run-isaaclab.sh` | 동일한 LeIsaac 설치 + N1.6 language-key 패치 + headless-keyboard 패치 + kitchen_with_orange/so101_follower 에셋을, Docker-on-DCV 대신 OSMO로 오케스트레이션. |
 | 05-edge | `edge/workshop-components/N1.6/com.workshop.{setup,inference}` | 모델을 (CloudFront tarball이 아닌) S3에서; ECR 이미지 파라미터화; TRT는 선택. |
+| 06-cosmos-augment | `examples/nut-pouring-pipeline/workflows/03_cosmos_augmentation.yaml` | 동일한 고정 Cosmos Transfer 2.5 ref + tokenizer 패치를 LeRobot per-episode mp4 레이아웃에 맞게 적응; depth 대신 edge control(RGB만). |
 
 ## 체인 실행
 
@@ -49,6 +53,13 @@ GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 # Stage 1 — 데이터 준비 (CPU)
 osmo workflow submit e2e-pipeline-examples/01-data-prep/workflow.yaml \
   --set hf_dataset_id=LightwheelAI/leisaac-pick-orange
+
+# Stage 6 (선택적) — Cosmos Transfer 2.5 photorealistic 증강 (GPU).
+# 도메인 랜덤화된 학습 프레임이 필요할 때만 삽입; 이후 Stage 3를 Stage 1
+# 데이터셋 대신 e2e-pipeline-lerobot-dataset-cosmos로 지정하세요.
+osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # Stage 3 — 파인튜닝 (Stage 1 출력 소비). 기본은 N1.6.
 osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
@@ -91,9 +102,17 @@ Stage 5(edge)는 Greengrass 배포입니다 — [05-edge/README.md](05-edge/READ
 ref(`Isaac-GR00T@ead52833`, `leisaac@24d3bcd3`, tyro `0.9.17`)에 대한 소스 레벨
 감사는 2026-07-12에 수행했습니다 — ref를 클론하고 CLI 파싱을 재현하는 방식.
 그 감사가 찾은 CLI 결함은 이후 워크플로우 YAML에서 수정되었습니다(아래 "수정됨"
-참고). GPU에서의 전체 end-to-end 런타임 검증은 여전히 진행 중이며, 각 스테이지가
-실제로 실행되면 산출물이 `e2e-pipeline-examples/<stage>/validation/` 아래에
-쌓여야 합니다.
+참고). 이 순차 파이프라인의 GPU 전체 end-to-end 런타임 검증은 여전히 진행 중이며,
+각 스테이지가 실제로 실행되면 산출물이
+`e2e-pipeline-examples/<stage>/validation/` 아래에 쌓여야 합니다.
+
+다만 이 파이프라인이 재사용하는 GR00T 추론 코드 경로(ZMQ 정책 서버 + rollout)는
+별도로 런타임 검증되었습니다: 독립 예제
+[`examples/closed-loop-sim-eval`](../examples/closed-loop-sim-eval/README.md)
+(RoboCasa GR1)가 2026-07-27 G6e/L40S 노드에서 end-to-end 통과했습니다
+(`success rate: 1.0`). Stage 4(leisaac SO-101)와는 태스크·embodiment가 다르지만
+서버 + rollout 메커니즘은 공유하므로, 그 부분은 이 플랫폼에서 동작함이
+확인되었습니다.
 
 ### 검증 OK (변경 불필요)
 
