@@ -22,12 +22,13 @@ GR00T policy를 Isaac Sim 환경에서 closed-loop으로 평가하는 워크플�
 └─────────────────────────────────────────────────────┘
 ```
 
-Two workflow files:
+Workflow files:
 
-| File | Isaac Lab / Sim | Memory | Notes |
-| --- | --- | --- | --- |
-| `workflow.yaml` | 2.2.0 (Isaac Sim 4.5.0) | 64Gi | stable |
-| `workflow-5.1.yaml` | 2.3.0 (Isaac Sim 5.1.0) | 96Gi | latest |
+| File | Isaac Lab / Sim | Platform | Memory | Notes |
+| --- | --- | --- | --- | --- |
+| `workflow.yaml` | 2.2.0 (Isaac Sim 4.5.0) | `g7e-rtx-pro-6000` | 64Gi | stable |
+| `workflow-5.1.yaml` | 2.3.0 (Isaac Sim 5.1.0) | `g7e-rtx-pro-6000` | 96Gi | latest |
+| `workflow-g6e.yaml` | 2.2.0 (Isaac Sim 4.5.0) | `g6e-l40s` | 90Gi | G6e(L40S) capacity fallback; runtime-validated |
 
 Isaac Lab 2.x 버전 매핑: 2.2.0 = Isaac Sim 4.5.0(stable), 2.3.0 = Isaac Sim
 5.1.0(latest). Isaac Sim 5.0.0(Isaac Lab 2.2.x 계열)은 별도 워크플로우를 두지
@@ -47,6 +48,13 @@ osmo workflow submit examples/closed-loop-sim-eval/workflow.yaml
 
 # latest (Isaac Sim 5.1.0)
 osmo workflow submit examples/closed-loop-sim-eval/workflow-5.1.yaml
+
+# G6e(L40S) capacity fallback (when g7e is unavailable)
+DEPLOY_G6E_NODEPOOL=true scripts/deploy-karpenter.sh
+OSMO_CONFIGURE_G6E_PLATFORM=true scripts/deploy-osmo.sh
+GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
+  scripts/prewarm-gpu-node.sh
+osmo workflow submit examples/closed-loop-sim-eval/workflow-g6e.yaml
 ```
 
 Cleanup:
