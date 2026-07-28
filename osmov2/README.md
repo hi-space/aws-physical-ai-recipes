@@ -52,6 +52,8 @@ versions.yaml      pinned external versions and tested ranges
 - An NGC API key with access to the pinned OSMO images in `nvcr.io/nvidia/osmo`.
 - A Hugging Face token in `HF_TOKEN`, or `HF_TOKEN_FILE` pointing at a readable token file, for the full nut pouring pipeline.
 
+The OSMO CLI is distributed by NVIDIA (NGC), not vendored here — install it from your NVIDIA OSMO distribution and confirm `osmo --version` works before deploying. Once the platform is up, authenticate against the SSO gateway with `scripts/osmo-cli-login.sh` (see the CLI login section below).
+
 Provide the NGC API key as an environment variable or a local key file before running `scripts/preflight.sh` or `scripts/deploy-osmo.sh`:
 
 ```bash
@@ -79,7 +81,17 @@ scripts/deploy-all.sh
 failure it prints the failed step and the exact resume command
 (`RESUME_FROM=N scripts/deploy-all.sh`); each step is idempotent so resuming
 re-runs it cleanly. Useful knobs: `DRY_RUN=true` prints the plan without
-executing, `SKIP_STEPS="5 8"` skips the EFA plugin and CPU smoke test.
+executing, `SKIP_STEPS="5 8"` skips the EFA plugin and CPU smoke test. On
+success the orchestrator prints the CloudFront OSMO UI URL directly (resolved
+from the `infra/cloudfront` output).
+
+Observability (Grafana) is out of scope for `deploy-all.sh`. The eight steps
+deploy OSMO and its SSO gateway but not the AMP/AMG or in-cluster observability
+stack, so the SSO bootstrap points the CloudFront Grafana origin at a
+placeholder. To publish Grafana behind CloudFront, run `deploy-observability.sh`
+(or `deploy-observability-incluster.sh`), re-apply `infra/cloudfront` with
+`CLOUDFRONT_GRAFANA_ALB=<grafana-alb-dns>`, then wire the OSMO backend to it with
+`GRAFANA_URL=https://<grafana-cloudfront-domain> scripts/update-grafana-url.sh`.
 
 To run the steps by hand (or to understand what the orchestrator does):
 

@@ -119,10 +119,16 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   exit 0
 fi
 
+OSMO_UI_DOMAIN="$(terraform -chdir="${ROOT_DIR}/infra/cloudfront" output -raw osmo_ui_cloudfront_domain 2>/dev/null || true)"
+
 log "──────────────────────────────────────────────────────────────"
 log "All steps complete. OSMO is deployed and the CPU smoke path passed."
 log "Next:"
 log "  - GPU smoke:  see README 'Quick Start' (prewarm G7e, gpu-smoke workflow)"
-log "  - UI access:  terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain"
+if [[ -n "${OSMO_UI_DOMAIN}" ]]; then
+  log "  - UI access:  https://${OSMO_UI_DOMAIN}  (Cognito SSO; WAF IP allow list)"
+else
+  log "  - UI access:  terraform -chdir=infra/cloudfront output -raw osmo_ui_cloudfront_domain"
+fi
 log "  - Examples:   examples/README.md,  e2e-pipeline-examples/README.md"
 log "──────────────────────────────────────────────────────────────"

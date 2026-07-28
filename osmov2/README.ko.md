@@ -54,6 +54,8 @@ versions.yaml        고정된 외부 버전 및 테스트된 범위
 - `nvcr.io/nvidia/osmo`의 고정된 OSMO 이미지에 접근 가능한 NGC API 키.
 - 전체 nut pouring 파이프라인을 돌리려면 `HF_TOKEN` 환경변수 또는 읽을 수 있는 토큰 파일을 가리키는 `HF_TOKEN_FILE`.
 
+OSMO CLI는 이 리포에 포함(vendor)하지 않으며 NVIDIA(NGC)가 배포합니다 — 본인의 NVIDIA OSMO 배포판에서 설치한 뒤 배포 전에 `osmo --version`이 동작하는지 확인하세요. 플랫폼이 올라온 뒤에는 `scripts/osmo-cli-login.sh`로 SSO 게이트웨이에 인증합니다(아래 CLI 로그인 섹션 참고).
+
 `scripts/preflight.sh` 또는 `scripts/deploy-osmo.sh` 실행 전에 NGC API 키를 환경변수나 로컬 키 파일로 제공하세요:
 
 ```bash
@@ -80,7 +82,17 @@ scripts/deploy-all.sh
 멈춘 단계와 재개 명령(`RESUME_FROM=N scripts/deploy-all.sh`)을 정확히
 출력합니다. 각 단계는 멱등(idempotent)이라 재개하면 깨끗하게 다시 돕니다.
 유용한 옵션: `DRY_RUN=true`는 실행 없이 계획만 출력하고,
-`SKIP_STEPS="5 8"`은 EFA 플러그인과 CPU 스모크 테스트를 건너뜁니다.
+`SKIP_STEPS="5 8"`은 EFA 플러그인과 CPU 스모크 테스트를 건너뜁니다. 성공 시
+오케스트레이터는 CloudFront OSMO UI URL을 (조회 명령이 아니라) 실제 값으로
+바로 출력합니다(`infra/cloudfront` output에서 조회).
+
+관측성(Grafana)은 `deploy-all.sh` 범위 밖입니다. 8단계는 OSMO와 SSO 게이트웨이는
+배포하지만 AMP/AMG나 in-cluster 관측성 스택은 배포하지 않으므로, SSO 부트스트랩은
+CloudFront Grafana 오리진을 placeholder로 지정합니다. Grafana를 CloudFront 뒤에
+게시하려면 `deploy-observability.sh`(또는 `deploy-observability-incluster.sh`)를
+실행하고, `CLOUDFRONT_GRAFANA_ALB=<grafana-alb-dns>`로 `infra/cloudfront`를
+재적용한 뒤, `GRAFANA_URL=https://<grafana-cloudfront-domain>
+scripts/update-grafana-url.sh`로 OSMO 백엔드에 연결하세요.
 
 단계를 수동으로 실행하려면(또는 오케스트레이터가 하는 일을 이해하려면):
 

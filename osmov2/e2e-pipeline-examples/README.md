@@ -21,7 +21,7 @@ chain, or run any stage on its own.
 | --- | --- | --- |
 | [01-data-prep](01-data-prep/workflow.yaml) | Download a LeRobot dataset from HF, auto-convert v3→v2.1, validate. | — → `e2e-pipeline-lerobot-dataset` |
 | [02-sim](02-sim/workflow.yaml) | Isaac Lab RL: train H1 humanoid to walk (PPO), replay + record video. | — → `e2e-pipeline-sim-rl-artifacts` |
-| [03-training](03-training/workflow.yaml) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
+| [03-training](03-training/workflow.yaml) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. Default N1.6; [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml) is the optional N1.7 path. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
 | [04-closeloop](04-closeloop/workflow.yaml) | LeIsaac + SO-101 + kitchen scene closed-loop eval against the ZMQ policy server. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
 | [05-edge](05-edge/README.md) | Greengrass components that run the GR00T policy server on a robot. | S3 model → on-device server |
 
@@ -31,7 +31,7 @@ chain, or run any stage on its own.
 | --- | --- | --- |
 | 01-data-prep | `groot/training/data/{upload_dataset,convert_v3_to_v2}.py` | Writes to an OSMO dataset instead of S3; conversion logic embedded inline. |
 | 02-sim | Modules 2–4, `scripts/reinforcement_learning/skrl/{train,play}.py` | Runs headless in an OSMO pod; exports checkpoint + TensorBoard + video as a dataset. |
-| 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py}`, `groot/training/data/configs/so101_modality_config.py` | Single-pod OSMO task; consumes Stage 1 dataset; SO-101 modality config + `use_relative_action` knob. |
+| 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | Single-pod OSMO task; consumes Stage 1 dataset; SO-101 modality config. Default N1.6 (`launch_finetune.py`); N1.7 variant inlines the `finetune_gr00t.py` `experiment.run()` path. |
 | 04-closeloop | `groot/inference/run-isaaclab.sh` | Same LeIsaac install + N1.6 language-key patch + headless-keyboard patch + kitchen_with_orange/so101_follower assets, orchestrated by OSMO instead of Docker-on-DCV. |
 | 05-edge | `edge/workshop-components/N1.6/com.workshop.{setup,inference}` | Model from S3 (not CloudFront tarball); parameterized ECR image; TRT optional. |
 
@@ -46,10 +46,16 @@ GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 osmo workflow submit e2e-pipeline-examples/01-data-prep/workflow.yaml \
   --set hf_dataset_id=LightwheelAI/leisaac-pick-orange
 
-# Stage 3 — fine-tune (consumes Stage 1 output)
+# Stage 3 — fine-tune (consumes Stage 1 output). Default is N1.6.
 osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
+
+# Stage 3 (N1.7 variant) — needs HF_TOKEN for the gated Cosmos-Reason2-2B backbone;
+# writes to e2e-pipeline-groot-checkpoint-n17 (Stage 4 must be overridden for N1.7).
+osmo workflow submit e2e-pipeline-examples/03-training/workflow-n1.7.yaml \
+  --set input_dataset=e2e-pipeline-lerobot-dataset \
+  --set max_steps=6000 --set save_steps=2000
 
 # Stage 4 — closed-loop eval (consumes Stage 3 output)
 osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
@@ -122,10 +128,18 @@ leisaac official example in `docs/docs/resources/available_policy.md` (N1.6):
 
 ### Still to decide / verify at runtime
 
-- [ ] **Stage 3 N1.6 vs N1.7.** Upstream `finetune_gr00t.py` defaults to
-      `nvidia/GR00T-N1.7-3B`. This recipe uses `launch_finetune.py` (hardcoded
-      N1.6 Eagle backbone) + `nvidia/GR00T-N1.6-3B` — self-consistent with the
-      pinned commit, but diverges from the workshop's N1.7 intent.
+- [x] **Stage 3 N1.6 vs N1.7 — both paths now provided.** The workshop's main
+      fine-tuning module (`infra/groot`) targets `nvidia/GR00T-N1.7-3B` via
+      `finetune_gr00t.py` (the `experiment.run()` API). N1.6 is kept as the
+      default (`workflow.yaml`, `launch_finetune.py`, no gated backbone, easier
+      to reproduce); N1.7 is a separate optional path
+      ([workflow-n1.7.yaml](03-training/workflow-n1.7.yaml)) that pins
+      `gr00t_ref=23ace64f…`, uses `nvidia/GR00T-N1.7-3B`, and inlines a
+      single-pod port of upstream `finetune_gr00t.py`. N1.7 needs `HF_TOKEN`
+      with access to the gated `nvidia/Cosmos-Reason2-2B` backbone.
+      **Chaining note:** the N1.7 checkpoint requires an N1.7-compatible
+      server/policy client in Stage 4, which currently pins the N1.6 `gr00t_ref`
+      + `--policy_type gr00tn1.6`; override Stage 4 before chaining N1.7.
 - [ ] **Stage 3 `max_steps`/`save_steps` are tiny** (smoke checks). Scale up
       for a policy-quality run.
 - [ ] **Stage 4 emits no video.** `policy_inference.py` sets
