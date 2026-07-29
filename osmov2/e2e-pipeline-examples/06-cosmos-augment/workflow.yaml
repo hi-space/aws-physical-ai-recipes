@@ -135,7 +135,11 @@ workflow:
           exit 1
         fi
 
-        while IFS= read -r mp4_file; do
+        # Read the list on FD 9, not stdin: Cosmos' inference.py consumes stdin,
+        # which would drain MP4_LIST_FILE and silently end the loop after the
+        # first video (leaving later camera mp4s un-augmented but exiting 0).
+        AUGMENTED_COUNT=0
+        while IFS= read -r -u 9 mp4_file; do
           [ -f "${mp4_file}" ] || continue
           rel="${mp4_file#${OUT_DS}/}"
           echo "=== Augmenting ${rel} ==="
@@ -224,11 +228,25 @@ workflow:
             echo "   WARN: could not probe source frames/fps (frames='${src_nframes}' fps='${src_fps}'); copying Cosmos clip without frame re-alignment" >&2
             cp "${gen}" "${mp4_file}"
           fi
-          echo "   wrote augmented ${rel}"
-        done < "${MP4_LIST_FILE}"
+          AUGMENTED_COUNT=$((AUGMENTED_COUNT + 1))
+          echo "   wrote augmented ${rel} (${AUGMENTED_COUNT}/${MP4_COUNT})"
+
+          # Cosmos writes into a fixed outputs dir; clear it so the next
+          # iteration's `find ... | head -1` cannot pick up this clip again.
+          rm -rf /workspace/cosmos-transfer2.5/outputs
+          mkdir -p /workspace/cosmos-transfer2.5/outputs
+        done 9< "${MP4_LIST_FILE}"
+
+        # Every discovered mp4 must have been augmented; a short count means the
+        # loop skipped one (the stdin-drain bug's signature) and the dataset would
+        # ship a mix of augmented and untouched clips under a "success" status.
+        if [ "${AUGMENTED_COUNT}" -ne "${MP4_COUNT}" ]; then
+          echo "augmented ${AUGMENTED_COUNT} of ${MP4_COUNT} mp4s — refusing to publish a partially augmented dataset" >&2
+          exit 1
+        fi
 
         # --- Manifest ----------------------------------------------------------
-        python3 - "${OUT_DS}" "${ARTIFACT_DIR}" "${CONTROL}" "${MP4_COUNT}" <<'PYMAN'
+        python3 - "${OUT_DS}" "${ARTIFACT_DIR}" "${CONTROL}" "${AUGMENTED_COUNT}" <<'PYMAN'
         import json, sys
         from pathlib import Path
         out_ds, artifact_dir, control, count = sys.argv[1:5]
@@ -247,7 +265,7 @@ workflow:
         PYMAN
 
         echo "=== Cosmos augmentation complete ==="
-        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -100
+        find "${ARTIFACT_DIR}" -maxdepth 5 -type f | sort | head -100
         exit 0
     outputs:
     - dataset:

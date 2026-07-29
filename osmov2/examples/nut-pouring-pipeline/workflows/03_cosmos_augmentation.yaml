@@ -86,7 +86,11 @@ workflow:
               find {{input:0}} -maxdepth 3 -type f | head -n 50
               exit 1
           fi
-          while IFS= read -r mp4_file; do
+          # Read the list on FD 9, not stdin: Cosmos' inference.py consumes stdin,
+          # which would drain MP4_LIST_FILE and silently end the loop after the
+          # first demo (leaving the rest un-augmented but still exiting 0).
+          AUGMENTED_COUNT=0
+          while IFS= read -r -u 9 mp4_file; do
               # Skip depth videos - only process RGB videos
               if [[ "$mp4_file" == *"_depth.mp4" ]]; then
                   continue
@@ -146,9 +150,23 @@ workflow:
                       fi
                   fi
 
-                  echo "Completed: $demo_name"
+                  AUGMENTED_COUNT=$((AUGMENTED_COUNT + 1))
+                  echo "Completed: $demo_name ($AUGMENTED_COUNT/$MP4_COUNT)"
+
+                  # Cosmos writes into a fixed outputs dir; clear it so the next
+                  # demo cannot re-copy this demo's clip.
+                  rm -rf /workspace/cosmos-transfer2.5/outputs
+                  mkdir -p /workspace/cosmos-transfer2.5/outputs
               fi
-          done < "$MP4_LIST_FILE"
+          done 9< "$MP4_LIST_FILE"
+
+          # Every discovered RGB mp4 must have been augmented; a short count means
+          # the loop skipped one (the stdin-drain bug's signature) and the dataset
+          # would ship a mix of augmented and missing demos under a "success" status.
+          if [ "$AUGMENTED_COUNT" -ne "$MP4_COUNT" ]; then
+              echo "augmented $AUGMENTED_COUNT of $MP4_COUNT mp4s — refusing to publish a partially augmented dataset" >&2
+              exit 1
+          fi
 
           echo "=== Cosmos Transfer 2.5 Augmentation Complete ==="
           echo "Output directory contents:"
