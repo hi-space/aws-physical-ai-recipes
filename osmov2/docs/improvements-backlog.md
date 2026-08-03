@@ -1,0 +1,260 @@
+# 개선 백로그 (Improvements Backlog)
+
+OSMO 배포/파이프라인 운영 중 발견한 개선 항목 모음. 우선순위나 담당자와 무관하게
+"나중에 손봐야 할 것"을 잊지 않도록 기록한다.
+
+작성 시작: 2026-08-03
+
+---
+
+## 1. 로그인 시 Cognito ID 체계가 다르게 보이는 부분
+
+증상
+- OSMO Admin UI에 Cognito SSO로 로그인하면, UI/CLI에서 표시되는 사용자 식별자가
+  로그인할 때 입력한 이메일이 아니라 Cognito subject(UUID, `sub`)로 보인다.
+- `osmo user ...` 명령이나 workflow submitter 필드에서도 사람이 읽기 어려운
+  UUID 형태로 나타나 "누가 무엇을 했는지" 파악이 번거롭다.
+
+배경 / 원인 추정
+- oauth2-proxy가 OIDC로 받은 토큰의 subject(`sub`) 클레임을 OSMO 사용자 ID로
+  사용한다. `deploy-osmo.sh`도 Cognito `admin_user_sub`(=UUID)에 `osmo-admin`
+  역할을 부여하는 구조라, OSMO 내부 식별자는 이메일이 아닌 sub 기반이다.
+- 관련 문서: `infra/cognito/README.md` (Initial login user / admin_user_sub 설명).
+
+근본 원인 조사 완료 (2026-08-03, 라이브 + NVIDIA/OSMO 소스 확인)
+- 실증 케이스: UI가 `user:a41824c8-c021-7069-1f51-1d2b9a320991`로만 조회 → 실제
+  워크플로우 owner(`testuser`, CLI는 `admin`)와 안 맞아 목록이 비거나 어긋남.
+  - 이 UUID를 Cognito에서 역조회하면 `admin@osmo.local` (user_pool us-east-1_VsXQ6MpoR).
+- 두 개의 서로 다른 정체성 체계가 공존한다:
+  - 웹 SSO 경로: gateway Envoy jwt provider(cognito)가 `user_claim: sub`
+    (`deploy-osmo.sh` L347-355) → 워크플로우 owner를 `x-osmo-user`=sub(UUID)로 기록.
+  - CLI 토큰 경로: osmo-service 발급 토큰의 `unique_name`(`deploy-osmo.sh` L346)
+    → owner가 `admin`/`testuser` 등 사람이 읽는 이름.
+  - 같은 관리자라도 웹=UUID, CLI=이름으로 갈려 서로의 워크플로우가 상대 필터에 안 잡힘.
+- 결정적: UI의 "My Workflows" 필터가 쓰는 정체성은 Envoy의 `x-osmo-user`(=sub)가
+  아니라 oauth2-proxy 헤더 `x-auth-request-preferred-username`이다.
+  (`src/ui/src/lib/auth/server.production.ts` L43,48: getServerUsername =
+   `x-auth-request-preferred-username || x-auth-request-user`;
+   `.../workflows/list/components/workflows-toolbar.tsx` L81-91: My Workflows 프리셋이
+   `user:${currentUsername}` 칩을 만듦.)
+  → gateway 주석(L351-354, "UI가 sub로 필터하므로 owner도 sub여야 한다")의 전제는
+    이 UI 버전에서는 틀렸다. UI 표시/필터는 preferred_username, owner 기록은 sub.
+- 왜 하필 sub가 뜨나: Cognito `admin@osmo.local`에는 `preferred_username` 속성이
+  아예 없다(email/email_verified/sub만 존재). oauth2-proxy는 preferred_username
+  클레임이 없으면 sub로 폴백 → UI가 `user:<sub>`로 필터.
+- OSMO에는 표시명 메커니즘이 이미 있다(`src/ui/src/lib/auth/README.md`):
+  `x-auth-request-email`(email), `x-auth-request-name`(JWT `name` claim, Envoy Lua),
+  `x-auth-request-preferred-username`(username). 즉 UI는 UUID가 아니라 이름/이메일을
+  보여줄 수 있게 설계돼 있으나, 우리 IdP가 해당 클레임을 안 채워서 sub로 떨어짐.
+
+개선 방안 상세 검토
+- 방안 A (권장, 저위험): Cognito 사용자에 `preferred_username`(또는 최소 email 노출)
+  을 채우고, oauth2-proxy가 그 클레임을 x-auth-request-preferred-username으로
+  전달하도록 확인.
+  - 효과: UI "My Workflows" 필터와 표시가 사람이 읽는 값이 됨(UUID 탈출).
+  - 주의: 이건 UI 필터(preferred_username)만 바꿀 뿐, 워크플로우 owner 기록
+    (`x-osmo-user`=sub)은 그대로다. 즉 "표시/내 잡 필터"는 개선되지만, 웹에서 만든
+    잡(owner=sub)과 CLI에서 만든 잡(owner=unique_name)의 owner 문자열 불일치는 남음.
+  - OSMO 공식 IdP 가이드도 `user_claim: preferred_username`을 표준 예시로 제시
+    (`docs/.../identity_provider_setup.rst` L111; Google은 email, L148).
+- 방안 B (owner 통일, 중위험): gateway cognito provider `user_claim`을 sub→email
+  (또는 preferred_username)로 변경.
+  - 효과: 웹 워크플로우 owner가 사람이 읽는 값이 됨.
+  - 트레이드오프: gateway 주석 경고대로, "기존 sub로 만들어진 잡"이 새 필터값으로는
+    안 보이게 됨(마이그레이션 필요). 또한 CLI(unique_name=admin)와 웹(email=
+    admin@osmo.local)은 여전히 문자열이 달라 완전 통일은 아님.
+  - IdP role 매핑(`admin_user_sub`에 osmo-admin 부여, infra/cognito)이 sub 기준이면
+    이쪽도 함께 재검토 필요.
+- 방안 C (완전 통일, 고위험/upstream): CLI 토큰의 unique_name까지 sub(또는 email)로
+  맞춰 웹/CLI owner를 단일화. osmo-service 토큰 발급 로직 변경이라 upstream 의존적.
+- 최소(무코드): 문서에 "UI에 뜨는 UUID=Cognito sub, admin@osmo.local이며 이메일은
+  Cognito 콘솔/CLI에서 역조회" + "CLI 제출 잡은 owner=unique_name이라 웹 My Workflows
+  필터에 안 잡힐 수 있음" 명시.
+
+권장 순서: 방안 A(preferred_username/email 클레임 채우기)로 UI 표시·필터부터 사람이
+읽게 만들고, owner 통일이 실제로 필요하면 방안 B를 마이그레이션 계획과 함께 검토.
+
+---
+
+## 2. 파이프라인 학습 메트릭(epoch/loss 등)을 Grafana로 통합
+
+증상
+- GPU 워크플로우 실행 시 Grafana(AMG)에는 DCGM GPU 메트릭(util/VRAM/power/temp)만
+  보이고, 학습 스칼라(loss, learning_rate, epoch, step 등 예전 MLflow에서 보던
+  값)는 대시보드에 나타나지 않는다.
+
+배경 / 원인
+- 학습 잡은 ephemeral pod라 Prometheus가 직접 scrape하기 어렵다. HF Trainer는
+  스칼라를 stdout에만 찍는다.
+- 저장소에는 이미 Pushgateway 패턴이 존재한다:
+  - `scripts/deploy-observability-incluster.sh` (in-cluster 경로에서 Pushgateway
+    helm 배포 + `additionalScrapeConfigs`에 pushgateway job, `honor_labels: true`)
+  - `examples/isaaclab-rsl-rl-video/workflow-g6*.yaml` (TensorBoard→Pushgateway
+    실시간/최종 push, `isaac_*` 메트릭)
+  - `versions.yaml`의 `observability_incluster` 블록
+    (canonical 서비스명 `aws-osmo-pushgateway-prometheus-pushgateway`)
+- 단, AMP+AMG 경로(`scripts/deploy-observability.sh`)에는 Pushgateway가 없다.
+
+PoC 검증 완료 (2026-08-03)
+- `03-training`(GR00T fine-tune)의 임시 복사본으로 PoC 수행: launch_finetune.py
+  stdout을 stdlib 파서(`push_metrics.py`)로 tee하면서 loss/lr/grad_norm/step을
+  Pushgateway로 push → Prometheus remote_write → AMP → AMG Grafana까지 도달 확인.
+- AMP SigV4 쿼리 결과: `groot_train_loss=1.1076`, `groot_learning_rate=3.02e-06`,
+  `groot_grad_norm=2.6554`, `groot_global_step` (workflow 레이블 = pod id).
+- 주의: PoC는 bare Service `aws-osmo-pushgateway`(수동 생성)를 사용했으나,
+  정식 반영 시에는 canonical 서비스명을 써야 함(위 versions.yaml 참조).
+
+정식화 완료 (2026-08-03)
+- 인프라: `scripts/deploy-observability.sh`(AMP+AMG 경로)에도 Pushgateway를 배포하도록
+  반영됨 — 위 "AMP 경로엔 Pushgateway 없음" 갭 해소. in-cluster 경로
+  (`deploy-observability-incluster.sh`)와 canonical 서비스명
+  `aws-osmo-pushgateway-prometheus-pushgateway.monitoring.svc.cluster.local:9091` 동일.
+- 대시보드: `AWS OSMO Overview`에 "GR00T training scalars" row(패널 id 11–15) 추가
+  (`import_aws_osmo_overview_dashboard`). loss/lr/grad_norm/epoch/step 표시.
+- 재사용 가능한 pusher: `scripts/push_metrics.py`를 canonical 복사 원본으로 추출
+  (03-training의 GR00T 전용 파서를 일반화 — stdlib only, `METRICS_PREFIX`/`METRICS_JOB`/
+  `WORKFLOW_ID` env로 스테이지별 커스터마이즈, `PUSHGATEWAY_URL` 비면 순수 tee no-op).
+- 가이드: `docs/adding-workflow-metrics.md` (+ `.ko.md`) — 새 파이프라인 스테이지에서
+  메트릭을 Grafana에 추가하는 방법 문서화(두 push 패턴, quick start 4단계, 패널 추가,
+  검증, 함정). item 2의 "쉽게 하는 방법/가이드" 요청에 대한 답.
+
+남은 커버리지 갭
+- 실제로 메트릭을 push하는 스테이지: `03-training/workflow.yaml`,
+  `03-training/workflow-n1.7.yaml`(둘 다 stdout/tee, `job=groot_training`,
+  `groot_*` 메트릭 → 대시보드 패널과 일치), `examples/isaaclab-rsl-rl-video`
+  (file-export, `isaac_*`).
+- 아직 미이식: 나머지 GPU 스테이지 `02-sim`/`04-closeloop`/`06-cosmos-augment`.
+  위 가이드(`docs/adding-workflow-metrics.md`)대로 `push_metrics.py`를 인라인
+  이식하고 스테이지별 `METRICS_JOB`/`METRICS_PREFIX`를 지정하면 메트릭이 뜬다.
+  (01-data-prep은 CPU 전용이라 GPU/학습 메트릭 대상 아님.)
+
+---
+
+## 3. 상세 화면의 output 경로 / 내부 DNS 링크 개선
+
+증상
+- OSMO workflow 상세(overview) 화면의 링크가 내부 클러스터 DNS를 가리켜
+  브라우저에서 열리지 않는다.
+  예: `http://osmo-internal-router.osmo.svc.cluster.local/workflows/<id>`
+- 산출물(output) 경로 링크가 죽은 UI 라우트로 연결된다. 실제 데이터셋은
+  Datasets 페이지에서 접근해야 한다(outputs 링크로는 도달 불가).
+
+배경 / 원인
+- workflow overview URL이 클러스터 내부 서비스 FQDN으로 렌더링됨(공개 도메인/
+  CloudFront 주소가 아님).
+- outputs 링크가 실제 존재하는 UI 라우트가 아니라 Datasets 페이지가 정답.
+- us-west-2 등 일부 리전에는 Grafana(AMG) 자체가 없어 `grafana_url`이 빈 값이
+  정상(세팅하면 오히려 403).
+
+근본 원인 조사 완료 (2026-08-03, NVIDIA/OSMO 소스 확인)
+- 두 링크는 백엔드가 값을 만들어 DB에 저장하며, 서로 다른 config에서 조립된다
+  (`src/utils/job/workflow.py`):
+  - Outputs(Artifacts & results) 링크 (L1192-1193):
+    `outputs = workflow_data.base_url + "/" + workflow_id` (base_url 비면 빈 문자열).
+    우리 배포는 `WORKFLOW.workflow_data.base_url`에 내부 FQDN이 들어가 있어
+    `http://osmo-internal-router.osmo.svc.cluster.local/workflows/<id>`가 됨.
+  - Overview 링크 / Slack 알림 (L1260-1262):
+    `service_base_url`에서 scheme+hostname만 뽑아 `/workflows/<id>`를 붙임.
+    소스는 `SERVICE.service_base_url` (역시 내부 FQDN).
+- 설정 위치(우리 스크립트): `scripts/deploy-osmo.sh`
+  - L80-84: `OSMO_SERVICE_CALLBACK_URL`, `OSMO_WORKFLOW_DATA_BASE_URL` 둘 다
+    기본값이 `http://${OSMO_INTERNAL_ROUTER_NAME}.${OSMO_NAMESPACE}.svc.cluster.local`.
+  - L612-615(service_base_url), L631-634(workflow_data.base_url)에서 config로 주입.
+- UI에는 이미 프록시 재작성 함수가 있다(`src/ui/src/lib/config.ts`의 `toProxiedPath`
+  / `toProxiedWsHost`): 백엔드가 내부 host를 반환해도 same-origin(CloudFront) 경로로
+  재작성. 로그/이벤트/스펙 스트림에는 적용됨. 그러나 상세화면 Links 섹션의
+  Outputs/Overview 하이퍼링크(`workflow-details.tsx` L266 `url: workflow.outputs`)에는
+  `toProxiedPath`가 적용되지 않아 내부 FQDN이 그대로 노출됨.
+
+핵심 판단 (base_url 변경으로는 Outputs 링크를 못 고친다 — 2026-08-03 최종 확정)
+- `service_base_url`(=Overview 링크 소스)은 워크플로우 컨트롤플레인 콜백(agent→
+  service, 클러스터 내부) 겸용 → CloudFront로 바꾸면 실행이 깨질 위험. 그대로 둠.
+- `workflow_data.base_url`(=Outputs 링크 소스)은 UI 표시용 하이퍼링크 전용임을
+  실증 확정(내부 라우터로 `base_url + /<id>` 및 `/api/workflow/<id>/data`,`/download`,
+  `/outputs` 전부 404, `/api/workflow/<id>`만 200; 데이터는 credential.endpoint
+  s3://로만 전송; CLI에 output download 서브커맨드 없음). → base_url을 바꿔도
+  다운로드/전송엔 사이드이펙트 없음. 여기까진 맞음.
+- 그러나 결정적 오진: Outputs 링크 형식 `<base_url>/<workflow_id>`의 `/<workflow_id>`
+  경로 자체가 OSMO UI에 존재하지 않는 라우트다. base_url을 CloudFront로 바꾸면 호스트만
+  공개 도메인이 될 뿐, 로그인 상태 브라우저에서 클릭하면 여전히 404(라우트 없음).
+  사용자가 `https://<cf>/aws-osmo-smoke-2`에서 404 확인(2026-08-03). 즉 config로는
+  못 고치는 upstream UI 버그이며, 이전 usw2 진단("죽은 UI 라우트")이 옳았다.
+
+적용 시도 → 롤백 (2026-08-03, use1)
+- `osmo config update WORKFLOW`로 `workflow_data.base_url`을 내부 라우터 FQDN →
+  `https://d6zt7c9afq74q.cloudfront.net`로 변경. 신규 워크플로우 `.outputs`가 CloudFront
+  도메인으로 렌더되는 것까지는 확인했으나, 클릭 시 여전히 404(위 참조).
+- 이득이 없어 라이브 config와 `deploy-osmo.sh`를 모두 내부 라우터 FQDN으로 롤백함
+  (deploy-osmo.sh는 git diff 없음 = 원상복구). 현재 라이브 base_url =
+  `http://osmo-internal-router.osmo.svc.cluster.local`.
+- 백업: `/tmp/workflow-config-backup-*.json`.
+
+실제 산출물 접근 (동작 확인 — 이게 정답)
+- Output dir 링크 대신 Datasets 페이지 사용:
+  `https://<cloudfront>/datasets/aws-osmo/<output-dataset-name>`
+  - 01-data-prep → `e2e-pipeline-lerobot-dataset`
+  - 02/03-training → `e2e-pipeline-groot-checkpoint`
+  - sim-rl → `e2e-pipeline-sim-rl-artifacts`
+  - 04-closeloop → `e2e-pipeline-closeloop-artifacts`
+- 워크플로우의 output_dataset 이름은 `osmo workflow spec <id>`의 outputs.dataset.name
+  또는 `osmo dataset list`로 확인.
+
+부수 발견 (별건, 안전한 교정 후보 — 미적용)
+- 라이브 `BACKEND default`의 `router_address`가 `wss://placeholder.cloudfront.net`로
+  남아 있음. SSO 부트스트랩(`deploy-osmo-sso-bootstrap.sh` L45
+  `PLACEHOLDER_HOSTNAME=placeholder.cloudfront.net`)이 남긴 값으로, 실제 CloudFront
+  도메인(`wss://${OSMO_HOSTNAME}`)으로 재적용이 안 된 상태. 이건 실시간 로그 웹소켓
+  붙는 주소라 공개 도메인이 맞고 콜백 겸용이 아니므로 상대적으로 안전한 교정 후보.
+
+upstream UI 수정 조사 완료 (2026-08-03, web-ui:6.3.1 컨테이너 내부 빌드 분석)
+- UI 소스는 이 레포에 없음(NVIDIA upstream). 배포 이미지 `nvcr.io/nvidia/osmo/web-ui:6.3.1`
+  는 distroless Next.js standalone 빌드(`/app`, 셸 없음 → `node`로 조사).
+- 링크 렌더 지점(빌드 청크 `/app/.next/server/chunks/ssr/_1-x15q6._.js`):
+  Links 섹션이 `{id:"outputs", label:"Outputs", description:"Artifacts & results",
+  url:a.outputs, icon:Package}`로, 백엔드가 준 `a.outputs`(=`base_url/<workflow_id>`)를
+  그대로 href로 씀. `toProxiedPath`도 dataset 경로 변환도 안 거침.
+- 실제 UI 라우트(`/app/.next/server/app`의 page.js): `/workflows/[name]`,
+  `/datasets/[bucket]/[name]`, `/datasets/[bucket]`, `/datasets`, `/pools`,
+  `/resources` 등. `/<workflow_id>` 라우트는 아예 없음 → 무조건 404 확정.
+- 걸림돌: 워크플로우 API 응답(`osmo workflow query -t json`)에 output dataset의
+  bucket/name이 없음(top-level 키에 outputs 문자열만; dataset 정보는 `spec`에만
+  `outputs[].dataset.name = aws-osmo/e2e-pipeline-sim-rl-artifacts` 형태로 존재).
+  즉 UI가 dataset 페이지로 링크하려면 (a) 백엔드가 workflow 응답에 output dataset
+  (bucket/name)을 추가하거나, (b) UI가 spec을 별도 fetch해 파싱해야 함.
+
+개선 방향(후보)
+- (upstream, 정공법) 두 갈래:
+  1) 백엔드 `update_output_path`(workflow.py)가 `base_url/<id>` 대신 output dataset
+     경로를 알면 UI 링크 없이도 정답 URL 생성 가능하나, 지금 응답엔 dataset 정보가
+     빠져 있어 백엔드 변경 필요.
+  2) UI `workflow-details.tsx`가 outputs 링크를 `a.outputs` 대신 output dataset
+     페이지(`/datasets/<bucket>/<name>`)로 라우팅. 단 현재 workflow 객체엔 dataset이
+     없으니 spec fetch 또는 API 확장 선행 필요. 우리 배포 UI는 chart 이미지라 반영엔
+     커스텀 빌드/이미지 교체가 필요(upstream 기여가 현실적).
+- (문서, 즉시 가능) "Output dir 링크는 upstream 버그로 404. 산출물은 Datasets 페이지
+  (`/datasets/aws-osmo/<output-dataset>`)에서 접근" 안내를 README/운영노트에 명시.
+- (우리 배포, 저위험) `router_address` placeholder를 실제 CloudFront 도메인으로 교정
+  (BACKEND config 수정 + deploy-osmo.sh에 설정 추가). 콜백 겸용이 아님을 재확인 후.
+- 리전별 Grafana 유무에 따른 `grafana_url` 세팅 가이드 정리.
+
+---
+
+## 4. kubectl port-forward가 큰 workflow submit에서 리셋됨 (운영 노트)
+
+증상
+- `osmo workflow submit`을 `kubectl -n osmo port-forward svc/osmo-internal-router
+  9100:80` 경유로 보낼 때, payload가 크면(예: 23KB 04-closeloop) "Connection
+  reset by peer" / "error creating error stream for port 9100 -> 8080: Timeout
+  occurred"로 실패한다. 작은 payload(예: 14KB PoC)나 `osmo workflow list`는 성공.
+
+배경 / 원인
+- kubectl port-forward(SPDY)가 큰 요청 body에서 error-stream 생성에 타임아웃.
+  port-forward를 새로 띄운 직후에는 첫 대형 요청이 통과하지만, 시간이 지나면
+  타임아웃이 누적돼 재시도가 계속 리셋된다.
+- OSMO CLI 엔드포인트는 `~/.config/osmo/login.yaml`에서 `http://127.0.0.1:9100`
+  으로 고정 → port-forward가 유일한 진입점인 로컬 개발 환경 특유의 문제.
+
+워크어라운드 (검증됨 2026-08-03)
+- 대형 submit 직전에 port-forward를 새로 재시작하면 첫 요청이 통과한다.
+- 근본 해결 후보: gateway를 ALB/CloudFront 공개 엔드포인트로 접근하도록 CLI url
+  변경, 또는 클러스터 내부 pod에서 submit, 또는 port-forward 대신 `kubectl exec`.

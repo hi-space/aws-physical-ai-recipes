@@ -58,6 +58,15 @@ workflow:
         export UV_PROJECT_ENVIRONMENT=/tmp/gr00t-venv
         export WANDB_DISABLED=true
 
+        # Push HF Trainer scalars (loss/lr/epoch/grad_norm) to the in-cluster
+        # Prometheus Pushgateway so they land in Grafana alongside DCGM GPU
+        # metrics. Best-effort: if pushgateway_url is empty (no in-cluster
+        # observability), push_metrics.py just tees stdout and pushes nothing.
+        # The workflow id is a label so a Grafana panel can filter per run.
+        PUSHGATEWAY_URL="{{ pushgateway_url }}"
+        METRICS_JOB="groot_training"
+        WORKFLOW_ID="${HOSTNAME}"
+
         BASE_MODEL_PATH="{{ base_model_path }}"
         GROOT_VERSION="{{ groot_version }}"
         EMBODIMENT_TAG="{{ embodiment_tag }}"
@@ -147,7 +156,12 @@ workflow:
         export REPORT_TO=tensorboard
         export PYTHONPATH="/tmp/Isaac-GR00T:${PYTHONPATH:-}"
 
-        uv run python /tmp/finetune_gr00t.py
+        # Pipe training stdout through the metrics pusher (tee keeps the original
+        # stream visible in `osmo workflow logs`). set -o pipefail is already on,
+        # so finetune_gr00t.py's exit status still propagates.
+        uv run python /tmp/finetune_gr00t.py 2>&1 \
+          | PUSHGATEWAY_URL="${PUSHGATEWAY_URL}" METRICS_JOB="${METRICS_JOB}" \
+            WORKFLOW_ID="${WORKFLOW_ID}" python3 -u /tmp/push_metrics.py
 
         kill "${GPU_METRICS_PID}" 2>/dev/null || true
         python /tmp/gpu_metrics_summary.py "${GPU_METRICS_DIR}/nvidia-smi.csv" "${GPU_METRICS_DIR}" || true
@@ -180,6 +194,64 @@ workflow:
 
         find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -200
         exit 0
+    - path: /tmp/push_metrics.py
+      contents: |
+        # Read HF Trainer stdout on stdin, echo it back unchanged (so the OSMO
+        # workflow log is preserved), and push loss/lr/epoch/grad_norm scalars to
+        # a Prometheus Pushgateway. Uses only the stdlib so it runs under the
+        # system python3 without touching the training venv. No-op (pure tee) if
+        # PUSHGATEWAY_URL is empty; every push is wrapped so metrics can never
+        # break training.
+        import ast
+        import os
+        import re
+        import sys
+        import urllib.request
+
+        PGW = os.environ.get("PUSHGATEWAY_URL", "").rstrip("/")
+        JOB = os.environ.get("METRICS_JOB", "groot_training")
+        WF = os.environ.get("WORKFLOW_ID", "unknown")
+        LOSS_RE = re.compile(r"(\{[^{}]*'loss'[^{}]*\})")
+
+        def push(step, d):
+            if not PGW:
+                return
+            lines = []
+            for key, metric in (
+                ("loss", "groot_train_loss"),
+                ("learning_rate", "groot_learning_rate"),
+                ("epoch", "groot_epoch"),
+                ("grad_norm", "groot_grad_norm"),
+            ):
+                if key in d:
+                    try:
+                        lines.append("{} {}".format(metric, float(d[key])))
+                    except (TypeError, ValueError):
+                        pass
+            lines.append("groot_global_step {}".format(step))
+            body = ("\n".join(lines) + "\n").encode()
+            url = "{}/metrics/job/{}/workflow/{}".format(PGW, JOB, WF)
+            try:
+                req = urllib.request.Request(url, data=body, method="POST")
+                urllib.request.urlopen(req, timeout=5).read()
+            except Exception as exc:  # noqa: BLE001 - metrics must never break training
+                sys.stderr.write("push_metrics: {}\n".format(exc))
+
+        step = 0
+        for line in sys.stdin:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            m = LOSS_RE.search(line)
+            if not m:
+                continue
+            try:
+                d = ast.literal_eval(m.group(1))
+            except (ValueError, SyntaxError):
+                continue
+            if "loss" not in d:
+                continue
+            step += 1
+            push(step, d)
     - path: /tmp/finetune_gr00t.py
       contents: |
         #!/usr/bin/env python3
@@ -530,3 +602,7 @@ default-values:
   dataloader_num_workers: 4
   retain_model_weights: "true"
   gpu_metrics_interval_seconds: 10
+  # In-cluster Pushgateway (scripts/deploy-observability*.sh). HF Trainer
+  # loss/lr/epoch/grad_norm are pushed here so they show in the same Grafana as
+  # DCGM GPU metrics. Empty string disables the push (pure stdout tee).
+  pushgateway_url: "http://aws-osmo-pushgateway-prometheus-pushgateway.monitoring.svc.cluster.local:9091"

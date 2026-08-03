@@ -255,10 +255,52 @@ import_aws_osmo_overview_dashboard() {
             targets: [{refId: "A", expr: "up{namespace=\"osmo\"}", format: "table", instant: true}]
           },
           {
+            id: 11,
+            type: "row",
+            title: "GR00T training scalars (Pushgateway)",
+            gridPos: {h: 1, w: 24, x: 0, y: 40}
+          },
+          {
+            id: 12,
+            type: "timeseries",
+            title: "Training loss",
+            description: "HF Trainer loss pushed by 03-training via Pushgateway (job=groot_training). Empty until a training workflow runs.",
+            datasource: {type: "prometheus", uid: $datasource_uid},
+            gridPos: {h: 8, w: 12, x: 0, y: 41},
+            targets: [{refId: "A", expr: "groot_train_loss{job=\"groot_training\"}", legendFormat: "{{workflow}}"}]
+          },
+          {
+            id: 13,
+            type: "timeseries",
+            title: "Learning rate",
+            datasource: {type: "prometheus", uid: $datasource_uid},
+            gridPos: {h: 8, w: 12, x: 12, y: 41},
+            targets: [{refId: "A", expr: "groot_learning_rate{job=\"groot_training\"}", legendFormat: "{{workflow}}"}]
+          },
+          {
+            id: 14,
+            type: "timeseries",
+            title: "Gradient norm",
+            datasource: {type: "prometheus", uid: $datasource_uid},
+            gridPos: {h: 8, w: 12, x: 0, y: 49},
+            targets: [{refId: "A", expr: "groot_grad_norm{job=\"groot_training\"}", legendFormat: "{{workflow}}"}]
+          },
+          {
+            id: 15,
+            type: "timeseries",
+            title: "Training step / epoch",
+            datasource: {type: "prometheus", uid: $datasource_uid},
+            gridPos: {h: 8, w: 12, x: 12, y: 49},
+            targets: [
+              {refId: "A", expr: "groot_global_step{job=\"groot_training\"}", legendFormat: "step {{workflow}}"},
+              {refId: "B", expr: "groot_epoch{job=\"groot_training\"}", legendFormat: "epoch {{workflow}}"}
+            ]
+          },
+          {
             id: 10,
             type: "text",
             title: "AWS managed endpoints",
-            gridPos: {h: 6, w: 24, x: 0, y: 40},
+            gridPos: {h: 6, w: 24, x: 0, y: 57},
             options: {
               mode: "markdown",
               content: ("AMP workspace: `" + $amp_workspace_id + "`\\n\\nAMG workspace: `" + $amg_workspace_id + "`\\n\\nData source: `" + $datasource_name + "`")
@@ -300,6 +342,34 @@ spec:
     path: /metrics
     interval: 15s
 YAML
+}
+
+deploy_pushgateway() {
+  # Training workflows (e2e-pipeline 03-training) push HF Trainer scalars
+  # (loss/lr/epoch/grad_norm) to this Pushgateway so they show in AMG alongside
+  # DCGM GPU metrics. The in-cluster Prometheus scrapes it via a ServiceMonitor
+  # (this AMP path runs kube-prometheus-stack with serviceMonitorSelector match-
+  # all) and remote_writes to AMP. honorLabels keeps the job/workflow labels the
+  # pusher sets instead of overwriting them with the target's own labels.
+  local prom_repo pushgateway_chart_version pushgateway_release pushgateway_service
+  prom_repo="${PROM_REPO:-$(version_value prometheus_community_repo)}"
+  pushgateway_chart_version="${PUSHGATEWAY_CHART_VERSION:-$(version_value pushgateway_chart_version)}"
+  pushgateway_release="${PUSHGATEWAY_RELEASE:-$(version_value pushgateway_release_name)}"
+  pushgateway_service="${PUSHGATEWAY_SERVICE:-$(version_value pushgateway_service)}"
+
+  helm repo add prometheus-community "${prom_repo}" --force-update >/dev/null
+  helm repo update prometheus-community >/dev/null
+
+  helm upgrade --install "${pushgateway_release}" \
+    prometheus-community/prometheus-pushgateway \
+    --namespace "${MONITORING_NAMESPACE}" \
+    --version "${pushgateway_chart_version}" \
+    --set "fullnameOverride=${pushgateway_service}" \
+    --set "serviceMonitor.enabled=true" \
+    --set "serviceMonitor.namespace=${MONITORING_NAMESPACE}" \
+    --set "serviceMonitor.honorLabels=true" \
+    --wait \
+    --timeout 5m
 }
 
 enable_osmo_podmonitors() {
@@ -401,6 +471,9 @@ enable_osmo_podmonitors
 
 log "enabling DCGM exporter ServiceMonitor"
 enable_dcgm_servicemonitor
+
+log "deploying Pushgateway for training metrics"
+deploy_pushgateway
 
 log "provisioning AMG data source and dashboards"
 GRAFANA_TOKEN="$(

@@ -127,6 +127,34 @@ osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
 
 Stage 5 (edge) is a Greengrass deployment — see [05-edge/README.md](05-edge/README.md).
 
+## Viewing stage outputs (artifacts)
+
+Do NOT use the workflow detail page's `Output dir` link. It points at
+`<host>/<workflow_id>`, which is not a real OSMO UI route, so it always 404s
+(an upstream UI bug — the outputs field is a raw hyperlink, not routed to the
+dataset page). This cannot be fixed from our deploy config.
+
+Each stage publishes its results as an OSMO output dataset. Open it in the
+browser via the Datasets page (replace the host with your CloudFront domain):
+
+```
+https://<osmo-ui-cloudfront-domain>/datasets/aws-osmo/<output-dataset>
+```
+
+| Stage | Output dataset |
+| --- | --- |
+| 01-data-prep | `e2e-pipeline-lerobot-dataset` |
+| 02-sim (RL) | `e2e-pipeline-sim-rl-artifacts` |
+| 03-training (N1.6) | `e2e-pipeline-groot-checkpoint` |
+| 03-training (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
+| 04-closeloop | `e2e-pipeline-closeloop-artifacts` |
+| 06-cosmos-augment | `e2e-pipeline-lerobot-dataset-cosmos` |
+
+The dataset name is whatever a stage was submitted with (`--set
+output_dataset=...`); confirm a specific run's dataset with
+`osmo workflow spec <workflow_id>` (look for `outputs[].dataset.name`) or list
+all datasets with `osmo dataset list`.
+
 ## Isaac Sim version coverage
 
 Defaults follow the repo's stable pins:

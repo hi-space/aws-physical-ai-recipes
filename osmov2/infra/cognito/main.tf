@@ -116,9 +116,14 @@ resource "aws_cognito_user" "admin" {
   user_pool_id = aws_cognito_user_pool.this.id
   username     = var.admin_email
 
+  # preferred_username drives the OSMO web UI's displayed identity and its
+  # "My Workflows" filter (via oauth2-proxy x-auth-request-preferred-username).
+  # Without it oauth2-proxy falls back to the Cognito sub (UUID), so the UI
+  # filters by an unreadable UUID that never matches CLI-submitted owners.
   attributes = {
-    email          = var.admin_email
-    email_verified = "true"
+    email              = var.admin_email
+    email_verified     = "true"
+    preferred_username = split("@", var.admin_email)[0]
   }
 
   password       = var.admin_password

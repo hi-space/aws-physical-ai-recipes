@@ -131,6 +131,33 @@ osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
 
 Stage 5(edge)는 Greengrass 배포입니다 — [05-edge/README.md](05-edge/README.md) 참고.
 
+## 스테이지 산출물 보기 (artifacts)
+
+워크플로우 상세 화면의 `Output dir` 링크는 사용하지 마세요. 이 링크는
+`<host>/<workflow_id>`를 가리키는데, OSMO UI에 그런 라우트가 없어 항상 404가
+납니다(upstream UI 버그 — outputs 필드가 dataset 페이지로 라우팅되지 않고 원본
+하이퍼링크 그대로 노출됨). 우리 배포 config로는 고칠 수 없습니다.
+
+각 스테이지는 결과를 OSMO output dataset으로 발행합니다. 브라우저에서는 Datasets
+페이지로 접근하세요(host는 본인의 CloudFront 도메인으로 교체):
+
+```
+https://<osmo-ui-cloudfront-domain>/datasets/aws-osmo/<output-dataset>
+```
+
+| 스테이지 | Output dataset |
+| --- | --- |
+| 01-data-prep | `e2e-pipeline-lerobot-dataset` |
+| 02-sim (RL) | `e2e-pipeline-sim-rl-artifacts` |
+| 03-training (N1.6) | `e2e-pipeline-groot-checkpoint` |
+| 03-training (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
+| 04-closeloop | `e2e-pipeline-closeloop-artifacts` |
+| 06-cosmos-augment | `e2e-pipeline-lerobot-dataset-cosmos` |
+
+dataset 이름은 스테이지 제출 시 지정한 값입니다(`--set output_dataset=...`).
+특정 실행의 dataset은 `osmo workflow spec <workflow_id>`로 확인하거나
+(`outputs[].dataset.name` 참고), `osmo dataset list`로 전체 목록을 볼 수 있습니다.
+
 ## Isaac Sim 버전 커버리지
 
 기본값은 리포의 stable 핀을 따릅니다:
