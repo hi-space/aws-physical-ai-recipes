@@ -11,7 +11,11 @@ CORE_TF_DIR="${CORE_TF_DIR:-${ROOT_DIR}/infra/core}"
 OBSERVABILITY_TF_DIR="${OBSERVABILITY_TF_DIR:-${ROOT_DIR}/infra/observability}"
 OSMO_NAMESPACE="${OSMO_NAMESPACE:-${TF_OUTPUT_OSMO_NAMESPACE:-osmo}}"
 OSMO_BACKEND_NAME="${OSMO_BACKEND_NAME:-default}"
-OSMO_SERVICE_LOCAL_PORT="${OSMO_SERVICE_LOCAL_PORT:-9000}"
+# osmo-service:80 serves only self-signed TLS, so a plaintext port-forward to it
+# fails the token login. The internal router speaks plaintext HTTP, which is what
+# the bootstrap login path uses.
+OSMO_ROUTER_SERVICE="${OSMO_ROUTER_SERVICE:-osmo-internal-router}"
+OSMO_SERVICE_LOCAL_PORT="${OSMO_SERVICE_LOCAL_PORT:-9100}"
 OSMO_DASHBOARD_DIR="${OSMO_DASHBOARD_DIR:-${OBSERVABILITY_TF_DIR}/dashboards}"
 GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE:-$(version_value gpu_operator_namespace)}"
 
@@ -97,7 +101,10 @@ import_dashboard() {
   transformed="$(mktemp)"
   payload="$(mktemp)"
 
-  jq --arg datasource_uid "${GRAFANA_DATASOURCE_UID}" '
+  # Upstream JSONs are pinned copies whose CPU/memory panels hardcode
+  # namespace="default"; OSMO runs in ${OSMO_NAMESPACE}, so rewrite at import
+  # time instead of editing the pinned dashboards.
+  jq --arg datasource_uid "${GRAFANA_DATASOURCE_UID}" --arg osmo_namespace "${OSMO_NAMESPACE}" '
     def walk(f):
       . as $in
       | if type == "object" then
@@ -110,6 +117,13 @@ import_dashboard() {
     | walk(
         if type == "object" and (.datasource? | type == "object") and .datasource.type == "prometheus" then
           .datasource.uid = $datasource_uid
+        else
+          .
+        end
+      )
+    | walk(
+        if type == "string" then
+          gsub("namespace=\"default\""; "namespace=\"" + $osmo_namespace + "\"")
         else
           .
         end
@@ -326,7 +340,7 @@ update_osmo_backend_grafana_url() {
   fi
 
   if [[ "${use_local_port_forward}" == "true" ]] && ! port_open 127.0.0.1 "${OSMO_SERVICE_LOCAL_PORT}"; then
-    kubectl -n "${OSMO_NAMESPACE}" port-forward "svc/osmo-service" "${OSMO_SERVICE_LOCAL_PORT}:80" >/tmp/osmo-observability-service-port-forward.log 2>&1 &
+    kubectl -n "${OSMO_NAMESPACE}" port-forward "svc/${OSMO_ROUTER_SERVICE}" "${OSMO_SERVICE_LOCAL_PORT}:80" >/tmp/osmo-observability-service-port-forward.log 2>&1 &
     port_forward_pid="$!"
     for _ in $(seq 1 60); do
       port_open 127.0.0.1 "${OSMO_SERVICE_LOCAL_PORT}" && break
@@ -373,6 +387,7 @@ set_tf_var_default kube_context "$(kubectl config current-context)"
 terraform -chdir="${OBSERVABILITY_TF_DIR}" init
 terraform -chdir="${OBSERVABILITY_TF_DIR}" apply "$@"
 
+MONITORING_NAMESPACE="$(observability_output monitoring_namespace)"
 AMP_WORKSPACE_ID="$(observability_output amp_workspace_id)"
 AMP_PROMETHEUS_ENDPOINT="$(observability_output amp_prometheus_endpoint)"
 AMG_WORKSPACE_ID="$(observability_output amg_workspace_id)"

@@ -124,6 +124,22 @@ WORKFLOW_DATA_SECRET_ACCESS_KEY="$(secret_field workflow_data_secret_access_key)
 COGNITO_TF_DIR="${COGNITO_TF_DIR:-${ROOT_DIR}/infra/cognito}"
 CLOUDFRONT_TF_DIR="${CLOUDFRONT_TF_DIR:-${ROOT_DIR}/infra/cloudfront}"
 
+# The cognito/cloudfront states are per-region Terraform workspaces. Their
+# selected workspace can drift from infra/core (e.g. left on a stale "use1"),
+# which makes their outputs point at a dead distribution from another region.
+# infra/core is the deploy target's source of truth, so align the auxiliary
+# states to whatever workspace core is on before reading their outputs.
+# Override with OSMO_TF_WORKSPACE to target a specific region explicitly.
+OSMO_TF_WORKSPACE="${OSMO_TF_WORKSPACE:-$(terraform -chdir="${TF_DIR}" workspace show 2>/dev/null || true)}"
+if [[ -n "${OSMO_TF_WORKSPACE}" ]]; then
+  for _tf_dir in "${COGNITO_TF_DIR}" "${CLOUDFRONT_TF_DIR}"; do
+    if terraform -chdir="${_tf_dir}" workspace list 2>/dev/null | grep -qE "^\*?[[:space:]]*${OSMO_TF_WORKSPACE}$"; then
+      terraform -chdir="${_tf_dir}" workspace select "${OSMO_TF_WORKSPACE}" >/dev/null 2>&1 || true
+    fi
+  done
+  log "using terraform workspace '${OSMO_TF_WORKSPACE}' for cognito/cloudfront outputs"
+fi
+
 tf_output_from() {
   terraform -chdir="$1" output -raw "$2" 2>/dev/null || true
 }

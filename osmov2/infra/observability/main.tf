@@ -163,14 +163,59 @@ resource "helm_release" "kube_prometheus_stack" {
   depends_on = [aws_iam_role_policy_attachment.prometheus_remote_write]
 }
 
+data "aws_iam_policy_document" "grafana_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["grafana.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "grafana" {
+  name               = substr("${local.name_prefix}-amg", 0, 64)
+  assume_role_policy = data.aws_iam_policy_document.grafana_assume_role.json
+
+  tags = {
+    Name = substr("${local.name_prefix}-amg", 0, 64)
+  }
+}
+
+data "aws_iam_policy_document" "grafana_amp_query" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "aps:ListWorkspaces",
+      "aps:DescribeWorkspace",
+      "aps:QueryMetrics",
+      "aps:GetLabels",
+      "aps:GetSeries",
+      "aps:GetMetricMetadata",
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "grafana_amp_query" {
+  name   = substr("${local.name_prefix}-amg-amp-query", 0, 128)
+  role   = aws_iam_role.grafana.id
+  policy = data.aws_iam_policy_document.grafana_amp_query.json
+}
+
 resource "aws_grafana_workspace" "osmo" {
   name                     = local.amg_workspace_name
   description              = "Amazon Managed Grafana workspace for ${var.cluster_name} OSMO observability"
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
   data_sources             = ["PROMETHEUS"]
-  permission_type          = "SERVICE_MANAGED"
+  permission_type          = "CUSTOMER_MANAGED"
   grafana_version          = var.grafana_version
+  role_arn                 = aws_iam_role.grafana.arn
 
   tags = {
     Name = local.amg_workspace_name
