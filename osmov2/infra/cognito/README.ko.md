@@ -55,7 +55,21 @@ admin_password = "<choose-a-strong-password>"
 
 이후 `deploy-osmo.sh`가 `admin_user_sub` 출력값을 읽어 해당 Cognito subject에 OSMO의 `osmo-admin` 역할을 부여하므로, 최초 SSO 로그인 시 이미 전체 관리자 권한을 갖습니다 — 이후 수동으로 `osmo user update`를 실행할 필요가 없습니다. `osmo-admin` 이외의 역할을 원한다면 `OSMO_SSO_ADMIN_ROLES`로 재정의하세요.
 
-추후 사용자를 추가하거나 Terraform 관리 사용자를 건너뛰려면(`admin_email = ""`), 관리자 API를 직접 사용하세요:
+### 관리자가 추가 사용자를 생성하는 위치
+
+자가 등록이 꺼져 있어 hosted UI에 "Sign up" 버튼이 없고, OSMO Admin UI 자체에도
+사용자 관리 화면이 없습니다. 관리자는 두 곳 중 하나에서 사용자를 추가합니다:
+Cognito 콘솔 또는 AWS CLI. 둘 다 동일한 사용자 풀
+(`terraform output -raw user_pool_id`)을 대상으로 합니다.
+
+Cognito 콘솔 (GUI):
+
+```
+Cognito 콘솔 -> User pools -> <user_pool_id> -> Users 탭 -> "Create user"
+# https://<region>.console.aws.amazon.com/cognito/v2/idp/user-pools/<user_pool_id>/users
+```
+
+AWS CLI, 영구 비밀번호 (사용자가 바로 이 비번으로 로그인, 강제 변경 없음):
 
 ```bash
 POOL=$(terraform output -raw user_pool_id)
@@ -70,7 +84,25 @@ aws cognito-idp admin-set-user-password \
   --password 'ChangeMe1!' --permanent
 ```
 
+AWS CLI, 임시 비밀번호 온보딩 (사용자가 첫 로그인 시 본인 비번을 직접 설정 —
+사용자는 `FORCE_CHANGE_PASSWORD` 상태가 되고 hosted UI가 새 비번을 요구):
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id "$POOL" \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+  --temporary-password 'TempPass123!'
+# --message-action SUPPRESS 를 빼면 초대 이메일이 발송됨 (Cognito 기본 발신자는
+# SES 연동 전에는 하루 ~50건으로 제한)
+```
+
 Terraform 외부에서 프로비저닝된 새 사용자는 최초 로그인 시 `osmo-default` 역할만 부여됩니다. 역할을 추가하려면 `osmo user update <cognito-sub> --add-roles osmo-admin`을 사용하세요.
+
+참고: Cognito 사용자를 만드는 것은 로그인 권한만 부여합니다. 실제로 브라우저에서
+OSMO UI에 접근하려면 사용자의 출발 IP가 CloudFront WAF allowlist
+(`infra/cloudfront`의 `allowed_cidrs`)에 있어야 합니다. 그렇지 않으면 요청이 로그인
+페이지에 도달하기 전에 차단됩니다.
 
 ## 출력값
 

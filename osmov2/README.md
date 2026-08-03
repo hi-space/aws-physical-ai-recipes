@@ -52,6 +52,21 @@ versions.yaml      pinned external versions and tested ranges
 - An NGC API key with access to the pinned OSMO images in `nvcr.io/nvidia/osmo`.
 - A Hugging Face token in `HF_TOKEN`, or `HF_TOKEN_FILE` pointing at a readable token file, for the full nut pouring pipeline.
 
+Configure AWS credentials and confirm the target account and region before you
+start. Everything below deploys into whatever account/region your AWS CLI
+resolves, so verify it first:
+
+```bash
+export AWS_PROFILE=<your-profile>     # or configure default credentials
+aws sts get-caller-identity           # confirm the account you expect
+export AWS_REGION=<your-region>        # e.g. us-east-1; must match your tfvars aws_region
+```
+
+This stack creates real, billable resources (EKS control plane, NAT gateways,
+an RDS instance, and — for GPU workflows — G7e/G6e nodes). A full `deploy-all.sh`
+run takes roughly 30–40 minutes, most of it EKS and node provisioning; the
+process is not stuck if a Terraform step sits for several minutes.
+
 The OSMO CLI is distributed by NVIDIA (NGC), not vendored here — install it from your NVIDIA OSMO distribution and confirm `osmo --version` works before deploying. Once the platform is up, authenticate against the SSO gateway with `scripts/osmo-cli-login.sh` (see the CLI login section below).
 
 Provide the NGC API key as an environment variable or a local key file before running `scripts/preflight.sh` or `scripts/deploy-osmo.sh`:
@@ -77,6 +92,28 @@ cp infra/cloudfront/terraform.tfvars.example  infra/cloudfront/terraform.tfvars
 scripts/deploy-all.sh
 ```
 
+Region and Terraform workspace: the command above uses the default Terraform
+workspace and the plain `terraform.tfvars` files, which deploy to the
+`aws_region` set in `infra/core/terraform.tfvars`. To deploy into a specific
+region as an isolated environment, select a per-region workspace and point the
+cognito/cloudfront wrappers at the matching `terraform.<region>.tfvars`. For
+example, for us-east-1:
+
+```bash
+for d in infra/core infra/cognito infra/cloudfront; do
+  terraform -chdir="$d" workspace select -or-create use1
+done
+
+TF_WORKSPACE=use1 \
+  COGNITO_VAR_FILE=terraform.use1.tfvars \
+  CLOUDFRONT_VAR_FILE=terraform.use1.tfvars \
+  scripts/deploy-all.sh
+```
+
+Keep the three workspaces aligned (all `default`, or all `use1`, etc.). The
+deploy and login scripts read outputs from the currently selected workspace, so
+a mismatched workspace makes them read the wrong region's URLs.
+
 `scripts/deploy-all.sh` runs the eight steps below in dependency order. On
 failure it prints the failed step and the exact resume command
 (`RESUME_FROM=N scripts/deploy-all.sh`); each step is idempotent so resuming
@@ -86,12 +123,25 @@ success the orchestrator prints the CloudFront OSMO UI URL directly (resolved
 from the `infra/cloudfront` output).
 
 Observability (Grafana) is out of scope for `deploy-all.sh`. The eight steps
-deploy OSMO and its SSO gateway but not the AMP/AMG or in-cluster observability
-stack, so the SSO bootstrap points the CloudFront Grafana origin at a
-placeholder. To publish Grafana behind CloudFront, run `deploy-observability.sh`
-(or `deploy-observability-incluster.sh`), re-apply `infra/cloudfront` with
-`CLOUDFRONT_GRAFANA_ALB=<grafana-alb-dns>`, then wire the OSMO backend to it with
-`GRAFANA_URL=https://<grafana-cloudfront-domain> scripts/update-grafana-url.sh`.
+deploy OSMO and its SSO gateway but not the AMP/AMG observability stack. Deploy
+it separately after `deploy-all.sh` finishes:
+
+```bash
+scripts/deploy-observability.sh -auto-approve
+```
+
+This one command provisions Amazon Managed Prometheus (AMP) + Amazon Managed
+Grafana (AMG), enables the OSMO PodMonitor/DCGM metrics, imports the OSMO
+dashboards, and sets the OSMO backend `grafana_url` to the real AMG workspace
+URL so the "Grafana dashboard" link on a workflow opens the actual dashboards.
+
+Grafana browser login uses AWS IAM Identity Center (SSO) — AMG has no local
+username/password. Nobody can log in until an IAM Identity Center user or group
+is granted a role. Set `admin_user_ids` in `infra/observability/terraform.tfvars`
+(a UserId from `aws identitystore list-users`) before running the script so the
+grant is managed by Terraform. See [infra/observability/README.md](infra/observability/README.md)
+for finding the IDs, the four provisioned dashboards, and which one to watch for
+GPU training.
 
 To run the steps by hand (or to understand what the orchestrator does):
 

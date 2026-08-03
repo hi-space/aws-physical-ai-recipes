@@ -51,6 +51,8 @@ admin_group_ids = [
 ]
 ```
 
+Because `admin_user_ids` is consumed by `aws_grafana_role_association`, granting access this way is managed by Terraform state. It survives an observability `destroy`/`recreate`, unlike a one-off `aws grafana update-permissions` CLI grant, which is not tracked and is lost on recreate. Set the IDs in `terraform.tfvars` for durable access. (`*.tfvars` is gitignored, so real IDs stay out of the repo.)
+
 After `scripts/deploy-observability.sh` completes, open the `amg_workspace_url` output. The browser login goes through IAM Identity Center. The service account token created by the deploy wrapper is only for API provisioning of the data source and dashboards; it is not a human login credential and is intentionally short-lived.
 
 ```bash
@@ -69,19 +71,37 @@ The dashboard JSON files in `dashboards/` are copied from NVIDIA OSMO `c2c30e55f
 
 The upstream dashboard JSONs expect a `cluster` label and use Prometheus Operator exported labels for workload DCGM metrics, for example `exported_namespace`, `exported_pod`, and `exported_container`. This Terraform root sets Prometheus `externalLabels.cluster` to `cluster_name` before AMP remote write. The deploy wrapper leaves the DCGM ServiceMonitor on the Prometheus Operator default `honorLabels: false` behavior so exporter-provided workload labels are exposed as `exported_*` labels instead of replacing target labels.
 
-## Dashboard Scope
+## Dashboards
 
-`AWS OSMO Overview` is the AWS-facing operations dashboard. It should show data immediately after deployment because it queries scrape health with `up{namespace="osmo"}` through the AMG AMP data source.
+The deploy wrapper provisions four dashboards into the AMG workspace. Find them by title in the Grafana dashboards list; the URL shows a per-dashboard uid as `${amg_workspace_url}/d/<uid>`.
 
-It also includes a recent workflow pod view based on `count_over_time(kube_pod_info{namespace="osmo-workflows"}[24h])`.
+### AWS OSMO Overview (`uid=aws-osmo-overview`)
 
-The deploy wrapper also creates a `nvidia-dcgm-exporter` ServiceMonitor when the GPU Operator namespace exists, so `AWS OSMO Overview` can show DCGM GPU utilization, framebuffer, power, and temperature metrics after a GPU workflow runs.
+The AWS-facing operations dashboard, created directly by `scripts/deploy-observability.sh` (not imported from upstream). It is the dashboard to watch for GPU model training.
 
-The imported upstream OSMO dashboards are workload specific:
+- Scrape health: `up{namespace="osmo"}` (healthy target count + per-pod timeseries). Shows data immediately after deployment.
+- Recent workflow pods: `count_over_time(kube_pod_info{namespace="osmo-workflows"}[24h])`.
+- GPU panels (populated once a GPU workflow runs in `osmo-workflows`):
+  - `DCGM_FI_DEV_GPU_UTIL{exported_namespace="osmo-workflows"}` — GPU utilization
+  - `DCGM_FI_DEV_FB_USED{exported_namespace="osmo-workflows"}` — GPU framebuffer (VRAM) used
+  - `DCGM_FI_DEV_POWER_USAGE{exported_namespace="osmo-workflows"}` — GPU power
+  - `DCGM_FI_DEV_GPU_TEMP{exported_namespace="osmo-workflows"}` — GPU temperature
 
-- `Workflow Resources` shows resource and GPU metrics for active workflow pods, normally in `osmo-workflows`. It is expected to be empty when no workflow pods are running.
-- `Backend Operator` shows backend operator pod resources plus queue, event, and job metrics. Backend resource panels should populate when the OSMO backend pods are scraped; queue and job panels only populate after backend activity emits those metrics.
-- `Observability Dashboard` is the upstream OSMO service dashboard. Its pinned JSON assumes upstream namespace and metric conventions, so use it as an upstream reference unless the local deployment matches those assumptions.
+When you allocate a GPU and run model training, this is the dashboard to open. Training jobs run as pods in the `osmo-workflows` namespace, and the DCGM exporter (installed by the GPU Operator) publishes per-pod GPU metrics under the `exported_namespace="osmo-workflows"` label, which is exactly what these panels filter on. The GPU panels only show data while a GPU job is actually running; they are empty otherwise. The deploy wrapper creates the `nvidia-dcgm-exporter` ServiceMonitor only when the GPU Operator namespace exists.
+
+### Workflow Resources (imported from upstream)
+
+Resource and GPU metrics for active workflow pods, normally in `osmo-workflows`. Expected to be empty when no workflow pods are running. This is a per-workflow drill-down; `AWS OSMO Overview` is the higher-level GPU view.
+
+### Backend Operator (imported from upstream)
+
+Sections: `Backend Operator Status`, `Backend Agent Metrics`. Shows backend operator pod resources plus queue, event, and job metrics. Backend resource panels populate when the OSMO backend pods are scraped; queue and job panels only populate after backend activity emits those metrics.
+
+### Observability Dashboard (imported from upstream)
+
+The upstream OSMO service dashboard, and the most detailed component view. Sections: `Envoy`, `Service`, `Logger`, `Router`, `Agent`, `Queues`, `Worker`, `Job Monitor` (~22 timeseries panels covering CPU, memory, latency, connections, and queue depth per OSMO component). All panels reference the AMP data source.
+
+Namespace rewrite: the pinned upstream JSON hardcodes `namespace="default"` in its CPU and memory panel queries, but OSMO runs in the `osmo` namespace. `scripts/deploy-observability.sh` rewrites `namespace="default"` to the deployed OSMO namespace at import time, so these panels populate against this deployment. The pinned JSON in `dashboards/` is left unmodified. Panels without a namespace filter (Envoy `envoy_cluster_*` metrics, queue metrics such as `osmo_service_worker_job_queue_length`) are unaffected by the rewrite.
 
 ## Runtime Validation
 

@@ -53,6 +53,8 @@ admin_group_ids = [
 ]
 ```
 
+`admin_user_ids`는 `aws_grafana_role_association`이 사용하므로, 이 방식으로 부여한 접근 권한은 Terraform state가 관리합니다. observability를 `destroy`/`recreate`해도 유지됩니다. 반면 일회성 `aws grafana update-permissions` CLI 부여는 state에 추적되지 않아 recreate 시 사라집니다. 지속적인 접근을 위해서는 `terraform.tfvars`에 ID를 지정하세요. (`*.tfvars`는 gitignore 대상이므로 실제 ID는 저장소에 포함되지 않습니다.)
+
 `scripts/deploy-observability.sh`가 완료되면 `amg_workspace_url` 출력값을 열어 접속합니다. 브라우저 로그인은 IAM Identity Center를 통해 이루어집니다. 배포 래퍼가 생성한 서비스 계정 토큰은 데이터 소스 및 대시보드의 API 프로비저닝 전용이며, 사람이 사용하는 로그인 자격증명이 아니고 의도적으로 단기 수명으로 설정됩니다.
 
 ```bash
@@ -71,19 +73,37 @@ scripts/deploy-observability.sh -auto-approve
 
 upstream 대시보드 JSON은 `cluster` 레이블을 기대하며, 워크로드 DCGM 메트릭에 Prometheus Operator가 내보낸 레이블(예: `exported_namespace`, `exported_pod`, `exported_container`)을 사용합니다. 이 Terraform root는 AMP remote write 전에 Prometheus `externalLabels.cluster`를 `cluster_name`으로 설정합니다. 배포 래퍼는 DCGM ServiceMonitor를 Prometheus Operator 기본값인 `honorLabels: false` 상태로 유지하므로, exporter에서 제공한 워크로드 레이블이 대상 레이블을 덮어쓰지 않고 `exported_*` 레이블로 노출됩니다.
 
-## 대시보드 범위
+## 대시보드
 
-`AWS OSMO Overview`는 AWS 운영 대시보드입니다. AMG AMP 데이터 소스를 통해 `up{namespace="osmo"}`로 스크랩 상태를 조회하므로 배포 직후부터 데이터가 표시되어야 합니다.
+배포 래퍼는 AMG workspace에 네 개의 대시보드를 프로비저닝합니다. Grafana 대시보드 목록에서 title로 찾으면 되며, URL에는 대시보드별 uid가 `${amg_workspace_url}/d/<uid>` 형식으로 표시됩니다.
 
-또한 `count_over_time(kube_pod_info{namespace="osmo-workflows"}[24h])`를 기반으로 최근 워크플로우 pod 뷰를 포함합니다.
+### AWS OSMO Overview (`uid=aws-osmo-overview`)
 
-GPU Operator 네임스페이스가 존재하는 경우 배포 래퍼가 `nvidia-dcgm-exporter` ServiceMonitor도 생성하므로, GPU 워크플로우 실행 후 `AWS OSMO Overview`에서 DCGM GPU 사용률, 프레임버퍼, 전력, 온도 메트릭을 확인할 수 있습니다.
+AWS 운영 대시보드로, `scripts/deploy-observability.sh`가 직접 생성합니다(upstream에서 가져온 것이 아님). GPU 모델 훈련 시 확인해야 하는 대시보드입니다.
 
-가져온 upstream OSMO 대시보드는 워크로드별로 구성됩니다:
+- 스크랩 상태: `up{namespace="osmo"}` (정상 타겟 수 + pod별 timeseries). 배포 직후부터 데이터가 표시됩니다.
+- 최근 워크플로우 pod: `count_over_time(kube_pod_info{namespace="osmo-workflows"}[24h])`.
+- GPU 패널(`osmo-workflows`에서 GPU 워크플로우가 실행되면 채워짐):
+  - `DCGM_FI_DEV_GPU_UTIL{exported_namespace="osmo-workflows"}` — GPU 사용률
+  - `DCGM_FI_DEV_FB_USED{exported_namespace="osmo-workflows"}` — GPU 프레임버퍼(VRAM) 사용량
+  - `DCGM_FI_DEV_POWER_USAGE{exported_namespace="osmo-workflows"}` — GPU 전력
+  - `DCGM_FI_DEV_GPU_TEMP{exported_namespace="osmo-workflows"}` — GPU 온도
 
-- `Workflow Resources`는 활성 워크플로우 pod(주로 `osmo-workflows`)의 리소스 및 GPU 메트릭을 보여줍니다. 실행 중인 워크플로우 pod가 없으면 데이터가 표시되지 않는 것이 정상입니다.
-- `Backend Operator`는 백엔드 operator pod 리소스와 함께 큐, 이벤트, 잡 메트릭을 보여줍니다. 백엔드 리소스 패널은 OSMO 백엔드 pod가 스크랩될 때 채워지며, 큐 및 잡 패널은 백엔드 활동이 해당 메트릭을 방출한 이후에만 채워집니다.
-- `Observability Dashboard`는 upstream OSMO 서비스 대시보드입니다. 고정된 JSON이 upstream 네임스페이스 및 메트릭 규칙을 전제하므로, 로컬 배포 환경이 그 규칙에 맞지 않는 경우 upstream 참조용으로만 사용하세요.
+GPU를 할당해 모델 훈련을 실행하면 이 대시보드를 열면 됩니다. 훈련 잡은 `osmo-workflows` 네임스페이스에 pod로 실행되고, DCGM exporter(GPU Operator가 설치)가 `exported_namespace="osmo-workflows"` 레이블로 pod별 GPU 메트릭을 발행하는데, 이 패널들이 정확히 그 레이블로 필터링합니다. GPU 패널은 GPU 잡이 실제로 실행 중일 때만 데이터가 표시되며, 그 외에는 비어 있습니다. 배포 래퍼는 GPU Operator 네임스페이스가 존재할 때만 `nvidia-dcgm-exporter` ServiceMonitor를 생성합니다.
+
+### Workflow Resources (upstream에서 가져옴)
+
+활성 워크플로우 pod(주로 `osmo-workflows`)의 리소스 및 GPU 메트릭을 보여줍니다. 실행 중인 워크플로우 pod가 없으면 비어 있는 것이 정상입니다. 워크플로우별 상세(drill-down) 뷰이며, 상위 레벨 GPU 뷰는 `AWS OSMO Overview`입니다.
+
+### Backend Operator (upstream에서 가져옴)
+
+섹션: `Backend Operator Status`, `Backend Agent Metrics`. 백엔드 operator pod 리소스와 함께 큐, 이벤트, 잡 메트릭을 보여줍니다. 백엔드 리소스 패널은 OSMO 백엔드 pod가 스크랩될 때 채워지며, 큐 및 잡 패널은 백엔드 활동이 해당 메트릭을 방출한 이후에만 채워집니다.
+
+### Observability Dashboard (upstream에서 가져옴)
+
+upstream OSMO 서비스 대시보드이자 가장 상세한 컴포넌트 뷰입니다. 섹션: `Envoy`, `Service`, `Logger`, `Router`, `Agent`, `Queues`, `Worker`, `Job Monitor` (OSMO 컴포넌트별 CPU, 메모리, 레이턴시, 커넥션, 큐 깊이를 다루는 ~22개 timeseries 패널). 모든 패널이 AMP 데이터 소스를 참조합니다.
+
+네임스페이스 재작성: 고정된 upstream JSON은 CPU/메모리 패널 쿼리에 `namespace="default"`를 하드코딩하고 있으나, OSMO는 `osmo` 네임스페이스에서 실행됩니다. `scripts/deploy-observability.sh`가 import 시점에 `namespace="default"`를 배포된 OSMO 네임스페이스로 재작성하므로, 이 배포 환경에서 해당 패널이 정상적으로 채워집니다. `dashboards/`의 고정 JSON 자체는 수정하지 않고 그대로 둡니다. 네임스페이스 필터가 없는 패널(Envoy `envoy_cluster_*` 메트릭, `osmo_service_worker_job_queue_length` 같은 큐 메트릭)은 재작성의 영향을 받지 않습니다.
 
 ## 런타임 검증
 

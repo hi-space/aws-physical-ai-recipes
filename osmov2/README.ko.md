@@ -54,6 +54,20 @@ versions.yaml        고정된 외부 버전 및 테스트된 범위
 - `nvcr.io/nvidia/osmo`의 고정된 OSMO 이미지에 접근 가능한 NGC API 키.
 - 전체 nut pouring 파이프라인을 돌리려면 `HF_TOKEN` 환경변수 또는 읽을 수 있는 토큰 파일을 가리키는 `HF_TOKEN_FILE`.
 
+시작 전에 AWS 자격증명을 설정하고 대상 계정·리전을 확인하세요. 아래의 모든 작업은
+AWS CLI가 해석하는 계정/리전으로 배포되므로 먼저 확인해야 합니다:
+
+```bash
+export AWS_PROFILE=<your-profile>     # 또는 기본 자격증명 구성
+aws sts get-caller-identity           # 의도한 계정인지 확인
+export AWS_REGION=<your-region>        # 예: us-east-1; tfvars의 aws_region 과 일치해야 함
+```
+
+이 스택은 실제 과금되는 리소스를 생성합니다(EKS 컨트롤 플레인, NAT 게이트웨이,
+RDS 인스턴스, 그리고 GPU 워크플로용 G7e/G6e 노드). 전체 `deploy-all.sh` 실행은
+약 30~40분 걸리며 대부분 EKS와 노드 프로비저닝 시간입니다. Terraform 단계가 몇 분
+멈춰 있어도 고장난 것이 아닙니다.
+
 OSMO CLI는 이 리포에 포함(vendor)하지 않으며 NVIDIA(NGC)가 배포합니다 — 본인의 NVIDIA OSMO 배포판에서 설치한 뒤 배포 전에 `osmo --version`이 동작하는지 확인하세요. 플랫폼이 올라온 뒤에는 `scripts/osmo-cli-login.sh`로 SSO 게이트웨이에 인증합니다(아래 CLI 로그인 섹션 참고).
 
 `scripts/preflight.sh` 또는 `scripts/deploy-osmo.sh` 실행 전에 NGC API 키를 환경변수나 로컬 키 파일로 제공하세요:
@@ -78,6 +92,27 @@ cp infra/cloudfront/terraform.tfvars.example  infra/cloudfront/terraform.tfvars
 scripts/deploy-all.sh
 ```
 
+리전과 Terraform 워크스페이스: 위 명령은 기본(default) Terraform 워크스페이스와
+평범한 `terraform.tfvars` 파일들을 사용하며, `infra/core/terraform.tfvars`에 설정된
+`aws_region`으로 배포됩니다. 특정 리전을 격리된 환경으로 배포하려면 리전별 워크스페이스를
+선택하고 cognito/cloudfront 래퍼가 해당 `terraform.<region>.tfvars`를 가리키게 하세요.
+예를 들어 us-east-1의 경우:
+
+```bash
+for d in infra/core infra/cognito infra/cloudfront; do
+  terraform -chdir="$d" workspace select -or-create use1
+done
+
+TF_WORKSPACE=use1 \
+  COGNITO_VAR_FILE=terraform.use1.tfvars \
+  CLOUDFRONT_VAR_FILE=terraform.use1.tfvars \
+  scripts/deploy-all.sh
+```
+
+세 워크스페이스는 항상 정렬 상태를 유지하세요(전부 `default`, 또는 전부 `use1` 등).
+배포·로그인 스크립트는 현재 선택된 워크스페이스의 output을 읽으므로, 워크스페이스가
+어긋나면 엉뚱한 리전의 URL을 읽게 됩니다.
+
 `scripts/deploy-all.sh`는 아래 8단계를 의존성 순서대로 실행합니다. 실패 시
 멈춘 단계와 재개 명령(`RESUME_FROM=N scripts/deploy-all.sh`)을 정확히
 출력합니다. 각 단계는 멱등(idempotent)이라 재개하면 깨끗하게 다시 돕니다.
@@ -87,12 +122,25 @@ scripts/deploy-all.sh
 바로 출력합니다(`infra/cloudfront` output에서 조회).
 
 관측성(Grafana)은 `deploy-all.sh` 범위 밖입니다. 8단계는 OSMO와 SSO 게이트웨이는
-배포하지만 AMP/AMG나 in-cluster 관측성 스택은 배포하지 않으므로, SSO 부트스트랩은
-CloudFront Grafana 오리진을 placeholder로 지정합니다. Grafana를 CloudFront 뒤에
-게시하려면 `deploy-observability.sh`(또는 `deploy-observability-incluster.sh`)를
-실행하고, `CLOUDFRONT_GRAFANA_ALB=<grafana-alb-dns>`로 `infra/cloudfront`를
-재적용한 뒤, `GRAFANA_URL=https://<grafana-cloudfront-domain>
-scripts/update-grafana-url.sh`로 OSMO 백엔드에 연결하세요.
+배포하지만 AMP/AMG 관측성 스택은 배포하지 않습니다. `deploy-all.sh` 완료 후 별도로
+배포하세요:
+
+```bash
+scripts/deploy-observability.sh -auto-approve
+```
+
+이 한 번의 명령이 Amazon Managed Prometheus(AMP) + Amazon Managed Grafana(AMG)를
+프로비저닝하고, OSMO PodMonitor/DCGM 메트릭을 활성화하며, OSMO 대시보드를 가져오고,
+OSMO 백엔드 `grafana_url`을 실제 AMG 워크스페이스 URL로 설정합니다. 그 결과 워크플로
+화면의 "Grafana dashboard" 링크가 실제 대시보드로 연결됩니다.
+
+Grafana 브라우저 로그인은 AWS IAM Identity Center(SSO)를 사용합니다 — AMG에는 로컬
+id/비밀번호가 없습니다. IAM Identity Center 사용자나 그룹에 역할을 부여하기 전까지는
+아무도 로그인할 수 없습니다. 스크립트 실행 전에
+`infra/observability/terraform.tfvars`의 `admin_user_ids`에 UserId를
+(`aws identitystore list-users`로 조회) 지정하면 이 부여가 Terraform으로 관리됩니다.
+ID 조회 방법, 프로비저닝되는 대시보드 4개, GPU 훈련 시 봐야 할 대시보드는
+[infra/observability/README.ko.md](infra/observability/README.ko.md)를 참고하세요.
 
 단계를 수동으로 실행하려면(또는 오케스트레이터가 하는 일을 이해하려면):
 

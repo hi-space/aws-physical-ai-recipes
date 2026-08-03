@@ -59,8 +59,21 @@ subject the `osmo-admin` role in OSMO, so the very first SSO login already has
 full admin access — no manual `osmo user update` afterwards. Override the roles
 with `OSMO_SSO_ADMIN_ROLES` if you want something other than `osmo-admin`.
 
-To create additional users later, or to skip Terraform-managed users
-(`admin_email = ""`), use the admin API directly:
+### Where an admin creates additional users
+
+Self-registration is off, so there is no "Sign up" button on the hosted UI, and
+the OSMO Admin UI itself has no user-management screen. An admin adds users in
+one of two places: the Cognito console or the AWS CLI. Both target the same user
+pool (`terraform output -raw user_pool_id`).
+
+Cognito console (GUI):
+
+```
+Cognito console -> User pools -> <user_pool_id> -> Users tab -> "Create user"
+# https://<region>.console.aws.amazon.com/cognito/v2/idp/user-pools/<user_pool_id>/users
+```
+
+AWS CLI, permanent password (user logs in with it directly, no forced change):
 
 ```bash
 POOL=$(terraform output -raw user_pool_id)
@@ -75,9 +88,28 @@ aws cognito-idp admin-set-user-password \
   --password 'ChangeMe1!' --permanent
 ```
 
+AWS CLI, temporary-password onboarding (user sets their own password on first
+login — the user lands in `FORCE_CHANGE_PASSWORD` and the hosted UI prompts for
+a new password):
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id "$POOL" \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+  --temporary-password 'TempPass123!'
+# omit --message-action SUPPRESS to email the invite (Cognito default sender is
+# capped at ~50/day unless the pool is wired to SES)
+```
+
 New users provisioned outside Terraform are auto-created in OSMO with only
 `osmo-default` on first login; grant them roles with
 `osmo user update <cognito-sub> --add-roles osmo-admin`.
+
+Note: creating a Cognito user only grants login. To actually reach the OSMO UI
+in a browser, the user's source IP must be in the CloudFront WAF allowlist
+(`allowed_cidrs` in `infra/cloudfront`); otherwise the request is blocked before
+it reaches the login page.
 
 ## Outputs
 
