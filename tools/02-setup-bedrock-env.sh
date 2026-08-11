@@ -143,19 +143,34 @@ fi
 # ANTHROPIC_MODEL 선택
 echo
 echo "사용할 모델을 선택하세요:"
-echo "  1) opus4.6 1M   (global.anthropic.claude-opus-4-6-v1[1m])"
-echo "  2) sonnet4.6 1M (global.anthropic.claude-sonnet-4-6[1m])"
+echo "  1) opus5     (global.anthropic.claude-opus-5)"
+echo "  2) sonnet5   (global.anthropic.claude-sonnet-5)"
+echo "  3) opus4.8   (global.anthropic.claude-opus-4-8)"
+echo "  4) opus4.6   (global.anthropic.claude-opus-4-6-v1)"
+echo "  5) sonnet4.6 (global.anthropic.claude-sonnet-4-6)"
 echo
-read -p "선택 (1 또는 2, 기본값: 1): " MODEL_CHOICE
+read -p "선택 (1-5, 기본값: 1): " MODEL_CHOICE
 
 case "$MODEL_CHOICE" in
     2)
-        SELECTED_MODEL="global.anthropic.claude-sonnet-4-6[1m]"
-        echo "선택된 모델: sonnet4.6 1M"
+        SELECTED_MODEL="global.anthropic.claude-sonnet-5"
+        echo "선택된 모델: sonnet5"
+        ;;
+    3)
+        SELECTED_MODEL="global.anthropic.claude-opus-4-8"
+        echo "선택된 모델: opus4.8"
+        ;;
+    4)
+        SELECTED_MODEL="global.anthropic.claude-opus-4-6-v1"
+        echo "선택된 모델: opus4.6"
+        ;;
+    5)
+        SELECTED_MODEL="global.anthropic.claude-sonnet-4-6"
+        echo "선택된 모델: sonnet4.6"
         ;;
     *)
-        SELECTED_MODEL="global.anthropic.claude-opus-4-6-v1[1m]"
-        echo "선택된 모델: opus4.6 1M"
+        SELECTED_MODEL="global.anthropic.claude-opus-5"
+        echo "선택된 모델: opus5"
         ;;
 esac
 
@@ -209,8 +224,8 @@ export ANTHROPIC_API_KEY="${ANTHROPIC_KEY}"
 export AWS_BEARER_TOKEN_BEDROCK='${AWS_TOKEN}'
 export CLAUDE_CODE_USE_BEDROCK=1
 export ANTHROPIC_MODEL='${SELECTED_MODEL}'
-export ANTHROPIC_DEFAULT_OPUS_MODEL='global.anthropic.claude-opus-4-6-v1[1m]'
-export ANTHROPIC_DEFAULT_SONNET_MODEL='global.anthropic.claude-sonnet-4-6[1m]'
+export ANTHROPIC_DEFAULT_OPUS_MODEL='global.anthropic.claude-opus-5'
+export ANTHROPIC_DEFAULT_SONNET_MODEL='global.anthropic.claude-sonnet-5'
 export ANTHROPIC_DEFAULT_HAIKU_MODEL='global.anthropic.claude-haiku-4-5-20251001-v1:0'
 export ANTHROPIC_SMALL_FAST_MODEL='us.anthropic.claude-haiku-4-5-20251001-v1:0'
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${SELECTED_TOKENS}

@@ -6,7 +6,7 @@ description: NVIDIA OSMO를 AWS EKS 위에 배포하여 Physical AI 워크플로
 
 NVIDIA OSMO를 AWS EKS 위에 CDK로 원클릭 배포하여, Isaac Sim/GR00T 워크플로를 Kubernetes 위에서 오케스트레이션합니다. Training→Simulation→Verification 파이프라인을 단일 YAML로 정의하고, GPU 노드 오토스케일링으로 비용을 최적화합니다.
 
-> 이 레시피는 추가 선택지입니다. 기존 [HyperPod](../hyperpod-training/) 또는 [SageMaker](../training/groot-sagemaker/) 레시피와 병행하여, Kubernetes 기반 NVIDIA 스택 오케스트레이션이 필요한 경우 사용합니다.
+> 이 레시피는 추가 선택지입니다. 기존 [HyperPod](../hyperpod-training/) 또는 [SageMaker](../e2e-workshop/groot/) 레시피와 병행하여, Kubernetes 기반 NVIDIA 스택 오케스트레이션이 필요한 경우 사용합니다.
 
 ***
 
@@ -444,4 +444,4 @@ osmo/
 - [Amazon EKS 공식 문서](https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html)
 - [EKS Managed Node Groups](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html)
 - [이 레포의 HyperPod 레시피](../hyperpod-training/) — SLURM 기반 대안
-- [이 레포의 SageMaker 레시피](../training/groot-sagemaker/) — SageMaker Pipeline 기반
+- [이 레포의 SageMaker 레시피](../e2e-workshop/groot/) — SageMaker Pipeline 기반

@@ -10,7 +10,8 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 |----------|--------|------|-----------------|------|
 | End-to-End Workshop | [e2e-workshop](./e2e-workshop/) | Isaac Lab 시뮬레이션 + GR00T 파인튜닝 + 추론 + 모니터링 통합 워크숍 | EC2 (GPU), CDK, Batch, SageMaker, EFS | Available |
 | Distributed Training | [hyperpod-training](./hyperpod-training/) | SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라 (SLURM, FSx, MLflow) | SageMaker HyperPod, FSx for Lustre, S3 | Available |
-| Orchestration | [osmo](./osmo/) | NVIDIA OSMO on EKS — Kubernetes 기반 Physical AI 워크플로 오케스트레이션 | EKS, RDS, ElastiCache, S3 | Available |
+| Orchestration | [osmo](./osmo/) | NVIDIA OSMO on EKS — CDK 기반 초기 레시피 | EKS, RDS, ElastiCache, S3 | Available |
+| Orchestration | [osmov2](./osmov2/) | NVIDIA OSMO on EKS 레퍼런스 아키텍처 — Terraform + Karpenter GPU, 버전 pin, 검증된 워크플로 모음 | EKS, RDS, ElastiCache, S3, ECR, KMS, Cognito, AMP/AMG | Available |
 | Tools | [tools](./tools/) | EC2 개발 환경 설정 (SSH, Bedrock, Claude Code, 플러그인) | EC2, CloudFront, CloudFormation | Available |
 
 ## Repository Structure
@@ -38,10 +39,23 @@ aws-physical-ai-recipes/
 │   ├── scripts/                       #   환경 셋업 스크립트
 │   └── container/                     #   학습 컨테이너 정의
 │
-├── osmo/                              # NVIDIA OSMO on EKS
+├── osmo/                              # NVIDIA OSMO on EKS (CDK 기반 초기 레시피)
 │   ├── cdk/                           #   EKS + 인프라 CDK 프로젝트
 │   ├── workflows/                     #   OSMO workflow YAML 예시
 │   └── docs/                          #   설계 / 워크숍 가이드
+│
+├── osmov2/                            # NVIDIA OSMO 레퍼런스 아키텍처 (Terraform)
+│   ├── infra/                         #   Terraform 루트 (배포 단위)
+│   │   ├── core/                      #     EKS + RDS + ElastiCache + S3 + Karpenter GPU
+│   │   ├── ingress/                   #     OSMO UI HTTPS 관리 ingress (옵션)
+│   │   ├── cognito/                   #     Cognito SSO (옵션)
+│   │   ├── cloudfront/                #     CloudFront 배포 (옵션)
+│   │   └── observability/             #     AMP + AMG 관측성 (옵션)
+│   ├── scripts/                       #   preflight / deploy / validate / smoke / destroy 래퍼
+│   ├── examples/                      #   단일 목적 OSMO 워크플로 예시 (GR00T, OpenPI, Cosmos, Isaac Lab 등)
+│   ├── e2e-pipeline-examples/         #   데이터 준비 → 학습 → closed-loop → edge 6단계 파이프라인
+│   ├── docs/                          #   아키텍처 / GPU capacity / 재현성 / 보안 / 버전 매트릭스
+│   └── versions.yaml                  #   외부 의존성 버전 pin
 │
 └── tools/                             # EC2 개발 환경 설정
     ├── 01-setup-ssh-client.sh         #   SSH 키 생성 + config 설정 (macOS/Linux)
@@ -96,10 +110,10 @@ Isaac Lab 시뮬레이션 환경 구축부터 GR00T VLA 모델 파인튜닝, 추
 | 구성 요소 | 설명 |
 |-----------|------|
 | [infra/isaaclab](./e2e-workshop/infra/isaaclab/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (DCV, EFS, AZ 자동 탐색) |
-| [infra/groot-finetune](./e2e-workshop/infra/groot-finetune/) | Batch + SageMaker 통합 GR00T fine-tuning CDK 프로젝트 |
-| [training/groot-sagemaker](./e2e-workshop/training/groot-sagemaker/) | GR00T-N1.6-3B SageMaker Pipeline (학습 + Endpoint 자동 배포) |
+| [infra/groot](./e2e-workshop/infra/groot/) | Batch + SageMaker 통합 GR00T fine-tuning CDK 프로젝트 |
+| [groot](./e2e-workshop/groot/) | GR00T-N1.6-3B 학습 + SageMaker Pipeline + Endpoint 자동 배포 |
 | [apps/mlops-dashboard](./e2e-workshop/apps/mlops-dashboard/) | RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
-| [scripts/groot-inference](./e2e-workshop/scripts/groot-inference/) | GR00T N1 추론 서버 테스트 클라이언트 (ZMQ) |
+| [groot/inference/batch-zmq](./e2e-workshop/groot/inference/batch-zmq/) | GR00T N1 추론 서버 테스트 클라이언트 (ZMQ) |
 | [scripts/isaaclab-local-setup](./e2e-workshop/scripts/isaaclab-local-setup/) | 기존 GPU 인스턴스에서 IsaacLab 수동 셋업 |
 
 ### Distributed Training (HyperPod)
@@ -127,6 +141,21 @@ cd osmo/
 cat README.md
 ```
 
+### OSMO 레퍼런스 아키텍처 (osmov2)
+
+`osmo/`의 후속 레시피로, NVIDIA OSMO를 EKS에 배포하는 AWS 레퍼런스 아키텍처입니다. Terraform으로 프라이빗 서브넷 EKS 랜딩존을 구성하고, Karpenter로 GPU 용량을 관리하며, 외부 의존성 버전을 `versions.yaml`에 pin해 재현성을 확보합니다. NVIDIA OSMO 소스를 벤더링하지 않고 pin된 외부 의존성으로 다룹니다.
+
+- **인프라**: EKS (프라이빗 서브넷) + RDS PostgreSQL + ElastiCache Redis + S3 + ECR + KMS + IRSA
+- **GPU**: Karpenter NodePool (G7e / G6e / G6), NVIDIA GPU Operator, EFA device plugin, KAI Scheduler
+- **옵션 스택**: HTTPS 관리 ingress, Cognito SSO, CloudFront, AMP + Amazon Managed Grafana 관측성
+- **워크플로 예시**: GR00T 파인튜닝, OpenPI LIBERO LoRA, Cosmos Reason2 NIM, Isaac Lab RSL-RL, nut pouring 파이프라인 등 (`examples/`)
+- **E2E 파이프라인**: 데이터 준비 → 시뮬레이션 → 학습 → closed-loop 평가 → edge, Cosmos 증강 옵션 6단계 (`e2e-pipeline-examples/`)
+
+```bash
+cd osmov2/
+cat README.md        # 한국어: README.ko.md
+```
+
 ### Tools / EC2 개발 환경
 
 EC2 GPU 인스턴스에서 Claude Code + Bedrock 연동 개발 환경을 설정하는 스크립트 모음입니다. SSH 접속, 환경변수, 플러그인/MCP 서버를 단계별로 구성합니다.
@@ -145,6 +174,7 @@ bash 03-setup-plugins-and-mcp.sh          # 플러그인 + MCP 서버 설치
 - Python 3.10+
 - Git, Git LFS
 - Node.js 18+ (CDK 프로젝트 사용 시)
+- Terraform, kubectl, Helm, jq (osmov2 사용 시)
 
 ## License
 

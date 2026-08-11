@@ -2,7 +2,8 @@
 
 EC2 인스턴스에 SSH 접속과 Claude Code + Bedrock 연동을 설정하는 가이드 및 스크립트입니다.
 
-> EC2 배포는 [isaac-lab-workshop/infra-multiuser-groot](../isaac-lab-workshop/infra-multiuser-groot/) CDK 프로젝트에서 code-server(VSCode)를 포함하여 수행합니다.
+> 이 디렉토리의 `deploy.sh`는 code-server(VSCode)가 설치된 CPU 개발용 EC2를 CloudFormation으로 직접 배포합니다.
+> GPU(Isaac Lab / GR00T) 환경이 필요하면 [e2e-workshop/infra/isaaclab](../e2e-workshop/infra/isaaclab/) CDK 프로젝트를 사용하세요. code-server를 옵션으로 포함합니다.
 
 ## 구성
 
@@ -14,6 +15,25 @@ tools/
 ├── 03-setup-plugins-and-mcp.sh  # 플러그인 + MCP 서버 설치
 ├── cloudformation.yaml          # CloudFront + EC2 인프라
 └── deploy.sh                    # 대화형 배포 스크립트
+```
+
+---
+
+## 0. EC2 배포
+
+`deploy.sh`는 CloudFront + EC2(code-server) 스택을 대화형으로 배포합니다.
+
+```bash
+bash deploy.sh
+```
+
+입력 항목: Stack Name, VSCode 비밀번호(8자 이상), 인스턴스 타입(m7i / t3 / m7g / t4g, 기본 `m7i.2xlarge`), EBS 크기(기본 100GB), VPC.
+Public Subnet은 CloudFormation이 Lambda로 자동 탐색합니다.
+
+배포가 끝나면 VSCode URL과 SSM 접속 명령이 출력됩니다. UserData 설치 완료까지 5~10분 걸립니다.
+
+```bash
+bash deploy.sh --delete <stack-name>
 ```
 
 ---
@@ -110,8 +130,18 @@ Bedrock 연동에 필요한 환경변수를 `~/.bashrc`에 추가하고, VS Code
 
 **입력 항목:**
 - `AWS_BEARER_TOKEN_BEDROCK`
-- 모델 선택 (Opus 4.6 1M / Sonnet 4.6 1M)
+- 모델 선택 (아래 5종)
 - Max Output Tokens (4096 / 16384 / 32768)
+
+**선택 가능한 모델:**
+
+| 번호 | 모델 | Bedrock Global inference ID | Context |
+|------|------|------------------------------|---------|
+| 1 (기본) | Opus 5 | `global.anthropic.claude-opus-5` | 1M |
+| 2 | Sonnet 5 | `global.anthropic.claude-sonnet-5` | 1M |
+| 3 | Opus 4.8 | `global.anthropic.claude-opus-4-8` | 1M |
+| 4 | Opus 4.6 | `global.anthropic.claude-opus-4-6-v1` | 1M |
+| 5 | Sonnet 4.6 | `global.anthropic.claude-sonnet-4-6` | 1M |
 
 **설정되는 환경변수 (~/.bashrc):**
 ```bash
@@ -119,8 +149,8 @@ ANTHROPIC_API_KEY
 AWS_BEARER_TOKEN_BEDROCK
 CLAUDE_CODE_USE_BEDROCK=1
 ANTHROPIC_MODEL                    # 선택한 모델
-ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-4-6-v1[1m]
-ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-4-6[1m]
+ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-5
+ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-5
 ANTHROPIC_DEFAULT_HAIKU_MODEL      # global.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_SMALL_FAST_MODEL         # us.anthropic.claude-haiku-4-5-20251001-v1:0
 CLAUDE_CODE_MAX_OUTPUT_TOKENS      # 선택한 값

@@ -48,6 +48,12 @@ versions.yaml      pinned external versions and tested ranges
 
 ## Prerequisites
 
+> Tip: every step below assumes a shell with the AWS toolchain installed. If you
+> do not want to install that locally, the repo root's [`tools/`](../tools/)
+> deploys an EC2 dev box with code-server (VS Code in the browser) and Claude
+> Code wired to Amazon Bedrock, which is a convenient place to run these
+> deployments from. Optional, not a prerequisite.
+
 - AWS CLI v2, Terraform, kubectl, Helm, jq, curl, git, and the OSMO CLI.
 - An NGC API key with access to the pinned OSMO images in `nvcr.io/nvidia/osmo`.
 - A Hugging Face token in `HF_TOKEN`, or `HF_TOKEN_FILE` pointing at a readable token file, for the full nut pouring pipeline.

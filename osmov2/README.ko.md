@@ -50,6 +50,11 @@ versions.yaml        고정된 외부 버전 및 테스트된 범위
 
 ## 사전 요구사항
 
+> 팁: 아래 모든 단계는 AWS 툴체인이 설치된 셸을 전제로 합니다. 로컬에 직접 설치하고
+> 싶지 않다면, 리포 루트의 [`tools/`](../tools/)가 code-server(브라우저 VS Code)와
+> Amazon Bedrock에 연결된 Claude Code를 갖춘 EC2 개발 인스턴스를 배포해 주며, 여기서
+> 배포 작업을 진행하면 편리합니다. 선택 사항이며 필수 요구사항은 아닙니다.
+
 - AWS CLI v2, Terraform, kubectl, Helm, jq, curl, git, 그리고 OSMO CLI.
 - `nvcr.io/nvidia/osmo`의 고정된 OSMO 이미지에 접근 가능한 NGC API 키.
 - 전체 nut pouring 파이프라인을 돌리려면 `HF_TOKEN` 환경변수 또는 읽을 수 있는 토큰 파일을 가리키는 `HF_TOKEN_FILE`.
