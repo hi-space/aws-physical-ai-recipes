@@ -264,7 +264,7 @@ import_aws_osmo_overview_dashboard() {
             id: 12,
             type: "timeseries",
             title: "Training loss",
-            description: "HF Trainer loss pushed by 03-training via Pushgateway (job=groot_training). Empty until a training workflow runs.",
+            description: "HF Trainer loss pushed by 03-vla-finetune via Pushgateway (job=groot_training). Empty until a training workflow runs.",
             datasource: {type: "prometheus", uid: $datasource_uid},
             gridPos: {h: 8, w: 12, x: 0, y: 41},
             targets: [{refId: "A", expr: "groot_train_loss{job=\"groot_training\"}", legendFormat: "{{workflow}}"}]
@@ -345,7 +345,7 @@ YAML
 }
 
 deploy_pushgateway() {
-  # Training workflows (e2e-pipeline 03-training) push HF Trainer scalars
+  # Training workflows (e2e-pipeline 03-vla-finetune) push HF Trainer scalars
   # (loss/lr/epoch/grad_norm) to this Pushgateway so they show in AMG alongside
   # DCGM GPU metrics. The in-cluster Prometheus scrapes it via a ServiceMonitor
   # (this AMP path runs kube-prometheus-stack with serviceMonitorSelector match-

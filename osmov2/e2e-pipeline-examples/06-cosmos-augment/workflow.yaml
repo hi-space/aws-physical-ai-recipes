@@ -2,7 +2,7 @@
 # Photorealistic visual augmentation of the Stage 1 LeRobot dataset with Cosmos
 # Transfer 2.5, using EDGE control (RGB-only — the leisaac SO-101 dataset ships
 # no depth videos). Each per-episode camera mp4 is re-rendered through Cosmos and
-# written back into the same LeRobot layout, so Stage 3 (03-training) can consume
+# written back into the same LeRobot layout, so Stage 3 (03-vla-finetune) can consume
 # the augmented dataset with no changes other than --set input_dataset=...
 #
 # Optional middle step: the default chain is Stage 1 -> Stage 3. Insert this
@@ -14,7 +14,7 @@
 #
 # then point Stage 3 at the augmented dataset:
 #
-#   osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+#   osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
 #     --set input_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 workflow:

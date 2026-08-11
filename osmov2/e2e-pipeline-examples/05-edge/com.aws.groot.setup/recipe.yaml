@@ -3,7 +3,7 @@
 # AWS IoT Greengrass component that stages the fine-tuned GR00T model onto an
 # edge device. Generalized from e2e-workshop/edge/workshop-components/N1.6/
 # com.workshop.setup — the workshop hardcoded a CloudFront tarball; here the
-# model comes from the S3 location you export the Stage 3 (03-training) OSMO
+# model comes from the S3 location you export the Stage 3 (03-vla-finetune) OSMO
 # dataset to (see 05-edge/README.md).
 #
 # TensorRT engine build is optional (buildTrt=false by default) so the base

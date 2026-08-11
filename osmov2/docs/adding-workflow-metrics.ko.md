@@ -27,7 +27,7 @@ canonical 서비스(`versions.yaml`):
 
 | 패턴 | 사용 시점 | 참고 |
 | --- | --- | --- |
-| stdout 파싱(tee) | 트레이너가 스칼라 dict를 stdout에 찍음(HF Trainer) | `e2e-pipeline-examples/03-training/workflow.yaml` |
+| stdout 파싱(tee) | 트레이너가 스칼라 dict를 stdout에 찍음(HF Trainer) | `e2e-pipeline-examples/03-vla-finetune/workflow.yaml` |
 | 파일 export | 지표가 파일로만 존재(TensorBoard event 파일) | `examples/isaaclab-rsl-rl-video/workflow-g6.yaml` |
 
 대부분의 GR00T / HF-Trainer 스테이지는 아래 stdout 패턴을 씁니다. TensorBoard

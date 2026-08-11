@@ -15,20 +15,27 @@ an ordered pipeline: each stage's OSMO **output dataset** feeds the next stage's
 chain, or run any stage on its own.
 
 ```
-01-data-prep ─▶ (lerobot dataset) ─▶ 03-training ─▶ (checkpoint) ─▶ 04-closeloop
-      │              ▲                     │
-      │  06-cosmos-augment (optional)     └──────▶ 05-edge (Greengrass)
+01-data-prep ─▶ (lerobot dataset) ─▶ 03-vla-finetune ─▶ (checkpoint) ─▶ 04-closeloop
+      │              ▲                      │
+      │  06-cosmos-augment (optional)       └──────▶ 05-edge (Greengrass)
       └──────────────┘
-02-sim  (standalone RL track)
+02-sim-rl  (standalone RL track)
 ```
+
+[00-vla-chain](00-vla-chain/README.md) packs that same 01 → 03 → 04 VLA chain
+into a **single** workflow, so one submit runs it end to end with no human in
+between. It covers the VLA chain only — not the RL track (02), the Greengrass
+deployment (05), or the optional Cosmos augmentation (06). The per-stage
+directories below stay the authoritative, independently runnable versions.
 
 ## Stages
 
 | Stage | What it does | OSMO in → out |
 | --- | --- | --- |
+| [00-vla-chain](00-vla-chain/README.md) | *(optional)* The 01 → 03 → 04 VLA chain as one workflow chained by OSMO task dependencies; one submit, unattended. Excludes 02/05/06. | — → `e2e-vla-chain-closeloop-artifacts` |
 | [01-data-prep](01-data-prep/README.md) | Download a LeRobot dataset from HF, auto-convert v3→v2.1, validate. | — → `e2e-pipeline-lerobot-dataset` |
-| [02-sim](02-sim/README.md) | Isaac Lab RL: train H1 humanoid to walk (PPO), replay + record video. | — → `e2e-pipeline-sim-rl-artifacts` |
-| [03-training](03-training/README.md) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. Default N1.6; [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml) is the optional N1.7 path. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
+| [02-sim-rl](02-sim-rl/README.md) | Isaac Lab RL: train H1 humanoid to walk (PPO), replay + record video. | — → `e2e-pipeline-sim-rl-artifacts` |
+| [03-vla-finetune](03-vla-finetune/README.md) | GR00T VLA fine-tune on the SO-101 dataset with the workshop SO-101 modality config. Default N1.6; [workflow-n1.7.yaml](03-vla-finetune/workflow-n1.7.yaml) is the optional N1.7 path. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
 | [04-closeloop](04-closeloop/README.md) | LeIsaac + SO-101 + kitchen scene closed-loop eval against the ZMQ policy server. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
 | [05-edge](05-edge/README.md) | Greengrass components that run the GR00T policy server on a robot. | S3 model → on-device server |
 | [06-cosmos-augment](06-cosmos-augment/README.md) | *(optional)* Cosmos Transfer 2.5 photorealistic augmentation (edge control, RGB-only) of the Stage 1 LeRobot videos; re-feeds Stage 3. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
@@ -43,8 +50,8 @@ size" is just the size to prewarm. The `g6e-l40s` NodePool offers
 | Stage | Workload | cpu / memory | Recommended g6e | 96GB g7e override |
 | --- | --- | --- | --- | --- |
 | 01-data-prep | data prep (CPU only) | — | — (no GPU) | — |
-| 02-sim | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
-| 03-training | VLA fine-tune (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
+| 02-sim-rl | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 03-vla-finetune | VLA fine-tune (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
 | 04-closeloop | closed-loop eval | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
 | 06-cosmos-augment | Cosmos augmentation | 30 / 128Gi | `g6e.12xlarge` | `g7e.12xlarge` |
 
@@ -58,13 +65,26 @@ deployed, so it needs no redeploy.
 | This stage | e2e-workshop source | Key adaptations |
 | --- | --- | --- |
 | 01-data-prep | `groot/training/data/{upload_dataset,convert_v3_to_v2}.py` | Writes to an OSMO dataset instead of S3; conversion logic embedded inline. |
-| 02-sim | Modules 2–4, `scripts/reinforcement_learning/skrl/{train,play}.py` | Runs headless in an OSMO pod; exports checkpoint + TensorBoard + video as a dataset. |
-| 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | Single-pod OSMO task; consumes Stage 1 dataset; SO-101 modality config. Default N1.6 (`launch_finetune.py`); N1.7 variant inlines the `finetune_gr00t.py` `experiment.run()` path. |
+| 02-sim-rl | Modules 2–4, `scripts/reinforcement_learning/skrl/{train,play}.py` | Runs headless in an OSMO pod; exports checkpoint + TensorBoard + video as a dataset. |
+| 03-vla-finetune | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | Single-pod OSMO task; consumes Stage 1 dataset; SO-101 modality config. Default N1.6 (`launch_finetune.py`); N1.7 variant inlines the `finetune_gr00t.py` `experiment.run()` path. |
 | 04-closeloop | `groot/inference/run-isaaclab.sh` | Same LeIsaac install + N1.6 language-key patch + headless-keyboard patch + kitchen_with_orange/so101_follower assets, orchestrated by OSMO instead of Docker-on-DCV. |
 | 05-edge | `edge/workshop-components/N1.6/com.workshop.{setup,inference}` | Model from S3 (not CloudFront tarball); parameterized ECR image; TRT optional. |
 | 06-cosmos-augment | `examples/nut-pouring-pipeline/workflows/03_cosmos_augmentation.yaml` | Same pinned Cosmos Transfer 2.5 ref + tokenizer patch, adapted to the LeRobot per-episode mp4 layout; edge control (RGB-only) instead of depth. |
 
 ## Running the chain
+
+To run 01 → 03 → 04 with a single submit instead of the three below, use
+[00-vla-chain](00-vla-chain/README.md):
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
+  --set train_max_steps=10000 train_save_steps=10000
+```
+
+The stage-by-stage path below stays the recommended one for development, since
+you can re-run a single stage without repeating the whole chain.
 
 GPU stages need visible g6e capacity before OSMO validation (enable the g6e
 NodePool at deploy with `DEPLOY_G6E_NODEPOOL=true OSMO_CONFIGURE_G6E_PLATFORM=true`).
@@ -87,13 +107,13 @@ osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # Stage 3 — fine-tune (consumes Stage 1 output). Default is N1.6.
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
 
 # Stage 3 (N1.7 variant) — needs HF_TOKEN for the gated Cosmos-Reason2-2B backbone;
 # writes to e2e-pipeline-groot-checkpoint-n17 (Stage 4 must be overridden for N1.7).
-osmo workflow submit e2e-pipeline-examples/03-training/workflow-n1.7.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow-n1.7.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=6000 --set save_steps=2000
 
@@ -113,7 +133,7 @@ at higher resolutions:
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g7e-rtx-pro-6000 \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
@@ -122,7 +142,7 @@ osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
 Stage 2 (RL) is independent and can run anytime:
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml
 ```
 
 Stage 5 (edge) is a Greengrass deployment — see [05-edge/README.md](05-edge/README.md).
@@ -144,9 +164,9 @@ https://<osmo-ui-cloudfront-domain>/datasets/aws-osmo/<output-dataset>
 | Stage | Output dataset |
 | --- | --- |
 | 01-data-prep | `e2e-pipeline-lerobot-dataset` |
-| 02-sim (RL) | `e2e-pipeline-sim-rl-artifacts` |
-| 03-training (N1.6) | `e2e-pipeline-groot-checkpoint` |
-| 03-training (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
+| 02-sim-rl (RL) | `e2e-pipeline-sim-rl-artifacts` |
+| 03-vla-finetune (N1.6) | `e2e-pipeline-groot-checkpoint` |
+| 03-vla-finetune (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
 | 04-closeloop | `e2e-pipeline-closeloop-artifacts` |
 | 06-cosmos-augment | `e2e-pipeline-lerobot-dataset-cosmos` |
 
@@ -198,7 +218,7 @@ to work on this platform.
 
 ### Fixed (2026-07-12)
 
-Stage 3 (`03-training/workflow.yaml`):
+Stage 3 (`03-vla-finetune/workflow.yaml`):
 
 - [x] **`--use-relative-action` removed.** `FinetuneConfig` has no
       `use_relative_action` field; tyro exited with `Unrecognized options`
@@ -224,7 +244,7 @@ leisaac official example in `docs/docs/resources/available_policy.md` (N1.6):
       `finetune_gr00t.py` (the `experiment.run()` API). N1.6 is kept as the
       default (`workflow.yaml`, `launch_finetune.py`, no gated backbone, easier
       to reproduce); N1.7 is a separate optional path
-      ([workflow-n1.7.yaml](03-training/workflow-n1.7.yaml)) that pins
+      ([workflow-n1.7.yaml](03-vla-finetune/workflow-n1.7.yaml)) that pins
       `gr00t_ref=23ace64f…`, uses `nvidia/GR00T-N1.7-3B`, and inlines a
       single-pod port of upstream `finetune_gr00t.py`. N1.7 needs `HF_TOKEN`
       with access to the gated `nvidia/Cosmos-Reason2-2B` backbone.

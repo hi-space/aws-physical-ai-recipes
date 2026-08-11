@@ -59,7 +59,7 @@ osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
 This stage pins the **N1.6** server ref (`gr00t_ref=e8e625f4…`) and uses
 `--policy_type gr00tn1.6`, matching leisaac's official N1.6 example. The default
 Stage 3 checkpoint (N1.6) works as-is. If you trained with the optional N1.7
-path (`03-training/workflow-n1.7.yaml`), override this stage for an
+path (`03-vla-finetune/workflow-n1.7.yaml`), override this stage for an
 N1.7-compatible policy server/client before chaining.
 
 ## Outputs

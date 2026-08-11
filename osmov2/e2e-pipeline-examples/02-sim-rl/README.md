@@ -1,4 +1,4 @@
-# Stage 2 — Sim / RL
+# Stage 2 — Sim RL (H1 humanoid)
 
 Reinforcement-learning track: train an H1 humanoid to walk on rough terrain with
 Isaac Lab (skrl PPO), then replay the trained policy and record a video. This
@@ -20,7 +20,7 @@ request, so prewarming a matching size is all that's needed.
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml
 
 scripts/wait-gpu-node-cleanup.sh
 ```
@@ -28,7 +28,7 @@ scripts/wait-gpu-node-cleanup.sh
 For the Isaac Sim 5.1 stack, override the image (allow more memory):
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml \
   --set isaac_lab_image=nvcr.io/nvidia/isaac-lab:2.3.0
 ```
 
@@ -40,7 +40,7 @@ redeploy is needed):
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.4xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml \
   --set platform=g7e-rtx-pro-6000
 ```
 

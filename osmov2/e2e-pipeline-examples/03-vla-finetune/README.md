@@ -58,12 +58,12 @@ GPU stages need visible g6e capacity before OSMO validation:
 GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
 
 # N1.6 (default)
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
 
 # N1.7 (optional) — needs HF_TOKEN for the gated Cosmos-Reason2-2B backbone
-osmo workflow submit e2e-pipeline-examples/03-training/workflow-n1.7.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow-n1.7.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=6000 --set save_steps=2000
 
@@ -78,7 +78,7 @@ always deployed, so no redeploy is needed):
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g7e-rtx-pro-6000 \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000

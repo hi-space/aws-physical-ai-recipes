@@ -1,7 +1,7 @@
 # Stage 1 — Data Prep
 # Download a LeRobot dataset from Hugging Face, auto-convert v3.0 -> v2.1 (the
 # format GR00T fine-tuning needs), validate it, and publish it as an OSMO
-# dataset that Stage 3 (03-training) consumes.
+# dataset that Stage 3 (03-vla-finetune) consumes.
 #
 # Mirrors e2e-workshop/groot/training/data/{upload_dataset,convert_v3_to_v2}.py
 # but writes to an OSMO dataset instead of S3.

@@ -53,7 +53,7 @@
 "Running On-Demand G and VT instances")을 먼저 신청해야 합니다.
 
 e2e 파이프라인 스테이지는 각자의 `cpu`/`memory` 요청에 따라 이 사이즈로
-매핑됩니다: RL(02-sim)·closed-loop 평가(04)는 `g6e.4xlarge`, VLA 파인튜닝(03)은
+매핑됩니다: RL(02-sim-rl)·closed-loop 평가(04)는 `g6e.4xlarge`, VLA 파인튜닝(03)은
 `g6e.8xlarge`, Cosmos 증강(06)은 `g6e.12xlarge`. 단일 스테이지 중 가장 큰 게
 `g6e.12xlarge`(48 vCPU)라, `us-east-2`의 64 쿼터로도 파이프라인을 순차로는 돌릴
 수 있습니다 — 병렬/동시 실행에만 증설이 필요합니다. 스테이지별 권장 표는
@@ -79,7 +79,7 @@ OSMO_CONFIGURE_G6E_PLATFORM=true \
 예:
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g6e-l40s
 ```
 

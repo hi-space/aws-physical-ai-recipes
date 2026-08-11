@@ -38,7 +38,7 @@ CloudFront 모델 tarball과 특정 ECR 이미지를 하드코딩했지만, 여�
 
 ## 디바이스에 모델 올리기
 
-Stage 3(`03-training`)이 체크포인트를 OSMO 데이터셋
+Stage 3(`03-vla-finetune`)이 체크포인트를 OSMO 데이터셋
 (`e2e-pipeline-groot-checkpoint`)에 기록합니다. 그 데이터셋을 S3로 내보낸 뒤 setup
 컴포넌트가 그 위치를 가리키게 하세요:
 

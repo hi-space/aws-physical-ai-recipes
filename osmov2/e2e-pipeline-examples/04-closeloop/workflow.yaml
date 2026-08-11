@@ -62,7 +62,7 @@ workflow:
         ASSETS_DIR=/tmp/leisaac-assets
         SCRIPTS_DIR=/tmp/leisaac-repo
 
-        # Fine-tuned checkpoint from Stage 3 (03-training). OSMO nests the
+        # Fine-tuned checkpoint from Stage 3 (03-vla-finetune). OSMO nests the
         # published dataset (e.g. <input>/<dataset-name>/artifacts/checkpoint-N),
         # so locate the HF model dir by finding the config.json it must contain.
         # Prefer the highest-numbered checkpoint-* dir when several exist.

@@ -6,7 +6,7 @@
 # Standalone stage — does not depend on Stage 1. Produces a .pt checkpoint,
 # TensorBoard scalars, and rollout videos as an OSMO dataset.
 #
-#   osmo workflow submit examples ... 02-sim/workflow.yaml
+#   osmo workflow submit examples ... 02-sim-rl/workflow.yaml
 
 workflow:
   name: aws-e2e-sim-rl

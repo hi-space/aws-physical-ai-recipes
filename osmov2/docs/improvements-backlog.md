@@ -96,7 +96,7 @@ OSMO 배포/파이프라인 운영 중 발견한 개선 항목 모음. 우선순
 - 단, AMP+AMG 경로(`scripts/deploy-observability.sh`)에는 Pushgateway가 없다.
 
 PoC 검증 완료 (2026-08-03)
-- `03-training`(GR00T fine-tune)의 임시 복사본으로 PoC 수행: launch_finetune.py
+- `03-vla-finetune`(GR00T fine-tune)의 임시 복사본으로 PoC 수행: launch_finetune.py
   stdout을 stdlib 파서(`push_metrics.py`)로 tee하면서 loss/lr/grad_norm/step을
   Pushgateway로 push → Prometheus remote_write → AMP → AMG Grafana까지 도달 확인.
 - AMP SigV4 쿼리 결과: `groot_train_loss=1.1076`, `groot_learning_rate=3.02e-06`,
@@ -112,18 +112,18 @@ PoC 검증 완료 (2026-08-03)
 - 대시보드: `AWS OSMO Overview`에 "GR00T training scalars" row(패널 id 11–15) 추가
   (`import_aws_osmo_overview_dashboard`). loss/lr/grad_norm/epoch/step 표시.
 - 재사용 가능한 pusher: `scripts/push_metrics.py`를 canonical 복사 원본으로 추출
-  (03-training의 GR00T 전용 파서를 일반화 — stdlib only, `METRICS_PREFIX`/`METRICS_JOB`/
+  (03-vla-finetune의 GR00T 전용 파서를 일반화 — stdlib only, `METRICS_PREFIX`/`METRICS_JOB`/
   `WORKFLOW_ID` env로 스테이지별 커스터마이즈, `PUSHGATEWAY_URL` 비면 순수 tee no-op).
 - 가이드: `docs/adding-workflow-metrics.md` (+ `.ko.md`) — 새 파이프라인 스테이지에서
   메트릭을 Grafana에 추가하는 방법 문서화(두 push 패턴, quick start 4단계, 패널 추가,
   검증, 함정). item 2의 "쉽게 하는 방법/가이드" 요청에 대한 답.
 
 남은 커버리지 갭
-- 실제로 메트릭을 push하는 스테이지: `03-training/workflow.yaml`,
-  `03-training/workflow-n1.7.yaml`(둘 다 stdout/tee, `job=groot_training`,
+- 실제로 메트릭을 push하는 스테이지: `03-vla-finetune/workflow.yaml`,
+  `03-vla-finetune/workflow-n1.7.yaml`(둘 다 stdout/tee, `job=groot_training`,
   `groot_*` 메트릭 → 대시보드 패널과 일치), `examples/isaaclab-rsl-rl-video`
   (file-export, `isaac_*`).
-- 아직 미이식: 나머지 GPU 스테이지 `02-sim`/`04-closeloop`/`06-cosmos-augment`.
+- 아직 미이식: 나머지 GPU 스테이지 `02-sim-rl`/`04-closeloop`/`06-cosmos-augment`.
   위 가이드(`docs/adding-workflow-metrics.md`)대로 `push_metrics.py`를 인라인
   이식하고 스테이지별 `METRICS_JOB`/`METRICS_PREFIX`를 지정하면 메트릭이 뜬다.
   (01-data-prep은 CPU 전용이라 GPU/학습 메트릭 대상 아님.)
@@ -193,8 +193,8 @@ PoC 검증 완료 (2026-08-03)
 - Output dir 링크 대신 Datasets 페이지 사용:
   `https://<cloudfront>/datasets/aws-osmo/<output-dataset-name>`
   - 01-data-prep → `e2e-pipeline-lerobot-dataset`
-  - 02/03-training → `e2e-pipeline-groot-checkpoint`
-  - sim-rl → `e2e-pipeline-sim-rl-artifacts`
+  - 03-vla-finetune → `e2e-pipeline-groot-checkpoint`
+  - 02-sim-rl → `e2e-pipeline-sim-rl-artifacts`
   - 04-closeloop → `e2e-pipeline-closeloop-artifacts`
 - 워크플로우의 output_dataset 이름은 `osmo workflow spec <id>`의 outputs.dataset.name
   또는 `osmo dataset list`로 확인.

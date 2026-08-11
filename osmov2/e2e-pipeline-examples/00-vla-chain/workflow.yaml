@@ -1,0 +1,1191 @@
+# Stage 0 — SO-101 GR00T VLA chain in one submit (01 → 03 → 04)
+# Single-submit variant of the VLA chain: data prep → GR00T fine-tune → LeIsaac
+# closed-loop eval, chained inside ONE workflow with OSMO task dependencies
+# (`inputs: - task: <name>`) instead of three separate submits chained by
+# dataset name. Submit once and OSMO advances the DAG on its own; each task's
+# output dir is mounted as the next task's `{{input:0}}`.
+#
+# Scope is the VLA chain, not every stage in e2e-pipeline-examples: 02-sim-rl
+# is a separate H1 humanoid RL track, 05-edge is a Greengrass deployment rather
+# than an OSMO workflow, and 06-cosmos-augment is optional (its 3d timeout
+# would dominate this one). Stage 4 IS the simulation step (Isaac Sim+LeIsaac).
+#
+# The task bodies are copies of 01-data-prep, 03-vla-finetune and 04-closeloop.
+# Those three stages stay the authoritative, independently runnable versions —
+# use them to re-run or debug a single step. Use this file when you want an
+# unattended run of the whole chain.
+#
+# Because `default-values` is a single flat namespace, every per-stage variable
+# is prefixed (`prep_`, `train_`, `eval_`). That is what lets the two different
+# pinned Isaac-GR00T refs coexist: `train_gr00t_ref` (fine-tune) and
+# `eval_gr00t_ref` (leisaac-compatible ZMQ server).
+#
+#   osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
+#     --set prep_hf_dataset_id=LightwheelAI/leisaac-pick-orange \
+#     train_max_steps=10000 train_save_steps=10000
+
+workflow:
+  name: aws-e2e-vla-chain
+  # Workflow-scoped, so it must cover all three tasks end to end
+  # (2h prep + 12h train + 4h eval, plus node provisioning headroom).
+  timeout:
+    exec_timeout: 20h
+    queue_timeout: 6h
+  resources:
+    prep_cpu:
+      cpu: {{ prep_cpu }}
+      memory: {{ prep_memory }}
+      storage: {{ prep_storage }}
+    train_gpu:
+      cpu: {{ train_cpu }}
+      gpu: 1
+      memory: {{ train_memory }}
+      storage: {{ train_storage }}
+      platform: {{ train_platform }}
+    eval_gpu:
+      cpu: {{ eval_cpu }}
+      gpu: 1
+      memory: {{ eval_memory }}
+      storage: {{ eval_storage }}
+      platform: {{ eval_platform }}
+
+  tasks:
+  - name: prepare
+    resource: prep_cpu
+    image: {{ prep_image_name }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+
+        export DEBIAN_FRONTEND=noninteractive
+        export HF_HOME=/tmp/hf-home
+        export HUGGING_FACE_HUB_TOKEN="${HF_TOKEN:-}"
+        export PYTHONUNBUFFERED=1
+
+        HF_DATASET_ID="{{ prep_hf_dataset_id }}"
+        DEFAULT_TASK="{{ prep_default_task }}"
+        ARTIFACT_DIR="{{output}}/artifacts"
+
+        apt-get update >/dev/null
+        apt-get install -y --no-install-recommends \
+          ca-certificates curl ffmpeg git git-lfs python3 python3-pip >/dev/null
+        git lfs install --skip-repo >/dev/null
+        pip install --quiet --no-input "huggingface_hub>=0.24" "pyarrow>=15.0.0" numpy
+
+        RAW_DIR=/tmp/dataset-raw
+        mkdir -p "${RAW_DIR}" "${ARTIFACT_DIR}"
+
+        echo ">>> Downloading dataset ${HF_DATASET_ID} from Hugging Face..."
+        python - "${HF_DATASET_ID}" "${RAW_DIR}" <<'PY'
+        import sys
+        from huggingface_hub import snapshot_download
+        dataset_id, local_dir = sys.argv[1], sys.argv[2]
+        snapshot_download(repo_id=dataset_id, repo_type="dataset", local_dir=local_dir)
+        print(f"Downloaded {dataset_id} -> {local_dir}")
+        PY
+
+        echo ">>> Converting (v3 -> v2.1 if needed), validating, and staging..."
+        python /tmp/prepare_dataset.py "${RAW_DIR}" "${ARTIFACT_DIR}" "${DEFAULT_TASK}"
+
+        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -100
+        exit 0
+    - path: /tmp/prepare_dataset.py
+      contents: |
+        #!/usr/bin/env python3
+        """Detect LeRobot v3.0 -> convert to v2.1, validate, stage to OSMO output.
+
+        Distilled from e2e-workshop/groot/training/data/convert_v3_to_v2.py and
+        upload_dataset.py so the OSMO pipeline produces the exact dataset shape
+        GR00T fine-tuning expects.
+        """
+        import json
+        import math
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        CHUNKS_SIZE_DEFAULT = 1000
+
+
+        def is_v3(root: Path) -> bool:
+            info = root / "meta" / "info.json"
+            if not info.exists():
+                return False
+            return json.loads(info.read_text()).get("codebase_version", "").startswith("v3")
+
+
+        def load_episodes(root: Path):
+            import pyarrow.parquet as pq
+            files = sorted((root / "meta" / "episodes").glob("chunk-*/file-*.parquet"))
+            if not files:
+                raise FileNotFoundError(f"no episode parquet under {root/'meta'/'episodes'}")
+            records = []
+            for f in files:
+                records.extend(pq.read_table(f).to_pylist())
+            records.sort(key=lambda r: int(r["episode_index"]))
+            print(f"  loaded {len(records)} episodes")
+            return records
+
+
+        def convert_data(root: Path, episodes, chunks_size):
+            import pyarrow.parquet as pq
+            grouped = {}
+            for ep in episodes:
+                key = (int(ep["data/chunk_index"]), int(ep["data/file_index"]))
+                grouped.setdefault(key, []).append(ep)
+            for (chunk_idx, file_idx), eps in grouped.items():
+                src = root / f"data/chunk-{chunk_idx:03d}/file-{file_idx:03d}.parquet"
+                if not src.exists():
+                    continue
+                table = pq.read_table(src)
+                eps = sorted(eps, key=lambda r: int(r["dataset_from_index"]))
+                file_offset = int(eps[0]["dataset_from_index"])
+                for ep in eps:
+                    ep_idx = int(ep["episode_index"])
+                    start = int(ep["dataset_from_index"]) - file_offset
+                    length = int(ep["dataset_to_index"]) - int(ep["dataset_from_index"])
+                    dest_chunk = ep_idx // chunks_size
+                    dest = root / f"data/chunk-{dest_chunk:03d}/episode_{ep_idx:06d}.parquet"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    pq.write_table(table.slice(start, length), dest)
+                src.unlink()
+            print("  data/ split into per-episode parquet")
+
+
+        def convert_videos(root: Path, episodes, video_keys, chunks_size):
+            if not video_keys:
+                print("  no video keys")
+                return
+            if shutil.which("ffmpeg") is None:
+                print("  WARNING: ffmpeg missing, skipping video split")
+                return
+            for vk in video_keys:
+                cc, fc = f"videos/{vk}/chunk_index", f"videos/{vk}/file_index"
+                fts, tts = f"videos/{vk}/from_timestamp", f"videos/{vk}/to_timestamp"
+                grouped = {}
+                for ep in episodes:
+                    if cc not in ep or ep[cc] is None:
+                        continue
+                    grouped.setdefault((int(ep[cc]), int(ep[fc])), []).append(ep)
+                for (chunk_idx, file_idx), eps in grouped.items():
+                    src = root / f"videos/{vk}/chunk-{chunk_idx:03d}/file-{file_idx:03d}.mp4"
+                    if not src.exists():
+                        continue
+                    for ep in sorted(eps, key=lambda r: float(r[fts])):
+                        ep_idx = int(ep["episode_index"])
+                        start, end = float(ep[fts]), float(ep[tts])
+                        duration = max(end - start, 1e-6)
+                        dest_chunk = ep_idx // chunks_size
+                        dest = root / f"videos/chunk-{dest_chunk:03d}/{vk}/episode_{ep_idx:06d}.mp4"
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        subprocess.run(
+                            ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                             "-ss", f"{start:.6f}", "-i", str(src), "-t", f"{duration:.6f}",
+                             "-c", "copy", "-avoid_negative_ts", "1", "-y", str(dest)],
+                            check=True, timeout=300, capture_output=True)
+                    src.unlink()
+                shutil.rmtree(root / f"videos/{vk}", ignore_errors=True)
+            print("  videos/ split into per-episode mp4")
+
+
+        def _to_serializable(v):
+            import numpy as np
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if isinstance(v, np.generic):
+                return v.item()
+            if isinstance(v, (list, tuple)):
+                return [_to_serializable(x) for x in v]
+            if isinstance(v, dict):
+                return {k: _to_serializable(x) for k, x in v.items()}
+            return v
+
+
+        def _unflatten(flat):
+            out = {}
+            for key, value in flat.items():
+                parts = key.split("/")
+                d = out
+                for p in parts[:-1]:
+                    d = d.setdefault(p, {})
+                d[parts[-1]] = value
+            return out
+
+
+        def convert_episodes_meta(root: Path, episodes):
+            ep_path = root / "meta" / "episodes.jsonl"
+            st_path = root / "meta" / "episodes_stats.jsonl"
+            with ep_path.open("w") as ef, st_path.open("w") as sf:
+                for ep in sorted(episodes, key=lambda r: int(r["episode_index"])):
+                    legacy = {}
+                    for k, v in ep.items():
+                        if k.startswith(("data/", "videos/", "stats/", "meta/")):
+                            continue
+                        if k in ("dataset_from_index", "dataset_to_index"):
+                            continue
+                        legacy[k] = _to_serializable(v)
+                    if "length" not in legacy and "dataset_from_index" in ep:
+                        legacy["length"] = int(ep["dataset_to_index"]) - int(ep["dataset_from_index"])
+                    ef.write(json.dumps(legacy, ensure_ascii=False) + "\n")
+                    stats_flat = {k: _to_serializable(ep[k]) for k in ep if k.startswith("stats/")}
+                    if stats_flat:
+                        sf.write(json.dumps({
+                            "episode_index": int(ep["episode_index"]),
+                            "stats": _unflatten(stats_flat).get("stats", {}),
+                        }, ensure_ascii=False) + "\n")
+            shutil.rmtree(root / "meta" / "episodes", ignore_errors=True)
+            print(f"  episodes.jsonl ({len(episodes)}), episodes_stats.jsonl written")
+
+
+        def ensure_tasks_jsonl(root: Path, default_task: str):
+            tasks_pq = root / "meta" / "tasks.parquet"
+            tasks_jsonl = root / "meta" / "tasks.jsonl"
+            if tasks_pq.exists():
+                import pyarrow.parquet as pq
+                df = pq.read_table(tasks_pq).to_pandas()
+                with tasks_jsonl.open("w") as f:
+                    for task_desc, row in df.iterrows():
+                        f.write(json.dumps({"task_index": int(row["task_index"]),
+                                            "task": str(task_desc)}, ensure_ascii=False) + "\n")
+                tasks_pq.unlink()
+                print("  tasks.parquet -> tasks.jsonl")
+                return
+            if tasks_jsonl.exists():
+                print("  tasks.jsonl present")
+                return
+            descriptions = set()
+            episodes_jsonl = root / "meta" / "episodes.jsonl"
+            if episodes_jsonl.exists():
+                for line in episodes_jsonl.read_text().splitlines():
+                    for t in json.loads(line).get("tasks", []):
+                        descriptions.add(t)
+            tasks_jsonl.parent.mkdir(parents=True, exist_ok=True)
+            with tasks_jsonl.open("w") as f:
+                items = sorted(descriptions) or [default_task]
+                for i, desc in enumerate(items):
+                    f.write(json.dumps({"task_index": i, "task": desc}, ensure_ascii=False) + "\n")
+            print(f"  tasks.jsonl generated ({len(items)} task(s))")
+
+
+        def update_info(root: Path, episodes, video_keys):
+            info = json.loads((root / "meta" / "info.json").read_text())
+            total = info.get("total_episodes", len(episodes))
+            chunks_size = info.get("chunks_size", CHUNKS_SIZE_DEFAULT)
+            info["codebase_version"] = "v2.1"
+            info["data_path"] = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+            info["video_path"] = (
+                "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
+                if video_keys else None
+            )
+            info.pop("data_files_size_in_mb", None)
+            info.pop("video_files_size_in_mb", None)
+            for ft in info.get("features", {}).values():
+                if ft.get("dtype") != "video":
+                    ft.pop("fps", None)
+            info["total_chunks"] = math.ceil(total / chunks_size) if total else 0
+            info["total_videos"] = total * len(video_keys)
+            (root / "meta" / "info.json").write_text(json.dumps(info, indent=4, ensure_ascii=False))
+            print("  info.json -> v2.1")
+
+
+        def convert_v3_to_v2(root: Path, default_task: str):
+            info = json.loads((root / "meta" / "info.json").read_text())
+            chunks_size = info.get("chunks_size", CHUNKS_SIZE_DEFAULT)
+            episodes = load_episodes(root)
+            video_keys = [k for k, v in info.get("features", {}).items() if v.get("dtype") == "video"]
+            convert_data(root, episodes, chunks_size)
+            convert_videos(root, episodes, video_keys, chunks_size)
+            convert_episodes_meta(root, episodes)
+            ensure_tasks_jsonl(root, default_task)
+            update_info(root, episodes, video_keys)
+
+
+        def validate(root: Path):
+            errors = []
+            info_path = root / "meta" / "info.json"
+            if not info_path.exists():
+                errors.append("meta/info.json missing")
+            else:
+                info = json.loads(info_path.read_text())
+                for field in ("robot_type", "fps", "features"):
+                    if field not in info:
+                        errors.append(f"meta/info.json missing '{field}'")
+            parquet = list((root / "data").rglob("*.parquet")) if (root / "data").exists() else []
+            if not parquet:
+                errors.append("no data/*.parquet")
+            if not (root / "meta" / "tasks.jsonl").exists():
+                errors.append("meta/tasks.jsonl missing")
+            if not (root / "meta" / "modality.json").exists():
+                errors.append("meta/modality.json missing")
+            if errors:
+                raise SystemExit("LeRobot v2 validation failed:\n" + "\n".join(f"  - {e}" for e in errors))
+            print(f"  validation OK ({len(parquet)} episode parquet files)")
+            return {"episode_parquet_files": len(parquet)}
+
+
+        # SO-101 (6-DOF) GR00T modality map: LeRobot state/action columns ->
+        # GR00T modality index ranges + camera/annotation key aliases. GR00T's
+        # LeRobotEpisodeLoader requires meta/modality.json; the LeRobot dataset
+        # ships without it, so Stage 1 writes it here (copy of e2e-workshop
+        # groot/training/data/configs/so101_modality.json) to keep the produced
+        # dataset self-contained for Stage 3 fine-tuning.
+        SO101_MODALITY = {
+            "state": {
+                "single_arm": {"start": 0, "end": 5},
+                "gripper": {"start": 5, "end": 6},
+            },
+            "action": {
+                "single_arm": {"start": 0, "end": 5},
+                "gripper": {"start": 5, "end": 6},
+            },
+            "video": {
+                "front": {"original_key": "observation.images.front"},
+                "wrist": {"original_key": "observation.images.wrist"},
+            },
+            "annotation": {
+                "human.task_description": {"original_key": "task_index"},
+            },
+        }
+
+
+        def ensure_modality_json(root: Path):
+            path = root / "meta" / "modality.json"
+            if path.exists():
+                print("  meta/modality.json present")
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(SO101_MODALITY, indent=4) + "\n")
+            print("  meta/modality.json written (SO-101 6-DOF)")
+
+
+        def main():
+            raw, out, default_task = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+            if is_v3(raw):
+                print(">>> LeRobot v3 detected -> converting to v2.1")
+                convert_v3_to_v2(raw, default_task)
+            else:
+                print(">>> Not v3 (assuming v2.x); ensuring tasks.jsonl")
+                ensure_tasks_jsonl(raw, default_task)
+            ensure_modality_json(raw)
+            stats = validate(raw)
+
+            dataset_out = out / "dataset"
+            if dataset_out.exists():
+                shutil.rmtree(dataset_out)
+            shutil.copytree(raw, dataset_out)
+
+            info = json.loads((raw / "meta" / "info.json").read_text())
+            manifest = {
+                "codebase_version": info.get("codebase_version"),
+                "robot_type": info.get("robot_type"),
+                "fps": info.get("fps"),
+                "total_episodes": info.get("total_episodes"),
+                **stats,
+            }
+            (out / "dataset-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+            print(json.dumps(manifest, indent=2))
+
+
+        if __name__ == "__main__":
+            main()
+    outputs:
+    - dataset:
+        name: {{ prep_output_dataset }}
+        path: artifacts
+
+  - name: gr00t-finetune
+    resource: train_gpu
+    image: {{ train_image_name }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    inputs:
+    - task: prepare
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+        START_TS="$(date -u +%s)"
+
+        unset PIP_CONSTRAINT || true
+        export PIP_CONSTRAINT=
+        export DEBIAN_FRONTEND=noninteractive
+        export HF_HOME=/tmp/hf-home
+        export HUGGING_FACE_HUB_TOKEN="${HF_TOKEN:-}"
+        export PYTHONUNBUFFERED=1
+        export UV_LINK_MODE=copy
+        export UV_PROJECT_ENVIRONMENT=/tmp/gr00t-venv
+        export WANDB_DISABLED=true
+
+        # Push HF Trainer scalars (loss/lr/epoch/grad_norm) to the in-cluster
+        # Prometheus Pushgateway so they land in Grafana alongside DCGM GPU
+        # metrics. Best-effort: if pushgateway_url is empty (no in-cluster
+        # observability), push_metrics.py just tees stdout and pushes nothing.
+        # The workflow id is a label so a Grafana panel can filter per run.
+        PUSHGATEWAY_URL="{{ train_pushgateway_url }}"
+        METRICS_JOB="groot_training"
+        WORKFLOW_ID="${HOSTNAME}"
+
+        BASE_MODEL_PATH="{{ train_base_model_path }}"
+        GROOT_VERSION="{{ train_groot_version }}"
+        EMBODIMENT_TAG="{{ train_embodiment_tag }}"
+        MAX_STEPS="{{ train_max_steps }}"
+        SAVE_STEPS="{{ train_save_steps }}"
+        SAVE_TOTAL_LIMIT="{{ train_save_total_limit }}"
+        GLOBAL_BATCH_SIZE="{{ train_global_batch_size }}"
+        LEARNING_RATE="{{ train_learning_rate }}"
+        DATALOADER_NUM_WORKERS="{{ train_dataloader_num_workers }}"
+        RETAIN_MODEL_WEIGHTS="{{ train_retain_model_weights }}"
+        ARTIFACT_DIR="{{output}}/artifacts"
+        OUTPUT_DIR=/tmp/gr00t-output
+        DATASET_DIR="{{input:0}}/artifacts/dataset"
+
+        nvidia-smi
+        python --version
+
+        apt-get update >/dev/null
+        apt-get install -y --no-install-recommends \
+          ca-certificates curl ffmpeg git git-lfs libgl1 libglib2.0-0 >/dev/null
+        git lfs install --skip-repo >/dev/null
+        curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null
+        export PATH="${HOME}/.local/bin:${PATH}"
+
+        # The prepare task writes <output>/artifacts/dataset, so as a task input
+        # that is <input:0>/artifacts/dataset. Fall back to locating the LeRobot
+        # root by the meta/info.json it must contain.
+        if [ ! -d "${DATASET_DIR}/meta" ]; then
+          INFO_JSON="$(find "{{input:0}}" -maxdepth 6 -type f -path '*/meta/info.json' 2>/dev/null | sort | head -1)"
+          if [ -n "${INFO_JSON}" ]; then
+            DATASET_DIR="$(dirname "$(dirname "${INFO_JSON}")")"
+          else
+            DATASET_DIR="{{input:0}}"
+          fi
+        fi
+        test -d "${DATASET_DIR}/meta"
+        echo ">>> Using dataset at ${DATASET_DIR}"
+
+        git clone --filter=blob:none "{{ train_gr00t_repository }}" /tmp/Isaac-GR00T
+        cd /tmp/Isaac-GR00T
+        git checkout "{{ train_gr00t_ref }}"
+        uv sync --no-dev
+
+        # SO-101 modality config registered for NEW_EMBODIMENT (from e2e workshop).
+        cp /tmp/so101_modality_config.py examples/SO100/so101_e2e_config.py
+
+        # GPU metrics sampler
+        GPU_METRICS_DIR=/tmp/gpu-metrics
+        mkdir -p "${GPU_METRICS_DIR}"
+        (
+          set +e
+          while true; do
+            nvidia-smi \
+              --query-gpu=timestamp,index,name,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw,temperature.gpu \
+              --format=csv,noheader,nounits >>"${GPU_METRICS_DIR}/nvidia-smi.csv" 2>/dev/null || true
+            sleep "{{ train_gpu_metrics_interval_seconds }}"
+          done
+        ) &
+        GPU_METRICS_PID="$!"
+        trap 'kill "${GPU_METRICS_PID}" 2>/dev/null || true' EXIT
+
+        # launch_finetune.py hardcodes config.model.use_relative_action=True for
+        # the N1.6 backbone; FinetuneConfig has no --use-relative-action field
+        # (tyro rejects it), so relative-action is not a CLI knob here.
+        # Pipe training stdout through the metrics pusher (tee keeps the original
+        # stream visible in `osmo workflow logs`). set -o pipefail is already on,
+        # so launch_finetune.py's exit status still propagates.
+        uv run python gr00t/experiment/launch_finetune.py \
+          --base-model-path "${BASE_MODEL_PATH}" \
+          --dataset-path "${DATASET_DIR}" \
+          --embodiment-tag "${EMBODIMENT_TAG}" \
+          --modality-config-path examples/SO100/so101_e2e_config.py \
+          --num-gpus 1 \
+          --global-batch-size "${GLOBAL_BATCH_SIZE}" \
+          --max-steps "${MAX_STEPS}" \
+          --save-steps "${SAVE_STEPS}" \
+          --save-total-limit "${SAVE_TOTAL_LIMIT}" \
+          --output-dir "${OUTPUT_DIR}" \
+          --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
+          --learning-rate "${LEARNING_RATE}" \
+          --no-use-wandb 2>&1 \
+          | PUSHGATEWAY_URL="${PUSHGATEWAY_URL}" METRICS_JOB="${METRICS_JOB}" \
+            WORKFLOW_ID="${WORKFLOW_ID}" python3 -u /tmp/push_metrics.py
+
+        kill "${GPU_METRICS_PID}" 2>/dev/null || true
+        python /tmp/gpu_metrics_summary.py "${GPU_METRICS_DIR}/nvidia-smi.csv" "${GPU_METRICS_DIR}" || true
+
+        if [ "${RETAIN_MODEL_WEIGHTS}" != "true" ]; then
+          find "${OUTPUT_DIR}" -type f \( \
+            -name "optimizer.pt" -o -name "scheduler.pt" -o -name "rng_state.pth" \
+          \) -delete
+        fi
+
+        mkdir -p "${ARTIFACT_DIR}"
+        cp -a "${OUTPUT_DIR}/." "${ARTIFACT_DIR}/"
+        cp -a "${GPU_METRICS_DIR}" "${ARTIFACT_DIR}/gpu-metrics"
+        END_TS="$(date -u +%s)"
+        cat > "${ARTIFACT_DIR}/run-manifest.json" <<JSON
+        {
+          "workflow": "aws-e2e-vla-chain",
+          "base_model_path": "${BASE_MODEL_PATH}",
+          "groot_version": "${GROOT_VERSION}",
+          "embodiment_tag": "${EMBODIMENT_TAG}",
+          "modality_config": "so101_e2e_config.py",
+          "use_relative_action": "hardcoded-true-in-launch-script",
+          "max_steps": ${MAX_STEPS},
+          "global_batch_size": ${GLOBAL_BATCH_SIZE},
+          "runtime_seconds": $((END_TS - START_TS)),
+          "retain_model_weights": "${RETAIN_MODEL_WEIGHTS}"
+        }
+        JSON
+
+        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort | head -200
+        exit 0
+    - path: /tmp/push_metrics.py
+      contents: |
+        # Read HF Trainer stdout on stdin, echo it back unchanged (so the OSMO
+        # workflow log is preserved), and push loss/lr/epoch/grad_norm scalars to
+        # a Prometheus Pushgateway. Uses only the stdlib so it runs under the
+        # system python3 without touching the training venv. No-op (pure tee) if
+        # PUSHGATEWAY_URL is empty; every push is wrapped so metrics can never
+        # break training.
+        import ast
+        import os
+        import re
+        import sys
+        import urllib.request
+
+        PGW = os.environ.get("PUSHGATEWAY_URL", "").rstrip("/")
+        JOB = os.environ.get("METRICS_JOB", "groot_training")
+        WF = os.environ.get("WORKFLOW_ID", "unknown")
+        LOSS_RE = re.compile(r"(\{[^{}]*'loss'[^{}]*\})")
+
+        def push(step, d):
+            if not PGW:
+                return
+            lines = []
+            for key, metric in (
+                ("loss", "groot_train_loss"),
+                ("learning_rate", "groot_learning_rate"),
+                ("epoch", "groot_epoch"),
+                ("grad_norm", "groot_grad_norm"),
+            ):
+                if key in d:
+                    try:
+                        lines.append("{} {}".format(metric, float(d[key])))
+                    except (TypeError, ValueError):
+                        pass
+            lines.append("groot_global_step {}".format(step))
+            body = ("\n".join(lines) + "\n").encode()
+            url = "{}/metrics/job/{}/workflow/{}".format(PGW, JOB, WF)
+            try:
+                req = urllib.request.Request(url, data=body, method="POST")
+                urllib.request.urlopen(req, timeout=5).read()
+            except Exception as exc:  # noqa: BLE001 - metrics must never break training
+                sys.stderr.write("push_metrics: {}\n".format(exc))
+
+        step = 0
+        for line in sys.stdin:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            m = LOSS_RE.search(line)
+            if not m:
+                continue
+            try:
+                d = ast.literal_eval(m.group(1))
+            except (ValueError, SyntaxError):
+                continue
+            if "loss" not in d:
+                continue
+            step += 1
+            push(step, d)
+    - path: /tmp/so101_modality_config.py
+      contents: |
+        """SO-ARM101 (6-DOF) modality config — from e2e-workshop.
+
+        Copy of e2e-workshop/groot/training/data/configs/so101_modality_config.py.
+        Registers a NEW_EMBODIMENT config with 5 arm joints + 1 gripper, matching
+        the LightwheelAI/leisaac-pick-orange dataset and the LeIsaac closed-loop
+        eval language key `annotation.human.task_description`.
+        """
+        from gr00t.configs.data.embodiment_configs import register_modality_config
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import (
+            ActionConfig,
+            ActionFormat,
+            ActionRepresentation,
+            ActionType,
+            ModalityConfig,
+        )
+
+        so101_config = {
+            "video": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["front", "wrist"],
+            ),
+            "state": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["single_arm", "gripper"],
+            ),
+            "action": ModalityConfig(
+                delta_indices=list(range(0, 16)),
+                modality_keys=["single_arm", "gripper"],
+                action_configs=[
+                    ActionConfig(
+                        rep=ActionRepresentation.RELATIVE,
+                        type=ActionType.NON_EEF,
+                        format=ActionFormat.DEFAULT,
+                    ),
+                    ActionConfig(
+                        rep=ActionRepresentation.ABSOLUTE,
+                        type=ActionType.NON_EEF,
+                        format=ActionFormat.DEFAULT,
+                    ),
+                ],
+            ),
+            "language": ModalityConfig(
+                delta_indices=[0],
+                modality_keys=["annotation.human.task_description"],
+            ),
+        }
+
+        register_modality_config(so101_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
+    - path: /tmp/gpu_metrics_summary.py
+      contents: |
+        import csv
+        import json
+        import math
+        import statistics
+        import sys
+        from pathlib import Path
+
+        csv_path = Path(sys.argv[1])
+        out_dir = Path(sys.argv[2])
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        fields = ["timestamp", "index", "name", "gpu_util_percent", "memory_util_percent",
+                  "memory_used_mib", "memory_total_mib", "power_draw_w", "temperature_c"]
+        rows = []
+        if csv_path.exists():
+            with csv_path.open(newline="") as f:
+                for row in csv.reader(f):
+                    if len(row) != len(fields):
+                        continue
+                    item = {k: v.strip() for k, v in zip(fields, row)}
+                    for k in fields[3:]:
+                        try:
+                            item[k] = float(item[k])
+                        except ValueError:
+                            item[k] = math.nan
+                    rows.append(item)
+
+        def values(key):
+            return [float(r[key]) for r in rows if not math.isnan(float(r[key]))]
+
+        summary = {
+            "sample_count": len(rows),
+            "gpu_name": rows[0]["name"] if rows else None,
+            "gpu_util_percent_avg": statistics.fmean(values("gpu_util_percent")) if values("gpu_util_percent") else None,
+            "gpu_util_percent_max": max(values("gpu_util_percent")) if values("gpu_util_percent") else None,
+            "memory_used_mib_max": max(values("memory_used_mib")) if values("memory_used_mib") else None,
+            "power_draw_w_max": max(values("power_draw_w")) if values("power_draw_w") else None,
+        }
+        (out_dir / "gpu-metrics-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            x = list(range(len(rows)))
+            fig, ax = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+            ax[0].plot(x, values("gpu_util_percent"), label="GPU util %", color="#2563eb")
+            ax[0].set_ylabel("percent"); ax[0].legend(); ax[0].grid(True, alpha=0.3)
+            mem = [v / 1024 for v in values("memory_used_mib")]
+            ax[1].plot(x, mem, label="Memory used GiB", color="#9333ea")
+            ax[1].set_xlabel("sample"); ax[1].set_ylabel("GiB"); ax[1].legend(); ax[1].grid(True, alpha=0.3)
+            fig.suptitle("GR00T fine-tune GPU utilization"); fig.tight_layout()
+            fig.savefig(out_dir / "gpu-utilization.png", dpi=150)
+        except Exception as exc:
+            (out_dir / "gpu-metrics-plot-error.txt").write_text(str(exc) + "\n")
+    outputs:
+    - dataset:
+        name: {{ train_output_dataset }}
+        path: artifacts
+
+  - name: eval
+    resource: eval_gpu
+    image: {{ eval_isaac_lab_image }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    inputs:
+    - task: gr00t-finetune
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+
+        export ACCEPT_EULA=Y
+        export PRIVACY_CONSENT=Y
+        export DEBIAN_FRONTEND=noninteractive
+        export PYTHONUNBUFFERED=1
+
+        LEISAAC_REPO="{{ eval_leisaac_repository }}"
+        LEISAAC_COMMIT="{{ eval_leisaac_ref }}"
+        EMBODIMENT_TAG="{{ eval_embodiment_tag }}"
+        TASK_NAME="{{ eval_task_name }}"
+        INSTRUCTION="{{ eval_instruction }}"
+        NUM_EPISODES="{{ eval_num_episodes }}"
+        STEP_HZ="{{ eval_step_hz }}"
+        POLICY_HOST="127.0.0.1"
+        POLICY_PORT="{{ eval_policy_port }}"
+        ARTIFACT_DIR="{{output}}/artifacts"
+
+        PKGS_DIR=/tmp/isaaclab-pkgs
+        ASSETS_DIR=/tmp/leisaac-assets
+        SCRIPTS_DIR=/tmp/leisaac-repo
+
+        # Fine-tuned checkpoint from the gr00t-finetune task, which writes
+        # <output>/artifacts/checkpoint-N. Locate the HF model dir by finding the
+        # config.json it must contain, preferring the highest-numbered
+        # checkpoint-* dir when several exist.
+        MODEL_PATH="{{input:0}}/artifacts"
+        if [ ! -f "${MODEL_PATH}/config.json" ]; then
+          CANDIDATE="$(find "${MODEL_PATH}" -maxdepth 6 -name config.json -printf '%h\n' 2>/dev/null \
+            | grep -E '/checkpoint-[0-9]+$' | sort -t- -k2 -n | tail -1)"
+          if [ -z "${CANDIDATE}" ]; then
+            CANDIDATE="$(find "${MODEL_PATH}" -maxdepth 6 -name config.json -printf '%h\n' 2>/dev/null | sort | tail -1)"
+          fi
+          if [ -n "${CANDIDATE}" ]; then
+            MODEL_PATH="${CANDIDATE}"
+          fi
+        fi
+        echo ">>> Using model checkpoint at ${MODEL_PATH}"
+        test -f "${MODEL_PATH}/config.json"
+
+        nvidia-smi
+        mkdir -p "${ARTIFACT_DIR}/logs" "${ARTIFACT_DIR}/videos" "${PKGS_DIR}" \
+          "${ASSETS_DIR}/scenes" "${ASSETS_DIR}/robots"
+
+        apt-get update >/dev/null
+        apt-get install -y --no-install-recommends \
+          ca-certificates curl git git-lfs libgl1 libglib2.0-0 ffmpeg unzip >/dev/null
+        git lfs install --skip-repo >/dev/null
+
+        # ── Step 1: Install leisaac + lerobot into a target dir (run-isaaclab.sh Step 1)
+        echo ">>> Installing leisaac[gr00t] + lerobot..."
+        # Pin torch==2.7.0 / torchvision==0.22.0 up front: lerobot accepts it
+        # (<2.11,>=2.2.1) and gr00t (Isaac-GR00T) hard-pins torch==2.7.0, so
+        # pinning here keeps a single torch and lets the flash-attn prebuilt
+        # wheel below match. ninja/packaging are flash-attn build tooling.
+        /workspace/isaaclab/_isaac_sim/python.sh -m pip install \
+          --target "${PKGS_DIR}" \
+          torch==2.7.0 torchvision==0.22.0 \
+          lerobot zmq msgpack-python ninja packaging \
+          "leisaac[gr00t] @ git+${LEISAAC_REPO}.git@${LEISAAC_COMMIT}#subdirectory=source/leisaac"
+        export PYTHONPATH="${PKGS_DIR}:${PYTHONPATH:-}"
+
+        # ── Step 1a: Patch leisaac for GR00T N1.6 dynamic language key ─────
+        # Use Isaac Sim's bundled python: the isaac-lab runtime image has no
+        # system `python3` (only /workspace/isaaclab/_isaac_sim/python.sh), so
+        # `python3 ...` fails with command-not-found. No `|| true` here — a
+        # silently-skipped patch leaves a latent client/serialization bug.
+        /workspace/isaaclab/_isaac_sim/python.sh /tmp/patch_leisaac.py \
+          "${PKGS_DIR}/leisaac/policy/service_policy_clients.py" \
+          "${PKGS_DIR}/leisaac/policy/gr00t/serialization.py"
+
+        # ── Step 2: Download SO-101 scene assets (run-isaaclab.sh Step 2) ──
+        echo ">>> Downloading kitchen_with_orange scene + so101_follower.usd..."
+        curl -fsSL -o /tmp/kitchen_with_orange.zip \
+          "${LEISAAC_REPO}/releases/download/v0.1.0/kitchen_with_orange.zip"
+        unzip -o /tmp/kitchen_with_orange.zip -d "${ASSETS_DIR}/scenes/" >/dev/null
+        rm -f /tmp/kitchen_with_orange.zip
+        curl -fsSL -o "${ASSETS_DIR}/robots/so101_follower.usd" \
+          "${LEISAAC_REPO}/releases/download/v0.1.0/so101_follower.usd"
+        export LEISAAC_ASSETS_ROOT="${ASSETS_DIR}"
+
+        # ── Step 3: Clone leisaac eval scripts (run-isaaclab.sh Step 3) ────
+        git clone "${LEISAAC_REPO}.git" "${SCRIPTS_DIR}"
+        (cd "${SCRIPTS_DIR}" && git checkout "${LEISAAC_COMMIT}")
+
+        # ── Step 4: Patch policy_inference.py for headless keyboard support
+        # + disable wait_for_textures (see patch_headless.py). Bundled python
+        # only (no system python3); no `|| true` — an unpatched reset() hangs
+        # forever waiting on a texture-load event that never fires headless.
+        /workspace/isaaclab/_isaac_sim/python.sh /tmp/patch_headless.py \
+          "${SCRIPTS_DIR}/scripts/evaluation/policy_inference.py"
+
+        # ── Step 5: IsaacSim cache dirs ────────────────────────────────────
+        mkdir -p ~/docker/isaac-sim/cache/{kit,ov,pip,glcache,computecache}
+        mkdir -p ~/docker/isaac-sim/{logs,data,documents}
+
+        # ── Start GR00T ZMQ policy server in background ────────────────────
+        echo ">>> Cloning Isaac-GR00T for run_gr00t_server.py..."
+        git clone --filter=blob:none "{{ eval_gr00t_repository }}" /tmp/Isaac-GR00T
+        (cd /tmp/Isaac-GR00T && git checkout "{{ eval_gr00t_ref }}")
+
+        # Isaac-GR00T (gr00t==0.1.0) hard-pins flash-attn==2.7.4.post1. Its
+        # setup.py compiles from source (needs nvcc/CUDA_HOME) even to generate
+        # metadata, and the isaac-lab runtime image has no CUDA toolkit. So
+        # fetch the matching prebuilt wheel into a local find-links dir. The
+        # wheel tag depends on the installed torch minor version, its C++11 ABI
+        # flag, and the Python version — compute all three from the torch
+        # installed above so this stays correct if torch moves.
+        echo ">>> Fetching prebuilt flash-attn wheel (no source build)..."
+        FA_URL="$(/workspace/isaaclab/_isaac_sim/python.sh -c 'import sys, torch; tv=".".join(torch.__version__.split(".")[:2]); abi="TRUE" if torch._C._GLIBCXX_USE_CXX11_ABI else "FALSE"; cp=f"cp{sys.version_info.major}{sys.version_info.minor}"; print(f"https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch{tv}cxx11abi{abi}-{cp}-{cp}-linux_x86_64.whl")')"
+        echo ">>> flash-attn wheel: ${FA_URL}"
+        WHEEL_DIR=/tmp/flash-attn-wheel
+        mkdir -p "${WHEEL_DIR}"
+        curl -fsSL -o "${WHEEL_DIR}/$(basename "${FA_URL}")" "${FA_URL}"
+        /workspace/isaaclab/_isaac_sim/python.sh -m pip install \
+          --target "${PKGS_DIR}" --no-deps "${WHEEL_DIR}"/*.whl
+
+        # Install gr00t's runtime deps, then gr00t itself. Drop three deps:
+        #  - flash-attn: already installed as a prebuilt wheel above; leaving it
+        #    in makes pip rebuild its sdist (missing nvcc → fail).
+        #  - deepspeed: a training-only dep. transformers.modeling_utils auto-
+        #    imports it when installed, and deepspeed JIT-probes CUDA ops at
+        #    import (needs CUDA_HOME/nvcc, absent in the runtime image). Removing
+        #    it makes transformers' is_deepspeed_available() return False so the
+        #    inference server imports cleanly.
+        # Keep torch==2.7.0/torchvision==0.22.0 pinned in the list so they
+        # anchor the resolver: unpinned, torchcodec drags in the latest torch
+        # (2.13/cu13) and breaks the torch-2.7 flash-attn wheel's ABI.
+        echo ">>> Installing gr00t runtime deps (flash-attn/deepspeed excluded)..."
+        /workspace/isaaclab/_isaac_sim/python.sh - /tmp/Isaac-GR00T/pyproject.toml /tmp/gr00t-reqs.txt <<'PY'
+        import sys, tomllib
+        src, dst = sys.argv[1], sys.argv[2]
+        with open(src, "rb") as f:
+            deps = tomllib.load(f)["project"]["dependencies"]
+        skip = {"flash-attn", "deepspeed"}
+        keep = [d for d in deps if d.split("==")[0].split(">")[0].split("<")[0].strip().lower() not in skip]
+        with open(dst, "w") as f:
+            f.write("\n".join(keep) + "\n")
+        print("gr00t deps to install:", keep)
+        PY
+        /workspace/isaaclab/_isaac_sim/python.sh -m pip install \
+          --target "${PKGS_DIR}" -r /tmp/gr00t-reqs.txt
+
+        # Do NOT pip-install the gr00t package: its Eagle backbone loads a
+        # bundled HF model dir (gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2)
+        # that has no __init__.py, so setuptools' packages.find never ships it —
+        # the installed copy is missing it and AutoConfig fails with
+        # "Unrecognized model". Instead run the server straight from the git
+        # clone, whose source tree has the Eagle dir intact, by prepending it to
+        # PYTHONPATH so `import gr00t` resolves to source.
+        export PYTHONPATH="/tmp/Isaac-GR00T:${PYTHONPATH:-}"
+
+        echo ">>> Starting GR00T policy server on port ${POLICY_PORT}..."
+        /workspace/isaaclab/_isaac_sim/python.sh /tmp/Isaac-GR00T/gr00t/eval/run_gr00t_server.py \
+          --model_path "${MODEL_PATH}" \
+          --embodiment_tag "${EMBODIMENT_TAG}" \
+          --host 0.0.0.0 \
+          --port "${POLICY_PORT}" \
+          > "${ARTIFACT_DIR}/logs/server.log" 2>&1 &
+        SERVER_PID=$!
+        trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+
+        echo ">>> Waiting for policy server..."
+        for i in $(seq 1 120); do
+          if /workspace/isaaclab/_isaac_sim/python.sh - "${POLICY_HOST}" "${POLICY_PORT}" <<'PY' 2>/dev/null; then
+        import sys, zmq, msgpack
+        host, port = sys.argv[1], sys.argv[2]
+        ctx = zmq.Context()
+        sock = ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.RCVTIMEO, 2000)
+        sock.connect(f"tcp://{host}:{port}")
+        sock.send(msgpack.packb({"endpoint": "ping", "data": {}}))
+        sock.recv()
+        print("server ready")
+        PY
+            echo ">>> Server ready."
+            break
+          fi
+          if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+            echo "Server died. Log:"; cat "${ARTIFACT_DIR}/logs/server.log"; exit 1
+          fi
+          sleep 5
+        done
+
+        # ── Prune CUDA/torch libs from PKGS_DIR before the eval ────────────
+        # The eval (isaaclab.sh policy_inference.py) must import Isaac Sim's
+        # OWN prebundled torch/CUDA, but PKGS_DIR is on PYTHONPATH for leisaac
+        # and also carries torch==2.7.0 + nvidia-*-cu12 wheels. Isaac Sim's
+        # bundled cusparse needs nvJitLink >=12.8 (__nvJitLinkCreate_12_8);
+        # PKGS_DIR's older nvidia-nvjitlink-cu12 shadows it and the import
+        # fails with "undefined symbol __nvJitLinkCreate_12_8". The GR00T
+        # server subprocess already imported these libs (its .so files stay
+        # mmap'd via open inodes after unlink), so deleting them on disk now
+        # is safe and leaves the eval a clean path to Isaac Sim's own CUDA.
+        echo ">>> Pruning torch/CUDA wheels from PKGS_DIR so eval uses Isaac Sim's bundled torch..."
+        rm -rf "${PKGS_DIR}"/torch "${PKGS_DIR}"/torch-*.dist-info \
+          "${PKGS_DIR}"/torchvision "${PKGS_DIR}"/torchvision-*.dist-info \
+          "${PKGS_DIR}"/torchvision.libs "${PKGS_DIR}"/torchcodec* \
+          "${PKGS_DIR}"/functorch "${PKGS_DIR}"/triton "${PKGS_DIR}"/triton-*.dist-info \
+          "${PKGS_DIR}"/nvidia "${PKGS_DIR}"/nvidia_*.dist-info \
+          "${PKGS_DIR}"/flash_attn "${PKGS_DIR}"/flash_attn-*.dist-info \
+          "${PKGS_DIR}"/flash_attn_2_cuda*.so 2>/dev/null || true
+
+        # ── Closed-loop eval via leisaac policy_inference.py ───────────────
+        # CLI shape follows leisaac's official N1.6 example
+        # (docs/docs/resources/available_policy.md): policy_type=gr00tn1.6 selects
+        # Gr00t16ServicePolicyClient; episode count is --eval_rounds (num_envs is
+        # hardcoded to 1 in the script). --num_envs/--headless/--record_video/
+        # --video_dir/--total_episode do not exist in policy_inference.py.
+        echo ">>> Running closed-loop eval: ${TASK_NAME} x ${NUM_EPISODES} rounds..."
+        cd "${SCRIPTS_DIR}"
+        /workspace/isaaclab/isaaclab.sh -p scripts/evaluation/policy_inference.py \
+          --task "${TASK_NAME}" \
+          --eval_rounds "${NUM_EPISODES}" \
+          --enable_cameras \
+          --device cuda \
+          --policy_type gr00tn1.6 \
+          --policy_host "${POLICY_HOST}" \
+          --policy_port "${POLICY_PORT}" \
+          --policy_action_horizon "{{ eval_policy_action_horizon }}" \
+          --policy_timeout_ms "{{ eval_policy_timeout_ms }}" \
+          --policy_language_instruction "${INSTRUCTION}" \
+          --step_hz "${STEP_HZ}" \
+          2>&1 | tee "${ARTIFACT_DIR}/logs/rollout.log" || true
+
+        kill "${SERVER_PID}" 2>/dev/null || true
+        wait "${SERVER_PID}" 2>/dev/null || true
+
+        # ── Summary ────────────────────────────────────────────────────────
+        /workspace/isaaclab/_isaac_sim/python.sh /tmp/summarize.py "${ARTIFACT_DIR}" "${TASK_NAME}" "${NUM_EPISODES}" "${MODEL_PATH}" "${INSTRUCTION}"
+        find "${ARTIFACT_DIR}" -maxdepth 3 -type f | sort
+    - path: /tmp/patch_leisaac.py
+      contents: |
+        # Patch leisaac for GR00T N1.6 dynamic language key + ModalityConfig
+        # deserialization. Distilled from run-isaaclab.sh Step 1a.
+        import sys
+
+        policy_client, serialization = sys.argv[1], sys.argv[2]
+
+        try:
+            with open(policy_client) as f:
+                src = f.read()
+            old = (
+                '        super().__init__(host=host, port=port, timeout_ms=timeout_ms, ping_endpoint="ping")\n'
+                '        self.camera_keys = camera_keys\n'
+                '        self.modality_keys = modality_keys'
+            )
+            new = old + (
+                '\n        try:\n'
+                '            modality_config = self.call_endpoint("get_modality_config", requires_input=False)\n'
+                '            self.language_key = modality_config["language"].modality_keys[0]\n'
+                '        except Exception:\n'
+                '            self.language_key = "annotation.human.action.task_description"'
+            )
+            old_lang = '"annotation.human.task_description": [[observation_dict["task_description"]]],'
+            new_lang = 'self.language_key: [[observation_dict["task_description"]]],'
+            if old in src and old_lang in src:
+                src = src.replace(old, new).replace(old_lang, new_lang)
+                with open(policy_client, "w") as f:
+                    f.write(src)
+                print("Patch 1 applied: dynamic language key.")
+            else:
+                print("Patch 1: structure changed or already patched — skipping.")
+        except FileNotFoundError:
+            print(f"Patch 1: {policy_client} not found — skipping.")
+
+        try:
+            with open(serialization) as f:
+                src2 = f.read()
+            patched = False
+            model_old = 'class ModalityConfig(BaseModel):'
+            model_new = 'class ModalityConfig(BaseModel):\n    model_config = {"extra": "ignore"}'
+            if model_old in src2 and 'model_config' not in src2:
+                src2 = src2.replace(model_old, model_new)
+                patched = True
+            decode_old = '            obj = ModalityConfig(**json.loads(obj["as_json"]))'
+            decode_new = (
+                '            as_json = obj["as_json"]\n'
+                '            data = as_json if isinstance(as_json, dict) else json.loads(as_json)\n'
+                '            obj = ModalityConfig(**data)'
+            )
+            if decode_old in src2:
+                src2 = src2.replace(decode_old, decode_new)
+                patched = True
+            if patched:
+                with open(serialization, "w") as f:
+                    f.write(src2)
+                print("Patch 2 applied: ModalityConfig deserialization fixed.")
+            else:
+                print("Patch 2: already patched or structure changed — skipping.")
+        except FileNotFoundError:
+            print(f"Patch 2: {serialization} not found — skipping.")
+    - path: /tmp/patch_headless.py
+      contents: |
+        # Patch leisaac policy_inference.py for headless operation:
+        #  (1) keyboard subscription must tolerate no app window;
+        #  (2) disable env_cfg.wait_for_textures so env.reset() doesn't hang.
+        # Distilled from run-isaaclab.sh Step 4.
+        import sys
+        path = sys.argv[1]
+        with open(path) as f:
+            src = f.read()
+        old = (
+            "        self._appwindow = omni.appwindow.get_default_app_window()\n"
+            "        self._input = carb.input.acquire_input_interface()\n"
+            "        self._keyboard = self._appwindow.get_keyboard()\n"
+            "        self._keyboard_sub = self._input.subscribe_to_keyboard_events(\n"
+            "            self._keyboard,\n"
+            "            self._on_keyboard_event,\n"
+            "        )"
+        )
+        new = (
+            "        try:\n"
+            "            self._appwindow = omni.appwindow.get_default_app_window()\n"
+            "        except Exception:\n"
+            "            self._appwindow = None\n"
+            "        self._input = carb.input.acquire_input_interface()\n"
+            "        if self._appwindow is not None:\n"
+            "            self._keyboard = self._appwindow.get_keyboard()\n"
+            "        else:\n"
+            "            self._keyboard = None\n"
+            "        if self._keyboard is not None:\n"
+            "            self._keyboard_sub = self._input.subscribe_to_keyboard_events(\n"
+            "                self._keyboard,\n"
+            "                self._on_keyboard_event,\n"
+            "            )\n"
+            "        else:\n"
+            "            self._keyboard_sub = None"
+        )
+        if old in src:
+            src = src.replace(old, new)
+            print("Patched policy_inference.py for headless keyboard support")
+        else:
+            print("Keyboard patch: already patched or structure changed — skipping")
+
+        # Disable wait_for_textures: in headless (no viewport) the USD
+        # ASSETS_LOADED stage event never fires, so manager_based_env.reset()'s
+        # `while SimulationManager.assets_loading(): self.sim.render()` loop
+        # spins forever (observed: env.reset hung 80+ min at 0% GPU util). The
+        # scene assets are already on disk, so skipping the wait is safe.
+        tex_old = "    env_cfg.recorders = None\n"
+        tex_new = (
+            "    env_cfg.recorders = None\n"
+            "    if hasattr(env_cfg, 'wait_for_textures'):\n"
+            "        env_cfg.wait_for_textures = False\n"
+        )
+        if tex_old in src and "env_cfg.wait_for_textures = False" not in src:
+            src = src.replace(tex_old, tex_new)
+            print("Patched policy_inference.py to disable wait_for_textures")
+        else:
+            print("wait_for_textures patch: already patched or structure changed — skipping")
+
+        with open(path, "w") as f:
+            f.write(src)
+    - path: /tmp/summarize.py
+      contents: |
+        import json
+        import sys
+        from pathlib import Path
+
+        artifact_dir = Path(sys.argv[1])
+        task_name = sys.argv[2]
+        num_episodes = int(sys.argv[3])
+        model_path = sys.argv[4]
+        instruction = sys.argv[5]
+
+        rollout = artifact_dir / "logs" / "rollout.log"
+        log = rollout.read_text() if rollout.exists() else ""
+        videos = sorted((artifact_dir / "videos").rglob("*.mp4")) if (artifact_dir / "videos").exists() else []
+
+        summary = {
+            "task_name": task_name,
+            "instruction": instruction,
+            "model_path": model_path,
+            "n_episodes_requested": num_episodes,
+            "n_videos_recorded": len(videos),
+            "video_files": [v.name for v in videos],
+        }
+        # leisaac's policy_inference.py prints one authoritative line at the
+        # end: "Final success rate: <rate>  [<success>/<total>]". Parse the
+        # [N/M] counts from it directly. (An earlier naive substring count of
+        # "success"/"SUCCESS" over-counted: every per-episode "now success
+        # rate: ..." line contains the word "success", so it reported a bogus
+        # 100% rate.) Fall back to the last per-episode "now success rate"
+        # line if the run was cut off before the Final line.
+        import re
+        counts = re.findall(r"success rate:\s*[\d.]+\s*\[(\d+)/(\d+)\]", log)
+        if counts:
+            success, total = (int(counts[-1][0]), int(counts[-1][1]))
+            summary["success_count"] = success
+            summary["fail_count"] = total - success
+            summary["success_rate"] = (success / total) if total else 0.0
+
+        (artifact_dir / "eval-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        print(json.dumps(summary, indent=2))
+    outputs:
+    - dataset:
+        name: {{ eval_output_dataset }}
+        path: artifacts
+
+default-values:
+  # ── Stage 01 — data prep (CPU) ────────────────────────────────────────────
+  prep_cpu: 4
+  prep_memory: 16Gi
+  prep_storage: 12Gi
+  prep_image_name: "python:3.12-slim"
+  prep_hf_dataset_id: LightwheelAI/leisaac-pick-orange
+  prep_default_task: "pick up the orange and place it on the plate"
+  prep_output_dataset: e2e-vla-chain-lerobot-dataset
+
+  # ── Stage 03 — GR00T fine-tune (GPU) ──────────────────────────────────────
+  train_cpu: 16
+  train_memory: 96Gi
+  train_storage: 256Gi
+  train_platform: g6e-l40s
+  train_image_name: "nvcr.io/nvidia/pytorch:25.03-py3"
+  train_gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
+  train_gr00t_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"
+  train_base_model_path: nvidia/GR00T-N1.6-3B
+  train_groot_version: n1.6
+  train_embodiment_tag: NEW_EMBODIMENT
+  train_output_dataset: e2e-vla-chain-groot-checkpoint
+  # Smoke default. A single unattended run that is worth evaluating needs a real
+  # budget: 10000 steps at global_batch_size 1 is ~8h on one L40S, which fits the
+  # 20h exec_timeout together with prep and eval.
+  train_max_steps: 10
+  train_save_steps: 10
+  train_save_total_limit: 1
+  train_global_batch_size: 1
+  train_learning_rate: 1e-4
+  train_dataloader_num_workers: 4
+  train_retain_model_weights: "true"
+  train_gpu_metrics_interval_seconds: 10
+  train_pushgateway_url: "http://aws-osmo-pushgateway-prometheus-pushgateway.monitoring.svc.cluster.local:9091"
+
+  # ── Stage 04 — closed-loop sim eval (GPU) ─────────────────────────────────
+  eval_cpu: 8
+  eval_memory: 90Gi
+  eval_storage: 200Gi
+  eval_platform: g6e-l40s
+  eval_isaac_lab_image: nvcr.io/nvidia/isaac-lab:2.3.0
+  eval_gr00t_repository: "https://github.com/NVIDIA/Isaac-GR00T"
+  # Deliberately a different ref from train_gr00t_ref: leisaac's N1.6 doc pins
+  # this GR00T commit for ZMQ/server compat.
+  eval_gr00t_ref: "e8e625f4f21898c506a1d8f7d20a289c97a52acf"
+  eval_leisaac_repository: "https://github.com/LightwheelAI/leisaac"
+  eval_leisaac_ref: "24d3bcd3f1e4585740fc79921782c41617237812"
+  eval_output_dataset: e2e-vla-chain-closeloop-artifacts
+  eval_embodiment_tag: NEW_EMBODIMENT
+  eval_task_name: "LeIsaac-SO101-PickOrange-v0"
+  eval_instruction: "pick up the orange and place it on the plate"
+  eval_num_episodes: 5
+  eval_policy_action_horizon: 16
+  eval_policy_timeout_ms: 5000
+  eval_step_hz: 30
+  eval_policy_port: 5555

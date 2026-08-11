@@ -65,7 +65,7 @@ ai_workflows:
   gr00t_ref: "ead52833afbbf4243f8cd5e7664f48a94de03b19"
   gr00t_base_model: "nvidia/GR00T-N1.6-3B"
   # GR00T N1.7 pin — optional e2e training path
-  # (e2e-pipeline-examples/03-training/workflow-n1.7.yaml, finetune_gr00t.py
+  # (e2e-pipeline-examples/03-vla-finetune/workflow-n1.7.yaml, finetune_gr00t.py
   # experiment.run API, nvidia/GR00T-N1.7-3B). N1.7 uses the gated
   # nvidia/Cosmos-Reason2-2B backbone, so it needs an HF_TOKEN with access.
   gr00t_n17_ref: "23ace64f17aa5015259b8609d371eb61a357c776"
@@ -102,7 +102,7 @@ aws:
   # G6e (NVIDIA L40S, 48GB) fallback sizes. Larger GPU than g6/L4 for models
   # that need more VRAM but still cannot get g7e capacity. Single-AZ.
   # Karpenter bin-packs the e2e-pipeline stages onto these by cpu/memory request:
-  # 4xlarge for RL (02-sim) + closed-loop eval (04), 8xlarge for VLA fine-tune
+  # 4xlarge for RL (02-sim-rl) + closed-loop eval (04), 8xlarge for VLA fine-tune
   # (03, cpu:16), 12xlarge for Cosmos augmentation (06, cpu:30). 16xlarge (single
   # L40S, 64 vCPU) and 24xlarge (4x L40S) give extra CPU/RAM headroom; all offered
   # in the four target regions (verified 2026-07-28). Note: us-east-2 quota is 64

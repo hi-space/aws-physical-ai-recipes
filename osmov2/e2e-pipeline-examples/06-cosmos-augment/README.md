@@ -13,9 +13,9 @@ gap.
 ## Where it fits in the chain
 
 ```
-01-data-prep ─▶ (lerobot dataset) ─▶ 03-training
+01-data-prep ─▶ (lerobot dataset) ─▶ 03-vla-finetune
                      │
-                     └▶ 06-cosmos-augment ─▶ (augmented lerobot dataset) ─▶ 03-training
+                     └▶ 06-cosmos-augment ─▶ (augmented lerobot dataset) ─▶ 03-vla-finetune
 ```
 
 Each per-episode camera mp4 in the LeRobot layout
@@ -53,7 +53,7 @@ osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # then point Stage 3 at the augmented dataset
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset-cosmos \
   --set max_steps=10000 --set save_steps=10000
 

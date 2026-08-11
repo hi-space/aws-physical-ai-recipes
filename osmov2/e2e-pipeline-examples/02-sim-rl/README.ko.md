@@ -1,4 +1,4 @@
-# Stage 2 — Sim / RL
+# Stage 2 — Sim RL (H1 휴머노이드)
 
 강화학습 트랙: Isaac Lab(skrl PPO)으로 H1 휴머노이드가 거친 지형을 걷도록
 학습시키고, 학습된 정책을 replay하며 비디오를 녹화합니다. 이 스테이지는 GR00T
@@ -21,7 +21,7 @@ VLA 체인(Stage 1/3/4/5)과 독립적입니다 — 그들의 데이터셋을 �
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml
 
 scripts/wait-gpu-node-cleanup.sh
 ```
@@ -29,7 +29,7 @@ scripts/wait-gpu-node-cleanup.sh
 Isaac Sim 5.1 스택을 쓰려면 이미지를 오버라이드하세요(메모리를 더 할당):
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml \
   --set isaac_lab_image=nvcr.io/nvidia/isaac-lab:2.3.0
 ```
 
@@ -41,7 +41,7 @@ osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.4xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml \
   --set platform=g7e-rtx-pro-6000
 ```
 

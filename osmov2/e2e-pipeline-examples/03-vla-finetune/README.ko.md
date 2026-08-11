@@ -60,12 +60,12 @@ GPU 스테이지는 OSMO 검증 전에 g6e 용량이 관측 가능해야 합니�
 GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
 
 # N1.6 (기본)
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
 
 # N1.7 (선택) — 게이트 Cosmos-Reason2-2B 백본용 HF_TOKEN 필요
-osmo workflow submit e2e-pipeline-examples/03-training/workflow-n1.7.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow-n1.7.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=6000 --set save_steps=2000
 
@@ -80,7 +80,7 @@ NodePool은 항상 배포되어 있으므로 재배포가 필요 없습니다):
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g7e-rtx-pro-6000 \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000

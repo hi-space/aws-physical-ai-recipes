@@ -52,7 +52,7 @@ needs a Service Quotas increase (code `L-DB2E81BA`, "Running On-Demand G and VT
 instances") before g6e is a usable fallback there.
 
 The e2e pipeline stages map onto these sizes by their `cpu`/`memory` request:
-`g6e.4xlarge` for RL (02-sim) and closed-loop eval (04), `g6e.8xlarge` for the
+`g6e.4xlarge` for RL (02-sim-rl) and closed-loop eval (04), `g6e.8xlarge` for the
 VLA fine-tune (03), and `g6e.12xlarge` for Cosmos augmentation (06). The largest
 single stage is `g6e.12xlarge` (48 vCPU), so even the `us-east-2` 64-vCPU quota
 runs the pipeline sequentially — only parallel/concurrent runs need the increase.
@@ -79,7 +79,7 @@ Workloads then target it with `platform: g6e-l40s` (vs the `g7e-rtx-pro-6000`
 default). Stage workflows can override per submit, e.g.:
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g6e-l40s
 ```
 

@@ -15,9 +15,9 @@ photorealistic하게 증강한 뒤, 증강된 데이터셋을 Stage 3 파인튜�
 ## 체인에서의 위치
 
 ```
-01-data-prep ─▶ (lerobot dataset) ─▶ 03-training
+01-data-prep ─▶ (lerobot dataset) ─▶ 03-vla-finetune
                      │
-                     └▶ 06-cosmos-augment ─▶ (augmented lerobot dataset) ─▶ 03-training
+                     └▶ 06-cosmos-augment ─▶ (augmented lerobot dataset) ─▶ 03-vla-finetune
 ```
 
 LeRobot 레이아웃의 카메라별 per-episode mp4
@@ -55,7 +55,7 @@ osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # 이후 Stage 3를 증강된 데이터셋으로 지정
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset-cosmos \
   --set max_steps=10000 --set save_steps=10000
 

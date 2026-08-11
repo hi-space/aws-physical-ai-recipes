@@ -1,4 +1,4 @@
-# Stage 3 — Training (GR00T VLA fine-tune)
+# Stage 3 — VLA Fine-tune (GR00T N1.6)
 # Fine-tune NVIDIA GR00T on the SO-101 LeRobot dataset produced by Stage 1
 # (01-data-prep). Uses the SO-101 6-DOF modality config from the e2e workshop
 # so the arm/gripper state+action layout and the LeIsaac-compatible language
@@ -7,7 +7,7 @@
 # Consumes the Stage 1 OSMO dataset as an input; produces a fine-tuned
 # checkpoint as an output dataset for Stage 4 (04-closeloop) and Stage 5 (edge).
 #
-#   osmo workflow submit examples ... 03-training/workflow.yaml \
+#   osmo workflow submit examples ... 03-vla-finetune/workflow.yaml \
 #     --set input_dataset=e2e-pipeline-lerobot-dataset \
 #     --set max_steps=10000
 

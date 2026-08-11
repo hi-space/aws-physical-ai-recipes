@@ -1,5 +1,5 @@
-# Stage 3 — Training (GR00T N1.7 VLA fine-tune)
-# N1.7 variant of 03-training. The workshop's main fine-tuning module
+# Stage 3 — VLA Fine-tune (GR00T N1.7 variant)
+# N1.7 variant of 03-vla-finetune. The workshop's main fine-tuning module
 # (e2e-workshop/infra/groot) targets GR00T N1.7 via the experiment.run() API in
 # finetune_gr00t.py — NOT launch_finetune.py (which is the N1.6 path used by the
 # default workflow.yaml). N1.7 uses the Cosmos-Reason2-2B VLM backbone, a HF
@@ -8,7 +8,7 @@
 # Use the default workflow.yaml for N1.6 (easier to reproduce, no gated backbone).
 # Use this file to match the workshop's original N1.7 training intent.
 #
-#   osmo workflow submit examples ... 03-training/workflow-n1.7.yaml \
+#   osmo workflow submit examples ... 03-vla-finetune/workflow-n1.7.yaml \
 #     --set input_dataset=e2e-pipeline-lerobot-dataset \
 #     --set max_steps=6000
 #

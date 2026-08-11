@@ -19,20 +19,27 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 있습니다.
 
 ```
-01-data-prep ─▶ (lerobot dataset) ─▶ 03-training ─▶ (checkpoint) ─▶ 04-closeloop
-      │              ▲                     │
-      │  06-cosmos-augment (선택적)       └──────▶ 05-edge (Greengrass)
+01-data-prep ─▶ (lerobot dataset) ─▶ 03-vla-finetune ─▶ (checkpoint) ─▶ 04-closeloop
+      │              ▲                      │
+      │  06-cosmos-augment (선택적)         └──────▶ 05-edge (Greengrass)
       └──────────────┘
-02-sim  (독립 RL 트랙)
+02-sim-rl  (독립 RL 트랙)
 ```
+
+[00-vla-chain](00-vla-chain/README.ko.md)은 위 01 → 03 → 04 VLA 체인을
+**하나의** 워크플로우로 묶은 것으로, 한 번 제출하면 사람 개입 없이 끝까지
+돕니다. VLA 체인만 담고 있으며 RL 트랙(02), Greengrass 배포(05), 선택적 Cosmos
+증강(06)은 포함하지 않습니다. 아래 스테이지별 디렉터리가 여전히 정본이며 단독
+실행 가능한 버전입니다.
 
 ## 스테이지
 
 | 스테이지 | 하는 일 | OSMO 입력 → 출력 |
 | --- | --- | --- |
+| [00-vla-chain](00-vla-chain/README.ko.md) | (선택적) 01 → 03 → 04 VLA 체인을 OSMO task 의존성으로 연결한 단일 워크플로우; 한 번 제출로 무인 실행. 02/05/06은 제외. | — → `e2e-vla-chain-closeloop-artifacts` |
 | [01-data-prep](01-data-prep/README.md) | HF에서 LeRobot 데이터셋 다운로드, v3→v2.1 자동 변환, 검증. | — → `e2e-pipeline-lerobot-dataset` |
-| [02-sim](02-sim/README.md) | Isaac Lab RL: H1 휴머노이드 보행 학습(PPO), replay + 비디오 녹화. | — → `e2e-pipeline-sim-rl-artifacts` |
-| [03-training](03-training/README.md) | 워크샵 SO-101 modality config로 SO-101 데이터셋에 GR00T VLA 파인튜닝. 기본은 N1.6이며, [workflow-n1.7.yaml](03-training/workflow-n1.7.yaml)이 선택적 N1.7 경로. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
+| [02-sim-rl](02-sim-rl/README.md) | Isaac Lab RL: H1 휴머노이드 보행 학습(PPO), replay + 비디오 녹화. | — → `e2e-pipeline-sim-rl-artifacts` |
+| [03-vla-finetune](03-vla-finetune/README.md) | 워크샵 SO-101 modality config로 SO-101 데이터셋에 GR00T VLA 파인튜닝. 기본은 N1.6이며, [workflow-n1.7.yaml](03-vla-finetune/workflow-n1.7.yaml)이 선택적 N1.7 경로. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-groot-checkpoint` |
 | [04-closeloop](04-closeloop/README.md) | LeIsaac + SO-101 + 주방 씬으로 ZMQ 정책 서버에 대한 closed-loop 평가. | `e2e-pipeline-groot-checkpoint` → `e2e-pipeline-closeloop-artifacts` |
 | [05-edge](05-edge/README.md) | 로봇 위에서 GR00T 정책 서버를 돌리는 Greengrass 컴포넌트. | S3 모델 → 온디바이스 서버 |
 | [06-cosmos-augment](06-cosmos-augment/README.md) | (선택적) Stage 1 LeRobot 비디오를 Cosmos Transfer 2.5로 photorealistic 증강(edge control, RGB만); Stage 3에 다시 투입. | `e2e-pipeline-lerobot-dataset` → `e2e-pipeline-lerobot-dataset-cosmos` |
@@ -47,8 +54,8 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 | 스테이지 | 워크로드 | cpu / memory | 권장 g6e | 96GB g7e 오버라이드 |
 | --- | --- | --- | --- | --- |
 | 01-data-prep | 데이터 준비 (CPU 전용) | — | — (GPU 없음) | — |
-| 02-sim | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
-| 03-training | VLA 파인튜닝 (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
+| 02-sim-rl | RL (Isaac Lab PPO) | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
+| 03-vla-finetune | VLA 파인튜닝 (N1.6/N1.7) | 16 / 96Gi | `g6e.8xlarge` | `g7e.8xlarge` |
 | 04-closeloop | closed-loop 평가 | 8 / 90Gi | `g6e.4xlarge` | `g7e.4xlarge` |
 | 06-cosmos-augment | Cosmos 증강 | 30 / 128Gi | `g6e.12xlarge` | `g7e.12xlarge` |
 
@@ -62,13 +69,26 @@ closed-loop 평가를 하나의 체인으로 돌리거나 각 스테이지를 �
 | 이 스테이지 | e2e-workshop 소스 | 주요 적응 사항 |
 | --- | --- | --- |
 | 01-data-prep | `groot/training/data/{upload_dataset,convert_v3_to_v2}.py` | S3 대신 OSMO 데이터셋에 기록; 변환 로직을 인라인으로 내장. |
-| 02-sim | 모듈 2–4, `scripts/reinforcement_learning/skrl/{train,play}.py` | OSMO pod에서 headless 실행; checkpoint + TensorBoard + 비디오를 데이터셋으로 내보냄. |
-| 03-training | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | 단일 pod OSMO 태스크; Stage 1 데이터셋 소비; SO-101 modality config. 기본 N1.6(`launch_finetune.py`); N1.7 변형은 `finetune_gr00t.py`의 `experiment.run()` 경로를 인라인. |
+| 02-sim-rl | 모듈 2–4, `scripts/reinforcement_learning/skrl/{train,play}.py` | OSMO pod에서 headless 실행; checkpoint + TensorBoard + 비디오를 데이터셋으로 내보냄. |
+| 03-vla-finetune | `infra/groot/assets/{run_finetune_workflow.sh,finetune_gr00t.py,launch_finetune.py}`, `groot/training/data/configs/so101_modality_config.py` | 단일 pod OSMO 태스크; Stage 1 데이터셋 소비; SO-101 modality config. 기본 N1.6(`launch_finetune.py`); N1.7 변형은 `finetune_gr00t.py`의 `experiment.run()` 경로를 인라인. |
 | 04-closeloop | `groot/inference/run-isaaclab.sh` | 동일한 LeIsaac 설치 + N1.6 language-key 패치 + headless-keyboard 패치 + kitchen_with_orange/so101_follower 에셋을, Docker-on-DCV 대신 OSMO로 오케스트레이션. |
 | 05-edge | `edge/workshop-components/N1.6/com.workshop.{setup,inference}` | 모델을 (CloudFront tarball이 아닌) S3에서; ECR 이미지 파라미터화; TRT는 선택. |
 | 06-cosmos-augment | `examples/nut-pouring-pipeline/workflows/03_cosmos_augmentation.yaml` | 동일한 고정 Cosmos Transfer 2.5 ref + tokenizer 패치를 LeRobot per-episode mp4 레이아웃에 맞게 적응; depth 대신 edge control(RGB만). |
 
 ## 체인 실행
+
+아래 3회 제출 대신 01 → 03 → 04을 한 번에 돌리려면
+[00-vla-chain](00-vla-chain/README.ko.md)을 쓰세요.
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge scripts/prewarm-gpu-node.sh
+
+osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
+  --set train_max_steps=10000 train_save_steps=10000
+```
+
+아래 스테이지별 실행 경로는 개발 시 권장 경로로 남습니다. 한 스테이지만 다시
+돌릴 수 있어 체인 전체를 반복할 필요가 없기 때문입니다.
 
 GPU 스테이지는 OSMO 검증 전에 g6e 용량이 관측 가능해야 합니다(배포 시 g6e
 NodePool을 `DEPLOY_G6E_NODEPOOL=true OSMO_CONFIGURE_G6E_PLATFORM=true`로 활성화).
@@ -91,13 +111,13 @@ osmo workflow submit e2e-pipeline-examples/06-cosmos-augment/workflow.yaml \
   --set output_dataset=e2e-pipeline-lerobot-dataset-cosmos
 
 # Stage 3 — 파인튜닝 (Stage 1 출력 소비). 기본은 N1.6.
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
 
 # Stage 3 (N1.7 변형) — gated Cosmos-Reason2-2B 백본용 HF_TOKEN 필요;
 # e2e-pipeline-groot-checkpoint-n17에 기록됨 (N1.7은 Stage 4를 오버라이드해야 함).
-osmo workflow submit e2e-pipeline-examples/03-training/workflow-n1.7.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow-n1.7.yaml \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=6000 --set save_steps=2000
 
@@ -117,7 +137,7 @@ scripts/wait-gpu-node-cleanup.sh
 ```bash
 GPU_PREWARM_INSTANCE_TYPE=g7e.8xlarge scripts/prewarm-gpu-node.sh
 
-osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
+osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
   --set platform=g7e-rtx-pro-6000 \
   --set input_dataset=e2e-pipeline-lerobot-dataset \
   --set max_steps=10000 --set save_steps=10000
@@ -126,7 +146,7 @@ osmo workflow submit e2e-pipeline-examples/03-training/workflow.yaml \
 Stage 2(RL)는 독립적이라 언제든 실행할 수 있습니다:
 
 ```bash
-osmo workflow submit e2e-pipeline-examples/02-sim/workflow.yaml
+osmo workflow submit e2e-pipeline-examples/02-sim-rl/workflow.yaml
 ```
 
 Stage 5(edge)는 Greengrass 배포입니다 — [05-edge/README.md](05-edge/README.md) 참고.
@@ -148,9 +168,9 @@ https://<osmo-ui-cloudfront-domain>/datasets/aws-osmo/<output-dataset>
 | 스테이지 | Output dataset |
 | --- | --- |
 | 01-data-prep | `e2e-pipeline-lerobot-dataset` |
-| 02-sim (RL) | `e2e-pipeline-sim-rl-artifacts` |
-| 03-training (N1.6) | `e2e-pipeline-groot-checkpoint` |
-| 03-training (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
+| 02-sim-rl (RL) | `e2e-pipeline-sim-rl-artifacts` |
+| 03-vla-finetune (N1.6) | `e2e-pipeline-groot-checkpoint` |
+| 03-vla-finetune (N1.7) | `e2e-pipeline-groot-checkpoint-n17` |
 | 04-closeloop | `e2e-pipeline-closeloop-artifacts` |
 | 06-cosmos-augment | `e2e-pipeline-lerobot-dataset-cosmos` |
 
@@ -199,7 +219,7 @@ ref(`Isaac-GR00T@ead52833`, `leisaac@24d3bcd3`, tyro `0.9.17`)에 대한 소스 
 
 ### 수정됨 (2026-07-12)
 
-Stage 3 (`03-training/workflow.yaml`):
+Stage 3 (`03-vla-finetune/workflow.yaml`):
 
 - [x] `--use-relative-action` 제거. `FinetuneConfig`에는
       `use_relative_action` 필드가 없어 tyro가 `Unrecognized options`로 종료됨
@@ -225,7 +245,7 @@ Stage 4 (`04-closeloop/workflow.yaml`) — 평가 커맨드를 leisaac 공식 �
       `nvidia/GR00T-N1.7-3B`를 타깃으로 합니다. N1.6은 기본값으로
       유지(`workflow.yaml`, `launch_finetune.py`, gated 백본 없음, 재현이 더
       쉬움); N1.7은 별도의 선택 경로
-      ([workflow-n1.7.yaml](03-training/workflow-n1.7.yaml))로,
+      ([workflow-n1.7.yaml](03-vla-finetune/workflow-n1.7.yaml))로,
       `gr00t_ref=23ace64f…`를 고정하고 `nvidia/GR00T-N1.7-3B`를 사용하며
       업스트림 `finetune_gr00t.py`의 단일 pod 포트를 인라인합니다. N1.7은
       gated `nvidia/Cosmos-Reason2-2B` 백본에 접근 가능한 `HF_TOKEN`이

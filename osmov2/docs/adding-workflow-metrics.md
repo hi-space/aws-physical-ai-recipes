@@ -27,7 +27,7 @@ Canonical service (from `versions.yaml`):
 
 | Pattern | When to use | Reference |
 | --- | --- | --- |
-| stdout parse (tee) | trainer prints scalar dicts to stdout (HF Trainer) | `e2e-pipeline-examples/03-training/workflow.yaml` |
+| stdout parse (tee) | trainer prints scalar dicts to stdout (HF Trainer) | `e2e-pipeline-examples/03-vla-finetune/workflow.yaml` |
 | file export | metrics only exist as files (TensorBoard event files) | `examples/isaaclab-rsl-rl-video/workflow-g6.yaml` |
 
 Most GR00T / HF-Trainer stages use the stdout pattern below. For TensorBoard

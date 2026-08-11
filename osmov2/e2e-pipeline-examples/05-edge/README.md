@@ -36,7 +36,7 @@ registration/deployment.
 
 ## Getting the model onto the device
 
-Stage 3 (`03-training`) writes the checkpoint to an OSMO dataset
+Stage 3 (`03-vla-finetune`) writes the checkpoint to an OSMO dataset
 (`e2e-pipeline-groot-checkpoint`). Export that dataset to S3, then point the
 setup component at it:
 

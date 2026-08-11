@@ -62,7 +62,7 @@ osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml \
 이 스테이지는 N1.6 서버 ref(`gr00t_ref=e8e625f4…`)를 고정하고
 `--policy_type gr00tn1.6`을 사용하며, leisaac 공식 N1.6 예제와 일치합니다. 기본
 Stage 3 체크포인트(N1.6)는 그대로 동작합니다. 선택적 N1.7
-경로(`03-training/workflow-n1.7.yaml`)로 학습했다면, 체이닝 전에 이 스테이지를
+경로(`03-vla-finetune/workflow-n1.7.yaml`)로 학습했다면, 체이닝 전에 이 스테이지를
 N1.7 호환 정책 서버/클라이언트로 오버라이드하세요.
 
 ## 출력
