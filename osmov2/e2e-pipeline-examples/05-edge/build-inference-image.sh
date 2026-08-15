@@ -88,7 +88,8 @@ RUN pip install --upgrade torch torchvision --index-url https://download.pytorch
 RUN pip install --upgrade transformers accelerate
 
 # Isaac-GR00T — uv sync 가 나머지 의존성 + dataclass 호환을 처리
-RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \\
+# leisaac 클라이언트가 참조하는 서버 구현: EverNorif/Isaac-GR00T @ leisaac_gr00t_n1.6
+RUN git clone https://github.com/EverNorif/Isaac-GR00T.git /workspace/gr00t-repo && \\
     cd /workspace/gr00t-repo && \\
     git checkout ${GR00T_COMMIT} && \\
     uv sync && uv pip install -e .
@@ -111,7 +112,8 @@ RUN VENV_SP="/workspace/gr00t-repo/.venv/lib/python3.12/site-packages" && \\
     for f in \$SYS_SP/tensorrt-10.7*.dist-info \$SYS_SP/tensorrt_*10.7*.dist-info; do \\
       [ -e "\$f" ] && ln -sf "\$f" "\$VENV_SP/\$(basename \$f)"; \\
     done; \\
-    python -c "import tensorrt as trt; print('TRT', trt.__version__)"
+    (python -c "import tensorrt as trt; print('TRT', trt.__version__)" \\
+      || echo "TRT unavailable — building PyTorch-only inference image (buildTrt=false)")
 
 WORKDIR /workspace/gr00t-repo
 ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:\${LD_LIBRARY_PATH}"

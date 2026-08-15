@@ -9,7 +9,7 @@
 # hardcoded workshop values.
 RecipeFormatVersion: "2020-01-25"
 ComponentName: com.aws.groot.inference
-ComponentVersion: "1.0.0"
+ComponentVersion: "1.0.1"
 ComponentDescription: "GR00T policy server (ZMQ) on the edge device."
 ComponentPublisher: AWS-Physical-AI-Recipes
 ComponentDependencies:
@@ -41,6 +41,27 @@ Manifests:
 
           docker stop groot-edge-inference 2>/dev/null || true
           docker rm groot-edge-inference 2>/dev/null || true
+
+          # --- Authenticate to ECR and pull the image ------------------------
+          # The image lives in a PRIVATE ECR repo. Greengrass runs this script
+          # with the device (TES) role, to which bootstrap-device.sh granted ECR
+          # pull permissions (same credential path setup's `aws s3 sync` uses).
+          # We must log the docker daemon in ourselves — Greengrass does not do
+          # it for a raw `docker run`. Then pull explicitly so a newly pushed
+          # tag (e.g. :latest) is picked up on redeploy instead of a stale local
+          # image. Non-ECR images (e.g. Docker Hub) skip the login.
+          REGISTRY="${ECR_IMAGE%%/*}"
+          if echo "$REGISTRY" | grep -q '\.dkr\.ecr\..*\.amazonaws\.com'; then
+            ECR_REGION=$(echo "$REGISTRY" | sed -E 's/.*\.dkr\.ecr\.([^.]+)\.amazonaws\.com.*/\1/')
+            ECR_REGION="${ECR_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+            echo "ECR login: $REGISTRY (region=$ECR_REGION)"
+            aws ecr get-login-password --region "$ECR_REGION" \
+              | docker login --username AWS --password-stdin "$REGISTRY"
+            echo "Pulling $ECR_IMAGE ..."
+            docker pull "$ECR_IMAGE"
+          else
+            echo "Image $ECR_IMAGE is not an ECR URI — skipping ECR login."
+          fi
 
           echo "=== GR00T Policy Server (edge) ==="
           echo "Model: $MODEL_PATH  Embodiment: $EMBODIMENT  Listen: $POLICY_HOST:$POLICY_PORT"
