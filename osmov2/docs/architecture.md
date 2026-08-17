@@ -23,6 +23,136 @@ flowchart LR
   OSMO --> IAM["IRSA-scoped AWS permissions"]
 ```
 
+## AWS Topology
+
+The diagram above shows which component talks to which. The two below show
+where those components sit in the account, which is what determines the
+network, identity, and billing behaviour.
+
+Korean-labelled variants of these two diagrams, rendered for the training deck,
+live in [training/diagrams](../training/diagrams).
+
+### Ingress and identity
+
+```mermaid
+flowchart TB
+  Browser["Browser"]
+  OperatorCLI["Operator terminal<br>aws / kubectl / terraform / osmo"]
+
+  subgraph global["Global — always us-east-1"]
+    WAF["AWS WAF web ACL, scope CLOUDFRONT<br>default action BLOCK, IP allow list"]
+    CFOSMO["CloudFront — OSMO UI"]
+    CFGRAF["CloudFront — Grafana"]
+  end
+
+  subgraph region["Region — aws_region"]
+    Cognito["Amazon Cognito user pool<br>admin-create-user only"]
+    EKSCP["Amazon EKS control plane<br>private endpoint always on"]
+    AMG["Amazon Managed Grafana<br>IAM Identity Center only"]
+
+    subgraph priv["Amazon VPC — private subnets"]
+      CLB["Service LoadBalancer osmo-gateway<br>internet-facing, CloudFront origin"]
+      Gateway["Gateway pods<br>envoy + oauth2-proxy + authz"]
+      OSMOPods["OSMO service / ui / worker"]
+    end
+  end
+
+  Browser --> WAF
+  Browser -. "direct DNS name<br>bypasses the IP allow list" .-> CLB
+  WAF --> CFOSMO
+  WAF --> CFGRAF
+  CFOSMO -- "HTTP to origin" --> CLB
+  CFGRAF --> AMG
+  CFOSMO -. "redirects if unauthenticated" .-> Cognito
+  Cognito -. "callback to CloudFront domain" .-> CFOSMO
+  CLB --> Gateway
+  Gateway --> OSMOPods
+  OperatorCLI -- "needs VPC path, or an<br>allow-listed operator CIDR" --> EKSCP
+  EKSCP -. "inspect pods and logs" .-> OSMOPods
+```
+
+### Compute, data, and GPU capacity
+
+```mermaid
+flowchart TB
+  subgraph vpc["Amazon VPC 10.40.0.0/16"]
+    subgraph priv["Private subnets — one per AZ, karpenter_az_count"]
+      subgraph sys["Managed node group: system — m7i.2xlarge x3, always on"]
+        OSMOPods["OSMO service / worker"]
+        KAIPods["KAI Scheduler"]
+        KarpenterPod["Karpenter controller"]
+      end
+
+      subgraph gpu["Karpenter-provisioned GPU nodes — zero when idle"]
+        GPUNodes["G7e default, G6e / G6 opt-in<br>tainted nvidia.com/gpu"]
+      end
+
+      RDS["Amazon RDS for PostgreSQL"]
+      Redis["Amazon ElastiCache for Redis"]
+    end
+
+    subgraph pub["Public subnets"]
+      NATGW["NAT gateway<br>single_nat_gateway=true"]
+      IGW["Internet gateway"]
+    end
+  end
+
+  subgraph regional["Regional services — one AWS KMS customer-managed key encrypts all four"]
+    S3["Amazon S3 artifacts"]
+    ECR["Amazon ECR workloads"]
+    SM["AWS Secrets Manager"]
+    SQS["Amazon SQS<br>Karpenter interruption queue"]
+  end
+
+  AMP["Amazon Managed Service<br>for Prometheus"]
+  Ext["NGC / Hugging Face / PyPI"]
+
+  OSMOPods --> RDS
+  OSMOPods --> Redis
+  OSMOPods -- IRSA --> S3
+  OSMOPods -- IRSA --> ECR
+  OSMOPods -- IRSA --> SM
+
+  KarpenterPod -- "EKS Pod Identity" --> SQS
+  KarpenterPod -- "creates and terminates" --> GPUNodes
+  KAIPods -- "gang-schedules onto" --> GPUNodes
+  GPUNodes -- "all egress is NAT-processed" --> NATGW
+  NATGW --> IGW
+  IGW --> Ext
+  GPUNodes -. "DCGM metrics" .-> AMP
+```
+
+### What the topology implies
+
+- **Only one internet-facing entry point exists by design**: the
+  `osmo-gateway` Service load balancer, which is the CloudFront origin. Nothing
+  else in the VPC accepts inbound traffic from the internet.
+- **The load balancer is reachable directly, bypassing WAF.** CloudFront and
+  the WAF web ACL enforce the IP allow list, but the origin load balancer has
+  its own public DNS name and a `0.0.0.0/0` security group on ports 80/443.
+  Requesting it directly still redirects to Cognito, so authentication holds,
+  but the IP allow list does not. Treat the allow list as defence in depth, not
+  as the only control. If the origin must be locked down, restrict it to the
+  CloudFront managed prefix list.
+- **All egress is charged through the NAT gateway.** GPU nodes live in private
+  subnets, so every container image, model checkpoint, and dataset pull is
+  NAT-processed data. Large model downloads show up as NAT data processing
+  charges, not just instance hours. There are no VPC endpoints for S3 or ECR in
+  this reference, so even in-region traffic to those services takes the NAT
+  path.
+- **CloudFront and its WAF web ACL are pinned to us-east-1 regardless of
+  `aws_region`.** `infra/cloudfront` declares an `aws.global` provider fixed to
+  us-east-1 because a `scope = "CLOUDFRONT"` web ACL can only be created there.
+  Cleanup of a non-us-east-1 deployment must check us-east-1 separately.
+  The Cognito user pool, by contrast, is regional and lives in `aws_region`.
+- **The EKS API endpoint is private by default**
+  (`cluster_endpoint_public_access_cidrs = []`), which means `kubectl` requires
+  either a path into the VPC or an explicit operator CIDR. This is the most
+  common cause of a working deploy that a new operator cannot inspect.
+- **GPU nodes are absent from steady state.** The GPU subgraph is empty until a
+  workflow requests capacity, which is why OSMO rejects GPU submissions against
+  an idle cluster and why nodes must be prewarmed before submitting.
+
 ## Baseline
 
 - EKS control plane with private endpoint enabled by default.

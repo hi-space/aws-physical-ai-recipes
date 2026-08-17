@@ -1,0 +1,34 @@
+flowchart TB
+  Browser["사용자 브라우저"]
+  OperatorCLI["운영자 터미널<br>kubectl / terraform / osmo"]
+
+  subgraph global["글로벌 — 항상 us-east-1"]
+    WAF["AWS 웹 방화벽<br>기본 차단 + 허용 IP 목록"]
+    CFOSMO["Amazon CloudFront<br>OSMO 웹 콘솔"]
+    CFGRAF["Amazon CloudFront<br>Grafana 대시보드"]
+  end
+
+  subgraph region["리전 — aws_region 설정값"]
+    Cognito["Amazon Cognito 사용자 풀<br>관리자가 만든 계정만"]
+    AMG["Amazon Managed Grafana<br>IAM Identity Center 로그인"]
+    EKSCP["Amazon EKS 제어 영역<br>프라이빗 전용(기본값)"]
+
+    subgraph priv["Amazon VPC — 프라이빗 서브넷"]
+      CLB["로드 밸런서 osmo-gateway<br>CloudFront의 원본 서버"]
+      Gateway["게이트웨이 파드<br>로그인 검사"]
+      OSMOPods["OSMO 서비스 / 화면 / 작업자"]
+    end
+  end
+
+  Browser --> WAF
+  Browser -. "고유 주소로 직접 접속<br>= 허용 IP 목록 우회" .-> CLB
+  WAF --> CFOSMO
+  WAF --> CFGRAF
+  CFOSMO --> CLB
+  CFGRAF --> AMG
+  CFOSMO -. "로그인 안 됐으면" .-> Cognito
+  Cognito -. "로그인 후 되돌아옴" .-> CFOSMO
+  CLB --> Gateway
+  Gateway --> OSMOPods
+  OperatorCLI -- "VPC 내부 또는<br>허용된 운영자 IP 필요" --> EKSCP
+  EKSCP -. "파드 조회·로그" .-> OSMOPods

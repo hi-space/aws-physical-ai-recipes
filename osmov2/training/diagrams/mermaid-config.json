@@ -1,0 +1,22 @@
+{
+  "theme": "dark",
+  "themeVariables": {
+    "background": "#0b0d12",
+    "primaryColor": "#171a23",
+    "primaryTextColor": "#e8eaf0",
+    "primaryBorderColor": "#2a2f3d",
+    "lineColor": "#9aa3b5",
+    "secondaryColor": "#1e2230",
+    "tertiaryColor": "#12151d",
+    "fontSize": "15px",
+    "clusterBkg": "#12151d",
+    "clusterBorder": "#3a4152",
+    "fontFamily": "\"Noto Sans CJK KR\",\"Noto Sans KR\",\"Malgun Gothic\",\"Apple SD Gothic Neo\",sans-serif"
+  },
+  "flowchart": {
+    "curve": "basis",
+    "padding": 12,
+    "nodeSpacing": 40,
+    "rankSpacing": 50
+  }
+}

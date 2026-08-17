@@ -1,0 +1,37 @@
+flowchart LR
+  subgraph vpc["Amazon VPC 10.40.0.0/16"]
+    subgraph sys["상시 노드 그룹 — m7i.2xlarge 3대, 항상 켜짐"]
+      OSMOPods["OSMO 서비스 / 작업자"]
+      KarpenterPod["Karpenter 컨트롤러"]
+      KAIPods["AI 워크로드 스케줄러<br>(KAI Scheduler)"]
+    end
+
+    subgraph data["프라이빗 서브넷 — 데이터 저장소"]
+      RDS["Amazon RDS for PostgreSQL<br>워크플로 기록"]
+      Redis["Amazon ElastiCache for Redis<br>작업 큐"]
+    end
+
+    subgraph gpu["Karpenter가 만드는 GPU 노드 — 평소 0대"]
+      GPUNodes["G7e 기본 / G6e·G6 선택<br>GPU 전용 표식(taint) 있음"]
+    end
+
+    subgraph pub["퍼블릭 서브넷"]
+      NATGW["NAT 게이트웨이<br>1개 공용"]
+      IGW["인터넷 게이트웨이"]
+    end
+  end
+
+  Regional["리전 서비스 — VPC 밖<br>4개 모두 같은 AWS KMS 키로 암호화<br><br>Amazon S3 · 산출물 보관<br>Amazon ECR · 컨테이너 이미지<br>AWS Secrets Manager · 비밀값<br>Amazon SQS · 노드 회수 알림"]
+  AMP["Amazon Managed Service<br>for Prometheus"]
+  Ext["인터넷<br>NVIDIA GPU Cloud<br>Hugging Face / PyPI"]
+
+  OSMOPods --> RDS
+  OSMOPods --> Redis
+  OSMOPods -- "역할 기반 권한(IRSA)<br>액세스 키 없음" --> Regional
+  KarpenterPod -- "EKS Pod Identity" --> Regional
+  KarpenterPod -- "노드 생성·삭제" --> GPUNodes
+  KAIPods -- "묶어서 배치" --> GPUNodes
+  GPUNodes -- "모든 다운로드<br>GB당 과금" --> NATGW
+  NATGW --> IGW
+  IGW --> Ext
+  GPUNodes -. "GPU 지표 전송" .-> AMP
