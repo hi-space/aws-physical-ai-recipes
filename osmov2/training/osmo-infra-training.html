@@ -113,8 +113,13 @@
   <h1>Amazon EKS에서 NVIDIA OSMO<br>인프라 설치 실습</h1>
   <p class="lead">
     로보틱스 워크플로 오케스트레이터 NVIDIA OSMO를 Amazon EKS 위에 올리고,
-    GPU 워크플로가 실제로 도는 것까지 확인합니다.
+    워크플로가 제출·실행·완료되는 경로 전체를 확인합니다.
   </p>
+  <div class="note" style="margin-top:20px">
+    <p><b>오늘 실습에서 실제로 실행하는 워크플로는 CPU 워크플로입니다.</b>
+    GPU 노드는 재고 상황에 따라 뜨지 않을 수 있어 실습 대상에서 제외했습니다 —
+    GPU 경로(노드를 미리 띄우는 이유, 용량 부족 대응)는 <b>강의로</b> 다룹니다.</p>
+  </div>
   <div style="margin-top:28px">
     <span class="pill">Amazon EKS 1.35</span>
     <span class="pill">NVIDIA OSMO 6.3.1</span>
@@ -319,7 +324,7 @@
     <tr><td>Amazon EKS 클러스터</td><td>버전 <code>1.35</code>. <b>프라이빗 엔드포인트 항상 켬</b>, 퍼블릭 엔드포인트는 <code>cluster_endpoint_public_access_cidrs</code>를 준 경우에만</td></tr>
     <tr><td>Amazon EKS 애드온 4개</td><td><code>coredns</code>(클러스터 내부 DNS), <code>kube-proxy</code>(네트워크 규칙), <code>vpc-cni</code>(파드 IP 할당, 접두사 위임 켬), <code>eks-pod-identity-agent</code>(파드에 AWS 권한 부여)</td></tr>
     <tr><td>관리형 노드 그룹 <code>system</code></td><td><code>m7i.2xlarge</code> × 3대, 온디맨드, Amazon Linux 2023. OSMO 서비스·스케줄러 등 상시 구성요소가 여기 올라갑니다</td></tr>
-    <tr><td>GPU 노드 (Karpenter)</td><td>미리 만들지 <b>않습니다</b>. NodePool 2개(<code>aws-osmo-g7e</code> / <code>aws-osmo-g6e</code>)와 EC2NodeClass 정의만 두고, 필요할 때 노드를 띄웁니다</td></tr>
+    <tr><td>GPU 노드 (Karpenter)</td><td>미리 만들지 <b>않습니다</b>. 기본값은 NodePool <b>1개</b>(<code>aws-osmo-g7e</code>) + EC2NodeClass 1개뿐이고, 필요할 때 노드를 띄웁니다. 대체용 <code>aws-osmo-g6</code>(L4) / <code>aws-osmo-g6e</code>(L40S)는 <b>스위치를 켤 때만</b> 만들어집니다(<code>DEPLOY_G6_NODEPOOL</code> / <code>DEPLOY_G6E_NODEPOOL</code>, 기본 <code>false</code>)</td></tr>
     <tr><td>보안 그룹</td><td>클러스터·노드용(모듈 생성) + Amazon RDS용 + Amazon ElastiCache용(직접 정의). 노드 간 전체 허용 규칙은 Elastic Fabric Adapter 통신용</td></tr>
   </table>
   <div class="note">
@@ -736,6 +741,24 @@ TF_WORKSPACE=use1 \
   <div class="warn">
     <p>성공하면 마지막에 <b>CloudFront OSMO UI URL</b>을 직접 출력합니다. 그 URL을
     적어두세요 — 검증 단계에서 씁니다.</p>
+  </div>
+  <h3>지금부터 과금이 시작됩니다 — 대략적인 시간당 금액</h3>
+  <p class="dim">미국 동부(버지니아 북부) 온디맨드 정가 기준입니다. 리전과 환율에 따라
+  달라지므로 <b>규모를 가늠하는 용도</b>로만 보세요.</p>
+  <table>
+    <tr><th>자원</th><th style="width:130px">시간당</th><th>비고</th></tr>
+    <tr><td>Amazon EKS 컨트롤 플레인</td><td>약 $0.10</td><td>클러스터 1개당 고정</td></tr>
+    <tr><td>관리형 노드 그룹 <code>m7i.2xlarge</code> × 3</td><td>약 $1.21</td><td>가장 큰 몫. 상시 구동</td></tr>
+    <tr><td>네트워크 주소 변환(NAT) 게이트웨이 1개</td><td>약 $0.045</td><td>+ 통과 데이터 GB당 약 $0.045</td></tr>
+    <tr><td>Amazon RDS <code>db.t4g.medium</code></td><td>약 $0.065</td><td>+ 저장 용량</td></tr>
+    <tr><td>Amazon ElastiCache <code>cache.t4g.micro</code></td><td>약 $0.016</td><td></td></tr>
+    <tr><td><b>합계 (GPU 없이)</b></td><td><b>약 $1.4</b></td><td>여기에 EBS 볼륨·Amazon S3·CloudFront가 소액 추가</td></tr>
+  </table>
+  <div class="warn">
+    <p><b>GPU 노드가 뜨면 금액이 완전히 달라집니다</b> — <code>g7e.2xlarge</code> 약
+    $3.4/시간, <code>g6e.8xlarge</code> 약 $4.5/시간. GPU 노드 1대가
+    <b>나머지 전체보다 2~3배 비쌉니다.</b> 그래서 Karpenter가 노드를 자동 회수하게
+    설계했고, 실습 후에는 반드시 정리(Cleanup) 슬라이드를 따라야 합니다.</p>
   </div>
 </section>
 
