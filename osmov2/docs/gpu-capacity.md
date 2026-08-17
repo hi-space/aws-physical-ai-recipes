@@ -132,3 +132,156 @@ aws service-quotas get-service-quota --region "$AWS_REGION" \
 Live G7e capacity should still be pre-warmed before OSMO validation with
 `scripts/prewarm-gpu-node.sh` (see the e2e pipeline README). The g6e fallback is
 for when that pre-warm cannot place G7e nodes in the region.
+
+Neither query above detects a stock-out, though — see the next section.
+
+## When the size you asked for is sold out (ICE)
+
+The two checks above answer "is this instance type sold in this AZ" and "is my
+quota high enough". Both can pass while the launch still fails, because AWS has
+no free capacity of that exact size in that AZ right now
+(`InsufficientInstanceCapacity`, usually shortened to ICE). ICE is transient and
+per size + per AZ: `g6e.8xlarge` can be unavailable while `g6e.16xlarge` in the
+same AZ launches fine.
+
+Observed 2026-08-11 on the `us-east-1` cluster, running the prewarm the stage
+READMEs recommend:
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
+  scripts/prewarm-gpu-node.sh
+```
+
+The pod stayed `Pending` and Karpenter logged `InsufficientCapacityError` three
+times: "We currently do not have sufficient g6e.8xlarge capacity in the
+Availability Zone you requested (us-east-1b)". Offerings listed g6e in all four
+us-east-1 AZs and the G/VT quota was 768 vCPU with zero G instances running, so
+neither pre-deploy check predicted it. `aws ec2 run-instances --dry-run` does not
+predict it either — it returned success for all six size/AZ combinations tried,
+including the one that was actually short.
+
+`prewarm-gpu-node.sh` cannot ride this out on its own. It puts
+`node.kubernetes.io/instance-type` in the prewarm pod's `nodeSelector` and then
+asserts the node it landed on is exactly that type, so Karpenter is not allowed
+to substitute another size from the NodePool's list. The pin is deliberate — the
+script exists to prove one specific type can launch — but it means an ICE on that
+one size blocks the prewarm entirely.
+
+To get *a* GPU node instead of a specific one, ask only for the NodePool and a
+GPU and let Karpenter choose the size:
+
+```bash
+NS="$(cd infra/core && terraform output -raw osmo_workload_namespace)"
+
+kubectl -n "$NS" apply -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: aws-osmo-gpu-probe
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    karpenter.sh/nodepool: aws-osmo-g6e
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: hold
+      image: public.ecr.aws/docker/library/busybox:1.36
+      command: ["sh", "-c", "sleep 86400"]
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+YAML
+
+kubectl -n "$NS" wait --for=condition=Ready pod/aws-osmo-gpu-probe --timeout=20m
+```
+
+In the run above Karpenter picked `g6e.16xlarge` in `us-east-1d`, and
+`osmo resource list --pool default` then showed that node under platform
+`g6e-l40s` with `1/1` GPU — enough for OSMO to admit a GPU workflow. Delete the
+probe pod once the workflow has been submitted; Karpenter consolidates the node
+away after it and the workflow pods are gone.
+
+One limit on this trick: `deploy-karpenter.sh` pins the g6e NodePool to a single
+AZ (`KARPENTER_G6E_ZONE`, see above), so Karpenter can normally vary the instance
+size but not the AZ. It reached `us-east-1d` only because that cluster's live
+NodePool allowed two AZs (`["us-east-1b", "us-east-1d"]`, matching the region's
+G7e AZ map) rather than the single AZ the script emits. On a NodePool straight
+from the script, expect the size to vary within one AZ. Check what you actually
+have with `kubectl get nodepool aws-osmo-g6e -o yaml`. If every g6e size in the
+pinned AZ is short, re-run
+`scripts/deploy-karpenter.sh` with a different `KARPENTER_G6E_ZONE`, or fall back
+to the g7e NodePool.
+
+### When the flexible probe does not help either
+
+Later the same day (2026-08-11, from ~13:25 UTC) the probe stopped working on
+that cluster: *every* size in both NodePools was short in both AZs the cluster
+can reach. Karpenter kept creating a NodeClaim, getting `UnfulfillableCapacity`
+from `CreateFleet`, and deleting it — a ~3 min loop with the probe pod stuck
+`Pending` for 45+ min. Falling back from g6e to g7e did not help; the g7e pool
+returned the same error for all five of its sizes.
+
+The AWS error text names the AZs that *do* have capacity, and that is the useful
+part:
+
+```
+InsufficientInstanceCapacity: We currently do not have sufficient g6e.8xlarge
+capacity in the Availability Zone you requested (us-east-1d). ... You can
+currently get g6e.8xlarge capacity by ... choosing us-east-1a, us-east-1b,
+us-east-1c.
+```
+
+Those suggested AZs were unreachable because the VPC only has subnets in
+`us-east-1b` and `us-east-1d`:
+
+```bash
+VPC="$(cd infra/core && terraform output -raw vpc_id)"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" \
+  --query 'Subnets[].{Id:SubnetId,AZ:AvailabilityZone}' --output table
+```
+
+So when both NodePools are short in all reachable AZs, no amount of size or
+NodePool switching helps — the choices are to wait out the ICE (it is transient),
+add subnets in the AZs AWS names and widen the NodePool's zone requirement, or
+run in another region.
+
+Adding the subnets is a small Terraform change but not a free one. Extending
+`availability_zones` and raising `karpenter_az_count` to 4 in the workspace's
+tfvars (the pattern `terraform.usw2.tfvars` already uses) plans as pure addition
+— four subnets plus four route-table associations, `0 to destroy`, no new NAT
+gateway while `single_nat_gateway = true`, and the new private subnets inherit
+`karpenter.sh/discovery` from the module's `private_subnet_tags` automatically.
+Keep the g7e-capable AZs first in the list: `az_count` slices from the front, so
+reordering would move the EKS and RDS/Redis subnets.
+
+The catch is that `terraform apply` also picks up whatever drift has accumulated
+since the last apply. On the 2026-08-11 cluster the same plan wanted to take the
+RDS instance from `engine_version` 16.13 back to 16.9 (AWS had auto-applied a
+minor upgrade) and to touch three EKS addons and two Karpenter IAM objects.
+Check the full change list before applying, and scope it if you only want the
+subnets:
+
+```bash
+terraform plan -out=/tmp/az.tfplan
+terraform show /tmp/az.tfplan | grep '^  # '   # read every line
+terraform apply -target=module.vpc             # subnets only
+```
+
+Note `terraform.tfvars` is gitignored (it holds per-deploy values), so
+`git checkout` will not undo an edit to it — revert by hand.
+
+Confirm the type is even offered in the target AZ first:
+
+```bash
+aws ec2 describe-instance-type-offerings --location-type availability-zone \
+  --filters "Name=instance-type,Values=g6e.8xlarge,g6e.12xlarge,g7e.8xlarge" \
+  --query 'InstanceTypeOfferings[].{Type:InstanceType,AZ:Location}' --output table
+```
+
+To wait it out without babysitting, poll for any GPU node and submit only once
+one appears — OSMO rejects the submit outright (`There are no resources in
+platform g6e-l40s and pool default!`) while no GPU node is registered, so the
+submit has to come after the node, not before.

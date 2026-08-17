@@ -1,0 +1,11 @@
+{
+  "task_name": "LeIsaac-SO101-PickOrange-v0",
+  "instruction": "pick up the orange and place it on the plate",
+  "model_path": "/osmo/data/input/0/artifacts/checkpoint-10",
+  "n_episodes_requested": 5,
+  "n_videos_recorded": 0,
+  "video_files": [],
+  "success_count": 0,
+  "fail_count": 5,
+  "success_rate": 0.0
+}

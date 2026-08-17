@@ -85,8 +85,33 @@ osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
 ```
 
 The default `max_steps`/`save_steps` (10/10) are smoke values — a training run
-that just proves the pipeline works. Scale up (the numbers above, or the
-workshop's ~6000) for a policy-quality checkpoint.
+that just proves the pipeline works.
+
+### Budgeting a real run
+
+Plan by *samples seen* (`global_batch_size × max_steps`), not by step count. The
+60-episode `leisaac-pick-orange` dataset is ~10000 samples, so that product
+divided by 10000 is roughly the number of epochs.
+
+Measured 2026-08-11 on one L40S (`g6e.16xlarge`), from the HF Trainer's own
+`train_runtime`, with `dataloader_num_workers: 4`:
+
+| `global_batch_size` | sec/step | samples/s | 10000 samples (~1 epoch) |
+| --- | --- | --- | --- |
+| 1 | 0.39 | 2.54 | ~66 min |
+| 8 | 3.90 | 2.05 | ~81 min |
+| 32 | 6.66 | 4.81 | ~35 min |
+
+Batch 32 is the most sample-efficient of the three and still fits in 48GB — only
+the projector and diffusion head are trainable (`tune_llm`/`tune_visual` are
+off), so activation memory stays modest. Batch 8 is worse than batch 1 per
+sample; do not read the table as monotonic.
+
+Add ~7 min of startup (image pull, Isaac-GR00T clone, N1.6 3B download) that is
+paid regardless of `max_steps`. Keep `save_steps` equal to `max_steps` unless you
+want intermediate checkpoints — each one writes ~10GB.
+
+The 12h `exec_timeout` is a ceiling, not an estimate.
 
 ## Parameters (default-values)
 

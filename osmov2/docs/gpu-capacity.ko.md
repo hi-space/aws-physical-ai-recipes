@@ -129,3 +129,151 @@ aws service-quotas get-service-quota --region "$AWS_REGION" \
 OSMO 검증 전에는 여전히 `scripts/prewarm-gpu-node.sh`로 G7e 용량을 미리 데워
 둬야(prewarm) 합니다(e2e 파이프라인 README 참고). g6e 폴백은 그 프리웜이 해당
 리전에서 G7e 노드를 띄우지 못할 때 대신 쓰는 길입니다.
+
+단, 위 두 명령으로는 재고 소진을 알 수 없습니다 — 다음 절 참고.
+
+## 요청한 크기가 품절일 때 (ICE)
+
+위 두 확인은 "이 인스턴스 타입을 이 AZ에서 파는가"와 "내 쿼터가 충분한가"에만
+답합니다. 둘 다 통과해도 실제 생성은 실패할 수 있습니다. 지금 그 AZ에 그 크기의
+여유 용량이 없기 때문이며(`InsufficientInstanceCapacity`, 보통 ICE로 줄여 부름),
+ICE는 일시적이고 크기·AZ 단위로 발생합니다. 같은 AZ에서 `g6e.8xlarge`는 안 되는데
+`g6e.16xlarge`는 잘 뜨는 식입니다.
+
+2026-08-11 `us-east-1` 클러스터에서 스테이지 README가 안내하는 프리웜을 그대로
+실행했을 때 관측된 사례입니다.
+
+```bash
+GPU_PREWARM_INSTANCE_TYPE=g6e.8xlarge KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
+  scripts/prewarm-gpu-node.sh
+```
+
+파드는 `Pending`에 머물렀고 Karpenter가 `InsufficientCapacityError`를 세 번
+기록했습니다: "We currently do not have sufficient g6e.8xlarge capacity in the
+Availability Zone you requested (us-east-1b)". 판매 목록에는 us-east-1의 4개 AZ
+모두 g6e가 있었고 G/VT 쿼터는 768 vCPU에 실행 중인 G 인스턴스는 0대였으므로,
+배포 전 확인 두 가지로는 예측할 수 없었습니다. `aws ec2 run-instances --dry-run`도
+소용이 없습니다 — 실제로 품절이던 조합을 포함해 시도한 6개 크기·AZ 조합 전부에
+대해 성공을 반환했습니다.
+
+`prewarm-gpu-node.sh`는 이 상황을 스스로 넘기지 못합니다. 프리웜 파드의
+`nodeSelector`에 `node.kubernetes.io/instance-type`을 박아두고, 파드가 뜬 노드가
+정확히 그 타입인지 검사하기 때문에 Karpenter가 NodePool 목록의 다른 크기로
+대체하지 못합니다. 이 고정은 의도된 것입니다 — 특정 타입이 뜬다는 것을 증명하려고
+만든 스크립트이기 때문입니다 — 하지만 그 한 크기가 ICE면 프리웜 자체가 막힙니다.
+
+특정 크기가 아니라 "아무 GPU 노드나" 확보하려면, NodePool과 GPU만 요청하고 크기는
+Karpenter가 고르게 하면 됩니다.
+
+```bash
+NS="$(cd infra/core && terraform output -raw osmo_workload_namespace)"
+
+kubectl -n "$NS" apply -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: aws-osmo-gpu-probe
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    karpenter.sh/nodepool: aws-osmo-g6e
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: hold
+      image: public.ecr.aws/docker/library/busybox:1.36
+      command: ["sh", "-c", "sleep 86400"]
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+YAML
+
+kubectl -n "$NS" wait --for=condition=Ready pod/aws-osmo-gpu-probe --timeout=20m
+```
+
+위 사례에서 Karpenter는 `us-east-1d`에 `g6e.16xlarge`를 띄웠고, 이후
+`osmo resource list --pool default`에 그 노드가 `g6e-l40s` 플랫폼으로 GPU `1/1`로
+잡혔습니다 — OSMO가 GPU 워크플로를 받아들이기에 충분합니다. 워크플로를 제출한
+뒤에는 프로브 파드를 지우세요. 프로브와 워크플로 파드가 모두 사라지면 Karpenter가
+노드를 정리합니다.
+
+한 가지 한계: `deploy-karpenter.sh`는 g6e NodePool을 한 AZ에 고정하므로
+(위 `KARPENTER_G6E_ZONE` 참고) 보통 Karpenter는 크기만 바꿀 수 있고 AZ는 바꾸지
+못합니다. 위에서 `us-east-1d`까지 갈 수 있었던 건 그 클러스터의 실제 NodePool이
+AZ 두 개(`["us-east-1b", "us-east-1d"]`, 해당 리전의 G7e AZ 구성과 동일)를 허용한
+상태였기 때문이고, 스크립트는 AZ를 하나만 넣습니다. 스크립트 그대로 만든
+NodePool이라면 한 AZ 안에서 크기만 바뀐다고 보면 됩니다. 실제 상태는
+`kubectl get nodepool aws-osmo-g6e -o yaml`로 확인하세요. 고정된 AZ에서 모든 g6e
+크기가 품절이라면 `KARPENTER_G6E_ZONE`을 다른 AZ로 바꿔
+`scripts/deploy-karpenter.sh`를 다시 실행하거나, g7e NodePool로 돌아가세요.
+
+### 유연한 probe로도 안 될 때
+
+같은 날 오후(2026-08-11, 13:25 UTC 무렵부터) 그 클러스터에서는 probe도 통하지
+않았습니다. 클러스터가 닿을 수 있는 두 AZ에서 두 NodePool의 모든 크기가 품절이었기
+때문입니다. Karpenter가 NodeClaim을 만들고 `CreateFleet`에서
+`UnfulfillableCapacity`를 받고 삭제하는 약 3분 주기를 반복하며, probe 파드는 45분
+넘게 `Pending`이었습니다. g6e에서 g7e로 넘어가도 소용없었고, g7e 다섯 크기 전부
+같은 오류였습니다.
+
+AWS 오류 메시지가 용량이 있는 AZ를 알려주는데, 그게 유용한 부분입니다.
+
+```
+InsufficientInstanceCapacity: We currently do not have sufficient g6e.8xlarge
+capacity in the Availability Zone you requested (us-east-1d). ... You can
+currently get g6e.8xlarge capacity by ... choosing us-east-1a, us-east-1b,
+us-east-1c.
+```
+
+하지만 VPC 서브넷이 `us-east-1b`, `us-east-1d`에만 있어서 그 AZ들로는 갈 수
+없었습니다.
+
+```bash
+VPC="$(cd infra/core && terraform output -raw vpc_id)"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" \
+  --query 'Subnets[].{Id:SubnetId,AZ:AvailabilityZone}' --output table
+```
+
+즉 닿을 수 있는 모든 AZ에서 두 NodePool이 다 품절이면 크기나 NodePool을 바꿔봐도
+소용이 없습니다. 선택지는 ICE가 풀릴 때까지 기다리기(일시적입니다), AWS가 알려준
+AZ에 서브넷을 추가하고 NodePool의 zone 제약을 넓히기, 또는 다른 리전에서 돌리기
+입니다.
+
+서브넷 추가는 Terraform 변경이 작지만 공짜는 아닙니다. 워크스페이스 tfvars에서
+`availability_zones`를 늘리고 `karpenter_az_count`를 4로 올리면
+(`terraform.usw2.tfvars`가 이미 쓰는 패턴) 순수 추가로 계획됩니다 — 서브넷 4개와
+라우트 테이블 연결 4개, `0 to destroy`, `single_nat_gateway = true`인 동안 NAT
+게이트웨이 추가 비용 없음, 신규 private 서브넷은 모듈의 `private_subnet_tags`에서
+`karpenter.sh/discovery`를 자동으로 물려받습니다. g7e가 되는 AZ를 목록 앞에
+두세요. `az_count`가 앞에서부터 잘라내므로 순서를 바꾸면 EKS와 RDS/Redis 서브넷이
+옮겨집니다.
+
+함정은 `terraform apply`가 지난 apply 이후 쌓인 드리프트까지 함께 가져간다는
+점입니다. 2026-08-11 클러스터에서는 같은 plan이 RDS `engine_version`을 16.13에서
+16.9로 되돌리려 했고(AWS가 마이너 업그레이드를 자동 적용한 상태였습니다) EKS
+addon 3개와 Karpenter IAM 2개도 건드리려 했습니다. apply 전에 변경 목록을 전부
+확인하고, 서브넷만 원한다면 범위를 좁히세요.
+
+```bash
+terraform plan -out=/tmp/az.tfplan
+terraform show /tmp/az.tfplan | grep '^  # '   # 모든 줄을 읽으세요
+terraform apply -target=module.vpc             # 서브넷만
+```
+
+`terraform.tfvars`는 gitignore 대상입니다(배포별 값이 들어갑니다). 따라서
+`git checkout`으로는 수정을 되돌릴 수 없고, 직접 손으로 복원해야 합니다.
+
+대상 AZ에 그 타입이 제공되는지부터 확인하세요.
+
+```bash
+aws ec2 describe-instance-type-offerings --location-type availability-zone \
+  --filters "Name=instance-type,Values=g6e.8xlarge,g6e.12xlarge,g7e.8xlarge" \
+  --query 'InstanceTypeOfferings[].{Type:InstanceType,AZ:Location}' --output table
+```
+
+지켜보지 않고 기다리려면 GPU 노드가 생겼는지 폴링해서 생긴 뒤에 제출하세요. GPU
+노드가 등록되지 않은 상태에서는 OSMO가 제출 자체를 거부합니다(`There are no
+resources in platform g6e-l40s and pool default!`). 제출은 노드보다 먼저가 아니라
+나중이어야 합니다.

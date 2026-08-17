@@ -64,6 +64,10 @@ carried over unchanged, just renamed.
 chain: 2h (prep) + 12h (train) + 4h (eval) plus node-provisioning headroom →
 `20h`. Raise it if you increase `train_max_steps` substantially.
 
+That is the sum of the source stages' ceilings, not an expected runtime — a
+10000-step run actually finishes in a small fraction of it. See
+[Roughly how long it takes](#roughly-how-long-it-takes).
+
 ## Running
 
 Both GPU tasks default to `g6e-l40s`. The training task is the larger request
@@ -99,8 +103,34 @@ osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
 
 `train_max_steps` defaults to `10` (a smoke value inherited from Stage 3). An
 unattended run whose eval result is meaningful needs a real budget — `10000`
-steps at `train_global_batch_size: 1` is roughly 8h on one L40S, which fits the
-20h `exec_timeout` alongside prep and eval.
+steps at `train_global_batch_size: 1` is about 1h on one L40S (see below), well
+inside the 20h `exec_timeout` alongside prep and eval.
+
+## Roughly how long it takes
+
+Measured 2026-08-11 on the `us-east-1` cluster: one L40S (platform `g6e-l40s`,
+node `g6e.16xlarge`), `train_global_batch_size: 1`, `train_max_steps: 10000`, and
+the 60-episode `LightwheelAI/leisaac-pick-orange` dataset.
+
+| Task | Startup before real work | Work itself |
+| --- | --- | --- |
+| `prepare` | negligible | ~1.5 min (60 episodes → LeRobot v2.1, 666 MiB) |
+| `gr00t-finetune` | ~7 min (image pull, Isaac-GR00T clone, N1.6 3B download) | 2.54 samples/s at `train_global_batch_size: 1` → ~66 min per 10000 steps |
+| `eval` | ~13 min (apt, leisaac + lerobot install, flash-attn, Isaac Sim assets) | ~4m20s per episode → ~22 min for the default 5 (4h `exec_timeout` in Stage 4) |
+
+Startup is paid once per task and barely varies with `train_max_steps`, so even
+the 10-step smoke default still spends ~8 min in the training task. That fixed
+cost dominates the budget: prep + both startups + a 5-episode eval is ~48 min
+before any training happens.
+
+So a chain that must finish inside 2h has roughly 70 min for the training loop.
+At the measured throughput that is ~2 epochs of the 60-episode dataset — see
+[Stage 3's budgeting table](../03-vla-finetune/README.md#budgeting-a-real-run)
+for the per-batch-size numbers, and plan by `global_batch_size × max_steps`
+(samples seen) rather than by step count.
+
+Node size does not change this much — training is GPU-bound on the single L40S,
+and `g6e.16xlarge` only added spare vCPUs over the recommended `g6e.8xlarge`.
 
 ## Task chaining details
 
@@ -135,6 +165,13 @@ two input paths differ). The chaining mechanism itself — `inputs: - task: <nam
 within one workflow — is the same one used by
 [`examples/sequential-policy`](../../examples/sequential-policy/README.md).
 
-End-to-end runtime validation of this combined workflow on GPU is **pending**;
-artifacts should land under `00-vla-chain/validation/` once it runs for real.
-Run the per-stage workflows first if you need a verified path.
+Runtime-validated end-to-end on GPU (`g6e-l40s`, 2026-08-11): all three tasks
+COMPLETED and OSMO advanced the DAG without intervention. Getting there took two
+runs — the first failed in `eval` because the chained checkpoint directory holds a
+partial copy of the model at its root, so probing for `config.json` resolved the
+wrong directory. The task now probes for `processor_config.json`. See
+[validation/validation.md](validation/validation.md).
+
+Note that `success_rate` was `0.0` in both runs. Nothing points at the chaining
+itself; the leading explanation is too small a training run, but that has not
+been confirmed by a larger one. See the validation notes for what was ruled out.

@@ -755,23 +755,36 @@ workflow:
         ASSETS_DIR=/tmp/leisaac-assets
         SCRIPTS_DIR=/tmp/leisaac-repo
 
-        # Fine-tuned checkpoint from the gr00t-finetune task, which writes
-        # <output>/artifacts/checkpoint-N. Locate the HF model dir by finding the
-        # config.json it must contain, preferring the highest-numbered
-        # checkpoint-* dir when several exist.
-        MODEL_PATH="{{input:0}}/artifacts"
-        if [ ! -f "${MODEL_PATH}/config.json" ]; then
-          CANDIDATE="$(find "${MODEL_PATH}" -maxdepth 6 -name config.json -printf '%h\n' 2>/dev/null \
+        # Fine-tuned checkpoint from the gr00t-finetune task. That task copies its
+        # whole training output dir, so {{input:0}}/artifacts holds BOTH a
+        # checkpoint-N/ subdir and a partial copy of it at the root: config.json
+        # and the safetensors are there, but processor_config.json is not (it sits
+        # under processor/). AutoProcessor.from_pretrained then fails with
+        # "Unrecognized processing class". So require processor_config.json — not
+        # just config.json — when deciding a dir is a loadable model, and prefer
+        # the highest-numbered checkpoint-* when several exist.
+        find_model_dir() {
+          local root="$1"
+          local found
+          found="$(find "${root}" -maxdepth 6 -name processor_config.json -printf '%h\n' 2>/dev/null \
             | grep -E '/checkpoint-[0-9]+$' | sort -t- -k2 -n | tail -1)"
-          if [ -z "${CANDIDATE}" ]; then
-            CANDIDATE="$(find "${MODEL_PATH}" -maxdepth 6 -name config.json -printf '%h\n' 2>/dev/null | sort | tail -1)"
+          if [ -z "${found}" ]; then
+            found="$(find "${root}" -maxdepth 6 -name processor_config.json -printf '%h\n' 2>/dev/null \
+              | sort | tail -1)"
           fi
+          printf '%s' "${found}"
+        }
+
+        MODEL_PATH="{{input:0}}/artifacts"
+        if [ ! -f "${MODEL_PATH}/processor_config.json" ]; then
+          CANDIDATE="$(find_model_dir "${MODEL_PATH}")"
           if [ -n "${CANDIDATE}" ]; then
             MODEL_PATH="${CANDIDATE}"
           fi
         fi
         echo ">>> Using model checkpoint at ${MODEL_PATH}"
         test -f "${MODEL_PATH}/config.json"
+        test -f "${MODEL_PATH}/processor_config.json"
 
         nvidia-smi
         mkdir -p "${ARTIFACT_DIR}/logs" "${ARTIFACT_DIR}/videos" "${PKGS_DIR}" \
@@ -1156,8 +1169,10 @@ default-values:
   train_embodiment_tag: NEW_EMBODIMENT
   train_output_dataset: e2e-vla-chain-groot-checkpoint
   # Smoke default. A single unattended run that is worth evaluating needs a real
-  # budget: 10000 steps at global_batch_size 1 is ~8h on one L40S, which fits the
-  # 20h exec_timeout together with prep and eval.
+  # budget, sized by samples seen (global_batch_size x max_steps) rather than
+  # steps: 10000 steps at global_batch_size 1 is ~66 min on one L40S (2.54
+  # samples/s measured), well inside the 20h exec_timeout with prep and eval.
+  # See 03-vla-finetune/README.md "Budgeting a real run" for other batch sizes.
   train_max_steps: 10
   train_save_steps: 10
   train_save_total_limit: 1

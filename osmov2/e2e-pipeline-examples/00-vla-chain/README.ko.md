@@ -64,6 +64,9 @@ Isaac-GR00T ref가 한 워크플로에 공존할 수 있습니다 — `train_gr0
 2h(prep) + 12h(train) + 4h(eval) + 노드 프로비저닝 여유 → `20h`.
 `train_max_steps`를 크게 올리면 이 값도 함께 올리세요.
 
+이 값은 원본 스테이지들의 상한을 더한 것이고 예상 실행 시간이 아닙니다 — 10000
+스텝 실행은 이보다 훨씬 짧게 끝납니다. [대략 걸리는 시간](#대략-걸리는-시간) 참고.
+
 ## 실행
 
 두 GPU task 모두 기본 platform은 `g6e-l40s`입니다. 학습 task가 요청량이 더 크므로
@@ -98,8 +101,32 @@ osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
 
 `train_max_steps` 기본값은 Stage 3에서 물려받은 smoke 값 `10`입니다. 평가 결과가
 의미를 가지려면 실제 예산이 필요합니다 — `train_global_batch_size: 1`에서 `10000`
-스텝은 L40S 한 장으로 약 8h이고, prep/eval을 합쳐도 20h `exec_timeout` 안에
-들어갑니다.
+스텝은 L40S 한 장으로 약 1h(아래 참고)이고, prep/eval을 합쳐도 20h `exec_timeout`
+안에 넉넉히 들어갑니다.
+
+## 대략 걸리는 시간
+
+2026-08-11 `us-east-1` 클러스터에서 측정했습니다. L40S 한 장(플랫폼 `g6e-l40s`,
+노드 `g6e.16xlarge`), `train_global_batch_size: 1`, `train_max_steps: 10000`,
+60 에피소드 `LightwheelAI/leisaac-pick-orange` 데이터셋 기준입니다.
+
+| Task | 실제 작업 전 준비 시간 | 작업 자체 |
+| --- | --- | --- |
+| `prepare` | 무시할 수준 | 약 1.5분 (60 에피소드 → LeRobot v2.1, 666 MiB) |
+| `gr00t-finetune` | 약 7분 (이미지 pull, Isaac-GR00T clone, N1.6 3B 다운로드) | `train_global_batch_size: 1`에서 2.54 samples/s → 10000 스텝에 약 66분 |
+| `eval` | 약 13분 (apt, leisaac + lerobot 설치, flash-attn, Isaac Sim 에셋) | 에피소드당 약 4분20초 → 기본값 5개에 약 22분 (Stage 4의 `exec_timeout`은 4h) |
+
+준비 시간은 task마다 한 번씩 들고 `train_max_steps`와 거의 무관하므로, 10 스텝
+smoke 기본값도 학습 task에서 약 8분은 씁니다. 이 고정 비용이 예산을 지배합니다 —
+prep + 두 task의 준비 시간 + 5 에피소드 eval만으로 학습 전에 약 48분이 나갑니다.
+
+따라서 2h 안에 끝내야 하는 체인은 학습 루프에 약 70분을 쓸 수 있습니다. 측정된
+처리량으로는 60 에피소드 데이터셋 약 2 에폭에 해당합니다 — 배치별 수치는
+[Stage 3의 예산 표](../03-vla-finetune/README.ko.md#실제-런-예산-잡기)를 보고,
+스텝 수가 아니라 `global_batch_size × max_steps`(본 샘플 수)로 계획하세요.
+
+노드 크기를 키워도 큰 차이는 없습니다 — 학습은 L40S 한 장에 병목이 있고,
+`g6e.16xlarge`는 권장 `g6e.8xlarge`보다 vCPU만 남는 구성이었습니다.
 
 ## task 연결 상세
 
@@ -134,6 +161,13 @@ osmo workflow submit e2e-pipeline-examples/00-vla-chain/workflow.yaml \
 [`examples/sequential-policy`](../../examples/sequential-policy/README.ko.md)가
 쓰는 것과 같습니다.
 
-이 통합 워크플로의 GPU end-to-end 런타임 검증은 **아직 미완**입니다. 실제로 돌리면
-산출물은 `00-vla-chain/validation/` 아래에 남겨야 합니다. 검증된 경로가 필요하면
-개별 스테이지 워크플로를 먼저 실행하세요.
+GPU end-to-end 런타임 검증 완료(`g6e-l40s`, 2026-08-11). 세 task 전부 COMPLETED이고
+OSMO가 개입 없이 DAG를 진행했습니다. 두 번 돌려야 했습니다 — 첫 실행은 `eval`에서
+실패했는데, 연결된 체크포인트 디렉터리 루트에 모델의 부분 복사본이 있어
+`config.json`으로 탐색하면 잘못된 디렉터리를 고르기 때문입니다. 이제
+`processor_config.json`으로 탐색합니다. [validation/validation.md](validation/validation.md)
+참고.
+
+두 실행 모두 `success_rate`는 `0.0`이었습니다. 연결(chaining) 자체를 가리키는 근거는
+없고, 가장 유력한 설명은 학습량이 너무 적었다는 것이지만 더 큰 실행으로 확인하지는
+못했습니다. 무엇을 배제했는지는 검증 노트를 참고하세요.

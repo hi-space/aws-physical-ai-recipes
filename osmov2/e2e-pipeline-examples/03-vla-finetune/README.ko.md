@@ -87,8 +87,33 @@ osmo workflow submit e2e-pipeline-examples/03-vla-finetune/workflow.yaml \
 ```
 
 기본 `max_steps`/`save_steps`(10/10)는 스모크 값 — 파이프라인이 도는지만
-증명하는 용도입니다. 정책 품질 체크포인트를 원하면 값을 키우세요(위 예시 또는
-워크샵의 ~6000).
+증명하는 용도입니다.
+
+### 실제 런 예산 잡기
+
+스텝 수가 아니라 `global_batch_size × max_steps`(본 샘플 수)로 계획하세요.
+60 에피소드 `leisaac-pick-orange` 데이터셋이 약 10000 샘플이므로, 이 곱을
+10000으로 나누면 대략 에폭 수가 됩니다.
+
+2026-08-11에 L40S 한 장(`g6e.16xlarge`), `dataloader_num_workers: 4`에서
+HF Trainer가 보고한 `train_runtime` 기준 측정값입니다.
+
+| `global_batch_size` | 스텝당 초 | samples/s | 10000 샘플(약 1 에폭) |
+| --- | --- | --- | --- |
+| 1 | 0.39 | 2.54 | 약 66분 |
+| 8 | 3.90 | 2.05 | 약 81분 |
+| 32 | 6.66 | 4.81 | 약 35분 |
+
+세 값 중 배치 32가 샘플 효율이 가장 좋고 48GB에도 들어갑니다 — projector와
+diffusion head만 학습 대상(`tune_llm`/`tune_visual`은 off)이라 activation
+메모리가 크지 않습니다. 배치 8은 샘플당으로는 배치 1보다 나쁘므로, 표를 단조
+증가로 읽지 마세요.
+
+여기에 `max_steps`와 무관하게 드는 준비 시간 약 7분(이미지 pull, Isaac-GR00T
+clone, N1.6 3B 다운로드)을 더하세요. 중간 체크포인트가 필요하지 않다면
+`save_steps`를 `max_steps`와 같게 두세요 — 한 번 쓸 때마다 약 10GB입니다.
+
+12h `exec_timeout`은 상한이지 예상 시간이 아닙니다.
 
 ## 파라미터 (default-values)
 
