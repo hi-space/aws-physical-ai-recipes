@@ -1066,6 +1066,10 @@ aws cognito-idp admin-set-user-password \
     (<code>allow_admin_create_user_only</code>). 사용자는 <b>반드시 관리자가</b> 위
     명령으로 만들어야 합니다 — 내부 관리 화면이라 아무나 계정을 만들면 안 되기 때문입니다.</p>
   </div>
+  <div class="note">
+    <p>위 명령들을 손으로 칠 필요는 없습니다. <b>다음 장의
+    <code>add-osmo-user.sh</code></b> 가 표시용 이름까지 항상 채워서 한 번에 처리합니다.</p>
+  </div>
   <h3>그래도 남는 한 가지 — 알고만 있으세요</h3>
   <table>
     <tr><th style="width:170px">제출 경로</th><th>소유자로 기록되는 값</th></tr>
@@ -1076,6 +1080,85 @@ aws cognito-idp admin-set-user-password \
   기록된 소유자 문자열 자체는 경로별로 다릅니다. 워크숍 범위에서는 문제가 되지 않고,
   운영에서 완전히 통일하려면 게이트웨이 설정 변경이 필요합니다
   (<code>docs/improvements-backlog.md</code>에 방안이 정리돼 있습니다).</p>
+</section>
+
+<section class="slide" data-t="사용자 추가">
+  <h2>팀원 계정 추가하기 — <code>add-osmo-user.sh</code></h2>
+  <p class="dim">동료에게 웹 콘솔을 열어주려면 <b>두 시스템</b>에 각각 등록해야 합니다.
+  둘 중 하나만 해서는 쓸 수 없는 계정이 됩니다.</p>
+  <div class="grid g2">
+    <div class="card">
+      <h4>① Amazon Cognito 계정</h4>
+      <p>로그인할 수 있게 해주는 부분입니다. 이 사용자 풀은 회원가입이 막혀 있으므로
+      <b>관리자만</b> 만들 수 있습니다.</p>
+      <p class="dim">여기까지만 하면 <b>로그인은 되지만 아무것도 못 합니다.</b></p>
+    </div>
+    <div class="card">
+      <h4>② OSMO 역할 부여</h4>
+      <p>워크플로를 제출할 수 있게 해주는 부분입니다. 첫 로그인 시 OSMO가 사용자를
+      자동 생성하지만 역할은 <code>osmo-default</code> 하나 —
+      <b>로그인과 프로필 조회만</b> 됩니다.</p>
+      <p class="dim">그래서 역할은 <b>관리자가 따로</b> 부여해야 합니다.</p>
+    </div>
+  </div>
+  <h3>명령 한 줄로 둘 다</h3>
+  <pre><code># 일반 사용자 (권장) — 워크플로 제출 가능
+scripts/add-osmo-user.sh gildong@example.com
+
+# 전체 관리자
+scripts/add-osmo-user.sh lead@example.com --roles osmo-admin
+
+# 사용자가 첫 로그인 때 직접 비밀번호를 정하게 하려면
+scripts/add-osmo-user.sh gildong@example.com --temporary</code></pre>
+  <p>비밀번호는 화면에서 물어봅니다(8자 이상, 대·소문자와 숫자 포함).
+  스크립트가 Amazon Cognito 계정을 만들고, 고유 번호(<code>sub</code>)를 찾아
+  OSMO 역할까지 부여합니다. <b>표시용 이름도 자동으로 채웁니다</b> —
+  앞 장의 "내 워크플로가 안 보이는" 문제가 원천적으로 안 생깁니다.</p>
+  <div class="note">
+    <p><b>이미 있는 사용자에게 다시 실행해도 안전합니다.</b> 계정을 다시 만들지 않고,
+    빠진 표시용 이름을 채우고 빠진 역할만 추가합니다. 이미 로그인해 버려서
+    <code>osmo-default</code>만 갖게 된 동료를 고칠 때 그대로 쓰면 됩니다.</p>
+  </div>
+</section>
+
+<section class="slide" data-t="사용자 추가 — 주의점">
+  <h2>사용자 추가 — 자주 묻는 것과 함정</h2>
+  <h3>"그냥 회원가입을 열면 편하지 않나요?"</h3>
+  <p><b>아닙니다. 관리자 일이 줄지 않습니다.</b> 회원가입을 허용해도
+  <b>역할 부여는 여전히 수동</b>이라, 사용자는 로그인만 되고 워크플로는 못 내는 상태로
+  들어옵니다. 게다가 로그인 화면에서 직접 가입하면 <b>표시용 이름이 비어</b> 있어서
+  화면에 알 수 없는 고유 번호가 뜹니다. 얻는 것 없이 잃는 것만 있습니다.</p>
+  <div class="note">
+    <p class="dim">설정 파일에 <code>external_roles</code> 라는 항목이 있어서
+    <b>회사 계정의 그룹을 OSMO 역할로 자동 연결해 줄 것처럼 보이지만</b>, 이 구성에서는
+    동작하지 않습니다. 게이트웨이가 역할을 읽는 위치는 로그인 증서(토큰) 안의
+    <code>roles</code> 항목인데, Amazon Cognito 가 발급하는 증서에는 그 항목이
+    없습니다. 결국 역할은 <b>OSMO 데이터베이스에서만</b> 옵니다.</p>
+  </div>
+  <h3>어떤 역할을 줘야 하나</h3>
+  <table>
+    <tr><th style="width:150px">역할</th><th>할 수 있는 일</th></tr>
+    <tr><td><code>osmo-user</code><br><span class="dim">기본값·권장</span></td>
+      <td>기본 풀에 워크플로 제출, 데이터셋·앱·자격증명 사용. <b>실습에 충분합니다</b></td></tr>
+    <tr><td><code>osmo-admin</code></td>
+      <td>전부. 설정 변경과 다른 사람 워크플로까지 — <b>꼭 필요한 사람에게만</b></td></tr>
+    <tr><td><code>osmo-default</code></td>
+      <td>로그인과 프로필 조회만. <b>일부러 주는 역할이 아니고</b>, 아무것도 안 했을 때
+      남는 상태입니다</td></tr>
+  </table>
+  <div class="warn">
+    <p><b>계정을 만들어도 접속이 안 되는 가장 흔한 이유</b> — 그 사람의 인터넷 출발
+    IP 주소가 <code>infra/cloudfront</code>의 <code>allowed_cidrs</code> 목록에 없는
+    경우입니다. 웹 방화벽이 <b>로그인 화면에 닿기도 전에</b> 막습니다. 사무실이 아닌
+    곳에서 접속하는 팀원이 있으면 그 주소를 목록에 넣고
+    <code>infra/cloudfront</code>를 다시 적용해야 합니다.</p>
+  </div>
+  <div class="note">
+    <p class="dim">스크립트는 역할을 부여하려고 <b>내 명령줄 도구를 OSMO 관리자
+    계정으로 로그인시킵니다.</b> 끝난 뒤 본인 신분으로 돌아가려면
+    <code>scripts/osmo-cli-login.sh</code>를 다시 실행하세요. 스크립트 마지막 줄이
+    이 안내를 출력합니다.</p>
+  </div>
 </section>
 
 <section class="slide" data-t="observability">

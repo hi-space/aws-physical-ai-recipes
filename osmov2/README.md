@@ -270,23 +270,34 @@ the Cognito user (permanent password, no temp-password email) while
 SSO login therefore already has full admin access with no manual steps.
 
 To add more users later — or if you left `admin_email` empty to manage users by
-hand — create them with the admin API and grant OSMO roles by Cognito sub:
+hand — use `add-osmo-user.sh`, which performs both required steps:
 
 ```bash
-POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
-aws cognito-idp admin-create-user \
-  --user-pool-id "$POOL" \
-  --username user@example.com \
-  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
-  --message-action SUPPRESS
-aws cognito-idp admin-set-user-password \
-  --user-pool-id "$POOL" \
-  --username user@example.com \
-  --password '<choose-a-strong-password>' --permanent
+scripts/add-osmo-user.sh user@example.com                      # osmo-user (default)
+scripts/add-osmo-user.sh lead@example.com --roles osmo-admin   # full admin
+scripts/add-osmo-user.sh user@example.com --temporary          # user sets their own password
 ```
 
-Users created this way sign in with `osmo-default` only; grant them more with
-`osmo user update <cognito-sub> --add-roles osmo-admin`. Open
+It prompts for the password (or reads `OSMO_NEW_USER_PASSWORD`), creates the
+Cognito account, then grants OSMO roles keyed on the Cognito `sub`. Re-running it
+for an existing user is safe: it repairs `preferred_username` and adds any
+missing roles without recreating the account.
+
+Both steps are necessary and neither implies the other. Creating only the Cognito
+account gets the user as far as logging in: on first login `idp-sync`
+auto-provisions their OSMO user with `osmo-default`, which permits login and
+profile reads but **not** workflow submission. The service chart's
+`external_roles` field looks like it would map IDP groups to OSMO roles
+automatically, but it does not apply here — the gateway's role filter reads a
+`roles` JWT claim that Cognito ID tokens do not carry, so roles come from the
+OSMO database only.
+
+Enabling self-registration would therefore not save any work; the role grant
+would still be manual, and hosted-UI sign-up leaves `preferred_username` empty,
+which makes the UI's "my workflows" filter match nothing (the script always sets
+it, defaulting to the local part of the email).
+
+To do it by hand instead, see `infra/cognito/README.md`. Open
 `https://<osmo-ui-cloudfront-domain>` from a whitelisted IP and sign in with the
 username and password. Retrieve the domain any time with:
 

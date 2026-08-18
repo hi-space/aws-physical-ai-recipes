@@ -62,9 +62,20 @@ with `OSMO_SSO_ADMIN_ROLES` if you want something other than `osmo-admin`.
 ### Where an admin creates additional users
 
 Self-registration is off, so there is no "Sign up" button on the hosted UI, and
-the OSMO Admin UI itself has no user-management screen. An admin adds users in
-one of two places: the Cognito console or the AWS CLI. Both target the same user
-pool (`terraform output -raw user_pool_id`).
+the OSMO Admin UI itself has no user-management screen. An admin adds users.
+
+The supported path is `scripts/add-osmo-user.sh`, which does both required steps
+— Cognito account and OSMO role grant — and always sets `preferred_username`:
+
+```bash
+scripts/add-osmo-user.sh user@example.com                      # osmo-user (default)
+scripts/add-osmo-user.sh lead@example.com --roles osmo-admin   # full admin
+scripts/add-osmo-user.sh user@example.com --temporary          # user sets their own password
+```
+
+The manual equivalents below are for reference, or for when only the Cognito half
+is wanted. Both target the same user pool
+(`terraform output -raw user_pool_id`).
 
 Cognito console (GUI):
 
@@ -81,12 +92,17 @@ aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+                    Name=preferred_username,Value=user \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --password 'ChangeMe1!' --permanent
 ```
+
+Do not omit `preferred_username`. Without it oauth2-proxy falls back to the
+Cognito `sub`, so the web UI displays a UUID and its "my workflows" filter
+matches nothing.
 
 AWS CLI, temporary-password onboarding (user sets their own password on first
 login — the user lands in `FORCE_CHANGE_PASSWORD` and the hosted UI prompts for
@@ -97,14 +113,29 @@ aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+                    Name=preferred_username,Value=user \
   --temporary-password 'TempPass123!'
 # omit --message-action SUPPRESS to email the invite (Cognito default sender is
 # capped at ~50/day unless the pool is wired to SES)
 ```
 
-New users provisioned outside Terraform are auto-created in OSMO with only
-`osmo-default` on first login; grant them roles with
-`osmo user update <cognito-sub> --add-roles osmo-admin`.
+A Cognito account alone is not enough. On first login `idp-sync` auto-creates the
+OSMO user with `osmo-default` only, which permits login and profile reads but not
+workflow submission, so roles must be granted explicitly by Cognito `sub`:
+
+```bash
+SUB=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
+  --username user@example.com \
+  --query 'UserAttributes[?Name==`sub`].Value' --output text)
+osmo user create "$SUB" --roles osmo-user            # before first login
+osmo user update "$SUB" --add-roles osmo-user        # if idp-sync already created it
+```
+
+Roles must be keyed on `sub`, matching the gateway's `user_claim`. Note that the
+service chart's `external_roles` field does not map IDP groups to OSMO roles in
+this deployment: the gateway's role filter reads a `roles` JWT claim that Cognito
+ID tokens do not carry, so roles come from the OSMO database only. This is why
+enabling self-registration would not remove the manual step.
 
 Note: creating a Cognito user only grants login. To actually reach the OSMO UI
 in a browser, the user's source IP must be in the CloudFront WAF allowlist

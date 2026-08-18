@@ -58,9 +58,19 @@ admin_password = "<choose-a-strong-password>"
 ### 관리자가 추가 사용자를 생성하는 위치
 
 자가 등록이 꺼져 있어 hosted UI에 "Sign up" 버튼이 없고, OSMO Admin UI 자체에도
-사용자 관리 화면이 없습니다. 관리자는 두 곳 중 하나에서 사용자를 추가합니다:
-Cognito 콘솔 또는 AWS CLI. 둘 다 동일한 사용자 풀
-(`terraform output -raw user_pool_id`)을 대상으로 합니다.
+사용자 관리 화면이 없습니다. 사용자는 관리자가 추가해야 합니다.
+
+권장 경로는 `scripts/add-osmo-user.sh`입니다. 필요한 두 단계(Cognito 계정 생성 +
+OSMO 역할 부여)를 모두 처리하고 `preferred_username`도 항상 채웁니다:
+
+```bash
+scripts/add-osmo-user.sh user@example.com                      # osmo-user (기본값)
+scripts/add-osmo-user.sh lead@example.com --roles osmo-admin   # 전체 관리자
+scripts/add-osmo-user.sh user@example.com --temporary          # 사용자가 첫 로그인 시 직접 비밀번호 설정
+```
+
+아래 수동 명령은 참고용이거나, Cognito 계정만 만들고 싶을 때 쓰세요. 둘 다 동일한
+사용자 풀(`terraform output -raw user_pool_id`)을 대상으로 합니다.
 
 Cognito 콘솔 (GUI):
 
@@ -77,12 +87,16 @@ aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+                    Name=preferred_username,Value=user \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --password 'ChangeMe1!' --permanent
 ```
+
+`preferred_username`을 빼먹지 마세요. 이 값이 없으면 oauth2-proxy가 Cognito `sub`로
+대체하므로 웹 UI에 UUID가 표시되고 "내 워크플로" 필터가 아무것도 못 찾습니다.
 
 AWS CLI, 임시 비밀번호 온보딩 (사용자가 첫 로그인 시 본인 비번을 직접 설정 —
 사용자는 `FORCE_CHANGE_PASSWORD` 상태가 되고 hosted UI가 새 비번을 요구):
@@ -92,12 +106,29 @@ aws cognito-idp admin-create-user \
   --user-pool-id "$POOL" \
   --username user@example.com \
   --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
+                    Name=preferred_username,Value=user \
   --temporary-password 'TempPass123!'
 # --message-action SUPPRESS 를 빼면 초대 이메일이 발송됨 (Cognito 기본 발신자는
 # SES 연동 전에는 하루 ~50건으로 제한)
 ```
 
-Terraform 외부에서 프로비저닝된 새 사용자는 최초 로그인 시 `osmo-default` 역할만 부여됩니다. 역할을 추가하려면 `osmo user update <cognito-sub> --add-roles osmo-admin`을 사용하세요.
+Cognito 계정만으로는 부족합니다. 최초 로그인 시 `idp-sync`가 OSMO 사용자를 자동
+생성하지만 역할은 `osmo-default` 하나뿐이라 로그인과 프로필 조회만 되고 워크플로
+제출은 안 됩니다. 따라서 Cognito `sub` 기준으로 역할을 직접 부여해야 합니다:
+
+```bash
+SUB=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
+  --username user@example.com \
+  --query 'UserAttributes[?Name==`sub`].Value' --output text)
+osmo user create "$SUB" --roles osmo-user            # 첫 로그인 전
+osmo user update "$SUB" --add-roles osmo-user        # idp-sync가 이미 만들었으면
+```
+
+역할은 반드시 `sub`에 걸어야 합니다(게이트웨이의 `user_claim`과 일치). 서비스 차트의
+`external_roles` 필드는 이 배포에서 IdP 그룹을 OSMO 역할로 매핑해주지 않습니다 —
+게이트웨이의 역할 필터가 읽는 `roles` JWT 클레임을 Cognito ID 토큰이 담고 있지 않기
+때문이며, 그래서 역할은 OSMO 데이터베이스에서만 옵니다. 회원가입을 허용해도 이 수동
+단계가 없어지지 않는 이유입니다.
 
 참고: Cognito 사용자를 만드는 것은 로그인 권한만 부여합니다. 실제로 브라우저에서
 OSMO UI에 접근하려면 사용자의 출발 IP가 CloudFront WAF allowlist

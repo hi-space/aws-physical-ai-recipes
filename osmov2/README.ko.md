@@ -264,25 +264,34 @@ karpenter_az_count = 4   # GPU 노드는 a/b/c/d 중 어디든
 OSMO `osmo-admin` 역할을 부여합니다. 따라서 최초 SSO 로그인부터 별도 수동 작업 없이
 관리자 권한을 가집니다.
 
-이후 사용자를 추가하거나 `admin_email`을 비워 수동 관리하려면, admin API로
-사용자를 만들고 Cognito sub 기준으로 OSMO 역할을 부여하세요:
+이후 사용자를 추가하거나 `admin_email`을 비워 수동 관리하려면 `add-osmo-user.sh`를
+쓰세요. 필요한 두 단계를 한 번에 처리합니다:
 
 ```bash
-POOL=$(terraform -chdir=infra/cognito output -raw user_pool_id)
-aws cognito-idp admin-create-user \
-  --user-pool-id "$POOL" \
-  --username user@example.com \
-  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true \
-  --message-action SUPPRESS
-aws cognito-idp admin-set-user-password \
-  --user-pool-id "$POOL" \
-  --username user@example.com \
-  --password '<강력한-비밀번호>' --permanent
+scripts/add-osmo-user.sh user@example.com                      # osmo-user (기본값)
+scripts/add-osmo-user.sh lead@example.com --roles osmo-admin   # 전체 관리자
+scripts/add-osmo-user.sh user@example.com --temporary          # 사용자가 첫 로그인 시 직접 비밀번호 설정
 ```
 
-이렇게 만든 사용자는 처음엔 `osmo-default`만 갖습니다.
-`osmo user update <cognito-sub> --add-roles osmo-admin`으로 역할을 추가하세요.
-그다음 화이트리스트에 등록된 IP에서 `https://<osmo-ui-cloudfront-domain>`을 열고
+비밀번호는 대화형으로 입력받습니다(`OSMO_NEW_USER_PASSWORD`로 지정 가능).
+Cognito 계정을 만든 뒤 Cognito `sub` 기준으로 OSMO 역할을 부여합니다. 이미 있는
+사용자에게 다시 실행해도 안전합니다 — 계정을 다시 만들지 않고 `preferred_username`을
+보정하고 빠진 역할만 추가합니다.
+
+두 단계는 모두 필요하며, 어느 하나가 다른 하나를 자동으로 해주지 않습니다. Cognito
+계정만 만들면 사용자는 로그인까지만 됩니다. 첫 로그인 시 `idp-sync`가 OSMO 사용자를
+자동 생성하지만 역할은 `osmo-default` 하나뿐이고, 이건 로그인과 프로필 조회만 허용해
+워크플로 제출은 안 됩니다. 서비스 차트의 `external_roles` 필드가 IdP 그룹을 OSMO
+역할로 자동 매핑해줄 것처럼 보이지만 이 배포에서는 동작하지 않습니다 — 게이트웨이의
+역할 필터가 읽는 `roles` JWT 클레임을 Cognito ID 토큰이 담고 있지 않기 때문입니다.
+결국 역할은 OSMO 데이터베이스에서만 옵니다.
+
+그래서 회원가입을 허용해도 관리자 작업이 줄지 않습니다. 역할 부여는 여전히 수동이고,
+hosted UI 가입은 `preferred_username`을 비워 두기 때문에 UI의 "내 워크플로" 필터가
+아무것도 못 찾습니다(스크립트는 이 값을 이메일 `@` 앞부분으로 항상 채웁니다).
+
+손으로 직접 하려면 `infra/cognito/README.ko.md`를 참고하세요.
+그다음 허용 목록에 등록된 IP에서 `https://<osmo-ui-cloudfront-domain>`을 열고
 아이디/비밀번호로 로그인합니다. 도메인은 언제든 다음으로 조회할 수 있습니다:
 
 ```bash
