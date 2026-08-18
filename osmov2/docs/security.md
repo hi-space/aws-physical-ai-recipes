@@ -31,3 +31,16 @@ Terraform creates runtime credentials and stores them in AWS Secrets Manager. Th
 This repo does not create public application ingress in the baseline. Use `kubectl port-forward` for initial validation. If public UI/API exposure is needed later, add it through a separate reviewed change with TLS, authentication, narrow source ranges, and WAF where appropriate.
 
 The optional `infra/ingress` Terraform root creates HTTPS access for the OSMO admin UI through AWS Load Balancer Controller, ACM, Route 53, and an ALB-backed Kubernetes Ingress. It requires a non-empty `allowed_cidrs` list and rejects `0.0.0.0/0`; keep this allow list limited to trusted administrator networks.
+
+## Multi-user isolation (not configured in the baseline)
+
+The reference deploy authenticates users but does not isolate them from each other. Before sharing a cluster, review `docs/improvements-backlog.md` item 4, which records the live-verified gaps:
+
+- `user_workflow_limits.max_num_workflows` / `max_num_tasks` are `null`, so one user can submit unbounded concurrent workflows.
+- KAI queue quotas and `osmo-workflows` namespace quotas are unset, so there is no resource ceiling per user at either layer.
+- The `osmo-user` role grants `dataset:*` and `credentials:*` on `*`, so any user can delete another user's datasets or overwrite shared credentials such as `huggingface_token`.
+- `workflow:*` on `pool/default` carries no owner condition, so cancel/delete are not scoped to the submitter.
+- Pool timeouts are `60d` with `max_exec_timeout` equal to the default, and GPU pods carry `karpenter.sh/do-not-disrupt`, so a runaway workflow can hold a GPU node indefinitely.
+- `max_token_duration` is `365d` with no revocation procedure.
+
+None of these are hardened by the deploy scripts; treat the baseline as single-tenant or trusted-team use.

@@ -239,7 +239,173 @@ upstream UI 수정 조사 완료 (2026-08-03, web-ui:6.3.1 컨테이너 내부 �
 
 ---
 
-## 4. kubectl port-forward가 큰 workflow submit에서 리셋됨 (운영 노트)
+## 4. 다중 사용자 동시 사용 시의 격리 부재 (검토 완료, 미적용)
+
+조사 일자: 2026-08-18. 대상 클러스터 `aws-osmo-use1-dev-repro-eks` (us-east-1).
+라이브 `osmo config show` / `kubectl` 출력으로 확인. 설정 변경은 하지 않았다.
+
+한 줄 요약: 자원을 나누는 장치가 사실상 전부 무제한이고, 사용자끼리 서로의
+데이터셋·자격증명·워크플로를 지울 수 있다.
+
+### 4.1 사용자별 워크플로 수 상한이 비어 있음 (최우선)
+
+`osmo config show WORKFLOW`:
+
+```json
+"user_workflow_limits": {
+  "max_num_workflows": null,
+  "max_num_tasks": null,
+  "jinja_sandbox_workers": 2,
+  "jinja_sandbox_max_time": 0.5,
+  "jinja_sandbox_memory_limit": 104857600
+}
+```
+
+OSMO가 사용자별 상한을 제품 차원에서 지원하는데 두 값이 `null`(무제한)이다. 한
+사람이 GPU 워크플로를 몇 개든 동시 제출할 수 있고, KAI 스케줄러가 노드를 붙일 수
+있는 만큼 계속 붙는다. 교육/공유 클러스터에서 한 명이 전체 GPU를 점유하는 가장
+흔한 경로. 값 두 개만 채우면 되고 `osmo config rollback`으로 되돌아간다.
+후보값: `max_num_workflows: 2`.
+
+### 4.2 KAI 큐 쿼터가 전부 무제한
+
+```
+osmo-default-osmo-workflows        cpu/gpu/memory : quota -1, limit -1
+osmo-pool-osmo-workflows-default   cpu/gpu/memory : quota -1, limit -1
+```
+
+`-1`은 무제한. 사용자 간 자원 격리가 이 계층에 없다. 단 `overQuotaWeight`가 이미
+`1`이라 나중에 사람별 쿼터를 나눠도 남는 GPU는 초과 사용으로 흘러가므로, 격리를
+넣어도 자원이 노는 낭비는 생기지 않는다.
+
+### 4.3 네임스페이스 쿼터가 없음
+
+```
+kubectl get resourcequota,limitrange -n osmo-workflows
+  No resources found in osmo-workflows namespace.
+```
+
+Kubernetes 계층의 안전망도 없다. 4.2와 함께 설계해야 한다.
+
+### 4.4 GPU 검증 규칙 자체가 없음
+
+`osmo config show RESOURCE_VALIDATION`에 정의된 규칙은 `default_cpu`,
+`default_memory`, `default_storage` 세 개뿐이고 GPU 규칙이 없다. 풀 설정도 마찬가지:
+
+```
+POOL default:
+  resources: { "gpu": null }
+  common_resource_validations: [default_cpu, default_memory, default_storage]
+```
+
+사용자가 GPU 개수를 비상식적으로 크게 잡아 제출해도 검증에서 걸러지지 않는다.
+`osmo pool list`에서도 GPU `Quota Limit` = 0, `Total Capacity` = 0.
+
+### 4.5 남의 데이터셋과 공유 자격증명을 지울 수 있음
+
+`osmo config show ROLE`의 `osmo-user`:
+
+```
+Allow | [app:*, auth:Token, credentials:*, dataset:*, pool:List,
+          profile:Read, profile:Update, resources:Read, user:List,
+          workflow:List, workflow:Read] | on: [*]
+Allow | [workflow:*] | on: [pool/default]
+```
+
+`dataset:*`의 대상이 `*`다. 데이터셋에는 `Created By` 표시만 있고 접근 제어가 없어
+누구나 남의 학습 결과물을 삭제할 수 있다(예: `e2e-vla-chain-groot-checkpoint`
+60.7 GiB, `e2e-pipeline-groot-checkpoint` 30.3 GiB). `credentials:*`도 대상이
+`*`이므로 한 사람이 자기 Hugging Face 토큰으로 공유 `huggingface_token`을 덮어쓰면
+다른 사람 워크플로가 전부 깨진다.
+
+### 4.6 남의 학습을 취소할 수 있음
+
+`workflow:*`의 대상이 `pool/default`이고 이 클러스터에는 풀이 `default` 하나뿐이다.
+`workflow:*`에는 Cancel과 Delete가 포함되고 정책에 소유자 조건이 없다.
+`osmo workflow list`에 `User` 컬럼이 있어 소유자는 기록되지만, 그건 표시일 뿐
+권한 경계가 아니다. 실제 교차 취소 가능 여부는 사용자가 두 명 이상이어야 실측되며
+현재는 전부 `testuser`라 미검증.
+
+4.5/4.6은 OSMO RBAC이 소유자 범위 조건(owner-scoped condition)을 표현할 수 있는지
+조사가 선행돼야 한다. 가능하면 정책 한 줄 수정, 불가하면 사용자별 풀 구성이라는
+큰 작업이 된다.
+
+### 4.7 타임아웃이 전부 60일이고 기본값 == 최대값
+
+```
+POOL default:
+  default_exec_timeout : 60d
+  max_exec_timeout     : 60d
+  default_queue_timeout: 60d
+  max_queue_timeout    : 60d
+```
+
+GPU 파드 템플릿(`aws-g7e-rtx-pro-6000`)에 `karpenter.sh/do-not-disrupt: "true"`가
+붙어 있어 Karpenter가 노드를 회수하지 못한다. 장시간 학습 보호로는 맞지만, 잘못된
+워크플로 하나가 GPU 노드를 최대 60일 점유해도 막을 수단이 없다는 뜻이다.
+`max_exec_timeout`이 기본값과 같아 사용자가 상한을 낮출 동기도 없다.
+후보값: `default_exec_timeout: 6h` / `max_exec_timeout: 24h`.
+
+### 4.8 토큰 수명 365일
+
+`max_token_duration: 365d`. 현재 발급된 토큰은 없다. 사람이 늘면 각자 CLI 토큰을
+만들 텐데 회수 절차가 없으면 1년짜리 유효 자격증명이 방치된다.
+
+### 4.9 노드 임시 스토리지 압박 (실제 발생)
+
+테스트 워크플로 첫 시도가 죽었다.
+
+```
+Evicted: The node was low on resource: ephemeral-storage.
+Threshold: 2139512454, available: 1654612Ki
+```
+
+노드 3대 중 1대만 `DiskPressure=True`:
+
+| 노드 | DiskPressure | 할당가능 임시스토리지 |
+|---|---|---|
+| `ip-10-40-18-116` | False | 약 18GB |
+| `ip-10-40-4-9` | False | 약 18GB |
+| `ip-10-40-5-232` | True | 여유 1.6GB |
+
+재제출하니 다른 노드에 배치돼 정상 실행됐다. 즉 지금도 스케줄 운에 따라 죽는다.
+쿼터 문제가 아니라 노드 디스크 관리 문제이므로 별도 조사가 필요하다.
+
+### 4.10 사용자마다 WAF 허용목록에 IP를 넣어야 함
+
+의도된 설계이지만 잊기 쉬운 단계다. 여기 없는 IP는 로그인 화면에 도달하기 전에
+차단된다. `scripts/add-osmo-user.sh`가 이 경고를 출력한다.
+
+주의: `infra/cloudfront`에 tfvars가 여러 개 있고, use1 배포에 적용되는 파일은
+`terraform.use1.tfvars`(항목 2개)다. `terraform.tfvars`에는 적용된 적 없는 서울
+리전 값이 남아 있어 허용목록을 오독하기 쉽다.
+
+### 전역 상한은 걸려 있음
+
+반대로 잘 설정된 값들:
+
+| 항목 | 값 |
+|---|---|
+| `max_num_tasks` | 20 |
+| `max_num_ports_per_task` | 30 |
+| `max_retry_per_job` | 5 |
+| `max_log_lines` | 10000 |
+| `force_cleanup_delay` | 1h |
+
+문제는 전부 전역이라는 점이다. 워크플로 하나당 태스크 20개는 막지만, 사용자 한 명이
+워크플로 몇 개까지인지는 `null`이라 안 막는다.
+
+### 권하는 순서
+
+1. 4.1 + 4.7 — 순수 설정값 변경(`osmo config update`)이라 파드 재시작이나 실행 중
+   워크플로 중단이 없고 `osmo config rollback`으로 되돌아간다. 비용 대비 효과 최상.
+2. 4.2 + 4.3 + 4.4 — 쿼터와 GPU 검증은 함께 설계해야 한다.
+3. 4.5 + 4.6 — RBAC 소유자 범위 표현 가능성 조사 선행.
+4. 4.9 — 별도 조사.
+
+---
+
+## 5. kubectl port-forward가 큰 workflow submit에서 리셋됨 (운영 노트)
 
 증상
 - `osmo workflow submit`을 `kubectl -n osmo port-forward svc/osmo-internal-router

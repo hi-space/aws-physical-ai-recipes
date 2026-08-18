@@ -52,7 +52,15 @@ GRAFANA_URL=https://$(terraform output -raw grafana_cloudfront_domain) \
 
 ## IP Whitelist 관리
 
-Terraform(`terraform.tfvars`의 `allowed_cidrs`)을 통하거나 AWS CLI로 직접 IP를 추가하거나 제거할 수 있습니다:
+Terraform(`allowed_cidrs`)을 통하거나 AWS CLI로 직접 IP를 추가하거나 제거할 수 있습니다:
+
+이 디렉터리에는 리전별 tfvars가 여러 개 있고(`terraform.tfvars`, `terraform.use1.tfvars`, `terraform.usw2.tfvars`), 그중 `terraform.tfvars`가 반드시 적용된 파일이라는 보장은 없습니다. 현재 허용 목록은 tfvars를 읽지 말고 IP 세트에서 직접 확인하세요:
+
+```bash
+aws wafv2 get-ip-set --name osmo-allowed-ips --scope CLOUDFRONT --region us-east-1 \
+  --id <ip-set-id> --query 'IPSet.Addresses'
+```
+
 
 ```bash
 aws wafv2 update-ip-set \

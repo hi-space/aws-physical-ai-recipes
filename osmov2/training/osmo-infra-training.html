@@ -1159,6 +1159,28 @@ scripts/add-osmo-user.sh gildong@example.com --temporary</code></pre>
     <code>scripts/osmo-cli-login.sh</code>를 다시 실행하세요. 스크립트 마지막 줄이
     이 안내를 출력합니다.</p>
   </div>
+  <h3>여러 명이 같이 쓸 때 알고 있어야 할 것</h3>
+  <p>이 배포는 <b>누가 로그인했는지는 구분하지만, 서로를 막아주지는 않습니다.</b>
+  워크숍처럼 서로 신뢰하는 팀에서는 문제가 없지만, 다음은 미리 알고 계세요.</p>
+  <table>
+    <tr><th style="width:210px">항목</th><th>현재 상태</th></tr>
+    <tr><td>사용자 1명당 동시 워크플로 수</td>
+      <td><b>제한 없음</b> — 한 사람이 많이 제출하면 GPU를 전부 차지할 수 있습니다</td></tr>
+    <tr><td>데이터셋 삭제 권한</td>
+      <td><code>osmo-user</code> 역할이 <b>남의 데이터셋도</b> 지울 수 있습니다.
+      학습 결과물(체크포인트)이 여기 들어 있습니다</td></tr>
+    <tr><td>공유 자격증명</td>
+      <td>Hugging Face 토큰 등이 <b>공용 한 개</b>입니다. 한 사람이 덮어쓰면 다른 사람
+      워크플로가 같이 깨집니다</td></tr>
+    <tr><td>남의 워크플로 취소</td>
+      <td>권한 정책에 <b>소유자 조건이 없습니다</b></td></tr>
+    <tr><td>워크플로 최대 실행 시간</td>
+      <td><b>60일</b>. 잘못 만든 워크플로가 GPU 노드를 길게 붙잡을 수 있습니다</td></tr>
+  </table>
+  <p class="dim">실습 중 지켜야 할 것은 두 가지입니다. <b>내가 만들지 않은 데이터셋은
+  지우지 않기</b>, 그리고 <b>필요 이상으로 워크플로를 동시에 제출하지 않기</b>.
+  값을 조여서 강제하는 방법은 <code>docs/improvements-backlog.md</code> 항목 4에
+  정리돼 있습니다.</p>
 </section>
 
 <section class="slide" data-t="observability">

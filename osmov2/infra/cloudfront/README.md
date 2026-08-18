@@ -50,7 +50,15 @@ GRAFANA_URL=https://$(terraform output -raw grafana_cloudfront_domain) \
 
 ## Managing IP Whitelist
 
-Add or remove IPs via Terraform (`allowed_cidrs` in `terraform.tfvars`) or directly via AWS CLI:
+Add or remove IPs via Terraform (`allowed_cidrs`) or directly via AWS CLI:
+
+This directory holds several tfvars files (`terraform.tfvars`, `terraform.use1.tfvars`, `terraform.usw2.tfvars`) for different regional deploys, and the plain `terraform.tfvars` is not necessarily the one in effect. Confirm the live allow list against the IP set rather than reading a tfvars file:
+
+```bash
+aws wafv2 get-ip-set --name osmo-allowed-ips --scope CLOUDFRONT --region us-east-1 \
+  --id <ip-set-id> --query 'IPSet.Addresses'
+```
+
 
 ```bash
 aws wafv2 update-ip-set \
