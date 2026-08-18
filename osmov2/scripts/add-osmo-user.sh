@@ -19,9 +19,17 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 #      because the gateway's role filter reads a `roles` JWT claim that Cognito
 #      ID tokens do not carry.
 #
-# The OSMO user is keyed on the Cognito `sub`, matching the gateway's
-# jwt user_claim, so workflows submitted through the browser and through the CLI
-# resolve to the same identity.
+# The OSMO user is keyed on `preferred_username` (the email local part), matching
+# the gateway's jwt user_claim, so the workflow owner, `osmo user list`, and the
+# name the web UI displays are all the same readable string.
+#
+# Deliberately does not mint an OSMO personal access token. `osmo token set
+# --user <name>` would work, but the token is only printed once and would have to
+# be handed to the user out of band, which is a worse secret to move around than
+# the Cognito password: it cannot be rotated by the user, it silently keeps the
+# roles held at issue time, and `osmo token set` refuses to reuse a name so
+# rotation means delete-then-recreate. The user authenticates with their own
+# Cognito password via scripts/osmo-cli-login.sh instead.
 #
 # Usage:
 #   scripts/add-osmo-user.sh alice@example.com
@@ -44,7 +52,7 @@ OSMO_ROUTER_SERVICE="${OSMO_ROUTER_SERVICE:-osmo-internal-router}"
 OSMO_SERVICE_LOCAL_PORT="${OSMO_SERVICE_LOCAL_PORT:-9110}"
 
 usage() {
-  sed -n '9,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '9,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 EMAIL=""
@@ -103,9 +111,10 @@ tf_output_from() {
 POOL_ID="${OSMO_COGNITO_USER_POOL_ID:-$(tf_output_from "${COGNITO_TF_DIR}" user_pool_id)}"
 [[ -n "${POOL_ID}" ]] || die "OSMO_COGNITO_USER_POOL_ID is unset and infra/cognito output user_pool_id is unavailable; apply infra/cognito or set OSMO_COGNITO_USER_POOL_ID"
 
-# preferred_username drives the web UI's displayed identity and its "My
-# Workflows" filter. Without it oauth2-proxy falls back to the Cognito sub, so
-# the UI filters by a UUID and the user's own workflows never appear.
+# preferred_username is the OSMO user id (the gateway's jwt user_claim) and also
+# what the web UI displays and filters "My Workflows" on. Without the attribute
+# oauth2-proxy and Envoy both fall back to the Cognito sub, so the UI filters by
+# a UUID and the user's own workflows never appear.
 PREFERRED_USERNAME="${OSMO_NEW_USER_PREFERRED_USERNAME:-${EMAIL%%@*}}"
 
 read_new_password() {
@@ -175,13 +184,18 @@ else
   fi
 fi
 
-SUB="$(aws cognito-idp admin-get-user \
+# Read the attribute back rather than trusting PREFERRED_USERNAME: on the
+# already-exists path the admin-update-user-attributes call above may have been
+# a no-op if it raced, and the OSMO user id must match what Cognito will actually
+# put in the token.
+OSMO_USER_ID="$(aws cognito-idp admin-get-user \
   --user-pool-id "${POOL_ID}" \
   --username "${EMAIL}" \
-  --query 'UserAttributes[?Name==`sub`].Value' \
+  --query 'UserAttributes[?Name==`preferred_username`].Value' \
   --output text)"
-[[ -n "${SUB}" && "${SUB}" != "None" ]] || die "could not read the Cognito sub for ${EMAIL}"
-log "cognito sub: ${SUB}"
+[[ -n "${OSMO_USER_ID}" && "${OSMO_USER_ID}" != "None" ]] ||
+  die "could not read preferred_username for ${EMAIL}; the OSMO user id depends on it"
+log "osmo user id (preferred_username): ${OSMO_USER_ID}"
 
 # --- Step 2: OSMO roles ----------------------------------------------------
 configure_kubectl
@@ -209,21 +223,21 @@ default_admin_token="$(kubectl -n "${OSMO_NAMESPACE}" get secret osmo-default-ad
 login_osmo_with_token "${service_url}" "${default_admin_token}" ||
   die "failed to log in to OSMO with the default admin token"
 
-if osmo user create "${SUB}" --roles "${ROLES[@]}" >"${user_log}" 2>&1; then
-  log "created OSMO user ${SUB} with roles: ${ROLES[*]}"
-elif osmo user update "${SUB}" --add-roles "${ROLES[@]}" >>"${user_log}" 2>&1; then
+if osmo user create "${OSMO_USER_ID}" --roles "${ROLES[@]}" >"${user_log}" 2>&1; then
+  log "created OSMO user ${OSMO_USER_ID} with roles: ${ROLES[*]}"
+elif osmo user update "${OSMO_USER_ID}" --add-roles "${ROLES[@]}" >>"${user_log}" 2>&1; then
   # Already present because the user has logged in once (idp-sync) or this
   # script ran before.
-  log "granted roles to existing OSMO user ${SUB}: ${ROLES[*]}"
+  log "granted roles to existing OSMO user ${OSMO_USER_ID}: ${ROLES[*]}"
 else
   cat "${user_log}" >&2
-  die "failed to create or grant roles to OSMO user ${SUB}"
+  die "failed to create or grant roles to OSMO user ${OSMO_USER_ID}"
 fi
 
-osmo user get "${SUB}" >&2 || true
+osmo user get "${OSMO_USER_ID}" >&2 || true
 
 UI_DOMAIN="$(tf_output_from "${CLOUDFRONT_TF_DIR}" osmo_ui_cloudfront_domain)"
-log "done: ${EMAIL} -> ${SUB} (${ROLES[*]})"
+log "done: ${EMAIL} -> ${OSMO_USER_ID} (${ROLES[*]})"
 [[ -n "${UI_DOMAIN}" ]] && log "web console: https://${UI_DOMAIN}"
 log "the user's egress IP must be in the infra/cloudfront allowed_cidrs WAF list or the login page is unreachable"
 log "this script logged the local CLI in as the OSMO default admin; re-run scripts/osmo-cli-login.sh to return to your own identity"

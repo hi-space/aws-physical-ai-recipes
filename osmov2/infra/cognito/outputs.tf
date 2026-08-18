@@ -29,11 +29,19 @@ output "client_secret" {
   sensitive   = true
 }
 
-# OSMO keys the SSO identity on the Cognito subject (sub); deploy-osmo.sh grants
-# the osmo-admin role to this sub so the initial user can act as an admin in the
-# UI. Empty when admin_email is unset.
+# The OSMO user id is the preferred_username claim (the gateway's jwt user_claim
+# in deploy-osmo.sh), which is what the UI also displays. deploy-osmo.sh grants
+# osmo-admin to it so the initial user can administer the UI on first login.
+# Empty when admin_email is unset.
+output "admin_user_name" {
+  description = "preferred_username of the initial SSO login user; this is the OSMO user id."
+  value       = var.admin_email != "" ? aws_cognito_user.admin[0].attributes["preferred_username"] : ""
+}
+
+# Retained because the sub is still the stable Cognito identifier — useful for
+# looking a user up in the pool. It is no longer the OSMO user id.
 output "admin_user_sub" {
-  description = "Cognito subject (sub) of the initial SSO login user, used as the OSMO user id."
+  description = "Cognito subject (sub) of the initial SSO login user."
   value       = var.admin_email != "" ? aws_cognito_user.admin[0].sub : ""
 }
 

@@ -71,3 +71,45 @@ aws wafv2 update-ip-set \
   --lock-token <lock-token> \
   --addresses "1.2.3.4/32" "5.6.7.8/32"
 ```
+
+### 작업 중인 머신을 허용 목록에 추가하기
+
+허용 목록에 없는 호스트는 CloudFront에서 `403 Request blocked`를 받습니다. 이걸
+오진하기 쉬운데, Cognito 인증은 사용자 풀에 직접 붙어서 허용 목록과 무관하게
+성공하기 때문입니다 — `scripts/osmo-cli-login.sh`는 성공했다고 보고하고
+`login.yaml`까지 쓰며, 실패는 다음 API 호출에서야 드러납니다. 도달성을 먼저
+확인하세요:
+
+```bash
+curl -o /dev/null -w '%{http_code}\n' \
+  https://$(terraform output -raw osmo_ui_cloudfront_domain)/api/version
+```
+
+지속적인 해결책은 Terraform 경로입니다 — `update-ip-set`으로 직접 넣은 값은 다음
+apply에서 되돌아갑니다. workspace에 맞는 tfvars에 CIDR을 추가하고 그 파일을 명시해
+apply하세요. Terraform은 workspace와 무관하게 `terraform.tfvars`를 자동 로드하므로,
+여기서 `-var-file`을 빼면 엉뚱한 `name_prefix`로 계산되어 놀랄 만한 diff가 나옵니다:
+
+```bash
+curl -s https://checkip.amazonaws.com          # 내 egress IP
+terraform workspace show                       # 예: use1
+# terraform.<workspace>.tfvars 의 allowed_cidrs 에 "<ip>/32" 추가 후:
+terraform apply -var-file=terraform.use1.tfvars \
+  -var "osmo_alb_dns_name=$(kubectl -n osmo get svc osmo-gateway \
+    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+```
+
+`-var` 오버라이드가 필요한 이유는 리전별 tfvars의
+`osmo_alb_dns_name`/`grafana_alb_dns_name`이 placeholder이기 때문입니다(실제 값은
+SSO 부트스트랩이 주입). 이걸 빼고 apply하면 배포의 origin이
+`placeholder.elb...`를 가리키게 됩니다.
+
+허용 목록을 아예 건드리지 않고 인증 체인만 시험하려면 게이트웨이에 포트포워드하세요.
+이 경로도 Envoy `jwt_authn`과 authz 사이드카를 그대로 통과하므로 역할 집행이 실제로
+검증됩니다:
+
+```bash
+kubectl -n osmo port-forward svc/osmo-gateway 9200:80 &
+OSMO_CLI_USER=alice@example.com OSMO_GATEWAY_URL=http://127.0.0.1:9200 \
+  ../../scripts/osmo-cli-login.sh
+```

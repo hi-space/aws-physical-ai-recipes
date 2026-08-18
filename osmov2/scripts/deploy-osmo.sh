@@ -48,6 +48,19 @@ else
   OSMO_INSTALL_PODGROUP_COMPAT_CRD="${OSMO_INSTALL_PODGROUP_COMPAT_CRD:-true}"
 fi
 OSMO_DEPLOY_WEB_UI="${OSMO_DEPLOY_WEB_UI:-true}"
+# Bound workflow lifetime on the default pool. A fresh install ships all four
+# timeouts at 60d, which lets one stuck job pin a GPU node for two months.
+#
+# The two halves behave differently: default_* applies to workflows whose YAML
+# has no `timeout` block, but 6.3.1 does not enforce max_* at submit — a YAML
+# asking for more is accepted and stored verbatim, with no clamping. The max_*
+# values are set for when a later version starts enforcing them, which is why
+# they sit above the longest exec_timeout in examples/ (168h in nut-pouring
+# 05_lerobot_conversion) rather than at a value that would reject it.
+OSMO_POOL_DEFAULT_EXEC_TIMEOUT="${OSMO_POOL_DEFAULT_EXEC_TIMEOUT:-6h}"
+OSMO_POOL_MAX_EXEC_TIMEOUT="${OSMO_POOL_MAX_EXEC_TIMEOUT:-7d}"
+OSMO_POOL_DEFAULT_QUEUE_TIMEOUT="${OSMO_POOL_DEFAULT_QUEUE_TIMEOUT:-1h}"
+OSMO_POOL_MAX_QUEUE_TIMEOUT="${OSMO_POOL_MAX_QUEUE_TIMEOUT:-2d}"
 OSMO_DATASET_BUCKET_NAME="${OSMO_DATASET_BUCKET_NAME:-aws-osmo}"
 OSMO_DEPLOY_INTERNAL_ROUTER="${OSMO_DEPLOY_INTERNAL_ROUTER:-true}"
 OSMO_INTERNAL_ROUTER_NAME="${OSMO_INTERNAL_ROUTER_NAME:-osmo-internal-router}"
@@ -150,11 +163,12 @@ OSMO_COGNITO_CLIENT_ID="${OSMO_COGNITO_CLIENT_ID:-$(tf_output_from "${COGNITO_TF
 OSMO_COGNITO_CLIENT_SECRET="${OSMO_COGNITO_CLIENT_SECRET:-$(tf_output_from "${COGNITO_TF_DIR}" client_secret)}"
 OSMO_COGNITO_HOSTED_UI_URL="${OSMO_COGNITO_HOSTED_UI_URL:-$(tf_output_from "${COGNITO_TF_DIR}" hosted_ui_url)}"
 
-# Initial SSO admin identity. OSMO keys the SSO user on the Cognito subject
-# (sub), so we grant osmo-admin to the sub emitted by infra/cognito. Both may be
-# empty when no admin user was provisioned (admin_email unset); the grant step
-# is skipped in that case. OSMO_SSO_ADMIN_ROLES is the role list to assign.
-OSMO_SSO_ADMIN_SUB="${OSMO_SSO_ADMIN_SUB:-$(tf_output_from "${COGNITO_TF_DIR}" admin_user_sub)}"
+# Initial SSO admin identity. The OSMO user id is the preferred_username claim
+# (see the gateway jwt user_claim below), so we grant osmo-admin to the name
+# emitted by infra/cognito. Both may be empty when no admin user was provisioned
+# (admin_email unset); the grant step is skipped in that case.
+# OSMO_SSO_ADMIN_ROLES is the role list to assign.
+OSMO_SSO_ADMIN_NAME="${OSMO_SSO_ADMIN_NAME:-$(tf_output_from "${COGNITO_TF_DIR}" admin_user_name)}"
 OSMO_SSO_ADMIN_EMAIL="${OSMO_SSO_ADMIN_EMAIL:-$(tf_output_from "${COGNITO_TF_DIR}" admin_user_email)}"
 OSMO_SSO_ADMIN_ROLES="${OSMO_SSO_ADMIN_ROLES:-osmo-admin}"
 
@@ -348,11 +362,16 @@ gateway:
           audience: "${OSMO_COGNITO_CLIENT_ID}"
           jwks_uri: "${OSMO_COGNITO_JWKS_URI}"
           cluster: idp
-          # Use the Cognito subject (sub) as the OSMO user identity. The web UI
-          # filters "my workflows" by the sub it reads from the session, so the
-          # workflow owner recorded from x-osmo-user must also be the sub; using
-          # email here makes owned jobs invisible in the UI's default filter.
-          user_claim: sub
+          # preferred_username, not sub, so the recorded workflow owner is the
+          # same readable name the UI shows. The UI's displayed identity and its
+          # "My Workflows" filter come from oauth2-proxy's
+          # x-auth-request-preferred-username header, not from this claim, so
+          # picking sub here produced an owner (a UUID) that never matched the
+          # name the UI filtered on. Both user-creation paths populate the
+          # attribute (infra/cognito/main.tf for the initial admin,
+          # scripts/add-osmo-user.sh for everyone else); oauth2-proxy falls back
+          # to sub if it is ever missing, which shows up as a UUID owner again.
+          user_claim: preferred_username
   oauth2Proxy:
     enabled: true
     provider: oidc
@@ -713,23 +732,23 @@ fi
 # Pre-provision the initial SSO admin. When a browser user first logs in via
 # Cognito, idp-sync auto-creates their OSMO user with only osmo-default, which
 # cannot submit workflows or administer the pool. Creating the user here keyed
-# on the Cognito sub and granting osmo-admin means the very first SSO login
-# already has full access — no manual `osmo user update` after deploy.
-if [[ -n "${OSMO_SSO_ADMIN_SUB}" ]]; then
+# on the preferred_username and granting osmo-admin means the very first SSO
+# login already has full access — no manual `osmo user update` after deploy.
+if [[ -n "${OSMO_SSO_ADMIN_NAME}" ]]; then
   read -r -a OSMO_SSO_ADMIN_ROLE_ARR <<<"${OSMO_SSO_ADMIN_ROLES}"
-  if osmo user create "${OSMO_SSO_ADMIN_SUB}" --roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >/tmp/osmo-sso-admin-user.log 2>&1; then
-    log "created SSO admin user ${OSMO_SSO_ADMIN_EMAIL:-${OSMO_SSO_ADMIN_SUB}} with roles: ${OSMO_SSO_ADMIN_ROLES}"
+  if osmo user create "${OSMO_SSO_ADMIN_NAME}" --roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >/tmp/osmo-sso-admin-user.log 2>&1; then
+    log "created SSO admin user ${OSMO_SSO_ADMIN_NAME} (${OSMO_SSO_ADMIN_EMAIL:-no email}) with roles: ${OSMO_SSO_ADMIN_ROLES}"
   else
     # Already exists (idp-sync or a prior run): ensure the roles are present.
-    if osmo user update "${OSMO_SSO_ADMIN_SUB}" --add-roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >>/tmp/osmo-sso-admin-user.log 2>&1; then
-      log "ensured SSO admin roles on ${OSMO_SSO_ADMIN_EMAIL:-${OSMO_SSO_ADMIN_SUB}}: ${OSMO_SSO_ADMIN_ROLES}"
+    if osmo user update "${OSMO_SSO_ADMIN_NAME}" --add-roles "${OSMO_SSO_ADMIN_ROLE_ARR[@]}" >>/tmp/osmo-sso-admin-user.log 2>&1; then
+      log "ensured SSO admin roles on ${OSMO_SSO_ADMIN_NAME}: ${OSMO_SSO_ADMIN_ROLES}"
     else
       cat /tmp/osmo-sso-admin-user.log >&2
-      die "failed to create or grant roles to SSO admin user ${OSMO_SSO_ADMIN_SUB}"
+      die "failed to create or grant roles to SSO admin user ${OSMO_SSO_ADMIN_NAME}"
     fi
   fi
 else
-  log "no SSO admin sub available (infra/cognito admin_email unset); skipping SSO admin role grant"
+  log "no SSO admin name available (infra/cognito admin_email unset); skipping SSO admin role grant"
 fi
 
 osmo token delete backend-token --user backend-operator >/tmp/osmo-backend-token-delete.log 2>&1 || true
@@ -839,6 +858,42 @@ else
     --description "Configure AWS backend scheduler" >/tmp/osmo-backend-config.log 2>&1; then
     cat /tmp/osmo-backend-config.log >&2
     die "failed to configure OSMO backend scheduler"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Bound workflow lifetime on the default pool. A fresh install ships all four
+# timeouts at 60d, which lets a single stuck job pin a GPU node for two months.
+# Read-modify-write so the platform/pod-template keys set below survive.
+# ---------------------------------------------------------------------------
+POOL_TIMEOUT_CURRENT="$(osmo config show POOL default)"
+if printf '%s' "${POOL_TIMEOUT_CURRENT}" | jq -e \
+  --arg default_exec "${OSMO_POOL_DEFAULT_EXEC_TIMEOUT}" \
+  --arg max_exec "${OSMO_POOL_MAX_EXEC_TIMEOUT}" \
+  --arg default_queue "${OSMO_POOL_DEFAULT_QUEUE_TIMEOUT}" \
+  --arg max_queue "${OSMO_POOL_MAX_QUEUE_TIMEOUT}" \
+  '.default_exec_timeout == $default_exec and
+   .max_exec_timeout == $max_exec and
+   .default_queue_timeout == $default_queue and
+   .max_queue_timeout == $max_queue' >/dev/null; then
+  log "OSMO pool workflow timeouts are already configured"
+else
+  printf '%s' "${POOL_TIMEOUT_CURRENT}" | jq \
+    --arg default_exec "${OSMO_POOL_DEFAULT_EXEC_TIMEOUT}" \
+    --arg max_exec "${OSMO_POOL_MAX_EXEC_TIMEOUT}" \
+    --arg default_queue "${OSMO_POOL_DEFAULT_QUEUE_TIMEOUT}" \
+    --arg max_queue "${OSMO_POOL_MAX_QUEUE_TIMEOUT}" \
+    'del(.last_heartbeat, .parsed_resource_validations, .parsed_pod_template, .parsed_group_templates) |
+     .default_exec_timeout = $default_exec |
+     .max_exec_timeout = $max_exec |
+     .default_queue_timeout = $default_queue |
+     .max_queue_timeout = $max_queue' >"${POOL_CONFIG}"
+
+  if ! osmo config update POOL default \
+    --file "${POOL_CONFIG}" \
+    --description "Bound workflow exec/queue timeouts" >/tmp/osmo-pool-timeouts.log 2>&1; then
+    cat /tmp/osmo-pool-timeouts.log >&2
+    die "failed to configure OSMO pool workflow timeouts"
   fi
 fi
 

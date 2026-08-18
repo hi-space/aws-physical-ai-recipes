@@ -7,7 +7,97 @@ OSMO 배포/파이프라인 운영 중 발견한 개선 항목 모음. 우선순
 
 ---
 
-## 1. 로그인 시 Cognito ID 체계가 다르게 보이는 부분
+## 0. 운영 주의: `osmo config show`는 시크릿을 마스킹해서 출력한다
+
+`osmo config update`를 손으로 할 때 흔히 쓰는 read-modify-write 패턴이 시크릿을
+파괴할 수 있다.
+
+```bash
+# 위험 — access_key가 "**********"로 덮인다
+osmo config show WORKFLOW | jq '.some_key = "new"' > /tmp/c.json
+osmo config update WORKFLOW --file /tmp/c.json
+```
+
+`osmo config show`는 `workflow_data.credential.access_key` 같은 시크릿 필드를
+`**********`로 마스킹해서 내보내는데, 그 출력을 그대로 되먹이면 마스킹 문자열이
+저장된다. `osmo config diff`도 같이 마스킹하므로 diff로는 사고를 감지할 수 없다.
+
+`osmo config update`는 깊은 병합(deep merge)이다 — WORKFLOW revision 2→3에서
+`jq -n`으로 `workflow_data.base_url`만 보냈는데 형제 키
+(`websocket_timeout`/`data_timeout`/`download_type`)가 모두 살아남았다. 그래서
+안전한 방법은 바꿀 키만 보내는 것이다.
+
+```bash
+# 안전 — 바꿀 키만 (병합이 나머지를 보존)
+jq -n '{user_workflow_limits: {max_num_workflows: 2}}' > /tmp/c.json
+osmo config update WORKFLOW --file /tmp/c.json
+```
+
+시크릿을 포함한 블록을 꼭 다시 써야 한다면 마스킹된 값이 아니라 Secrets Manager의
+실제 값을 넣어야 한다(`deploy-osmo.sh`의 `secret_field`가 하는 방식). POOL 설정에는
+마스킹되는 필드가 없어 read-modify-write가 안전하다.
+
+시크릿을 덮었는지 확인하려면 CPU 워크플로를 하나 제출해 본다. 로그에
+`Validating data access permissions... All data access validations passed`와
+`Upload Start`가 보이면 자격증명이 살아 있다.
+
+---
+
+## 1. 로그인 시 Cognito ID 체계가 다르게 보이는 부분 — 레시피 반영 완료 (2026-08-18)
+
+해결: 방안 A + B를 함께 적용했다. `preferred_username`을 단일 OSMO 사용자 ID로
+삼아 UI 표시, "My Workflows" 필터, 워크플로우 owner, `osmo user list`가 모두 같은
+읽을 수 있는 문자열(이메일 로컬 파트, 예: `admin`)을 쓴다.
+
+- `scripts/deploy-osmo.sh`: gateway Envoy cognito provider `user_claim: sub` →
+  `preferred_username`. `OSMO_SSO_ADMIN_SUB` → `OSMO_SSO_ADMIN_NAME`
+  (`admin_user_name` 출력값 사용)로 역할 부여 대상 변경.
+- `scripts/add-osmo-user.sh`: OSMO 사용자 키를 sub → Cognito에서 되읽은
+  `preferred_username` 속성값으로 변경.
+- `infra/cognito/outputs.tf`: `admin_user_name` 출력 추가. `admin_user_sub`는
+  풀 내 조회용으로 남기되 "더 이상 OSMO 사용자 ID 아님"으로 문서화.
+- `infra/cognito/main.tf`: 변경 없음 — 최초 admin에 이미
+  `preferred_username = split("@", admin_email)[0]`을 설정하고 있었다.
+- `README.md` / `README.ko.md` / `infra/cognito/README(.ko).md`: sub 기준 설명 수정.
+- 방안 C(CLI `unique_name`까지 통일)는 osmo-service 토큰 발급 로직 변경이라
+  upstream 의존. 미적용 — CLI 서비스 토큰으로 제출한 잡의 owner는 여전히
+  `admin`/`testuser`다.
+
+라이브 클러스터 적용은 gateway Helm upgrade가 필요하며 아직 하지 않았다. 적용 시
+기존 sub 키 OSMO 사용자(`a41824c8-...`) 1건과 그 소유 워크플로우가 새 필터값으로는
+안 보이므로, 해당 사용자를 `admin`으로 재생성할지 무시할지 결정해야 한다.
+
+라이브 재현 (2026-08-18, use1) — 미적용 상태의 증상을 실측했다:
+- `add-osmo-user.sh osmouser-test@osmo.local`로 사용자 생성 → OSMO 사용자
+  `osmouser-test`에 `osmo-user` 부여 성공(수정한 스크립트 정상 동작 확인).
+- `osmo-cli-login.sh`로 로그인 → Cognito SRP 인증 성공, ID 토큰에
+  `preferred_username: osmouser-test` 정상 포함.
+- 그런데 `osmo workflow list`가 `403 access denied`. 게이트웨이 로그가 원인을
+  확정한다: `osmo_user: 846814e8-...(sub)`, `ext_authz_denied`,
+  `authz-sidecar: synced user roles added=[osmo-default] ... access denied`.
+  즉 Envoy가 sub를 `x-osmo-user`로 보내 `idp-sync`가 그 UUID를 **별개의** OSMO
+  사용자로 새로 만들고, 부여한 역할은 `osmouser-test` 레코드에 남아 무용지물이 된다.
+  → 사용자를 올바르게 프로비저닝해도 게이트웨이 claim이 sub인 동안은 제출이 불가능.
+- 참고: 이 상태로 사용자를 추가할 때마다 OSMO에 UUID 사용자가 하나씩 늘어난다
+  (`osmo user list`가 오염됨). 전환 후에는 이 UUID 레코드들을 정리해야 한다.
+- 별도로 `osmo-user` 자체의 권한은 충분함을 확인했다: 관리자가
+  `osmo token set <name> --user <user>`로 발급한 토큰으로 로그인하면(게이트웨이
+  claim 문제를 우회) `osmo-user`가 스모크 워크플로를 제출해 `COMPLETED`까지 가고
+  owner가 본인 이름으로 기록된다. `osmo user list`/`osmo config show`는 403.
+  즉 남은 문제는 순수하게 게이트웨이 claim 매핑뿐이다.
+
+`add-osmo-user.sh`에 토큰 발급(`--token`)을 넣는 안을 구현해 라이브 검증까지 했으나
+채택하지 않고 되돌렸다. 게이트웨이 claim이 sub인 동안에도 CLI가 동작하는 유일한
+경로여서 매력적이었지만, 토큰을 사용자에게 전달하는 문제가 비밀번호보다 나쁘다:
+문자열이 발급 순간에만 출력돼 별도 채널로 옮겨야 하고, 사용자가 스스로 회전할 수
+없고, 발급 시점 역할이 고정돼 나중에 권한을 줄여도 남고, `osmo token set`이 같은
+이름 재사용을 거부해(400 `already exists`) 회전이 `delete --user` 후 재생성이다.
+결론: 게이트웨이를 `preferred_username`으로 올리고 사용자는 본인 Cognito 비밀번호로
+`osmo-cli-login.sh`를 쓴다. 토큰은 디버깅 도구로만 문서에 남겼다.
+CLI 실측 메모 — `--user` 없는 `osmo token list`/`delete`는 호출자 본인 토큰만
+대상으로 하며 타 사용자 토큰은 "does not exist" 400을 낸다. 기본 만료는 31일.
+
+아래는 진단 기록이다.
 
 증상
 - OSMO Admin UI에 Cognito SSO로 로그인하면, UI/CLI에서 표시되는 사용자 식별자가
@@ -71,8 +161,11 @@ OSMO 배포/파이프라인 운영 중 발견한 개선 항목 모음. 우선순
   Cognito 콘솔/CLI에서 역조회" + "CLI 제출 잡은 owner=unique_name이라 웹 My Workflows
   필터에 안 잡힐 수 있음" 명시.
 
-권장 순서: 방안 A(preferred_username/email 클레임 채우기)로 UI 표시·필터부터 사람이
-읽게 만들고, owner 통일이 실제로 필요하면 방안 B를 마이그레이션 계획과 함께 검토.
+채택: 방안 A와 B를 분리하지 않고 한 번에 적용했다. A만 하면 UI 표시는 사람이 읽게
+되지만 owner는 여전히 sub라 두 문자열이 갈린 상태가 유지되고, 나중에 B를 하면
+그때 또 마이그레이션이 필요하다. sub 키 OSMO 사용자가 1건뿐이고 기존 워크플로우
+20건은 모두 CLI 경로(owner=`testuser`)여서 지금이 마이그레이션 비용이 가장 낮은
+시점이었다. 상세는 이 절 맨 위 요약 참고.
 
 ---
 
@@ -239,15 +332,18 @@ upstream UI 수정 조사 완료 (2026-08-03, web-ui:6.3.1 컨테이너 내부 �
 
 ---
 
-## 4. 다중 사용자 동시 사용 시의 격리 부재 (검토 완료, 미적용)
+## 4. 다중 사용자 동시 사용 시의 격리 부재 (4.7 적용 완료, 나머지 미적용)
 
 조사 일자: 2026-08-18. 대상 클러스터 `aws-osmo-use1-dev-repro-eks` (us-east-1).
-라이브 `osmo config show` / `kubectl` 출력으로 확인. 설정 변경은 하지 않았다.
+라이브 `osmo config show` / `kubectl` 출력으로 확인.
+
+4.7만 2026-08-18에 적용하고 `scripts/deploy-osmo.sh`에 반영했다(재배포 후에도 유지).
+4.1은 적용해봤다가 되돌렸다 — 아래 사유 참고. 나머지 항목은 조사만 된 상태다.
 
 한 줄 요약: 자원을 나누는 장치가 사실상 전부 무제한이고, 사용자끼리 서로의
 데이터셋·자격증명·워크플로를 지울 수 있다.
 
-### 4.1 사용자별 워크플로 수 상한이 비어 있음 (최우선)
+### 4.1 사용자별 워크플로 수 상한이 비어 있음 (적용했다가 원복, 재설계 필요)
 
 `osmo config show WORKFLOW`:
 
@@ -265,7 +361,43 @@ OSMO가 사용자별 상한을 제품 차원에서 지원하는데 두 값이 `n
 사람이 GPU 워크플로를 몇 개든 동시 제출할 수 있고, KAI 스케줄러가 노드를 붙일 수
 있는 만큼 계속 붙는다. 교육/공유 클러스터에서 한 명이 전체 GPU를 점유하는 가장
 흔한 경로. 값 두 개만 채우면 되고 `osmo config rollback`으로 되돌아간다.
-후보값: `max_num_workflows: 2`.
+
+집행은 확실히 된다 (2026-08-18 실측). `max_num_workflows: 2`로 두고 CPU 워크플로
+3건을 연속 제출했더니 3번째가 거부됐다.
+
+```
+Server responded with status code 400
+Error message: User testuser cannot submit more than 2 ongoing workflows.
+```
+
+그런데 원복했다 (2026-08-18). 이유는 두 가지다.
+
+첫째, GPU 고갈의 실제 방어선은 이 값이 아니라 Karpenter NodePool의 vCPU 상한이다.
+`deploy-karpenter.sh` 기본값이 g7e 120 vCPU / g6e 96 vCPU이므로, 워크플로를 몇 개
+제출하든 동시에 뜰 수 있는 GPU 노드 수는 이미 묶여 있다.
+
+```
+g6e NodePool 96 vCPU 가 담을 수 있는 GPU 스테이지 수
+  02-sim-rl / 04-closeloop  cpu 8  -> g6e.4xlarge  (16 vCPU)  -> 6개
+  03-vla-finetune           cpu 16 -> g6e.8xlarge  (32 vCPU)  -> 3개
+  06-cosmos-augment         cpu 30 -> g6e.12xlarge (48 vCPU)  -> 2개
+```
+
+둘째, 이 값은 GPU를 안 쓰는 워크플로까지 같이 센다. `01-data-prep`은 CPU 전용
+(`cpu: 4`, GPU 미점유)인데도 카운트에 들어가므로, 낮은 상한은 GPU 경합과 무관한
+정상 사용을 막는다. 게다가 워크플로 단위 카운트라 파이프라인 구조에 따라 불공평하다 —
+`00-vla-chain`은 prepare/train/eval 3개 태스크를 워크플로 1개에 담아 카운트 1인데,
+`nut-pouring-pipeline`은 같은 일을 6개 파일로 따로 제출해 카운트 6이 된다.
+
+결론: 자원 격리는 워크플로 개수가 아니라 자원량으로 걸어야 하므로 4.2(KAI 큐 쿼터)에서
+설계한다. 이 값을 다시 쓴다면 GPU 고갈 방어용이 아니라 폭주(수십~수백 건 제출) 차단용
+으로, 정상 사용을 넘는 넉넉한 수(예: 10 이상)여야 한다.
+
+원복 방법 주의: 깊은 병합이라 `{"user_workflow_limits":{"max_num_workflows":null}}`을
+보내면 "No changes were made to the config."가 나오고 값이 지워지지 않는다. `null`은
+"이 키는 건드리지 말라"로 해석된다. `osmo config rollback WORKFLOW:6`으로 되돌렸다.
+
+`max_num_tasks`도 계속 `null`이다.
 
 ### 4.2 KAI 큐 쿼터가 전부 무제한
 
@@ -330,7 +462,7 @@ Allow | [workflow:*] | on: [pool/default]
 조사가 선행돼야 한다. 가능하면 정책 한 줄 수정, 불가하면 사용자별 풀 구성이라는
 큰 작업이 된다.
 
-### 4.7 타임아웃이 전부 60일이고 기본값 == 최대값
+### 4.7 타임아웃이 전부 60일이고 기본값 == 최대값 (적용 완료)
 
 ```
 POOL default:
@@ -344,7 +476,40 @@ GPU 파드 템플릿(`aws-g7e-rtx-pro-6000`)에 `karpenter.sh/do-not-disrupt: "t
 붙어 있어 Karpenter가 노드를 회수하지 못한다. 장시간 학습 보호로는 맞지만, 잘못된
 워크플로 하나가 GPU 노드를 최대 60일 점유해도 막을 수단이 없다는 뜻이다.
 `max_exec_timeout`이 기본값과 같아 사용자가 상한을 낮출 동기도 없다.
-후보값: `default_exec_timeout: 6h` / `max_exec_timeout: 24h`.
+
+적용 (2026-08-18):
+
+```
+default_exec_timeout : 6h
+max_exec_timeout     : 7d
+default_queue_timeout: 1h
+max_queue_timeout    : 2d
+```
+
+원래 후보값이던 `max_exec_timeout: 24h`는 쓰지 않았다. 리포 전체 워크플로의
+`exec_timeout` 최대값이 이를 넘기 때문이다.
+
+```
+168h  examples/nut-pouring-pipeline/workflows/05_lerobot_conversion.yaml:23
+ 7d   examples/nut-pouring-pipeline/workflows/01_mimic_generation.yaml
+ 7d   examples/nut-pouring-pipeline/workflows/06_groot_finetune.yaml
+ 3d   examples/nut-pouring-pipeline/workflows/03_cosmos_augmentation.yaml
+ 3d   e2e-pipeline-examples/06-cosmos-augment/workflow.yaml   <- 워크샵 스테이지
+```
+
+`queue_timeout` 최대값은 같은 `05_lerobot_conversion.yaml:24`의 `48h`다. 그래서
+상한을 `7d`/`2d`로 잡아 기존 워크플로 어느 것도 걸리지 않게 했다.
+
+주의 — 이 버전에서 `max_*`는 제출 시 집행되지 않는다. 상한을 넘는 값
+(`exec_timeout: 200h` / `queue_timeout: 72h`)으로 CPU 워크플로를 제출했더니
+`osmo workflow validate`와 `submit`이 모두 통과했고, `osmo workflow spec`에
+요청값(`8d8h` / `3d`)이 그대로 저장됐다. 클램프(자동 하향)도 없었다. 상한값은
+장래 버전에서 집행이 켜질 때를 대비한 것이며, 지금 실효가 있는 건
+`default_*`(YAML에 `timeout` 블록이 없는 워크플로에 적용)뿐이다.
+
+`scripts/deploy-osmo.sh`에 read-modify-write 방식으로 넣었고 GPU 플랫폼 설정보다
+앞에서 실행된다. `OSMO_POOL_DEFAULT_EXEC_TIMEOUT` / `OSMO_POOL_MAX_EXEC_TIMEOUT` /
+`OSMO_POOL_DEFAULT_QUEUE_TIMEOUT` / `OSMO_POOL_MAX_QUEUE_TIMEOUT`로 덮어쓴다.
 
 ### 4.8 토큰 수명 365일
 
@@ -397,9 +562,11 @@ Threshold: 2139512454, available: 1654612Ki
 
 ### 권하는 순서
 
-1. 4.1 + 4.7 — 순수 설정값 변경(`osmo config update`)이라 파드 재시작이나 실행 중
-   워크플로 중단이 없고 `osmo config rollback`으로 되돌아간다. 비용 대비 효과 최상.
-2. 4.2 + 4.3 + 4.4 — 쿼터와 GPU 검증은 함께 설계해야 한다.
+1. 4.7 — 완료(2026-08-18). 순수 설정값 변경(`osmo config update`)이라 파드 재시작이나
+   실행 중 워크플로 중단이 없었다. `osmo config rollback`으로 되돌아간다.
+2. 4.2 + 4.3 + 4.4 — 이제 여기가 최우선이다. 4.7의 `max_*`는 집행되지 않고, 4.1의
+   워크플로 개수 상한은 자원량과 무관해 원복했으므로, 실질적인 자원 격리는 KAI 큐
+   쿼터 계층밖에 남지 않는다. 쿼터와 GPU 검증은 함께 설계해야 한다.
 3. 4.5 + 4.6 — RBAC 소유자 범위 표현 가능성 조사 선행.
 4. 4.9 — 별도 조사.
 

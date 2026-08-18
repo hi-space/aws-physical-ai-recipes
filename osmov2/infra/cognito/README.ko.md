@@ -53,7 +53,7 @@ admin_email    = "admin@example.com"
 admin_password = "<choose-a-strong-password>"
 ```
 
-이후 `deploy-osmo.sh`가 `admin_user_sub` 출력값을 읽어 해당 Cognito subject에 OSMO의 `osmo-admin` 역할을 부여하므로, 최초 SSO 로그인 시 이미 전체 관리자 권한을 갖습니다 — 이후 수동으로 `osmo user update`를 실행할 필요가 없습니다. `osmo-admin` 이외의 역할을 원한다면 `OSMO_SSO_ADMIN_ROLES`로 재정의하세요.
+이후 `deploy-osmo.sh`가 `admin_user_name` 출력값(`preferred_username`, 즉 이메일 로컬 파트)을 읽어 해당 OSMO 사용자에 `osmo-admin` 역할을 부여하므로, 최초 SSO 로그인 시 이미 전체 관리자 권한을 갖습니다 — 이후 수동으로 `osmo user update`를 실행할 필요가 없습니다. `osmo-admin` 이외의 역할을 원한다면 `OSMO_SSO_ADMIN_ROLES`로 재정의하세요.
 
 ### 관리자가 추가 사용자를 생성하는 위치
 
@@ -114,17 +114,20 @@ aws cognito-idp admin-create-user \
 
 Cognito 계정만으로는 부족합니다. 최초 로그인 시 `idp-sync`가 OSMO 사용자를 자동
 생성하지만 역할은 `osmo-default` 하나뿐이라 로그인과 프로필 조회만 되고 워크플로
-제출은 안 됩니다. 따라서 Cognito `sub` 기준으로 역할을 직접 부여해야 합니다:
+제출은 안 됩니다. 따라서 `preferred_username` 기준으로 역할을 직접 부여해야 합니다:
 
 ```bash
-SUB=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
+NAME=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
   --username user@example.com \
-  --query 'UserAttributes[?Name==`sub`].Value' --output text)
-osmo user create "$SUB" --roles osmo-user            # 첫 로그인 전
-osmo user update "$SUB" --add-roles osmo-user        # idp-sync가 이미 만들었으면
+  --query 'UserAttributes[?Name==`preferred_username`].Value' --output text)
+osmo user create "$NAME" --roles osmo-user            # 첫 로그인 전
+osmo user update "$NAME" --add-roles osmo-user        # idp-sync가 이미 만들었으면
 ```
 
-역할은 반드시 `sub`에 걸어야 합니다(게이트웨이의 `user_claim`과 일치). 서비스 차트의
+역할은 반드시 `preferred_username`에 걸어야 합니다(게이트웨이의 `user_claim`과
+일치). `sub`가 아닌 이유는 웹 UI의 "내 워크플로" 필터가 oauth2-proxy의
+`x-auth-request-preferred-username` 헤더와 비교하기 때문입니다 — `sub`로 걸면
+소유자가 필터에 절대 잡히지 않는 UUID가 됩니다. 서비스 차트의
 `external_roles` 필드는 이 배포에서 IdP 그룹을 OSMO 역할로 매핑해주지 않습니다 —
 게이트웨이의 역할 필터가 읽는 `roles` JWT 클레임을 Cognito ID 토큰이 담고 있지 않기
 때문이며, 그래서 역할은 OSMO 데이터베이스에서만 옵니다. 회원가입을 허용해도 이 수동
@@ -144,5 +147,6 @@ OSMO UI에 접근하려면 사용자의 출발 IP가 CloudFront WAF allowlist
 | `oidc_issuer_url` | `gateway.oauth2Proxy.oidcIssuerUrl`용 OIDC issuer |
 | `client_id` | `gateway.oauth2Proxy.clientId`용 앱 클라이언트 ID |
 | `client_secret` | `oauth2-proxy-secrets` K8s secret용 앱 클라이언트 시크릿 (민감 정보) |
-| `admin_user_sub` | 최초 로그인 사용자의 Cognito subject; `deploy-osmo.sh`에 의해 `osmo-admin` 역할이 부여되는 OSMO 사용자 ID |
+| `admin_user_name` | 최초 로그인 사용자의 `preferred_username`; `deploy-osmo.sh`에 의해 `osmo-admin` 역할이 부여되는 OSMO 사용자 ID |
+| `admin_user_sub` | 최초 로그인 사용자의 Cognito subject; 풀 내 안정적 식별자이지만 더 이상 OSMO 사용자 ID는 아님 |
 | `admin_user_email` | 최초 로그인 사용자의 이메일/사용자명 |

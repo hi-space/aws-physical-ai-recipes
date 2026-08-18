@@ -54,8 +54,9 @@ admin_email    = "admin@example.com"
 admin_password = "<choose-a-strong-password>"
 ```
 
-`deploy-osmo.sh` then reads the `admin_user_sub` output and grants that Cognito
-subject the `osmo-admin` role in OSMO, so the very first SSO login already has
+`deploy-osmo.sh` then reads the `admin_user_name` output (the
+`preferred_username`, i.e. the email local part) and grants that OSMO user the
+`osmo-admin` role, so the very first SSO login already has
 full admin access — no manual `osmo user update` afterwards. Override the roles
 with `OSMO_SSO_ADMIN_ROLES` if you want something other than `osmo-admin`.
 
@@ -121,17 +122,21 @@ aws cognito-idp admin-create-user \
 
 A Cognito account alone is not enough. On first login `idp-sync` auto-creates the
 OSMO user with `osmo-default` only, which permits login and profile reads but not
-workflow submission, so roles must be granted explicitly by Cognito `sub`:
+workflow submission, so roles must be granted explicitly by
+`preferred_username`:
 
 ```bash
-SUB=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
+NAME=$(aws cognito-idp admin-get-user --user-pool-id "$POOL" \
   --username user@example.com \
-  --query 'UserAttributes[?Name==`sub`].Value' --output text)
-osmo user create "$SUB" --roles osmo-user            # before first login
-osmo user update "$SUB" --add-roles osmo-user        # if idp-sync already created it
+  --query 'UserAttributes[?Name==`preferred_username`].Value' --output text)
+osmo user create "$NAME" --roles osmo-user            # before first login
+osmo user update "$NAME" --add-roles osmo-user        # if idp-sync already created it
 ```
 
-Roles must be keyed on `sub`, matching the gateway's `user_claim`. Note that the
+Roles must be keyed on `preferred_username`, matching the gateway's
+`user_claim`. That claim rather than `sub` because the web UI's "my workflows"
+filter compares against oauth2-proxy's `x-auth-request-preferred-username`
+header, so a `sub`-keyed owner is a UUID the filter never matches. Note that the
 service chart's `external_roles` field does not map IDP groups to OSMO roles in
 this deployment: the gateway's role filter reads a `roles` JWT claim that Cognito
 ID tokens do not carry, so roles come from the OSMO database only. This is why
@@ -151,5 +156,6 @@ it reaches the login page.
 | `oidc_issuer_url` | OIDC issuer for `gateway.oauth2Proxy.oidcIssuerUrl` |
 | `client_id` | App client ID for `gateway.oauth2Proxy.clientId` |
 | `client_secret` | App client secret (sensitive) for the `oauth2-proxy-secrets` K8s secret |
-| `admin_user_sub` | Cognito subject of the initial login user; OSMO user id granted `osmo-admin` by `deploy-osmo.sh` |
+| `admin_user_name` | `preferred_username` of the initial login user; the OSMO user id granted `osmo-admin` by `deploy-osmo.sh` |
+| `admin_user_sub` | Cognito subject of the initial login user; the stable pool identifier, no longer the OSMO user id |
 | `admin_user_email` | Email/username of the initial login user |

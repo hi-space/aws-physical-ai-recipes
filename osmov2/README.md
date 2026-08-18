@@ -279,9 +279,59 @@ scripts/add-osmo-user.sh user@example.com --temporary          # user sets their
 ```
 
 It prompts for the password (or reads `OSMO_NEW_USER_PASSWORD`), creates the
-Cognito account, then grants OSMO roles keyed on the Cognito `sub`. Re-running it
-for an existing user is safe: it repairs `preferred_username` and adds any
+Cognito account, then grants OSMO roles keyed on `preferred_username`. Re-running
+it for an existing user is safe: it repairs `preferred_username` and adds any
 missing roles without recreating the account.
+
+End-to-end sequence, verified 2026-08-18 against the `use1` cluster:
+
+```bash
+# 1. admin creates the user (non-interactive)
+OSMO_NEW_USER_PASSWORD='<strong-password>' \
+  scripts/add-osmo-user.sh alice@example.com
+# -> created cognito user alice@example.com (preferred_username=alice)
+# -> created OSMO user alice with roles: osmo-user
+
+# 2. the user logs the CLI in (their own machine, their own password)
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+
+# 3. verify the identity the platform sees
+osmo workflow list
+```
+
+Two prerequisites make step 2 fail in ways that look unrelated, so check them
+before blaming the user record:
+
+- The client's egress IP must be in `allowed_cidrs` (`infra/cloudfront`). If it
+  is not, Cognito authentication still succeeds — the script writes
+  `login.yaml` — and the failure only appears on the next API call as a
+  CloudFront `403 Request blocked` HTML page. Confirm reachability with
+  `curl -o /dev/null -w '%{http_code}\n' https://<osmo-ui-cloudfront-domain>/api/version`
+  (expect 200) before running the script.
+- The gateway must be running the `user_claim: preferred_username` config. On a
+  gateway still deployed with `user_claim: sub`, a correctly provisioned user
+  gets `403 access denied` from the authz sidecar, because Envoy sends the
+  Cognito `sub` as `x-osmo-user`, `idp-sync` provisions *that* UUID as a second
+  OSMO user, and the granted roles sit on the `preferred_username` record
+  instead. Diagnose it from the gateway log — the `osmo_user` field holds a UUID
+  and `roles=[osmo-default]`:
+  ```bash
+  kubectl -n osmo logs -l app.kubernetes.io/name=osmo-gateway \
+    --tail=200 --all-containers | grep 'access denied'
+  ```
+  Fix by re-running `scripts/deploy-osmo.sh` (it upgrades the gateway chart with
+  the corrected claim); a `osmo config update` cannot change this.
+
+To exercise the gateway from a host outside the WAF allowlist — useful for
+validating the auth chain without editing the IP set — port-forward the gateway
+service and point the login at it. This still goes through Envoy `jwt_authn` and
+the authz sidecar, so role enforcement is genuinely tested:
+
+```bash
+kubectl -n osmo port-forward svc/osmo-gateway 9200:80 &
+OSMO_CLI_USER=alice@example.com OSMO_GATEWAY_URL=http://127.0.0.1:9200 \
+  scripts/osmo-cli-login.sh
+```
 
 Both steps are necessary and neither implies the other. Creating only the Cognito
 account gets the user as far as logging in: on first login `idp-sync`
@@ -291,6 +341,73 @@ profile reads but **not** workflow submission. The service chart's
 automatically, but it does not apply here — the gateway's role filter reads a
 `roles` JWT claim that Cognito ID tokens do not carry, so roles come from the
 OSMO database only.
+
+### What `osmo-user` can and cannot do
+
+`osmo-user` is sufficient to submit workflows — no admin role required. Verified
+end to end on 2026-08-18 (`use1`): a fresh `osmo-user` submitted
+`examples/osmo-smoke/workflow.yaml` to the `default` pool, it ran to `COMPLETED`,
+and `osmo workflow query` recorded `User: wftest`, the submitter's own name.
+
+Denied for the same user, both `403 access denied` from the authz sidecar:
+
+```bash
+osmo user list            # user administration
+osmo config show POOL default
+```
+
+So the split is: `osmo-user` submits and manages its own work, `osmo-admin` is
+needed for user administration and platform config. Note that `osmo-default`,
+which `idp-sync` assigns on first login, is *not* enough — it permits login and
+profile reads only. That is the whole reason `add-osmo-user.sh` exists.
+
+### End-to-end example: a regular user submits a workflow
+
+The user's credential is their own Cognito password, so nothing has to be handed
+over except that password. Verified on 2026-08-18 (`use1`).
+
+Administrator, once per user:
+
+```bash
+scripts/add-osmo-user.sh alice@example.com
+# grants osmo-user; add --temporary to force a password change on first login
+```
+
+The user, on their own machine:
+
+```bash
+pip install pycognito                          # once
+
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+# prompts for the password, writes ~/.config/osmo/login.yaml
+
+osmo workflow submit examples/osmo-smoke/workflow.yaml --pool default
+# -> Workflow ID - aws-osmo-smoke-N
+
+osmo workflow query aws-osmo-smoke-N            # Status / User
+osmo workflow logs aws-osmo-smoke-N
+osmo workflow list                              # only their own view
+```
+
+`osmo workflow query` shows `User: alice`, so ownership, the name in
+`osmo user list`, and the web UI's "My Workflows" filter all agree.
+
+Deliberately *not* part of this flow: an OSMO personal access token. `osmo token
+set <name> --user alice` (admin only) does work and is the one path that bypasses
+the Cognito claim entirely, which makes it a useful debugging tool. It is a poor
+way to onboard people, though — the token string is printed exactly once and
+would have to be transported out of band, the user cannot rotate it, it keeps
+whatever roles they held at issue time even if you later reduce them, and `osmo
+token set` refuses to reuse a name so rotation is delete-then-recreate:
+
+```bash
+osmo token set alice-cli --user alice --expires-at 2026-12-31   # default: 31 days
+osmo token list --user alice                    # --user is required to see theirs
+osmo token delete alice-cli --user alice        # then re-create to rotate
+```
+
+A Cognito password is the better secret to move around: the user can change it,
+and it is not silently frozen at a past permission set.
 
 Enabling self-registration would therefore not save any work; the role grant
 would still be manual, and hosted-UI sign-up leaves `preferred_username` empty,
@@ -333,14 +450,16 @@ under the service token's identity (the bootstrap `default-admin-token` shows up
 as `admin`/`testuser`), not under the human who ran the CLI. That path is only
 for deploy-time bootstrap and local smoke tests.
 
-For real users, the workflow owner must be the caller's Cognito `sub`. The
-gateway Envoy `jwt_authn` maps the Cognito `sub` claim to `x-osmo-user`
-(`deploy-osmo.sh`, `user_claim: sub`), so a CLI call authenticated with a
-Cognito ID token through the CloudFront gateway is recorded under that user's
-`sub`. Verified live: submitting through
-`https://<osmo-ui-cloudfront-domain>` with a user's Cognito ID token records the
-workflow owner as that user's `sub`, matching what the web UI's "my workflows"
-filter expects.
+For real users, the workflow owner must be the caller's Cognito
+`preferred_username`. The gateway Envoy `jwt_authn` maps that claim to
+`x-osmo-user` (`deploy-osmo.sh`, `user_claim: preferred_username`), so a CLI
+call authenticated with a Cognito ID token through the CloudFront gateway is
+recorded under that readable name. `preferred_username` rather than `sub`
+because the web UI's "my workflows" filter compares against oauth2-proxy's
+`x-auth-request-preferred-username` header, so keying the owner on `sub` records
+a UUID the filter never matches. Both user-creation paths set the attribute:
+`infra/cognito` for the initial admin, `scripts/add-osmo-user.sh` for everyone
+else.
 
 Note the 6.3.1 CLI login limits: the OSMO API exposes no device-code endpoint
 (so `osmo login --method code` does not work against this gateway), and

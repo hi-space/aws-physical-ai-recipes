@@ -274,9 +274,59 @@ scripts/add-osmo-user.sh user@example.com --temporary          # 사용자가 �
 ```
 
 비밀번호는 대화형으로 입력받습니다(`OSMO_NEW_USER_PASSWORD`로 지정 가능).
-Cognito 계정을 만든 뒤 Cognito `sub` 기준으로 OSMO 역할을 부여합니다. 이미 있는
-사용자에게 다시 실행해도 안전합니다 — 계정을 다시 만들지 않고 `preferred_username`을
-보정하고 빠진 역할만 추가합니다.
+Cognito 계정을 만든 뒤 `preferred_username` 기준으로 OSMO 역할을 부여합니다. 이미
+있는 사용자에게 다시 실행해도 안전합니다 — 계정을 다시 만들지 않고
+`preferred_username`을 보정하고 빠진 역할만 추가합니다.
+
+전체 절차 (2026-08-18 `use1` 클러스터에서 실측 검증):
+
+```bash
+# 1. 관리자가 사용자 생성 (비대화형)
+OSMO_NEW_USER_PASSWORD='<강한-비밀번호>' \
+  scripts/add-osmo-user.sh alice@example.com
+# -> created cognito user alice@example.com (preferred_username=alice)
+# -> created OSMO user alice with roles: osmo-user
+
+# 2. 사용자가 본인 머신에서 본인 비밀번호로 CLI 로그인
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+
+# 3. 플랫폼이 인식한 신원 확인
+osmo workflow list
+```
+
+2단계가 실패할 때 원인이 사용자 레코드와 무관해 보이는 전제조건이 둘 있습니다.
+사용자 설정을 의심하기 전에 이것부터 확인하세요.
+
+- 클라이언트 egress IP가 `allowed_cidrs`(`infra/cloudfront`)에 있어야 합니다.
+  없으면 Cognito 인증은 그대로 성공해서 스크립트가 `login.yaml`까지 쓰고,
+  실패는 다음 API 호출에서 CloudFront `403 Request blocked` HTML로만 드러납니다.
+  스크립트 실행 전에 도달성을 먼저 확인하세요(200이 나와야 정상):
+  ```bash
+  curl -o /dev/null -w '%{http_code}\n' https://<osmo-ui-cloudfront-domain>/api/version
+  ```
+- 게이트웨이가 `user_claim: preferred_username` 설정으로 떠 있어야 합니다.
+  아직 `user_claim: sub`로 배포된 게이트웨이에서는 사용자를 올바르게 만들어도
+  authz 사이드카가 `403 access denied`를 냅니다. Envoy가 Cognito `sub`를
+  `x-osmo-user`로 보내고, `idp-sync`가 그 UUID를 별개의 OSMO 사용자로 만들며,
+  부여한 역할은 `preferred_username` 레코드에 남아 있기 때문입니다. 게이트웨이
+  로그로 진단합니다 — `osmo_user` 필드가 UUID이고 `roles=[osmo-default]`입니다:
+  ```bash
+  kubectl -n osmo logs -l app.kubernetes.io/name=osmo-gateway \
+    --tail=200 --all-containers | grep 'access denied'
+  ```
+  해결은 `scripts/deploy-osmo.sh` 재실행입니다(게이트웨이 차트를 수정된 claim으로
+  업그레이드). `osmo config update`로는 바꿀 수 없습니다.
+
+WAF allowlist 밖 호스트에서 게이트웨이를 시험하려면(IP set을 수정하지 않고 인증
+체인을 검증할 때 유용) 게이트웨이 서비스에 포트포워드하고 그쪽으로 로그인하세요.
+이 경로도 Envoy `jwt_authn`과 authz 사이드카를 그대로 통과하므로 역할 집행이
+실제로 검증됩니다:
+
+```bash
+kubectl -n osmo port-forward svc/osmo-gateway 9200:80 &
+OSMO_CLI_USER=alice@example.com OSMO_GATEWAY_URL=http://127.0.0.1:9200 \
+  scripts/osmo-cli-login.sh
+```
 
 두 단계는 모두 필요하며, 어느 하나가 다른 하나를 자동으로 해주지 않습니다. Cognito
 계정만 만들면 사용자는 로그인까지만 됩니다. 첫 로그인 시 `idp-sync`가 OSMO 사용자를
@@ -289,6 +339,71 @@ Cognito 계정을 만든 뒤 Cognito `sub` 기준으로 OSMO 역할을 부여합
 그래서 회원가입을 허용해도 관리자 작업이 줄지 않습니다. 역할 부여는 여전히 수동이고,
 hosted UI 가입은 `preferred_username`을 비워 두기 때문에 UI의 "내 워크플로" 필터가
 아무것도 못 찾습니다(스크립트는 이 값을 이메일 `@` 앞부분으로 항상 채웁니다).
+
+### `osmo-user`로 되는 것과 안 되는 것
+
+워크플로 제출에는 `osmo-user`만 있으면 충분하고 관리자 역할이 필요 없습니다.
+2026-08-18 `use1`에서 실측 검증: 새로 만든 `osmo-user`가
+`examples/osmo-smoke/workflow.yaml`을 `default` 풀에 제출해 `COMPLETED`까지 갔고,
+`osmo workflow query`의 `User` 필드에 제출자 본인 이름(`wftest`)이 기록됐습니다.
+
+같은 사용자가 막히는 것 — 둘 다 authz 사이드카가 `403 access denied`:
+
+```bash
+osmo user list            # 사용자 관리
+osmo config show POOL default
+```
+
+정리하면 `osmo-user`는 제출과 본인 작업 관리, `osmo-admin`은 사용자 관리와 플랫폼
+설정 변경입니다. `idp-sync`가 첫 로그인 때 붙이는 `osmo-default`로는 부족합니다 —
+로그인과 프로필 조회만 됩니다. `add-osmo-user.sh`가 존재하는 이유가 바로 이것입니다.
+
+### 전체 예시: 일반 사용자가 워크플로를 제출하기
+
+사용자의 자격증명은 본인 Cognito 비밀번호이므로, 전달해야 하는 것은 그 비밀번호뿐
+입니다. 2026-08-18 `use1`에서 실측 검증했습니다.
+
+관리자가 사용자마다 한 번:
+
+```bash
+scripts/add-osmo-user.sh alice@example.com
+# osmo-user 부여. 첫 로그인 시 비밀번호 변경을 강제하려면 --temporary
+```
+
+사용자가 본인 머신에서:
+
+```bash
+pip install pycognito                          # 최초 1회
+
+OSMO_CLI_USER=alice@example.com scripts/osmo-cli-login.sh
+# 비밀번호를 입력받고 ~/.config/osmo/login.yaml 을 씀
+
+osmo workflow submit examples/osmo-smoke/workflow.yaml --pool default
+# -> Workflow ID - aws-osmo-smoke-N
+
+osmo workflow query aws-osmo-smoke-N            # Status / User 확인
+osmo workflow logs aws-osmo-smoke-N
+osmo workflow list                              # 본인 관점의 목록
+```
+
+`osmo workflow query`에 `User: alice`로 찍히므로, 소유자와 `osmo user list`의 이름,
+웹 UI "내 워크플로" 필터가 모두 일치합니다.
+
+이 흐름에서 의도적으로 빼놓은 것: OSMO personal access token.
+`osmo token set <name> --user alice`(관리자 전용)는 실제로 동작하고 Cognito claim을
+완전히 우회하므로 디버깅 도구로는 유용합니다. 다만 온보딩 수단으로는 나쁩니다 —
+토큰 문자열은 발급 순간에 딱 한 번만 출력되어 별도 경로로 전달해야 하고, 사용자가
+스스로 회전할 수 없으며, 나중에 역할을 축소해도 발급 시점의 권한을 그대로 유지하고,
+`osmo token set`이 같은 이름 재사용을 거부해서 회전이 삭제-후-재생성입니다:
+
+```bash
+osmo token set alice-cli --user alice --expires-at 2026-12-31   # 기본 만료 31일
+osmo token list --user alice                    # 타 사용자 조회엔 --user 필수
+osmo token delete alice-cli --user alice        # 회전은 삭제 후 재생성
+```
+
+Cognito 비밀번호가 옮기기에 더 나은 비밀입니다. 사용자가 직접 변경할 수 있고, 과거
+권한 집합에 묶여 있지 않습니다(발급 시점 권한이 고정되지 않음).
 
 손으로 직접 하려면 `infra/cognito/README.ko.md`를 참고하세요.
 그다음 허용 목록에 등록된 IP에서 `https://<osmo-ui-cloudfront-domain>`을 열고
@@ -324,13 +439,15 @@ kubectl -n osmo port-forward svc/osmo-internal-router 9000:80
 `admin`/`testuser`로 찍힘). 이 경로는 배포 시 부트스트랩과 로컬 스모크 테스트
 전용입니다.
 
-실사용자는 워크플로 소유자가 각자의 Cognito `sub`여야 합니다. 게이트웨이 Envoy
-`jwt_authn`이 Cognito `sub` 클레임을 `x-osmo-user`로 매핑하므로
-(`deploy-osmo.sh`의 `user_claim: sub`), Cognito ID 토큰으로 CloudFront
-게이트웨이를 통해 인증한 CLI 호출은 그 사용자의 `sub`로 기록됩니다. 라이브
-검증 완료: `https://<osmo-ui-cloudfront-domain>`을 통해 사용자의 Cognito ID
-토큰으로 제출하면 워크플로 소유자가 그 사용자의 `sub`로 기록되며, 이는 웹 UI의
-"내 워크플로" 필터가 기대하는 값과 일치합니다.
+실사용자는 워크플로 소유자가 각자의 Cognito `preferred_username`이어야 합니다.
+게이트웨이 Envoy `jwt_authn`이 이 클레임을 `x-osmo-user`로 매핑하므로
+(`deploy-osmo.sh`의 `user_claim: preferred_username`), Cognito ID 토큰으로
+CloudFront 게이트웨이를 통해 인증한 CLI 호출은 그 사람이 읽을 수 있는 이름으로
+기록됩니다. `sub`가 아니라 `preferred_username`인 이유는, 웹 UI의 "내 워크플로"
+필터가 oauth2-proxy의 `x-auth-request-preferred-username` 헤더와 비교하기
+때문입니다 — 소유자를 `sub`로 두면 필터가 절대 일치하지 않는 UUID가 기록됩니다.
+사용자 생성 경로 두 곳 모두 이 속성을 설정합니다: 최초 관리자는 `infra/cognito`,
+그 외 사용자는 `scripts/add-osmo-user.sh`.
 
 6.3.1 CLI 로그인 제약에 유의하세요: OSMO API에는 device-code 엔드포인트가 없어
 (`osmo login --method code`는 이 게이트웨이에 대해 동작하지 않음),
