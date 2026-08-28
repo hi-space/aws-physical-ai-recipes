@@ -28,3 +28,6 @@ tmp/
 # Slide screenshots extracted from osmo-on-aws.zip. Reference material only —
 # not ours to redistribute, so the decks draw their own diagrams instead.
 docs/decks/assets/osmo-on-aws/
+
+# Deck PDFs are rendered from the HTML sources on demand.
+docs/decks/pdf/
