@@ -1,7 +1,7 @@
 # Training deck diagrams
 
 Korean-labelled variants of the two AWS topology diagrams in
-[../../docs/architecture.md](../../docs/architecture.md). The English versions
+[../../architecture.md](../../architecture.md). The English versions
 there are the reference; these exist because the deck audience is Korean and the
 slides need node labels they can read without translation.
 

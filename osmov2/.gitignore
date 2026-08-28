@@ -24,3 +24,7 @@ override.tf.json
 ngc-api-key*
 *.log
 tmp/
+
+# Slide screenshots extracted from osmo-on-aws.zip. Reference material only —
+# not ours to redistribute, so the decks draw their own diagrams instead.
+docs/decks/assets/osmo-on-aws/

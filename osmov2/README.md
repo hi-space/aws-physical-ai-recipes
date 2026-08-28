@@ -43,6 +43,7 @@ infra/observability/ Optional AMP and AMG observability root
 scripts/           preflight, deploy, validate, submit, cleanup, destroy wrappers
 examples/          self-contained OSMO example workflows, docs, and validation artifacts
 docs/              architecture, GPU capacity/region fallback, observability, reproducibility, security, version matrix, compatibility
+docs/decks/        Korean presentation decks (HTML slides + PDF) for the user and infra workshops
 versions.yaml      pinned external versions and tested ranges
 ```
 

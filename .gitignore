@@ -232,3 +232,6 @@ logs/
 
 # macOS
 .DS_Store
+
+# Source slide archives for training material
+osmo-on-aws.zip

@@ -30,7 +30,7 @@ where those components sit in the account, which is what determines the
 network, identity, and billing behaviour.
 
 Korean-labelled variants of these two diagrams, rendered for the training deck,
-live in [training/diagrams](../training/diagrams).
+live in [decks/diagrams](decks/diagrams).
 
 ### Ingress and identity
 
