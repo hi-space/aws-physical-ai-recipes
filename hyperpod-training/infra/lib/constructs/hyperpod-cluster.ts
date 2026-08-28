@@ -18,6 +18,8 @@ export interface HyperPodClusterProps {
   head: InstanceGroupConfig;
   gpu: InstanceGroupConfig[];
   debug: InstanceGroupConfig;
+  /** AMI 보안 패치 cron. 비우면 패치가 수동 작업으로 남는다. */
+  amiUpdateSchedule?: string;
 }
 
 export class HyperPodClusterConstruct extends Construct {
@@ -148,6 +150,11 @@ export class HyperPodClusterConstruct extends Construct {
       SlurmConfig: {
         NodeType: config.slurmNodeType,
       },
+      // 보안 패치를 예약 실행으로 넘겨 수동 UpdateClusterSoftware 호출을 없앤다.
+      // Slurm은 DeploymentConfig(배치 교체/자동 롤백)를 못 쓰므로 ScheduleExpression만 지정한다.
+      ...(props.amiUpdateSchedule
+        ? { ScheduledUpdateConfig: { ScheduleExpression: props.amiUpdateSchedule } }
+        : {}),
     });
 
     this.clusterName = p.toLowerCase();

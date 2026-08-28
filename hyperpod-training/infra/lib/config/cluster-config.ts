@@ -14,6 +14,27 @@ export interface ClusterDefaults {
 }
 
 /**
+ * AMI 보안 패치 자동 적용 스케줄 (ScheduledUpdateConfig.ScheduleExpression)
+ *
+ * 매월 둘째 일요일 18:00 UTC = 한국시간 월요일 오전 3시.
+ * 이 값을 비워두면 패치가 수동 작업(UpdateClusterSoftware 직접 호출)으로 남으므로,
+ * 새 클러스터는 항상 스케줄을 켠 상태로 생성한다.
+ *
+ * 요일은 숫자(1-7) 대신 이름(SUN)을 쓴다. AWS 문서의 요일 숫자 기준이
+ * 페이지 내에서 서로 어긋나 있어(1=월/1=일) 이름이 유일하게 모호하지 않다.
+ *
+ * 주의 (Slurm 클러스터 한정):
+ *  - 배치/롤링 업데이트와 CloudWatch 자동 롤백(DeploymentConfig)은 EKS 전용이라
+ *    지정할 수 없다. 예약 시각에 인스턴스 그룹 전체가 한꺼번에 교체된다.
+ *  - 패치는 루트 볼륨을 새 AMI로 교체한다. /fsx(FSx Lustre)는 유지되지만
+ *    루트 볼륨의 데이터(/home/ubuntu, Slurm accounting DB)는 사라진다.
+ *  - 워크로드 인식 자동 패치(AutoPatchConfig)는 EKS 전용이므로 Slurm에서는 못 쓴다.
+ *
+ * @see https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-release-ami-update.html
+ */
+export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * SUN#2 *)';
+
+/**
  * GPU 인스턴스 타입 목록 (g6/g6e + p 시리즈)
  *
  * | 인스턴스           | GPU              | VRAM  | 용도                        |

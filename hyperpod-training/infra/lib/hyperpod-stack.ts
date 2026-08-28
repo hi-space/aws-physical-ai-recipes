@@ -5,7 +5,7 @@ import { StorageConstruct } from './constructs/storage';
 import { HyperPodClusterConstruct } from './constructs/hyperpod-cluster';
 import { JumpHostConstruct } from './constructs/jump-host';
 import { MlflowConstruct } from './constructs/mlflow';
-import { DEFAULT_CLUSTER_CONFIG, buildGpuGroups } from './config/cluster-config';
+import { DEFAULT_CLUSTER_CONFIG, DEFAULT_AMI_UPDATE_SCHEDULE, buildGpuGroups } from './config/cluster-config';
 
 export interface HyperPodStackProps extends cdk.StackProps {
   userId: string;
@@ -52,9 +52,17 @@ export class HyperPodStack extends cdk.Stack {
       fsxCapacityGiB: props.fsxCapacityGiB,
     });
 
+    // AMI 보안 패치 스케줄. 기본은 켜진 상태이며, 끄려면 -c amiUpdateSchedule=off 로 배포한다.
+    const scheduleContext = this.node.tryGetContext('amiUpdateSchedule');
+    const amiUpdateSchedule =
+      scheduleContext === 'off' || scheduleContext === 'none'
+        ? undefined
+        : (scheduleContext ?? DEFAULT_AMI_UPDATE_SCHEDULE);
+
     // 3. HyperPod Cluster
     const cluster = new HyperPodClusterConstruct(this, 'HyperPod', {
       namePrefix,
+      amiUpdateSchedule,
       vpcId: networking.vpcId,
       privateSubnetId: networking.privateSubnetId,
       fsxSecurityGroup: storage.securityGroup,

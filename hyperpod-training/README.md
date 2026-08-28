@@ -122,6 +122,52 @@ aws sagemaker list-cluster-nodes \
 }
 ```
 
+## AMI 보안 패치 (Scheduled Update)
+
+HyperPod AMI에는 커널·NVIDIA 드라이버·OpenSSL 등이 포함되고, AWS가 주기적으로 보안 패치 AMI를 릴리스합니다. 패치하지 않으면 노드는 생성 당시 AMI에 그대로 머무릅니다.
+
+**CDK에 이미 예약 스케줄이 켜져 있습니다.** `DEFAULT_AMI_UPDATE_SCHEDULE`(`lib/config/cluster-config.ts`)이 모든 인스턴스 그룹의 `ScheduledUpdateConfig`에 적용되어, 매월 둘째 일요일 18:00 UTC(한국시간 월요일 오전 3시)에 자동 패치됩니다. 새 클러스터를 만들 때 별도 조치가 필요 없습니다.
+
+```bash
+# 스케줄 확인
+aws sagemaker describe-cluster --cluster-name ${CLUSTER_NAME} --region us-west-2 \
+  --query "InstanceGroups[].{Name:InstanceGroupName,Schedule:ScheduledUpdateConfig.ScheduleExpression}"
+
+# 마지막 패치 시각 확인 (LaunchTime과 같으면 한 번도 패치되지 않은 것)
+aws sagemaker list-cluster-nodes --cluster-name ${CLUSTER_NAME} --region us-west-2 \
+  --query "ClusterNodeSummaries[].{Group:InstanceGroupName,Launch:LaunchTime,LastPatch:LastSoftwareUpdateTime}"
+
+# 예약 시각을 기다리지 않고 즉시 패치 (아래 사전 조건을 먼저 확인)
+aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us-west-2
+```
+
+스케줄을 끄고 배포하려면 `-c amiUpdateSchedule=off`, 주기를 바꾸려면 `-c amiUpdateSchedule='cron(00 18 1 * ? *)'`를 씁니다.
+
+### 패치 전 반드시 확인할 것
+
+1. **라이프사이클 버킷이 살아 있어야 합니다.** 패치는 루트 볼륨을 새 AMI로 교체한 뒤 `LifeCycleConfig.SourceS3Uri`의 `on_create.sh`를 다시 실행합니다. 버킷이 없으면 패치가 실패하고 클러스터가 `Failed`로 떨어집니다.
+   ```bash
+   aws s3 ls s3://hyperpod-lifecycle-<prefix>-<account>-<region>/lifecycle-scripts/
+   ```
+2. **루트 볼륨은 초기화됩니다.** `/fsx`(FSx Lustre)는 유지되지만 `/home/ubuntu`, Slurm accounting DB(mariadb) 등 루트 볼륨 데이터는 사라집니다. 필요하면 AWS 제공 [`patching-backup.sh`](https://github.com/aws-samples/awsome-distributed-training/blob/main/1.architectures/5.sagemaker-hyperpod/patching-backup.sh)로 S3에 백업합니다.
+   ```bash
+   sudo bash patching-backup.sh --create s3://<backup-bucket-path>   # 패치 전
+   sudo bash patching-backup.sh --restore s3://<backup-bucket-path>  # 패치 후
+   ```
+3. **실행 중인 작업이 없어야 합니다.** Slurm 클러스터는 인스턴스 그룹이 한꺼번에 교체되므로 진행 중인 job은 중단됩니다(`squeue`로 확인).
+
+### Slurm 클러스터의 제약
+
+| 기능 | Slurm | 비고 |
+|---|---|---|
+| `ScheduledUpdateConfig` (cron 예약) | ✅ | 이 프로젝트에서 사용 |
+| `AutoPatchConfig` (유휴 노드 자동 패치, 워크로드 무중단) | ❌ | **EKS 전용** |
+| `DeploymentConfig` (배치 롤링 교체 + CloudWatch 자동 롤백) | ❌ | **EKS 전용** |
+| 콘솔에서 Update AMI | ❌ | **EKS 전용**, API/CLI만 가능 |
+
+즉 Slurm에서는 워크로드를 피해가는 패치가 불가능하므로, 예약 시각을 학습이 없는 시간대로 잡는 것이 중요합니다.
+참고: [AMI 업데이트 문서](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-release-ami-update.html) · [자동 패치 문서](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-ami-auto-patching.html)
+
 ## Step 4: Head Node 접속 (SSH via Jump Host)
 
 CDK 배포 시 Jump Host가 Public Subnet에 생성됩니다. 이를 경유하여 Head Node에 SSH 접속합니다.
@@ -376,6 +422,20 @@ aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-west-
 ### MLflow "already exists" 에러
 - 이전 배포에서 MLflow 서버가 남아있음
 - `aws sagemaker delete-mlflow-tracking-server --tracking-server-name <name>` 후 재배포
+
+### 패치 실패: "The lifecycle configuration bucket ... was not found or does not exist"
+- 라이프사이클 스크립트 버킷이 삭제된 상태에서 `update-cluster-software`를 호출한 경우
+- 클러스터가 `SystemUpdating` → `RollingBack` → `Failed`로 떨어짐 (노드는 교체 전에 중단되므로 데이터는 보존됨)
+- 복구: 같은 이름으로 버킷을 다시 만들고 스크립트를 올린 뒤 패치를 재시도
+  ```bash
+  B=hyperpod-lifecycle-<prefix>-<account>-us-west-2
+  aws s3api create-bucket --bucket $B --region us-west-2 \
+    --create-bucket-configuration LocationConstraint=us-west-2
+  aws s3 cp lifecycle-scripts/ s3://$B/lifecycle-scripts/ --recursive --exclude "*" --include "*.sh"
+  printf '%s' "$B" | aws s3 cp - s3://$B/lifecycle-scripts/bucket.conf
+  aws sagemaker update-cluster-software --cluster-name <cluster> --region us-west-2
+  ```
+- 예방: 버킷에 삭제 방지를 걸거나, 패치 전 사전 점검 항목으로 버킷 존재를 확인
 
 ### S3 버킷 삭제 실패
 - 버킷이 비어있지 않으면 삭제 불가
