@@ -32,8 +32,13 @@ echo ""
 
 if [ -n "$CHECKPOINT" ]; then
   echo "  Checkpoint: ${CHECKPOINT}"
-  echo "  Isaac Sim에서 모델 로드:"
-  echo "    python /fsx/scratch/verify_in_sim.py --checkpoint ${CHECKPOINT}"
+  echo "  Isaac Sim에서 모델 로드 (DCV 데스크톱 터미널에서):"
+  echo "    sudo enroot start --root --rw --mount /fsx:/fsx \\"
+  echo "      --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y --env DISPLAY \\"
+  echo "      --env PYTHONPATH=/fsx/scratch/isaaclab-workshop/src:/fsx/scratch/IsaacLab/source/isaaclab_rl:/fsx/scratch/IsaacLab/source/isaaclab_tasks \\"
+  echo "      isaaclab /isaac-sim/kit/python/bin/python3 \\"
+  echo "      /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/play_isaaclab.py \\"
+  echo "      --checkpoint ${CHECKPOINT} --num_envs 4"
 fi
 
 echo ""
