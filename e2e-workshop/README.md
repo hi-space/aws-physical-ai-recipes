@@ -53,6 +53,9 @@ cdk deploy \
   -c region=us-east-1
 ```
 
+`-c userId`는 한 계정을 여러 명이 나눠 쓸 때만 필요합니다. 생략하면 배포 대상
+계정 ID가 자동으로 쓰여서 스택 이름이 `IsaacLab-Latest-<계정ID>`가 됩니다.
+
 배포에 70~110분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
 
 ### 2) RL 학습 — Isaac Lab으로 휴머노이드 보행

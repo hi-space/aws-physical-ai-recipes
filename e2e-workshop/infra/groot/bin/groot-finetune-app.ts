@@ -16,8 +16,17 @@ async function main() {
   const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
   const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region };
 
-  const userId = app.node.tryGetContext('userId') as string | undefined;
-  const userSuffix = userId ? `-${userId}` : '';
+  // userId 미지정 시 계정 ID로 대체한다(계정당 1명 전제). 스택/버킷 이름은 synth
+  // 시점에 literal이어야 하므로 토큰이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
+  // isaaclab 쪽 isaac-lab-app.ts와 동일한 규칙이어야 부모 스택 탐색이 성립한다.
+  const userId = (app.node.tryGetContext('userId') as string | undefined)
+    ?? process.env.CDK_DEFAULT_ACCOUNT;
+  if (!userId) {
+    throw new Error(
+      'userId를 확정할 수 없습니다. AWS 자격증명을 설정하거나 -c userId=<name>을 지정하세요.',
+    );
+  }
+  const userSuffix = `-${userId}`;
 
   const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
   const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
@@ -52,40 +61,43 @@ async function main() {
   let availabilityZone = app.node.tryGetContext('availabilityZone') as string | undefined;
 
   const missingInfra = !vpcId || !efsFileSystemId || !efsSecurityGroupId || !privateSubnetId || !availabilityZone;
-  if (missingInfra && userId) {
+  if (missingInfra) {
+    // 부모 IsaacLab 스택이 아직 없으면(= shared 먼저 배포하는 단계) per-user 스택을
+    // 등록하지 않고 넘어간다. 여기서 throw하면 GrootFinetuneShared 배포도 막힌다.
     console.error(`[GrootFinetune] Resolving parent IsaacLab stack for userId="${userId}" in ${region}...`);
-    const params = await resolveParentStack(userId, region);
-    saveToContext({ userId, ...params, region });
-    ({ vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone } = params);
-    console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, efs=${efsFileSystemId}, az=${availabilityZone}`);
+    try {
+      const params = await resolveParentStack(userId, region);
+      saveToContext({ userId, ...params, region });
+      ({ vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone } = params);
+      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, efs=${efsFileSystemId}, az=${availabilityZone}`);
+    } catch (err) {
+      console.error(`[GrootFinetune] Skipping per-user stacks: ${(err as Error).message}`);
+    }
   }
 
   // ---- [3] Per-user Batch ----
-  // userId가 있거나 명시 인프라가 모두 있을 때만 등록.
-  if (!missingInfra || userId) {
+  if (vpcId && efsFileSystemId && efsSecurityGroupId && privateSubnetId && availabilityZone) {
     new GrootBatchTrainStack(app, 'GrootBatchTrain', {
       stackName: `GrootBatchTrain${userSuffix}`,
       env,
-      vpcId: vpcId!,
-      efsFileSystemId: efsFileSystemId!,
-      efsSecurityGroupId: efsSecurityGroupId!,
-      privateSubnetId: privateSubnetId!,
-      availabilityZone: availabilityZone!,
+      vpcId,
+      efsFileSystemId,
+      efsSecurityGroupId,
+      privateSubnetId,
+      availabilityZone,
       userId,
     });
   }
 
   // ---- [4] Per-user SageMaker ----
-  // bucketName 기본값: groot-sm-artifacts-${userId}
-  const bucketName = (app.node.tryGetContext('bucketName') as string | undefined)
-    ?? (userId ? `groot-sm-artifacts-${userId}` : undefined);
-
-  if (vpcId && privateSubnetId && bucketName) {
+  // EFS를 쓰지 않으므로 VPC/Subnet만 확정되면 등록한다.
+  if (vpcId && privateSubnetId) {
     new GrootSagemakerStack(app, 'GrootFinetuneSagemaker', {
       stackName: `GrootFinetuneSagemaker${userSuffix}`,
       env,
       userId,
-      bucketName,
+      bucketName: (app.node.tryGetContext('bucketName') as string | undefined)
+        ?? `groot-sm-artifacts-${userId}`,
       vpcId,
       subnetIds: [privateSubnetId],
       availabilityZone,

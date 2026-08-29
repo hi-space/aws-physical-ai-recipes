@@ -4,7 +4,9 @@ import { HyperPodStack } from '../lib/hyperpod-stack';
 
 const app = new cdk.App();
 
-const userId = app.node.tryGetContext('userId') ?? '';
+// userId 미지정 시 계정 ID를 사용한다(계정당 1명 전제). 스택 이름은 synth 시점에
+// literal이어야 하므로 토큰이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
+const userId = app.node.tryGetContext('userId') ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
 const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION;
 const createVpc = (app.node.tryGetContext('createVpc') ?? 'true') === 'true';
 const gpuMaxCountPerType = parseInt(app.node.tryGetContext('gpuMaxCount') ?? '4', 10);

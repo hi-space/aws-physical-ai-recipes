@@ -48,14 +48,14 @@ npx ts-node bin/update-config.ts --user-id alice --region us-east-1
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `userId` | (없음) | 사용자별 스택 식별자. 모든 리소스 이름에 `-<userId>` 접미사가 붙음 |
+| `userId` | 배포 대상 계정 ID | 사용자별 스택 식별자. 모든 리소스 이름에 `-<userId>` 접미사가 붙음. 한 계정을 여러 명이 나눠 쓸 때만 지정 |
 | `region` | `us-east-1` | 배포 리전 |
 | `grootVersion` | `n1.6` | `n1.6` 또는 `n1.7`. CodeBuild가 빌드할 GR00T 버전 |
 | `useStableGroot` | `true` | 검증된 릴리스 커밋 사용 (`false`면 최신) |
 | `bucketName` | `groot-sm-artifacts-<userId>` | SageMaker 아티팩트 버킷 이름 |
 | `mlflowSize` | `Small` | MLflow tracking server 사이즈 |
 
-`-c userId=alice`만 지정하면 `bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-alice` 스택의 outputs에서 VPC ID, Private Subnet, EFS 정보를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다.
+`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<userId>` 스택의 outputs에서 VPC ID, Private Subnet, EFS 정보를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다. 부모 IsaacLab 스택을 찾지 못하면 per-user 스택(`GrootBatchTrain`, `GrootFinetuneSagemaker`)은 건너뛰고 `GrootFinetuneShared`만 배포 대상이 됩니다.
 
 ## Project Structure
 

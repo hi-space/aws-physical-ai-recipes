@@ -8,6 +8,8 @@
  * 멀티 사용자 지원:
  *   -c userId=alice 를 지정하면 스택 이름, ECR 리포지토리, 리소스 태그에
  *   사용자 식별자가 포함되어 같은 계정에서 여러 사용자가 독립 배포 가능하다.
+ *   미지정 시 배포 대상 계정 ID가 userId로 사용되므로(계정당 1명 전제),
+ *   별도 인자 없이도 이름이 항상 확정된다.
  *
  * 리전 선택 우선순위:
  *   1. CDK Context: -c region=us-west-2 (가장 높은 우선순위)
@@ -44,7 +46,9 @@ const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') 
 const enableBatch = (app.node.tryGetContext('enableBatch') ?? 'false') === 'true';
 const grootWeightsUrl = app.node.tryGetContext('grootWeightsUrl') ?? '';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
-const userId = app.node.tryGetContext('userId') ?? '';
+// userId 미지정 시 계정 ID를 사용한다. 스택/버킷 이름은 synth 시점에 literal이어야
+// 하므로 토큰(cdk.Aws.ACCOUNT_ID)이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
+const userId = app.node.tryGetContext('userId') ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
 
 // userId 유효성 검사: 영문소문자, 숫자, 하이픈만 허용 (스택 이름·ECR 리포지토리 호환)
 if (userId && !/^[a-z0-9-]+$/.test(userId)) {

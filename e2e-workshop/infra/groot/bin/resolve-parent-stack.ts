@@ -2,8 +2,9 @@
 /**
  * Resolves parent IsaacLab stack parameters (VPC/EFS/Subnet/AZ).
  *
- * Importable: `resolveParentStack(userId, region)` — used by groot-batch-train-app.ts
- * Standalone: `npx ts-node bin/resolve-parent-stack.ts <userId> [region]` — writes cdk.context.json
+ * Importable: `resolveParentStack(userId, region)` — used by groot-finetune-app.ts
+ * Standalone: `npx ts-node bin/resolve-parent-stack.ts [userId] [region]` — writes cdk.context.json
+ *   userId 생략 시 CDK_DEFAULT_ACCOUNT(계정 ID)를 사용한다.
  */
 import {
   CloudFormationClient,
@@ -25,10 +26,10 @@ export async function resolveParentStack(userId: string, region: string): Promis
   const cfn = new CloudFormationClient({ region });
   const ec2 = new EC2Client({ region });
 
-  const candidates = [
-    `IsaacLab-Latest-${userId}`,
-    `IsaacLab-Stable-${userId}`,
-  ];
+  // suffix 없는 이름은 userId 기본값이 도입되기 전에 배포된 스택을 위한 fallback.
+  const candidates = userId
+    ? [`IsaacLab-Latest-${userId}`, `IsaacLab-Stable-${userId}`, 'IsaacLab-Latest', 'IsaacLab-Stable']
+    : ['IsaacLab-Latest', 'IsaacLab-Stable'];
 
   let foundStack: string | undefined;
   let outputs: Array<{ OutputKey?: string; OutputValue?: string }> = [];
@@ -91,13 +92,8 @@ export function saveToContext(values: Record<string, string>): void {
 }
 
 if (require.main === module) {
-  const userId = process.argv[2];
+  const userId = process.argv[2] ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
   const region = process.argv[3] ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
-
-  if (!userId) {
-    console.error('Usage: npx ts-node bin/resolve-parent-stack.ts <userId> [region]');
-    process.exit(1);
-  }
 
   resolveParentStack(userId, region)
     .then((params) => {

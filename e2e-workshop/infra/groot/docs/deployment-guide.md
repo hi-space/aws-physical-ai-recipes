@@ -91,6 +91,9 @@ CDK_DEFAULT_REGION=ap-northeast-2 npx cdk deploy GrootBatchTrain -c userId=yoo
 
 배포 후 CFN 콘솔에는 `GrootBatchTrain-yoo` 스택으로 등록됩니다.
 
+`-c userId` 를 생략하면 배포 대상 계정 ID가 userId 로 쓰여 `GrootBatchTrain-<계정ID>` 가 됩니다.
+한 계정을 여러 명이 나눠 쓸 때만 명시하면 됩니다.
+
 배포 완료 후 출력되는 Stack Outputs를 메모합니다.
 
 ---
@@ -131,8 +134,8 @@ aws ecr describe-images \
 ```bash
 aws batch submit-job \
   --job-name groot-batch-train-test \
-  --job-queue groot-batch-train-queue \
-  --job-definition groot-batch-train-job-single \
+  --job-queue groot-batch-train-<userId>-queue \
+  --job-definition groot-batch-train-<userId>-job-single \
   --region ap-northeast-2 \
   --container-overrides '{
     "environment": [
@@ -147,8 +150,8 @@ aws batch submit-job \
 ```bash
 aws batch submit-job \
   --job-name groot-batch-train-full \
-  --job-queue groot-batch-train-queue \
-  --job-definition groot-batch-train-job-single \
+  --job-queue groot-batch-train-<userId>-queue \
+  --job-definition groot-batch-train-<userId>-job-single \
   --region ap-northeast-2 \
   --container-overrides '{
     "environment": [
@@ -164,8 +167,8 @@ aws batch submit-job \
 ```bash
 aws batch submit-job \
   --job-name groot-batch-train-custom \
-  --job-queue groot-batch-train-queue \
-  --job-definition groot-batch-train-job-single \
+  --job-queue groot-batch-train-<userId>-queue \
+  --job-definition groot-batch-train-<userId>-job-single \
   --region ap-northeast-2 \
   --container-overrides '{
     "environment": [

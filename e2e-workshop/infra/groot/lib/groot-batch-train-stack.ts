@@ -12,7 +12,7 @@ export interface GrootBatchTrainStackProps extends cdk.StackProps {
   efsSecurityGroupId: string;
   privateSubnetId: string;
   availabilityZone: string;
-  userId?: string;
+  userId: string;
 }
 
 export class GrootBatchTrainStack extends cdk.Stack {
@@ -20,10 +20,10 @@ export class GrootBatchTrainStack extends cdk.Stack {
     super(scope, id, props);
 
     const { userId } = props;
-    const namePrefix = userId ? `groot-batch-train-${userId}` : 'groot-batch-train';
+    const namePrefix = `groot-batch-train-${userId}`;
 
     cdk.Tags.of(this).add('Project', 'GrootBatchTrain');
-    if (userId) cdk.Tags.of(this).add('UserId', userId);
+    cdk.Tags.of(this).add('UserId', userId);
 
     // [1] Import shared VPC/EFS/Subnet from IsaacLab parent stack
     const shared = new SharedResourceImporter(this, 'SharedResources', {
@@ -51,7 +51,7 @@ export class GrootBatchTrainStack extends cdk.Stack {
 
     // [4] S3 bucket for model checkpoints
     const checkpointBucket = new s3.Bucket(this, 'CheckpointBucket', {
-      bucketName: `groot-batch-checkpoints-${userId ?? 'default'}`,
+      bucketName: `groot-batch-checkpoints-${userId}`,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
