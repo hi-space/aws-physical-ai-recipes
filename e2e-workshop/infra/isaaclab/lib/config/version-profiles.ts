@@ -32,14 +32,18 @@ export interface VersionProfile {
 /**
  * 버전 프로필 매핑 객체
  *
- * - stable: 워크숍 검증 완료된 안정 조합 (Isaac Sim 4.5.0 + Isaac Lab 2.3.2)
- * - latest: 최신 Isaac Sim 5.1.0 기반 조합
+ * - latest: 워크숍 기본 조합 (Isaac Sim 5.1.0 + Isaac Lab 2.3.2)
+ * - stable: 이전 조합 (Isaac Sim 4.5.0 + Isaac Lab 2.1.1)
+ *
+ * isaacLabVersion은 업스트림이 명시한 Isaac Sim 대응 버전을 따른다.
+ * Isaac Lab v2.1.1까지 Isaac Sim 4.5.0, v2.2.x는 5.0.0, v2.3.x는 5.1.0을 대상으로 한다.
  *
  * legacy 프로필은 제거됨:
  *   Ubuntu 20.04 EOL(2025-04), ROS2 Foxy EOL(2023-06),
  *   Isaac Sim/Lab 미포함으로 워크숍 실행 불가
  *
- * Isaac Sim 6.0.0은 Early Developer Release(2026-01)로 프로덕션 부적합하여 미포함.
+ * Isaac Sim 6.0.0(GA 2026-03-16) / 6.0.1(2026-06-22)은 Python 3.12만 지원하며
+ * 이 리포에서 검증되지 않아 미포함.
  */
 export const VERSION_PROFILES = {
   stable: {
@@ -47,7 +51,7 @@ export const VERSION_PROFILES = {
     ros2Distro: 'humble',
     nvidiaDriverVersion: '570',
     isaacSimVersion: '4.5.0',
-    isaacLabVersion: '2.3.2',
+    isaacLabVersion: '2.1.1',
     cudaVersion: '12.x',
     isaacSimDockerImage: 'nvcr.io/nvidia/isaac-sim:4.5.0',
     installV4l2Loopback: false,

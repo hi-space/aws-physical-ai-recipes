@@ -103,13 +103,23 @@ PPO(Proximal Policy Optimization) 알고리즘으로 **Unitree H1 휴머노이�
 
 ## 사용하는 AWS 서비스
 
+기본 배포에 포함되는 서비스:
+
 | 서비스 | 용도 |
 |--------|------|
+| **Amazon VPC** | 퍼블릭 서브넷, 인터넷 게이트웨이, 보안 그룹 |
 | **Amazon EC2** (GPU) | DCV 인스턴스에서 학습/시뮬레이션 실행 |
 | **Amazon DCV** | GPU 원격 데스크톱 (Isaac Sim UI 접속) |
+| **Amazon EFS** | 체크포인트·모델 공유 스토리지 |
+| **Amazon CloudFront** | code-server(브라우저 VSCode) HTTPS 접속 경로 |
+| **AWS Secrets Manager** | DCV / code-server 로그인 비밀번호 자동 생성·보관 |
+
+`-c enableBatch=true`로 재배포할 때 추가되는 서비스:
+
+| 서비스 | 용도 |
+|--------|------|
 | **AWS Batch** | 멀티노드 분산 학습 (headless) |
-| **Amazon EFS** | DCV ↔ Batch 간 공유 스토리지 (체크포인트, 모델) |
-| **Amazon ECR** | Isaac Lab Docker 이미지 저장소 |
+| **Amazon ECR** | Isaac Lab Docker 이미지 저장소 (이미지 푸시로 배포 시간 증가) |
 | **Amazon ECS** | Batch 컨테이너 오케스트레이션 |
 
 ## 워크숍 진행 흐름
@@ -119,6 +129,14 @@ PPO(Proximal Policy Optimization) 알고리즘으로 **Unitree H1 휴머노이�
 - NVIDIA 라이선스 동의 ([NVIDIA Omniverse License Agreement](https://docs.omniverse.nvidia.com/isaacsim/latest/common/NVIDIA_Omniverse_License_Agreement.html))
 - AWS 계정 (이벤트 참석 시 제공됨) — 권장 리전: `us-east-1`
 - GPU 인스턴스 서비스 할당량 확인
+
+배포되는 인스턴스 사양:
+
+```
+인스턴스 타입   g6e.4xlarge (NVIDIA L40S × 1, 16 vCPU, 128 GiB)
+                capacity 부족 시 g6.4xlarge → g6.12xlarge → g6e.12xlarge 순으로 자동 대체
+루트 볼륨       500 GB gp3 (암호화) — Isaac Sim 이미지 약 20 GB + 빌드 캐시
+```
 
 ### Module 1: Launch Isaac Lab on Amazon EC2 (~20분)
 
@@ -202,7 +220,7 @@ CDK를 사용한 IaC 배포와 CloudInstanceOptimizer를 활용한 RL 튜닝을 
 ```
 1. CloudShell 환경 설정 .............. 5분
 2. 할당량 사전 체크 (관리자) ......... 1분
-3. 인프라 배포 (백그라운드) .......... 30~60분
+3. 인프라 배포 (백그라운드) .......... 70~110분
 4. DCV / code-server 접속
 5. Isaac Lab 학습 실행
 6. 리소스 정리
@@ -247,7 +265,7 @@ bash ./scripts/check-quotas.sh -n 10 --auto-request || true
 nohup npx cdk deploy \
   -c userId=<본인이름> \
   -c vpcCidr=10.<번호>.0.0/16 \
-  -c isaacSimVersion=5.1.0 \
+  -c versionProfile=latest \
   -c region=us-east-1 \
   --require-approval never > deploy.log 2>&1 &
 ```
@@ -257,7 +275,7 @@ nohup npx cdk deploy \
 nohup npx cdk deploy \
   -c userId=alice \
   -c vpcCidr=10.1.0.0/16 \
-  -c isaacSimVersion=5.1.0 \
+  -c versionProfile=latest \
   -c region=us-east-1 \
   --require-approval never > deploy.log 2>&1 &
 ```
@@ -268,7 +286,7 @@ nohup npx cdk deploy \
 진행 확인:
 ```bash
 tail -f deploy.log
-# 또는 AWS 콘솔 → CloudFormation → 스택: IsaacLab-Stable-<본인이름>
+# 또는 AWS 콘솔 → CloudFormation → 스택: IsaacLab-Latest-<본인이름>
 ```
 
 ### Step 4. 접속 정보 확인
@@ -320,7 +338,10 @@ ls /home/ubuntu/environment/groot_docker
 
 문제가 있으면 UserData 로그 확인:
 ```bash
-sudo tail -100 /var/log/user-data.log
+sudo tail -100 /var/log/cloud-init-output.log
+
+# 설치 단계별 소요 시간 (각 스크립트가 START/END에 타임스탬프를 찍는다)
+sudo grep -E "(=====|-----).*(START|END)" /var/log/cloud-init-output.log
 ```
 
 ### Step 6. code-server (VSCode) 접속
@@ -371,7 +392,7 @@ npx cdk destroy -c userId=<본인이름> -c region=us-east-1
 삭제 확인:
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name IsaacLab-Stable-<본인이름> \
+  --stack-name IsaacLab-Latest-<본인이름> \
   --region us-east-1 2>&1 | grep -E "StackStatus|does not exist"
 ```
 
@@ -410,6 +431,16 @@ sudo ~/aws-physical-ai-recipes/e2e-workshop/infra/isaaclab/scripts/expand-ebs.sh
 |----------|------|------|
 | `userId` | 본인 식별자 (영문소문자, 숫자, 하이픈) | `alice`, `team-1` |
 | `vpcCidr` | VPC 네트워크 대역 (참가자별 고유) | `10.1.0.0/16` |
-| `isaacSimVersion` | Isaac Sim 버전 | `4.5.0`, `5.1.0` |
+| `versionProfile` | 소프트웨어 프로필 (스택 이름에 반영됨) | `latest` (기본), `stable` |
 | `region` | AWS 리전 | `us-east-1` |
-| `versionProfile` | 소프트웨어 프로필 | `stable` (기본), `latest` |
+| `enableBatch` | AWS Batch 분산 학습 인프라 생성 | `false` (기본), `true` |
+
+프로필별 소프트웨어 조합:
+
+```
+프로필           Ubuntu   ROS2     Isaac Sim   Isaac Lab   스택 이름
+latest (기본)    24.04    jazzy    5.1.0       2.3.2       IsaacLab-Latest-<이름>
+stable           22.04    humble   4.5.0       2.1.1       IsaacLab-Stable-<이름>
+```
+
+> `-c isaacSimVersion=` 으로 Isaac Sim 버전만 따로 지정할 수도 있지만, 이때는 프로필의 Isaac Lab 태그 고정이 해제되어 IsaacLab `main`을 클론한다. 검증된 조합을 쓰려면 `versionProfile`을 사용한다.

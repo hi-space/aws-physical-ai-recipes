@@ -376,7 +376,7 @@ for mod, mc in emb.items():
 |------|------|------|
 | `nvcr.io/nvidia/pytorch:25.04-py3` pull 실패 | NGC 레지스트리 접근 불가 또는 rate limit | 잠시 후 `docker build -t groot-n1:latest /home/ubuntu/environment/groot_docker` 재시도 |
 | `pip install` 실패 | 네트워크 또는 의존성 충돌 | 로그에서 실패 패키지 확인 후 Dockerfile의 RUN pip 명령 수정 |
-| 디스크 공간 부족 | pytorch 이미지 ~15GB + 빌드 캐시 | `docker system prune -f` 후 재시도. EBS 300GB에서 부족하면 볼륨 확장 필요 |
+| 디스크 공간 부족 | pytorch 이미지 ~15GB + 빌드 캐시 | `docker system prune -f` 후 재시도. EBS 500GB에서 부족하면 볼륨 확장 필요 |
 
 ### 추론 컨테이너 실행 실패
 

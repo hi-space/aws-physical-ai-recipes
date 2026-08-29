@@ -13,7 +13,7 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
 | 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge 자동 fallback |
 | UserData | 모놀리식 | 6개 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션). GR00T-N1.6-3B 모델 가중치는 efs-mount.sh가 EFS로 자동 다운로드하며, Docker 빌드/추론 서버 실행은 사용자가 수동 수행 |
-| Batch 지원 | 미포함 | Launch Template + IAM 자동화 |
+| Batch 지원 | 미포함 | Launch Template + IAM 자동화 (`enableBatch=true` 옵션, 기본 비활성화) |
 | 보안 | 미흡 | allowedCidr, EFS SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
 | NVIDIA 드라이버 | UserData에서 직접 설치 | 구 DLAMI(550) + 570 자연 업그레이드 |
@@ -34,7 +34,7 @@ graph TB
             EFS_C["EfsStorageConstruct<br/>EFS · Mount Target"]
             DCV["DcvInstanceConstruct<br/>GPU EC2 + NICE DCV"]
             CF["CloudFrontCodeServerConstruct<br/>code-server HTTPS (옵션)"]
-            BATCH["BatchInfraConstruct<br/>Launch Template + IAM"]
+            BATCH["BatchInfraConstruct<br/>Launch Template + IAM (옵션)"]
         end
     end
 
@@ -61,7 +61,7 @@ graph TB
     STACK --> DCV --> DCV_I
     STACK -.->|enableCodeServer| CF --> CF_D
     CF_D -.->|HTTPS → HTTP:8888| DCV_I
-    STACK --> BATCH --> BLT
+    STACK -.->|enableBatch| BATCH --> BLT
     VPC --> PUB
     VPC --> PRI
     DCV_I -.->|공유| EFS_R
@@ -135,7 +135,7 @@ bash ./scripts/check-quotas.sh -n 20 -r us-west-2 --auto-request || true
 | CloudFront Distributions | 1 | code-server CDN |
 | Secrets Manager Secrets | 1 | DCV 비밀번호 |
 | CloudFormation Stacks | 1 | |
-| Security Groups | 3 | DCV, EFS, Batch |
+| Security Groups | 2 (+1) | DCV, EFS (+ Batch는 `enableBatch=true` 시) |
 
 > GPU vCPU 할당량(`Running On-Demand G and VT instances`)은 Service Quotas 콘솔에서 수동 요청하거나 AWS Support 티켓을 통해 증가해야 한다.
 
@@ -166,23 +166,26 @@ cdk deploy -c userId=alice -c enableCloudWatch=true
 # 8. code-server (VSCode) 비활성화 (CloudFront + code-server 미설치)
 cdk deploy -c userId=alice -c enableCodeServer=false
 
-# 9. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
+# 9. AWS Batch 분산 학습 인프라 활성화 (기본 비활성화, ECR 푸시로 배포 시간 증가)
+cdk deploy -c userId=alice -c enableBatch=true
+
+# 10. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
 cdk deploy -c userId=alice -c versionProfile=latest
 
-# 10. Isaac Sim 버전 오버라이드 (stable 프로필 + Isaac Sim 5.1.0)
+# 11. Isaac Sim 버전만 오버라이드 (프로필의 Isaac Lab 태그 고정은 해제됨 → main 클론)
 cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c isaacSimVersion=5.1.0 -c region=us-east-1
 
-# 11. CloudShell에서 배포 (세션 끊김 방지)
+# 12. CloudShell에서 배포 (세션 끊김 방지)
 nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
 tail -f deploy.log
 
-# 12. 변경 사항 미리보기
+# 13. 변경 사항 미리보기
 cdk diff
 
-# 13. CloudFormation 템플릿 생성 (배포 없이)
+# 14. CloudFormation 템플릿 생성 (배포 없이)
 cdk synth
 
-# 14. 스택 삭제
+# 15. 스택 삭제
 cdk destroy -c userId=alice
 ```
 
@@ -192,7 +195,7 @@ cdk destroy -c userId=alice
 
 | Props | 타입 | 기본값 | 설명 |
 |-------|------|--------|------|
-| `versionProfile` | `stable` \| `latest` | `stable` | 소프트웨어 스택 프로필 선택 |
+| `versionProfile` | `stable` \| `latest` | `latest` | 소프트웨어 스택 프로필 선택 |
 | `inferenceInstanceType` | `string` | (auto fallback) | DCV GPU 인스턴스 타입. 미지정 시 `g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge` 순서로 자동 탐색 |
 | `preferredAZ` | `auto` \| `0`~`5` | `auto` | AZ 선택. auto는 Lambda로 capacity 자동 탐색 |
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
@@ -201,22 +204,27 @@ cdk destroy -c userId=alice
 | `vpcCidr` | CIDR 문자열 | `10.0.0.0/16` | VPC 네트워크 대역. 멀티 사용자 시 참가자별 고유 CIDR 지정 |
 | `enableCloudWatch` | `true` \| `false` | `false` | CloudWatch Agent 설치 여부 (GPU/CPU/메모리/디스크 모니터링) |
 | `enableCodeServer` | `true` \| `false` | `true` | code-server (VSCode) 설치 여부. `false` 시 code-server, CloudFront, SG 포트 8888 모두 생략 |
-| `isaacSimVersion` | `string` | (프로필 기본값) | Isaac Sim 버전 오버라이드. 지정 시 프로필 기본값 대신 사용 (예: `5.1.0`) |
+| `enableBatch` | `true` \| `false` | `false` | AWS Batch 분산 학습 인프라 생성 여부. `false` 시 Batch IAM·SG·Launch Template과 ECR 이미지 푸시를 생략해 배포가 크게 빨라진다 |
+| `grootWeightsUrl` | `s3://...` \| `https://....tar.gz` | (없음) | GR00T-N1.6-3B 가중치(약 6.1GiB) 사본 위치. 미지정 시 HuggingFace에서 받는다. 같은 리전의 S3 사본을 지정하면 다운로드가 빨라지고 HuggingFace 가용성에 의존하지 않는다 |
+| `isaacSimVersion` | `string` | (프로필 기본값) | Isaac Sim 버전 오버라이드. 지정 시 프로필의 `isaacLabVersion` 고정이 해제되어 IsaacLab `main`을 클론한다. 검증된 조합은 `versionProfile` 사용 |
 
 Props는 CDK Context로 전달한다:
 
 ```bash
-# 기본 리전에 stable 배포 (AZ 자동 선택)
+# 기본 리전에 latest 배포 (AZ 자동 선택)
 cdk deploy
 
-# us-west-2에 latest 배포
-cdk deploy -c region=us-west-2 -c versionProfile=latest
+# us-west-2에 stable 배포
+cdk deploy -c region=us-west-2 -c versionProfile=stable
 
 # AZ 수동 지정 (Lambda 탐색 건너뜀)
 cdk deploy -c preferredAZ=1
 
 # 보안 그룹 소스 CIDR 제한
 cdk deploy -c allowedCidr=10.0.0.0/8
+
+# GR00T 가중치를 같은 리전의 S3 사본에서 받기
+cdk deploy -c grootWeightsUrl=s3://my-assets/GR00T-N1.6-3B/
 ```
 
 ## 멀티 사용자 배포
@@ -320,7 +328,7 @@ aws secretsmanager get-secret-value \
   --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
 ```
 
-또는 AWS 콘솔 → Secrets Manager → `InstanceCredentials-*` → "Retrieve secret value"에서 확인.
+또는 AWS 콘솔 → Secrets Manager에서 확인한다. 시크릿 이름은 CloudFormation이 자동 생성하므로(`IsaacLab-<프로필>-<userId>-DcvSecret-<임의문자열>`) 스택 출력의 `SecretArn`으로 찾는 것이 확실하다. 콘솔에서 찾을 때는 Name 태그가 `IsaacLab-<프로필>-<userId>-Secret`인 항목을 보면 된다.
 
 ### code-server (VSCode) 접속
 
@@ -381,9 +389,9 @@ npx cdk destroy -c userId=alice
 
 ## 버전 프로필 상세
 
-### stable (기본값)
+### stable
 
-워크숍에서 검증 완료된 안정 조합. Isaac Sim 4.5.0 + Isaac Lab 2.3.2 기반.
+Isaac Sim 4.5.0 + Isaac Lab 2.1.1 기반의 이전 조합. 4.5.0 전용 자산이 필요할 때 `-c versionProfile=stable`로 선택한다.
 
 | 항목 | 값 |
 |------|---|
@@ -392,12 +400,12 @@ npx cdk destroy -c userId=alice
 | ROS2 | Humble Hawksbill |
 | NVIDIA 드라이버 | 570 (DLAMI 550 → apt 업그레이드) |
 | Isaac Sim | 4.5.0 (`nvcr.io/nvidia/isaac-sim:4.5.0`) |
-| Isaac Lab | 2.3.2 |
+| Isaac Lab | 2.1.1 (태그 `v2.1.1` 고정) |
 | CUDA | 12.8 (드라이버 570 기준) |
 
-### latest (실험적)
+### latest (기본값)
 
-최신 Isaac Sim 5.1.0 기반 조합. Ubuntu 24.04 Deep Learning AMI를 사용한다.
+워크숍 기본 조합. Isaac Sim 5.1.0 + Isaac Lab 2.3.2, Ubuntu 24.04 Deep Learning AMI를 사용한다.
 
 | 항목 | 값 |
 |------|---|
@@ -406,7 +414,7 @@ npx cdk destroy -c userId=alice
 | ROS2 | Jazzy Jalisco |
 | NVIDIA 드라이버 | 570 (DLAMI 580 → 570 교체) |
 | Isaac Sim | 5.1.0 (`nvcr.io/nvidia/isaac-sim:5.1.0`) |
-| Isaac Lab | 2.3.2 |
+| Isaac Lab | 2.3.2 (태그 `v2.3.2` 고정) |
 | CUDA | 12.8 (드라이버 570 기준) |
 
 Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적용):
@@ -430,11 +438,11 @@ Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적�
 | `LogGroupArn` | VPC Flow Log 로그 그룹 ARN | IAM 정책 등에서 참조 |
 | `SecretArn` | DCV 비밀번호 Secret ARN | `aws secretsmanager get-secret-value`로 비밀번호 조회 |
 | `VersionProfile` | 선택된 버전 프로필 | 배포된 프로필 확인 |
-| `BatchLaunchTemplateId` | Batch Launch Template ID | Batch CE 생성 시 참조 |
-| `BatchInstanceProfileArn` | Batch Instance Profile ARN | Batch CE 생성 시 참조 |
 | `EfsFileSystemId` | EFS 파일 시스템 ID | Batch JD에서 EFS 마운트 설정 |
 | `PrivateSubnetId` | 프라이빗 서브넷 ID | Batch CE 생성 시 참조 |
-| `BatchSecurityGroupId` | Batch 보안 그룹 ID | Batch CE 생성 시 참조 |
+| `BatchLaunchTemplateId` | Batch Launch Template ID | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
+| `BatchInstanceProfileArn` | Batch Instance Profile ARN | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
+| `BatchSecurityGroupId` | Batch 보안 그룹 ID | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
 
 DCV 비밀번호 조회:
 
@@ -446,6 +454,18 @@ aws secretsmanager get-secret-value \
 ```
 
 ## AWS Batch 분산 학습 환경 설정
+
+Batch 분산 학습 인프라는 기본 비활성화되어 있다. 사용하려면 `-c enableBatch=true`로 배포한다.
+
+```bash
+cdk deploy -c enableBatch=true
+```
+
+`enableBatch=false`(기본값)에서는 아래가 모두 생략된다. Isaac Lab 이미지가 수십 GB라 ECR 푸시만으로 10분 이상 걸리므로, Batch를 쓰지 않는 참가자는 배포 시간을 그만큼 절약한다.
+
+- Batch IAM Role · Instance Profile · Security Group · Launch Template
+- Isaac Lab 이미지의 ECR 리포지토리 생성 및 푸시 (`docker build`는 그대로 수행되므로 DCV에서 `docker run isaaclab-batch:latest`는 정상 동작)
+- `BatchLaunchTemplateId` · `BatchInstanceProfileArn` · `BatchSecurityGroupId` CfnOutput
 
 AWS Batch의 Compute Environment, Job Queue, Job Definition은 워크숍 참가자가 직접 학습하며 구성하는 영역이므로 CDK 자동화 범위 밖이다. CDK는 Launch Template, IAM, Security Group 등 기반 리소스만 생성하며, 나머지는 CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
 

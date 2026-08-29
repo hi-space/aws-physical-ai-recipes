@@ -106,11 +106,11 @@ done
 npm install
 
 # 배포 (userId와 vpcCidr을 참가자별로 지정)
-cdk deploy -c userId=<본인이름> -c vpcCidr=10.<번호>.0.0/16
+cdk deploy -c userId=<본인이름> -c vpcCidr=10.<번호>.0.0/16 -c versionProfile=latest
 
 # 예시
-cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16
-cdk deploy -c userId=bob -c vpcCidr=10.2.0.0/16
+cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c versionProfile=latest
+cdk deploy -c userId=bob -c vpcCidr=10.2.0.0/16 -c versionProfile=latest
 ```
 
 ### CloudShell에서 배포
@@ -124,7 +124,7 @@ cd infra/isaaclab
 npm install
 
 # 2. 배포 (nohup으로 세션 끊김 방지)
-nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
+nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c versionProfile=latest --require-approval never > deploy.log 2>&1 &
 
 # 3. 배포 진행 상황 확인
 tail -f deploy.log
@@ -140,7 +140,7 @@ cat deploy.log | grep -E 'Outputs|DcvUrl|SecretArn'
 
 # 또는 CloudFormation에서 직접 조회
 aws cloudformation describe-stacks \
-  --stack-name IsaacLab-Stable-alice \
+  --stack-name IsaacLab-Latest-alice \
   --query 'Stacks[0].Outputs' --output table
 ```
 
@@ -169,13 +169,13 @@ cdk destroy -c userId=<본인이름>
 # 모든 워크숍 스택 삭제
 for USER in alice bob charlie; do
   echo "Deleting stack for $USER..."
-  aws cloudformation delete-stack --stack-name IsaacLab-Stable-$USER --region $REGION
+  aws cloudformation delete-stack --stack-name IsaacLab-Latest-$USER --region $REGION
 done
 
 # 삭제 완료 대기
 for USER in alice bob charlie; do
-  aws cloudformation wait stack-delete-complete --stack-name IsaacLab-Stable-$USER --region $REGION
-  echo "Deleted: IsaacLab-Stable-$USER"
+  aws cloudformation wait stack-delete-complete --stack-name IsaacLab-Latest-$USER --region $REGION
+  echo "Deleted: IsaacLab-Latest-$USER"
 done
 
 # ECR 리포지토리 정리 (이미지 포함 강제 삭제)
@@ -198,7 +198,7 @@ done
 ### 배포 실패: "Resource limit exceeded"
 → 서비스 할당량 부족. 위 2번 항목 참조.
 
-### 배포 실패: "Stack [IsaacLab-Stable] already exists"
+### 배포 실패: "Stack [IsaacLab-Latest] already exists"
 → userId를 지정하지 않아 다른 참가자의 스택과 충돌. `-c userId=<이름>` 추가.
 
 ### 배포 실패: "InsufficientInstanceCapacity"

@@ -13,11 +13,20 @@
  *   1. CDK Context: -c region=us-west-2 (가장 높은 우선순위)
  *   2. CDK_DEFAULT_REGION 환경 변수 (CDK CLI가 AWS 프로필에서 자동 설정)
  *
+ * AWS Batch 분산 학습 인프라는 기본 비활성화되어 있다. 활성화하면 Batch용
+ * IAM/보안 그룹/Launch Template이 생성되고, Isaac Lab 이미지를 ECR에 푸시한다
+ * (이미지가 수십 GB라 배포 시간이 크게 늘어난다).
+ *
  * 사용 예시:
- *   cdk deploy                                          # 기본 리전에 배포
+ *   cdk deploy                                          # 기본 리전에 latest 프로필 배포
  *   cdk deploy -c userId=alice                           # 사용자별 독립 배포
  *   cdk deploy -c region=us-west-2 -c userId=bob
- *   cdk deploy -c versionProfile=latest -c userId=charlie
+ *   cdk deploy -c versionProfile=stable -c userId=charlie # Isaac Sim 4.5.0 조합
+ *   cdk deploy -c enableBatch=true                       # Batch 분산 학습까지 배포
+ *
+ * GR00T 가중치(약 6.1GiB)는 기본적으로 HuggingFace에서 받는다. 같은 리전의 S3
+ * 사본을 지정하면 배포가 빨라지고 HuggingFace 가용성에 의존하지 않는다:
+ *   cdk deploy -c grootWeightsUrl=s3://my-assets/GR00T-N1.6-3B/
  */
 import * as cdk from 'aws-cdk-lib';
 import { IsaacLabStack } from '../lib/isaac-lab-stack';
@@ -25,13 +34,15 @@ import { IsaacLabStack } from '../lib/isaac-lab-stack';
 const app = new cdk.App();
 
 // Context에서 Props 읽기 (기본값 적용)
-const versionProfile = app.node.tryGetContext('versionProfile') ?? 'stable';
+const versionProfile = app.node.tryGetContext('versionProfile') ?? 'latest';
 const inferenceInstanceType = app.node.tryGetContext('inferenceInstanceType') ?? '';
 const preferredAZ = app.node.tryGetContext('preferredAZ') ?? 'auto';
 const allowedCidr = app.node.tryGetContext('allowedCidr') ?? '0.0.0.0/0';
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const enableCloudWatch = (app.node.tryGetContext('enableCloudWatch') ?? 'false') === 'true';
 const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') === 'true';
+const enableBatch = (app.node.tryGetContext('enableBatch') ?? 'false') === 'true';
+const grootWeightsUrl = app.node.tryGetContext('grootWeightsUrl') ?? '';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
 const userId = app.node.tryGetContext('userId') ?? '';
 
@@ -63,5 +74,7 @@ new IsaacLabStack(app, stackName, {
   userId,
   enableCloudWatch,
   enableCodeServer,
+  enableBatch,
+  grootWeightsUrl,
   isaacSimVersion: isaacSimVersion || undefined,
 });

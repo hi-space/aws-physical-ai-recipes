@@ -47,6 +47,10 @@ export interface DcvInstanceProps {
   enableCloudWatch?: boolean;
   /** code-server (VSCode) 설치 여부 (기본값: true) */
   enableCodeServer?: boolean;
+  /** Isaac Lab 이미지를 ECR에 푸시할지 여부 (Batch 분산 학습용, 기본값: false) */
+  enableBatch?: boolean;
+  /** GR00T 가중치 S3 사본 위치. 미지정 시 HuggingFace에서 다운로드 */
+  grootWeightsUrl?: string;
 }
 
 /**
@@ -56,7 +60,7 @@ export interface DcvInstanceProps {
  * - Secrets Manager Secret (DCV 비밀번호 자동 생성, 32자, 구두점 제외)
  * - IAM Role (S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
- * - EC2 Instance (GPU, 300GB EBS gp3, EBS 암호화 활성화)
+ * - EC2 Instance (GPU, 500GB EBS gp3, EBS 암호화 활성화)
  * - CloudFormation CreationPolicy (90분 타임아웃)
  * - UserData (6개 모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
  */
@@ -267,6 +271,7 @@ export class DcvInstanceConstruct extends Construct {
       '',
       `export NVIDIA_DRIVER_VERSION="${props.versionProfile.nvidiaDriverVersion}"`,
       `export ISAAC_SIM_VERSION="${props.versionProfile.isaacSimVersion}"`,
+      `export ISAAC_LAB_VERSION="${props.versionProfile.isaacLabVersion ?? ''}"`,
       `export ROS2_DISTRO="${props.versionProfile.ros2Distro}"`,
       `export VERSION_PROFILE="${props.versionProfileName}"`,
       'export EFS_ID="${EfsFileSystemId}"',
@@ -274,6 +279,8 @@ export class DcvInstanceConstruct extends Construct {
       'export ACCOUNT="${AWS::AccountId}"',
       'export SECRET_ID="${SecretId}"',
       `export ECR_REPO_NAME="${props.ecrRepoName ?? 'isaaclab-batch'}"`,
+      `export ENABLE_BATCH="${props.enableBatch ?? false}"`,
+      `export GROOT_WEIGHTS_URL="${props.grootWeightsUrl ?? ''}"`,
       '',
       '# Wait for IMDS and network connectivity before S3 access',
       'for i in $(seq 1 30); do TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null) && curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/ >/dev/null 2>&1 && break; echo "Waiting for IMDS credentials ($i/30)..."; sleep 10; done',
@@ -322,7 +329,7 @@ export class DcvInstanceConstruct extends Construct {
         {
           deviceName: '/dev/sda1',
           ebs: {
-            volumeSize: 300,
+            volumeSize: 500,
             volumeType: 'gp3',
             encrypted: true,
           },

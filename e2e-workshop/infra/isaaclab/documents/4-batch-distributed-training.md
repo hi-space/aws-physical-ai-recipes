@@ -40,9 +40,9 @@ Isaac Lab 환경에서 AWS Batch를 이용한 PyTorch DDP 분산 학습 참고 �
 
 ### 전제 조건
 
-- CDK 스택 배포 완료 (CfnOutput 값 확보)
+- `cdk deploy -c enableBatch=true`로 배포 완료 (CfnOutput 값 확보). Batch 인프라는 기본 비활성화이므로 이 플래그가 없으면 Launch Template·IAM·보안 그룹이 생성되지 않고 ECR 푸시도 수행되지 않는다
 - Batch CE, JQ, JD 콘솔에서 수동 생성 완료 (README 참조)
-- ECR에 Isaac Lab Docker 이미지 푸시 완료
+- ECR에 Isaac Lab Docker 이미지 푸시 완료 (`enableBatch=true` 배포 시 UserData가 자동 수행)
 
 ### distributed_run.bash
 

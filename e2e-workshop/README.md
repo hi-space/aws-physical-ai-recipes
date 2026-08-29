@@ -8,7 +8,7 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 
 실제 로봇으로 AI를 학습시키려면 수백만 번의 시행착오가 필요합니다. 이걸 진짜 로봇으로 하면 시간·비용·안전 모두 부담이 큽니다. 시뮬레이션을 활용하는 **Sim-to-Real** 접근이 표준이지만, GPU 인프라를 직접 세팅하고, 분산 학습 클러스터를 띄우고, 모델을 추론 환경에 배포하는 일은 여전히 무겁습니다.
 
-이 저장소는 그 인프라와 학습/추론 코드를 한 번의 명령으로 띄울 수 있게 묶어둔 것입니다. AWS CDK로 GPU 인스턴스 · EFS · Batch · SageMaker를 자동 배포하고, GR00T 학습 컨테이너와 추론 엔드포인트까지 표준화된 형태로 제공합니다.
+이 저장소는 그 인프라와 학습/추론 코드를 한 번의 명령으로 띄울 수 있게 묶어둔 것입니다. AWS CDK로 GPU 인스턴스 · EFS를 자동 배포하고, 분산 학습(Batch)과 SageMaker 환경은 필요한 단계에서 추가로 올립니다. GR00T 학습 컨테이너와 추론 엔드포인트까지 표준화된 형태로 제공합니다.
 
 두 가지 학습 트랙을 다룹니다.
 
@@ -17,11 +17,11 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 | **RL Policy** (Isaac Lab) | 휴머노이드 로봇이 거친 지형에서 걷도록 PPO로 학습. 단일 GPU에서 2,048개의 가상 로봇을 동시에 시뮬레이션 | `.pt` 체크포인트 |
 | **VLA Foundation Model** (GR00T) | 카메라 영상 + 자연어 명령을 받아 로봇 관절 명령을 직접 생성하는 3B 파라미터 모델을 커스텀 데이터셋으로 fine-tune | SageMaker Endpoint 또는 EFS의 fine-tuned 모델 |
 
-두 트랙 모두 같은 AWS 인프라(VPC · GPU EC2 · EFS · Batch)를 공유합니다.
+두 트랙 모두 같은 기반 인프라(VPC · GPU EC2 · EFS)를 공유합니다. 분산 학습용 AWS Batch는 각 트랙이 필요할 때 따로 배포합니다.
 
 ## Features
 
-- **원클릭 배포** — VPC, GPU EC2(DCV), EFS, ECR, Batch, SageMaker Studio, MLflow까지 CDK 한 번에 생성
+- **원클릭 배포** — VPC, GPU EC2(DCV), EFS를 CDK 한 번에 생성. ECR·Batch·SageMaker Studio·MLflow는 필요한 트랙에서 추가 배포
 - **멀티 사용자 격리** — `userId`만 다르게 주면 한 계정에서 여러 명이 충돌 없이 동시 사용
 - **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
 - **분산 학습 지원** — AWS Batch Multi-Node Parallel Jobs로 NCCL AllReduce 기반 멀티 노드 학습
@@ -53,7 +53,7 @@ cdk deploy \
   -c region=us-east-1
 ```
 
-배포에 30~60분 정도 걸립니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
+배포에 70~110분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
 
 ### 2) RL 학습 — Isaac Lab으로 휴머노이드 보행
 
@@ -105,7 +105,7 @@ python inference/sagemaker/invoke_endpoint.py \
 ```
 e2e-workshop/
 ├── infra/
-│   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + EFS + ECR + Batch)
+│   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + EFS, Batch는 옵션)
 │   └── groot/                 GR00T VLA CDK 3-stack (ECR + CodeBuild + Batch + SageMaker + MLflow)
 ├── groot/                     GR00T 학습/추론 코드 (uv venv)
 │   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
@@ -129,7 +129,7 @@ e2e-workshop/
 | 모듈 | 다루는 내용 | 주로 사용하는 디렉토리 |
 |------|-------------|------------------------|
 | 1. 인프라 준비 | CDK로 GPU 데스크탑 띄우기 | `infra/isaaclab/` |
-| 2-3. RL 학습 | 휴머노이드 보행 학습 (단일 GPU → AWS Batch 분산) | `infra/isaaclab/assets/workshop/` |
+| 2-3. RL 학습 | 휴머노이드 보행 학습 (단일 GPU. AWS Batch 분산은 `-c enableBatch=true` 재배포 필요) | `infra/isaaclab/assets/workshop/` |
 | 4. RL 시각화 | 학습된 정책으로 시뮬레이션 재생 | (DCV에서 IsaacSim) |
 | 5. VLA 인프라 | GR00T용 Batch + SageMaker 배포, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` |
 | 6. Batch fine-tuning | AWS Batch에서 GR00T fine-tune | `infra/groot/assets/` |

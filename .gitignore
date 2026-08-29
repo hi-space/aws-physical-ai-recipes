@@ -222,6 +222,7 @@ __marimo__/
 # Docs artifacts
 VERIFICATION_NOTES.md
 docs/superpowers/
+workshop-audit-*.html
 
 # Training logs & model files
 logs/

@@ -2,7 +2,7 @@
  * IsaacLabStack 메인 스택
  *
  * 5개의 Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
- * 조합 순서: Networking → EFS → AzSelector(조건부) → DCV → CloudFront(조건부) → Batch
+ * 조합 순서: Networking → EFS → AzSelector(조건부) → DCV → CloudFront(조건부) → Batch(조건부)
  *
  * 멀티 사용자 지원:
  *   userId가 지정되면 ECR 리포지토리명과 리소스 태그에 사용자 식별자가 포함되어
@@ -42,6 +42,10 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   enableCloudWatch?: boolean;
   /** code-server (VSCode) 설치 여부 (기본값: true) */
   enableCodeServer?: boolean;
+  /** AWS Batch 분산 학습 인프라 생성 및 ECR 이미지 푸시 여부 (기본값: false) */
+  enableBatch?: boolean;
+  /** GR00T 가중치 S3 사본 위치. 미지정 시 HuggingFace에서 다운로드 */
+  grootWeightsUrl?: string;
   /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
   isaacSimVersion?: string;
 }
@@ -61,6 +65,7 @@ export class IsaacLabStack extends cdk.Stack {
     const preferredAZ = props.preferredAZ ?? 'auto';
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
     const userId = props.userId ?? '';
+    const enableBatch = props.enableBatch ?? false;
 
     // --- 리소스 Name 태그 접두사 (스택 이름과 동일 패턴) ---
     const profilePart = props.versionProfile.charAt(0).toUpperCase() + props.versionProfile.slice(1);
@@ -81,8 +86,16 @@ export class IsaacLabStack extends cdk.Stack {
     // --- 버전 프로필 조회 ---
     const baseProfile = VERSION_PROFILES[props.versionProfile];
     // isaacSimVersion 오버라이드: context로 지정 시 프로필 기본값 대신 사용
+    // 프로필의 isaacLabVersion은 해당 Isaac Sim 버전에만 대응하므로 함께 해제한다
+    // (빈 값이면 isaac-lab.sh가 IsaacLab main을 클론). 버전 조합을 맞추려면
+    // isaacSimVersion 오버라이드 대신 versionProfile을 사용할 것.
     const profile = props.isaacSimVersion
-      ? { ...baseProfile, isaacSimVersion: props.isaacSimVersion, isaacSimDockerImage: `nvcr.io/nvidia/isaac-sim:${props.isaacSimVersion}` }
+      ? {
+          ...baseProfile,
+          isaacSimVersion: props.isaacSimVersion,
+          isaacSimDockerImage: `nvcr.io/nvidia/isaac-sim:${props.isaacSimVersion}`,
+          isaacLabVersion: undefined,
+        }
       : baseProfile;
 
     // --- AMI 매핑을 CfnMapping으로 변환 ---
@@ -91,19 +104,8 @@ export class IsaacLabStack extends cdk.Stack {
       mapping: DCV_AMI_MAPPING,
     });
 
-    // Batch AMI 매핑: BATCH_AMI_MAPPING은 Record<string, string>이므로
-    // CfnMapping 형식(Record<string, Record<string, string>>)으로 래핑
-    const batchAmiMappingData: Record<string, Record<string, string>> = {};
-    for (const [region, amiId] of Object.entries(BATCH_AMI_MAPPING)) {
-      batchAmiMappingData[region] = { ami: amiId };
-    }
-    const batchAmiMapping = new cdk.CfnMapping(this, 'BatchAmiMapping', {
-      mapping: batchAmiMappingData,
-    });
-
     // AMI ID 조회 (CloudFormation FindInMap — 배포 시점에 리전 결정)
     const dcvAmiId = dcvAmiMapping.findInMap(cdk.Aws.REGION, profile.ubuntuVersion);
-    const batchAmiId = batchAmiMapping.findInMap(cdk.Aws.REGION, 'ami');
 
     // --- AZ 자동 탐색 (preferredAZ === 'auto'일 때) ---
     // Custom Resource Lambda로 실제 GPU capacity가 있는 AZ를 탐색한다.
@@ -164,6 +166,8 @@ export class IsaacLabStack extends cdk.Stack {
       ecrRepoName,
       enableCloudWatch: props.enableCloudWatch,
       enableCodeServer,
+      enableBatch,
+      grootWeightsUrl: props.grootWeightsUrl,
     });
 
     // --- [4/5] CloudFrontCodeServerConstruct (code-server 활성화 시만 생성) ---
@@ -175,15 +179,28 @@ export class IsaacLabStack extends cdk.Stack {
       });
     }
 
-    // --- [5/5] BatchInfraConstruct ---
+    // --- [5/5] BatchInfraConstruct (Batch 분산 학습 활성화 시만 생성) ---
     // Batch Launch Template + IAM (Networking, EFS 의존)
-    const batchInfra = new BatchInfraConstruct(this, 'BatchInfra', {
-      namePrefix,
-      vpc: networking.vpc,
-      privateSubnet: networking.privateSubnet,
-      efsSecurityGroup: efsStorage.securityGroup,
-      batchAmiId,
-    });
+    let batchInfra: BatchInfraConstruct | undefined;
+    if (enableBatch) {
+      // Batch AMI 매핑: BATCH_AMI_MAPPING은 Record<string, string>이므로
+      // CfnMapping 형식(Record<string, Record<string, string>>)으로 래핑
+      const batchAmiMappingData: Record<string, Record<string, string>> = {};
+      for (const [region, amiId] of Object.entries(BATCH_AMI_MAPPING)) {
+        batchAmiMappingData[region] = { ami: amiId };
+      }
+      const batchAmiMapping = new cdk.CfnMapping(this, 'BatchAmiMapping', {
+        mapping: batchAmiMappingData,
+      });
+
+      batchInfra = new BatchInfraConstruct(this, 'BatchInfra', {
+        namePrefix,
+        vpc: networking.vpc,
+        privateSubnet: networking.privateSubnet,
+        efsSecurityGroup: efsStorage.securityGroup,
+        batchAmiId: batchAmiMapping.findInMap(cdk.Aws.REGION, 'ami'),
+      });
+    }
 
     // --- CfnOutput ---
     new cdk.CfnOutput(this, 'InstanceId', {
@@ -223,15 +240,22 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'Selected Version Profile',
     });
 
-    new cdk.CfnOutput(this, 'BatchLaunchTemplateId', {
-      value: batchInfra.launchTemplate.ref,
-      description: 'Batch Launch Template ID',
-    });
+    if (batchInfra) {
+      new cdk.CfnOutput(this, 'BatchLaunchTemplateId', {
+        value: batchInfra.launchTemplate.ref,
+        description: 'Batch Launch Template ID',
+      });
 
-    new cdk.CfnOutput(this, 'BatchInstanceProfileArn', {
-      value: batchInfra.instanceProfileArn,
-      description: 'Batch Instance Profile ARN',
-    });
+      new cdk.CfnOutput(this, 'BatchInstanceProfileArn', {
+        value: batchInfra.instanceProfileArn,
+        description: 'Batch Instance Profile ARN',
+      });
+
+      new cdk.CfnOutput(this, 'BatchSecurityGroupId', {
+        value: batchInfra.securityGroup.ref,
+        description: 'Batch Security Group ID',
+      });
+    }
 
     new cdk.CfnOutput(this, 'VpcId', {
       value: networking.vpc.ref,
@@ -251,11 +275,6 @@ export class IsaacLabStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'EfsSecurityGroupId', {
       value: efsStorage.securityGroup.ref,
       description: 'EFS Security Group ID (for NFS access)',
-    });
-
-    new cdk.CfnOutput(this, 'BatchSecurityGroupId', {
-      value: batchInfra.securityGroup.ref,
-      description: 'Batch Security Group ID',
     });
 
     if (userId) {
