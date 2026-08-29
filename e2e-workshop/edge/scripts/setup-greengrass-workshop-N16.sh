@@ -148,9 +148,9 @@ if [ "$UNINSTALL" = "--uninstall" ]; then
     echo "   ✅ TES policy removed" || echo "   Skip (not found)"
 
   # 6. ECR 리포지토리 삭제
-  echo ">>> [6/6] ECR / S3 정리 안내"
-  echo "   ECR 삭제: aws ecr delete-repository --repository-name $ECR_REPO --force --region $REGION"
-  echo "   S3  삭제: aws s3 rb s3://${S3_BUCKET} --force"
+  echo ">>> [6/6] ECR / S3 cleanup guide"
+  echo "   Delete ECR: aws ecr delete-repository --repository-name $ECR_REPO --force --region $REGION"
+  echo "   Delete S3:  aws s3 rb s3://${S3_BUCKET} --force"
 
   echo ""
   echo "============================================"

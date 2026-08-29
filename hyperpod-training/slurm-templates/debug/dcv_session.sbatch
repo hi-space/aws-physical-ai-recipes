@@ -20,19 +20,19 @@ DCV_PORT=8443
 
 NODE_IP=$(hostname -i)
 echo ""
-echo "=== DCV 접속 방법 ==="
-echo "  1. SSM 포트포워딩:"
+echo "=== How to connect ==="
+echo "  1. SSM port forwarding:"
 echo "     aws ssm start-session --target \$(scontrol show node \$(hostname) | grep -oP 'NodeAddr=\\K[^[:space:]]+') \\"
 echo "       --document-name AWS-StartPortForwardingSession \\"
 echo "       --parameters portNumber=${DCV_PORT},localPortNumber=${DCV_PORT}"
 echo ""
-echo "  2. 브라우저에서 접속:"
+echo "  2. Open in your browser:"
 echo "     https://localhost:${DCV_PORT}"
 echo ""
 
 if [ -n "$CHECKPOINT" ]; then
   echo "  Checkpoint: ${CHECKPOINT}"
-  echo "  Isaac Sim에서 모델 로드 (DCV 데스크톱 터미널에서):"
+  echo "  Load the model in Isaac Sim (from a terminal on the DCV desktop):"
   echo "    sudo enroot start --root --rw --mount /fsx:/fsx \\"
   echo "      --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y --env DISPLAY \\"
   echo "      --env PYTHONPATH=/fsx/scratch/isaaclab-workshop/src:/fsx/scratch/IsaacLab/source/isaaclab_rl:/fsx/scratch/IsaacLab/source/isaaclab_tasks \\"
@@ -42,6 +42,6 @@ if [ -n "$CHECKPOINT" ]; then
 fi
 
 echo ""
-echo "세션 종료: scancel ${SLURM_JOB_ID}"
+echo "To end the session: scancel ${SLURM_JOB_ID}"
 
 sleep infinity
