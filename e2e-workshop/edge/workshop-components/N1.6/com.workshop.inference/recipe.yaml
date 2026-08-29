@@ -11,10 +11,15 @@ ComponentDependencies:
 ComponentConfiguration:
   DefaultConfiguration:
     ecrImage: "007023064118.dkr.ecr.us-east-1.amazonaws.com/groot-n16-inference-jinseony:latest"
+    # Default = fine-tuned Pick-Orange (Module 6 / edge). Module 2 overrides modelPath
+    # to the base SO-101 dir built by prepare-base-so101.sh (untrained baseline).
     modelPath: "/opt/groot/models/GR00T-N1.6-3B-Pick-Orange"
     embodimentTag: "NEW_EMBODIMENT"
     policyHost: "0.0.0.0"
     policyPort: "5555"
+    # EFS host path is mounted 1:1 so a modelPath under EFS (e.g. the base SO-101
+    # dir with relative symlinks to base weights) resolves inside the container.
+    efsHostPath: "/home/ubuntu/environment/efs"
 Manifests:
   - Platform:
       os: linux
@@ -29,6 +34,14 @@ Manifests:
           EMBODIMENT="{configuration:/embodimentTag}"
           POLICY_HOST="{configuration:/policyHost}"
           POLICY_PORT="{configuration:/policyPort}"
+          EFS_HOST="{configuration:/efsHostPath}"
+
+          # Mount the EFS host path 1:1 (if present) so a modelPath under EFS resolves
+          # inside the container (used by the Module 2 base SO-101 symlink dir).
+          EFS_MOUNT=""
+          if [ -n "$EFS_HOST" ] && [ -d "$EFS_HOST" ]; then
+            EFS_MOUNT="-v $EFS_HOST:$EFS_HOST"
+          fi
 
           docker stop groot-workshop-inference 2>/dev/null || true
           docker rm groot-workshop-inference 2>/dev/null || true
@@ -46,6 +59,7 @@ Manifests:
             -v /opt/groot/models:/opt/groot/models \
             -v /opt/groot/trt_n16:/opt/groot/trt_n16 \
             -v /home/ubuntu/.cache/huggingface:/root/.cache/huggingface \
+            $EFS_MOUNT \
             "$ECR_IMAGE" \
             -c "cd /workspace/gr00t-repo && python -m gr00t.eval.run_gr00t_server \
               --model-path $MODEL_PATH \
