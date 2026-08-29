@@ -8,7 +8,7 @@
 #
 # 입력 환경 변수:
 #   ISAAC_SIM_VERSION - Isaac Sim 버전 (예: '4.5.0', '5.1.0', '')
-#   ISAAC_LAB_VERSION - Isaac Lab 태그 (예: '2.1.1'), 비어있으면 main 브랜치
+#   ISAAC_LAB_VERSION - Isaac Lab 태그 (프로필의 isaacLabVersion). 미지정 시 main 브랜치
 #   REGION            - AWS 리전 (예: us-east-1)
 #   ACCOUNT           - AWS 계정 ID
 #   ECR_REPO_NAME     - ECR 리포지토리 이름 (기본: isaaclab-batch)
@@ -33,14 +33,22 @@ else
 
 # -----------------------------------------------------------------------------
 # 2. IsaacLab 리포지토리 클론
-#    Isaac Sim 버전과 호환되는 태그를 고정한다. main을 그대로 쓰면 업스트림
-#    변경으로 빌드가 깨지거나 Isaac Sim 버전과 어긋날 수 있다.
+#    Isaac Sim 버전과 호환되는 태그를 고정한다. ISAAC_LAB_VERSION이 지정되면
+#    해당 태그를 고정 체크아웃한다.
+#    main은 개발 브랜치여서 다음 메이저(IsaacLab 3.0 / Isaac Sim 6.x) 코드가
+#    수시로 들어오고 되돌려진다. 실제로 2026-08-29 시점의 main은 tomllib
+#    (Python 3.11+)을 요구해 Isaac Sim 4.5.0(Python 3.10.15)에서
+#    `isaaclab.sh --install`이 ModuleNotFoundError로 실패했고, 하루 뒤에는
+#    다시 5.1.0 타깃 상태로 되돌아가 있었다. 이렇게 하루 단위로 달라지므로
+#    프로필이 선언한 태그로 반드시 고정해야 재현 가능한 빌드가 된다.
 # -----------------------------------------------------------------------------
 mkdir -p /home/ubuntu/environment
 cd /home/ubuntu/environment
 if [ -n "${ISAAC_LAB_VERSION}" ]; then
+  echo "IsaacLab 태그 v${ISAAC_LAB_VERSION} 고정 클론"
   git clone --branch "v${ISAAC_LAB_VERSION}" --depth 1 https://github.com/isaac-sim/IsaacLab.git
 else
+  echo "경고: ISAAC_LAB_VERSION 미지정 — main 브랜치를 클론합니다 (Isaac Sim 버전과 불일치할 수 있음)"
   git clone https://github.com/isaac-sim/IsaacLab.git
 fi
 chown -R ubuntu:ubuntu /home/ubuntu/environment/IsaacLab
