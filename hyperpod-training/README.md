@@ -7,10 +7,11 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ HyperPod Cluster (SLURM Managed)                        │
-│  ├─ head   (ml.m5.xlarge)    — 컨트롤러, 상시 운영       │
-│  ├─ sim    (ml.g5.12xlarge)  — IsaacLab 시뮬레이션       │
-│  ├─ train  (ml.g6e.12xlarge) — VLA/RL 학습              │
-│  └─ debug  (ml.g5.4xlarge)   — 디버깅/시각화            │
+│  ├─ head   (ml.m5.xlarge)     — 컨트롤러, 상시 운영      │
+│  ├─ gpu-*  (GPU 타입별 그룹)  — VLA/RL 학습, 시뮬레이션  │
+│  │     g6e-12x/24x/48x, g6-12x/24x/48x, p4d, p5         │
+│  │     (전부 노드 0에서 시작)                            │
+│  └─ debug  (ml.g6e.4xlarge)   — 디버깅/시각화 (0에서)    │
 ├─────────────────────────────────────────────────────────┤
 │ Storage                                                  │
 │  ├─ FSx for Lustre (1.2TB) ← /fsx 마운트               │
@@ -26,7 +27,7 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 - Node.js 18+ / npm
 - AWS CDK CLI (`npm install -g aws-cdk`)
 - Session Manager Plugin ([설치 가이드](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html))
-- 리전: `us-west-2` (HyperPod 지원 리전)
+- 리전: `us-east-1` (배포 전 GPU 쿼터 확인 — 아래 참고)
 
 ---
 
@@ -39,7 +40,7 @@ npm install
 
 CDK Bootstrap (최초 1회):
 ```bash
-cdk bootstrap aws://ACCOUNT_ID/us-west-2
+cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ```
 
 ## Step 2: 인프라 배포
@@ -47,34 +48,43 @@ cdk bootstrap aws://ACCOUNT_ID/us-west-2
 ### 기본 배포
 
 ```bash
-npx cdk deploy -c userId=<your-name> -c region=us-west-2 --require-approval never
+npx cdk deploy -c userId=<your-name> -c region=us-east-1 --require-approval never
 ```
 
 ### 배포 파라미터 커스터마이즈
 
+`bin/app.ts`가 읽는 CDK context 파라미터입니다.
+
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
 | `userId` | (필수) | 사용자 식별자 (영소문자, 숫자, 하이픈) |
-| `region` | us-west-2 | 배포 리전 |
-| `trainInstanceType` | ml.g6e.12xlarge | 학습 인스턴스 (L40S×4) |
-| `trainPreset` | default | default/heavy/max |
-| `simInstanceType` | ml.g5.12xlarge | 시뮬레이션 인스턴스 (A10×4) |
-| `simMaxCount` | 16 | Sim 파티션 최대 노드 수 |
-| `trainMaxCount` | 4 | Train 파티션 최대 노드 수 |
+| `region` | `CDK_DEFAULT_REGION` | 배포 리전 |
+| `createVpc` | true | VPC를 새로 생성 (false면 기존 VPC 사용) |
+| `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
+| `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
+| `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
-| `simUseSpot` | true | Sim 파티션 Spot 인스턴스 사용 |
 | `enableMlflow` | true | MLflow 서버 생성 여부 |
+| `amiUpdateSchedule` | `cron(00 18 ? * 1#2 *)` | AMI 보안 패치 스케줄 (`off`로 비활성화) |
 
 예시 — 소규모 테스트:
 ```bash
 npx cdk deploy \
   -c userId=researcher-a \
-  -c region=us-west-2 \
-  -c trainMaxCount=1 \
-  -c simMaxCount=2 \
+  -c region=us-east-1 \
+  -c gpuMaxCount=1 \
   -c fsxCapacityGiB=1200 \
   --require-approval never
 ```
+
+> **GPU 쿼터 확인 필수.** GPU 인스턴스 그룹은 `lib/config/cluster-config.ts`의
+> `GPU_INSTANCES` 목록(g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
+> 모두 0입니다. 쿼터가 0인 타입은 job이 영구히 `PENDING`에 머무르므로 배포 전에 확인하세요.
+>
+> ```bash
+> aws service-quotas list-service-quotas --service-code sagemaker --region us-east-1 \
+>   --query "Quotas[?contains(QuotaName,'cluster usage') && Value>\`0\`].[QuotaName,Value]" --output text
+> ```
 
 ### 배포 확인 (약 20분 소요)
 
@@ -82,13 +92,13 @@ npx cdk deploy \
 # 스택 상태 확인
 aws cloudformation describe-stacks \
   --stack-name HyperPod-<userId> \
-  --region us-west-2 \
+  --region us-east-1 \
   --query "Stacks[0].StackStatus"
 
 # 출력값 확인
 aws cloudformation describe-stacks \
   --stack-name HyperPod-<userId> \
-  --region us-west-2 \
+  --region us-east-1 \
   --query "Stacks[0].Outputs"
 ```
 
@@ -100,13 +110,13 @@ CLUSTER_NAME="hyperpod-<userId>"
 # 클러스터 상태
 aws sagemaker describe-cluster \
   --cluster-name ${CLUSTER_NAME} \
-  --region us-west-2 \
+  --region us-east-1 \
   --query "{Status:ClusterStatus,Groups:InstanceGroups[*].{Name:InstanceGroupName,Count:CurrentCount,Status:Status}}"
 
 # 노드 목록
 aws sagemaker list-cluster-nodes \
   --cluster-name ${CLUSTER_NAME} \
-  --region us-west-2
+  --region us-east-1
 ```
 
 예상 결과:
@@ -114,10 +124,16 @@ aws sagemaker list-cluster-nodes \
 {
   "Status": "InService",
   "Groups": [
-    { "Name": "head",  "Count": 1, "Status": "InService" },
-    { "Name": "sim",   "Count": 0, "Status": "InService" },
-    { "Name": "train", "Count": 0, "Status": "InService" },
-    { "Name": "debug", "Count": 0, "Status": "InService" }
+    { "Name": "head",        "Count": 1, "Status": "InService" },
+    { "Name": "gpu-g6e-12x", "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g6e-24x", "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g6e-48x", "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g6-12x",  "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g6-24x",  "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g6-48x",  "Count": 0, "Status": "InService" },
+    { "Name": "gpu-p4d",     "Count": 0, "Status": "InService" },
+    { "Name": "gpu-p5",      "Count": 0, "Status": "InService" },
+    { "Name": "debug",       "Count": 0, "Status": "InService" }
   ]
 }
 ```
@@ -130,15 +146,15 @@ HyperPod AMI에는 커널·NVIDIA 드라이버·OpenSSL 등이 포함되고, AWS
 
 ```bash
 # 스케줄 확인
-aws sagemaker describe-cluster --cluster-name ${CLUSTER_NAME} --region us-west-2 \
+aws sagemaker describe-cluster --cluster-name ${CLUSTER_NAME} --region us-east-1 \
   --query "InstanceGroups[].{Name:InstanceGroupName,Schedule:ScheduledUpdateConfig.ScheduleExpression}"
 
 # 마지막 패치 시각 확인 (LaunchTime과 같으면 한 번도 패치되지 않은 것)
-aws sagemaker list-cluster-nodes --cluster-name ${CLUSTER_NAME} --region us-west-2 \
+aws sagemaker list-cluster-nodes --cluster-name ${CLUSTER_NAME} --region us-east-1 \
   --query "ClusterNodeSummaries[].{Group:InstanceGroupName,Launch:LaunchTime,LastPatch:LastSoftwareUpdateTime}"
 
 # 예약 시각을 기다리지 않고 즉시 패치 (아래 사전 조건을 먼저 확인)
-aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us-west-2
+aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us-east-1
 ```
 
 스케줄을 끄고 배포하려면 `-c amiUpdateSchedule=off`, 주기를 바꾸려면 `-c amiUpdateSchedule='cron(00 18 1 * ? *)'`를 씁니다.
@@ -183,7 +199,7 @@ aws ssm get-parameter \
   --with-decryption \
   --query Parameter.Value \
   --output text \
-  --region us-west-2 > ~/.ssh/hyperpod-jump.pem
+  --region us-east-1 > ~/.ssh/hyperpod-jump.pem
 
 chmod 600 ~/.ssh/hyperpod-jump.pem
 ```
@@ -212,7 +228,7 @@ ssh -i ~/.ssh/cluster_access_key ubuntu@${HEAD_IP}
 또는 로컬에서 ProxyJump로 한 번에 접속:
 ```bash
 ssh -i ~/.ssh/hyperpod-jump.pem -o ProxyCommand="ssh -i ~/.ssh/hyperpod-jump.pem -W %h:%p ec2-user@${JUMP_IP}" \
-  -i <(aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2/ssh/cluster_access_key -) \
+  -i <(aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key -) \
   ubuntu@${HEAD_IP}
 ```
 
@@ -235,7 +251,7 @@ Host hyperpod
 
 > `cluster_access_key`는 Jump Host의 `~/.ssh/cluster_access_key`를 로컬로 복사하거나, S3에서 다운로드합니다:
 > ```bash
-> aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2/ssh/cluster_access_key ~/.ssh/cluster_access_key
+> aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key ~/.ssh/cluster_access_key
 > chmod 600 ~/.ssh/cluster_access_key
 > ```
 
@@ -253,7 +269,7 @@ S3에 데이터를 업로드하면 FSx `/fsx/datasets/`에 자동으로 동기�
 
 ```bash
 # 로컬에서 S3로 데이터 업로드
-BUCKET="hyperpod-data-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2"
+BUCKET="hyperpod-data-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1"
 
 aws s3 cp ./my-dataset/ s3://${BUCKET}/datasets/groot/my-robot/ --recursive
 
@@ -302,7 +318,7 @@ cp /path/to/examples/vla/train_groot.py .
 ### 직접 sbatch 제출
 
 ```bash
-sbatch --partition=train --gres=gpu:4 --nodes=1 <<'EOF'
+sbatch --partition=dev --gres=gpu:4 --nodes=1 <<'EOF'
 #!/bin/bash
 #SBATCH --job-name=groot-finetune
 #SBATCH --output=/fsx/scratch/logs/groot-%j.out
@@ -353,14 +369,14 @@ Actor-Learner 패턴으로 시뮬레이션과 학습을 동시 실행합니다.
 pip install mlflow sagemaker-mlflow boto3
 
 # 트래킹 URI 설정 (CDK 출력값 사용)
-export MLFLOW_TRACKING_URI="https://us-west-2.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow"
+export MLFLOW_TRACKING_URI="https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow"
 ```
 
 ### MLflow UI 접근
 
 SageMaker Managed MLflow UI는 CDK 배포 시 출력되는 `MLflowTrackingUri`로 접근합니다:
 ```
-https://us-west-2.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow
+https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow
 ```
 
 ### 학습 코드에서 MLflow 사용
@@ -394,11 +410,11 @@ aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-aloha/
 ```bash
 # 스택 삭제 (20분 소요)
 cd hyperpod-training/infra
-npx cdk destroy -c userId=<your-name> -c region=us-west-2 --force
+npx cdk destroy -c userId=<your-name> -c region=us-east-1 --force
 
 # 삭제 실패 시 (S3 버킷 비어있지 않음):
-aws s3 rm s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-west-2 --recursive
-aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-west-2
+aws s3 rm s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1 --recursive
+aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-east-1
 ```
 
 ---
@@ -428,12 +444,12 @@ aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-west-
 - 클러스터가 `SystemUpdating` → `RollingBack` → `Failed`로 떨어짐 (노드는 교체 전에 중단되므로 데이터는 보존됨)
 - 복구: 같은 이름으로 버킷을 다시 만들고 스크립트를 올린 뒤 패치를 재시도
   ```bash
-  B=hyperpod-lifecycle-<prefix>-<account>-us-west-2
-  aws s3api create-bucket --bucket $B --region us-west-2 \
-    --create-bucket-configuration LocationConstraint=us-west-2
+  B=hyperpod-lifecycle-<prefix>-<account>-us-east-1
+  aws s3api create-bucket --bucket $B --region us-east-1 \
+    --create-bucket-configuration LocationConstraint=us-east-1
   aws s3 cp lifecycle-scripts/ s3://$B/lifecycle-scripts/ --recursive --exclude "*" --include "*.sh"
   printf '%s' "$B" | aws s3 cp - s3://$B/lifecycle-scripts/bucket.conf
-  aws sagemaker update-cluster-software --cluster-name <cluster> --region us-west-2
+  aws sagemaker update-cluster-software --cluster-name <cluster> --region us-east-1
   ```
 - 예방: 버킷에 삭제 방지를 걸거나, 패치 전 사전 점검 항목으로 버킷 존재를 확인
 

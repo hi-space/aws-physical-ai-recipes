@@ -124,7 +124,7 @@ RCEOF
             --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
             isaaclab bash -c "
                 python3 -m pip install setuptools wheel 2>&1 | tail -1
-                python3 -m pip install isaaclab rsl-rl-lib gymnasium pyzmq msgpack 2>&1 | tail -3
+                python3 -m pip install isaaclab rsl-rl-lib gymnasium pyzmq msgpack mlflow sagemaker-mlflow 2>&1 | tail -3
                 python3 -m pip install -e /fsx/scratch/IsaacLab/source/isaaclab_tasks --no-deps 2>&1 | tail -3
                 python3 -m pip install /fsx/scratch/leisaac/source/leisaac --no-deps 2>&1 | tail -3
             " || {

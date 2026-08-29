@@ -3,13 +3,24 @@ set -euo pipefail
 
 echo "[setup_fsx] Checking FSx configuration..."
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Get region from instance metadata
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
-REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-west-2")
+REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-east-1")
 
 # Find FSx filesystem in same VPC via tags or lifecycle bucket config
 FSX_DNS_NAME="${FSX_DNS_NAME:-}"
 FSX_MOUNT_NAME="${FSX_MOUNT_NAME:-}"
+
+# Primary source: fsx.env staged alongside these scripts by the CDK at deploy
+# time (same mechanism as bucket.conf). This is authoritative — it names the
+# filesystem that belongs to THIS cluster, so no discovery guessing is needed.
+if [ -f "${SCRIPT_DIR}/fsx.env" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/fsx.env"
+  echo "[setup_fsx] Loaded FSx config from ${SCRIPT_DIR}/fsx.env"
+fi
 
 if [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
   # Use LIFECYCLE_BUCKET from parent (on_create.sh exports it)
@@ -40,7 +51,19 @@ if [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
 fi
 
 if [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
-  # Auto-discover with retry (FSx may still be initializing during first boot)
+  # Last resort: region-wide auto-discovery.
+  #
+  # This is deliberately a fallback, not the primary path: the query returns the
+  # first available Lustre filesystem in the REGION, so in an account with more
+  # than one FSx it can pick a filesystem in a different VPC, fail to mount, and
+  # (because failures here are non-fatal) leave the cluster InService with no
+  # /fsx. The reliable path is the fsx.env written next to these scripts by the
+  # CDK at deploy time — see above.
+  #
+  # Note: we cannot narrow this by VPC from instance metadata. HyperPod nodes run
+  # in a SageMaker service-owned account and their IMDS reports the *service*
+  # VPC, not the cluster VPC, so a VpcId filter built from IMDS matches nothing.
+  echo "[setup_fsx] WARNING: no fsx.env found; falling back to region-wide FSx lookup (may pick the wrong filesystem)."
   for attempt in $(seq 1 6); do
     FS_ID=$(aws fsx describe-file-systems --region "$REGION" --query "FileSystems[?FileSystemType=='LUSTRE' && Lifecycle=='AVAILABLE'].FileSystemId | [0]" --output text 2>/dev/null || true)
     if [ -n "$FS_ID" ] && [ "$FS_ID" != "None" ]; then

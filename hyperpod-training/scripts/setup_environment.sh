@@ -45,7 +45,7 @@ else
   # Docker is NOT available on HyperPod nodes.
   # Container must be pre-built and pushed to ECR externally.
   # This step imports directly from ECR using enroot.
-  AWS_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-west-2")
+  AWS_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-east-1")
   AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
   ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/gr00t-train:latest"
 

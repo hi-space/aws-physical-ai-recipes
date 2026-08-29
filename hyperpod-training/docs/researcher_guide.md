@@ -256,12 +256,25 @@ bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/container/import_con
 
 ### 작업이 PENDING 상태
 
+**HyperPod Slurm 클러스터는 노드를 자동으로 추가하지 않습니다.** 설정된 `InstanceCount`만큼만
+프로비저닝되므로, GPU 인스턴스 그룹이 0이면 job은 영구히 `PENDING`에 머무릅니다
+(`sinfo`가 `dev* up infinite 0 n/a`, slurmctld 로그에 `No nodes in partition dev`).
+제출 전에 그룹을 스케일업하세요:
+
+```bash
+aws sagemaker update-cluster --cluster-name <CLUSTER_NAME> --region <REGION> \
+  --instance-groups '[{"InstanceGroupName":"gpu-g6e-12x","InstanceType":"ml.g6e.12xlarge","InstanceCount":1,
+    "LifeCycleConfig":{"SourceS3Uri":"s3://<lifecycle-bucket>/lifecycle-scripts/","OnCreate":"on_create.sh"},
+    "ExecutionRole":"<cluster-execution-role-arn>"}]'
+```
+
+해당 인스턴스 타입의 HyperPod cluster usage 쿼터가 0이어도 동일하게 `PENDING`이 됩니다.
+
+
 ```bash
 # 리소스 부족인지 확인
 sinfo
 scontrol show job <JOB_ID> | grep Reason
-
-# Compute 노드가 부족하면 HyperPod Auto-scaling이 노드를 추가합니다 (수 분 소요)
 ```
 
 ### GPU OOM

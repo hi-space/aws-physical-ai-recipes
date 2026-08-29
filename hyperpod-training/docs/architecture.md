@@ -18,18 +18,34 @@
 
 ## 2. 클러스터 구성
 
-### 2.1 인스턴스 그룹 (4 파티션)
+### 2.1 인스턴스 그룹
 
-HyperPod 클러스터는 다음 4개 파티션으로 구성됩니다:
+`lib/config/cluster-config.ts`의 `DEFAULT_CLUSTER_CONFIG`와 `buildGpuGroups()`가 만드는
+실제 인스턴스 그룹 구성입니다. GPU는 워크로드별(sim/train) 그룹이 아니라
+**인스턴스 타입별로 그룹이 하나씩** 생성되며, 초기 노드 수는 모두 0입니다.
 
-| 파티션 | 인스턴스 유형 | GPU | 역할 | 스케일링 | 상시 운영 |
-|--------|---------------|-----|------|---------|---------|
-| **head** | ml.m5.xlarge | - | SLURM 컨트롤러, NFS, 모니터링 | No | Yes |
-| **sim** | ml.g5.12xlarge | 4× A10 (24GB) | IsaacLab 시뮬레이션 | Yes | No |
-| **train** | ml.g6e.12xlarge* | 4× L40S (48GB) | VLA/RL 학습 | Yes | No |
-| **debug** | ml.g5.4xlarge | 1× A10 (24GB) | DCV 시각화, 디버깅 | No | No |
+| 그룹 | 인스턴스 유형 | GPU | 초기/최대 노드 | 상시 운영 |
+|--------|---------------|-----|---------|---------|
+| **head** | ml.m5.xlarge | - | 1 / 1 | Yes |
+| **gpu-g6e-12x** | ml.g6e.12xlarge | 4× L40S (48GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g6e-24x** | ml.g6e.24xlarge | 4× L40S (48GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g6e-48x** | ml.g6e.48xlarge | 8× L40S (48GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g6-12x** | ml.g6.12xlarge | 4× L4 (24GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g6-24x** | ml.g6.24xlarge | 4× L4 (24GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g6-48x** | ml.g6.48xlarge | 8× L4 (24GB) | 0 / `gpuMaxCount` | No |
+| **gpu-p4d** | ml.p4d.24xlarge | 8× A100 (40GB) | 0 / `gpuMaxCount` | No |
+| **gpu-p5** | ml.p5.48xlarge | 8× H100 (80GB) | 0 / `gpuMaxCount` | No |
+| **debug** | ml.g6e.4xlarge | 1× L40S (48GB) | 0 / 1 | No |
 
-*Train 인스턴스는 CDK context `trainInstanceType`으로 변경 가능 (기본값: ml.g6e.12xlarge)
+SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지 않고 **모든 compute 노드를 담는
+`dev` 단일 파티션**이 생성됩니다(`PartitionName=dev Nodes=ALL Default=YES`). job이 어느 그룹에서
+돌지는 파티션이 아니라 요청 리소스(`--gres=gpu:N`)와 현재 노드가 올라와 있는 그룹으로 결정됩니다.
+
+또한 **Slurm 클러스터는 0에서 자동 스케일업되지 않습니다.** 설정된 `InstanceCount`만큼만
+프로비저닝되므로, GPU 그룹이 0인 상태로 job을 제출하면 영구히 `PENDING`에 머무릅니다.
+
+아래 2.2의 "Sim / Train Partition" 절은 위 GPU 그룹 위에서 수행하는 **워크로드 역할**을
+설명하는 것이며, 별도의 sim/train 인스턴스 그룹이 존재하는 것은 아닙니다.
 
 ### 2.2 인스턴스 그룹 세부 설정
 
@@ -70,7 +86,7 @@ HyperPod 클러스터는 다음 4개 파티션으로 구성됩니다:
 
 특징:
 - Spot 인스턴스로 비용 절감
-- 온디맨드로 변경 가능 (CDK context `simUseSpot=false`)
+- Spot/온디맨드는 GPU 그룹 전체에 일괄 적용 (CDK context `gpuUseSpot`, 기본값 `false` = 온디맨드)
 
 #### Train Partition (기본값)
 
@@ -108,7 +124,9 @@ HyperPod 클러스터는 다음 4개 파티션으로 구성됩니다:
 
 ### 2.3 Train 인스턴스 프리셋
 
-CDK 배포 시 `trainInstanceType` context를 통해 인스턴스 타입을 선택합니다:
+아래 타입들은 전부 인스턴스 그룹으로 함께 생성되므로(2.1 참고), 배포 시 타입을 고르는 것이 아니라
+**job을 제출할 그룹/파티션을 선택**하는 방식으로 사용합니다. `cluster-config.ts`의
+`TRAIN_INSTANCE_PRESETS`는 현재 코드에서 참조되지 않습니다:
 
 | 프리셋 | 인스턴스 | GPU | 메모리/GPU | 적합한 작업 | 예상 비용 (시간당) |
 |--------|---------|-----|-----------|-----------|-----------------|
@@ -494,12 +512,11 @@ Head Node 설정:
 
 ### 8.2 비용 절감 기법
 
-**1. Spot 인스턴스 (Sim 파티션)**
-```typescript
-// CDK
-simUseSpot: true  // Spot 활용
-// 또는
-simUseSpot: false  // 온디맨드 (안정성 우선)
+**1. Spot 인스턴스 (GPU 그룹)**
+```bash
+# CDK context (GPU 그룹 전체에 적용)
+npx cdk deploy -c gpuUseSpot=true   # Spot 활용
+npx cdk deploy -c gpuUseSpot=false  # 온디맨드 (안정성 우선, 기본값)
 ```
 
 **2. FSx 용량 최적화**

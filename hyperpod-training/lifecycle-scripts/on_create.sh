@@ -68,10 +68,30 @@ fi
 if command -v enroot &>/dev/null; then
   mkdir -p /etc/enroot /run/enroot
   chmod 777 /run/enroot
-  cat > /etc/enroot/enroot.conf <<'ENROOT_CONF'
-ENROOT_RUNTIME_PATH=/run/enroot/user-$(id -u)
+  # Pick a temp path for `enroot import`. Importing a large image (Isaac Sim is
+  # ~20GB) unpacks every layer into the temp path and then converts aufs
+  # whiteouts to overlayfs ones, so the location has to be both big and a real
+  # local filesystem:
+  #   - the node's root volume is too small (single-digit GB free) and the import
+  #     dies with "parallel: Error: Change $TMPDIR with --tmpdir or use --compress."
+  #   - /fsx (Lustre) is big but cannot do the whiteout xattrs, giving
+  #     "enroot-aufs2ovlfs: failed to create opaque ovlfs whiteout ... Operation not permitted"
+  # GPU instance types expose local NVMe at /opt/dlami/nvme (multiple TB), which
+  # satisfies both. Nodes without instance store (e.g. an ml.m5 head node) fall
+  # back to /tmp — fine for small images, but import large ones on a GPU node.
+  if mountpoint -q /opt/dlami/nvme 2>/dev/null; then
+    ENROOT_TMP=/opt/dlami/nvme/enroot/tmp
+  else
+    ENROOT_TMP=/tmp
+  fi
+  mkdir -p "${ENROOT_TMP}" 2>/dev/null || true
+  chmod 777 "${ENROOT_TMP}" 2>/dev/null || true
+  echo "[on_create] Enroot temp path: ${ENROOT_TMP}"
+  cat > /etc/enroot/enroot.conf <<ENROOT_CONF
+ENROOT_RUNTIME_PATH=/run/enroot/user-\$(id -u)
 ENROOT_CACHE_PATH=/fsx/enroot
 ENROOT_DATA_PATH=/fsx/enroot/data
+ENROOT_TEMP_PATH=${ENROOT_TMP}
 ENROOT_SQUASH_OPTIONS="-noI -noD -noF -noX -no-duplicates"
 ENROOT_MOUNT_HOME=y
 ENROOT_RESTRICT_DEV=y

@@ -19,6 +19,7 @@
 # Usage:
 #   sbatch finetune_isaaclab.sbatch
 #   TASK=Workshop-SO101-Lift-v0 MAX_ITERATIONS=500 sbatch finetune_isaaclab.sbatch
+#   MLFLOW_TRACKING_URI=<arn from Module 7 cdk deploy output> sbatch finetune_isaaclab.sbatch
 #
 # Environment Variables:
 #   TASK: Isaac Lab task ID (default: Workshop-SO101-Reach-v0)
@@ -26,6 +27,9 @@
 #   MAX_ITERATIONS: Training iterations (default: 300, ~15-20 min)
 #   LOG_DIR: Output directory (default: /fsx/checkpoints/rl)
 #   CHECKPOINT: Resume from path (optional)
+#   MLFLOW_TRACKING_URI: SageMaker Managed MLflow tracking server ARN (optional;
+#     enables experiment tracking. No-op if unset.)
+#   MLFLOW_EXPERIMENT_NAME: MLflow experiment name (default: isaaclab-rl)
 
 set -e
 
@@ -96,7 +100,7 @@ RCEOF
         sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
             "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs && \
              /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
-             isaaclab rsl-rl-lib gymnasium 2>&1 | tail -5"
+             isaaclab rsl-rl-lib gymnasium mlflow sagemaker-mlflow 2>&1 | tail -5"
         echo "Isaac Lab packages installed."
     fi
 
@@ -110,6 +114,8 @@ RCEOF
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
         --env GIT_PYTHON_REFRESH=quiet \
+        --env MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}" \
+        --env MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-isaaclab-rl}" \
         "${CONTAINER_NAME}" \
         /isaac-sim/kit/python/bin/python3 "${SCRIPT_DIR}/train_isaaclab.py" \
             --task "${TASK}" \

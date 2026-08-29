@@ -20,8 +20,12 @@ export interface ClusterDefaults {
  * 이 값을 비워두면 패치가 수동 작업(UpdateClusterSoftware 직접 호출)으로 남으므로,
  * 새 클러스터는 항상 스케줄을 켠 상태로 생성한다.
  *
- * 요일은 숫자(1-7) 대신 이름(SUN)을 쓴다. AWS 문서의 요일 숫자 기준이
- * 페이지 내에서 서로 어긋나 있어(1=월/1=일) 이름이 유일하게 모호하지 않다.
+ * 요일은 반드시 숫자로 쓴다. n번째 요일(`#`) 문법은 AWS가 검증하는 정규식에서
+ * 숫자 요일만 허용하기 때문이다(day-of-week 그룹이
+ * `MON|TUE|...|SUN|[1-7]|?|L|[1-7]#[1-5]|[1-7]L` 이라 `SUN#2`는 매칭되지 않음).
+ * `cron(00 18 ? * SUN#2 *)`로 두면 change set early validation 단계에서
+ * "does not match pattern" 으로 거부되어 배포 자체가 실패한다.
+ * EventBridge cron 규약(1=SUN … 7=SAT)에 따라 `1#2` = 둘째 일요일.
  *
  * 주의 (Slurm 클러스터 한정):
  *  - 배치/롤링 업데이트와 CloudWatch 자동 롤백(DeploymentConfig)은 EKS 전용이라
@@ -32,7 +36,7 @@ export interface ClusterDefaults {
  *
  * @see https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-release-ami-update.html
  */
-export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * SUN#2 *)';
+export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
 
 /**
  * GPU 인스턴스 타입 목록 (g6/g6e + p 시리즈)

@@ -60,6 +60,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
+    import mlflow_isaaclab
+    mlflow_isaaclab.install()
+
     args = parse_args()
     launcher = AppLauncher(args)
     simulation_app = launcher.app
@@ -102,6 +105,7 @@ def main():
 
     task_short = args.task.split("-")[-2].lower()
     log_path = f"{args.log_dir}/{task_short}/{agent_cfg.experiment_name}"
+    os.environ.setdefault("MLFLOW_ARTIFACT_DIR", args.log_dir)
 
     runner = OnPolicyRunner(
         env,

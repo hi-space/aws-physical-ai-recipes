@@ -66,6 +66,7 @@ export class HyperPodStack extends cdk.Stack {
       vpcId: networking.vpcId,
       privateSubnetId: networking.privateSubnetId,
       fsxSecurityGroup: storage.securityGroup,
+      fileSystem: storage.fileSystem,
       dataBucket: storage.bucket,
       endpointSG: networking.endpointSG,
       ssmEndpoints: networking.ssmEndpoints,

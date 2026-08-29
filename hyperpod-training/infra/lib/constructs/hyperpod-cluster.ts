@@ -4,6 +4,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as fsx from 'aws-cdk-lib/aws-fsx';
 import { Construct } from 'constructs';
 import { InstanceGroupConfig } from '../config/cluster-config';
 
@@ -12,6 +13,9 @@ export interface HyperPodClusterProps {
   vpcId: string;
   privateSubnetId: string;
   fsxSecurityGroup: ec2.CfnSecurityGroup;
+  /** Cluster's own Lustre filesystem — its DNS/mount name is staged to the
+   *  lifecycle bucket as fsx.env so setup_fsx.sh mounts the right filesystem. */
+  fileSystem: fsx.CfnFileSystem;
   dataBucket: s3.CfnBucket;
   endpointSG?: ec2.CfnSecurityGroup;
   ssmEndpoints?: ec2.CfnVPCEndpoint[];
@@ -127,12 +131,24 @@ export class HyperPodClusterConstruct extends Construct {
       description: 'Lustre from HyperPod',
     });
 
-    // Upload lifecycle scripts to S3 (include bucket.conf for self-discovery)
+    // Upload lifecycle scripts to S3 (include bucket.conf for self-discovery).
+    //
+    // fsx.env names the filesystem belonging to THIS cluster. setup_fsx.sh reads it
+    // instead of guessing: its fallback (`describe-file-systems ... | [0]`) returns
+    // the first Lustre FS in the region, which in an account with several FSx
+    // filesystems is often another VPC's — the mount then fails and, since
+    // on_create.sh treats that as non-fatal, the cluster comes up with no /fsx.
+    // IMDS cannot help here either: HyperPod nodes run in a SageMaker-owned account
+    // and report the service VPC, not the cluster VPC.
     const lifecycleScriptsPath = path.join(__dirname, '..', '..', '..', 'lifecycle-scripts');
     const lifecycleDeploy = new s3deploy.BucketDeployment(this, 'LifecycleScriptsDeploy', {
       sources: [
         s3deploy.Source.asset(lifecycleScriptsPath),
         s3deploy.Source.data('bucket.conf', this.lifecycleBucket.ref),
+        s3deploy.Source.data(
+          'fsx.env',
+          `FSX_DNS_NAME=${props.fileSystem.attrDnsName}\nFSX_MOUNT_NAME=${props.fileSystem.attrLustreMountName}\n`,
+        ),
       ],
       destinationBucket: s3.Bucket.fromBucketName(this, 'LifecycleBucketRef', this.lifecycleBucket.ref),
       destinationKeyPrefix: 'lifecycle-scripts/',
