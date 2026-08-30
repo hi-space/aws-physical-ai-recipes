@@ -185,6 +185,9 @@ fi
 cd "${LEISAAC_DIR}"
 if ! find assets/scenes -name "*.usd" 2>/dev/null | grep -q .; then
     echo "  Downloading LFS assets (USD scenes)..."
+    # Slurm 잡(root) 컨텍스트에서는 HOME이 비어 있어 git lfs가
+    # "fatal: $HOME not set"으로 실패한다 - 명시적으로 지정한다.
+    export HOME="${HOME:-/root}"
     git lfs install
     git lfs pull
     # If assets were removed in latest commit, restore from history
