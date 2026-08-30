@@ -61,7 +61,7 @@ export interface DcvInstanceProps {
  * - IAM Role (S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
  * - EC2 Instance (GPU, 500GB EBS gp3, EBS 암호화 활성화)
- * - CloudFormation CreationPolicy (90분 타임아웃)
+ * - CloudFormation CreationPolicy (120분 타임아웃 - 가이드 안내 최대 소요 110분 대비 여유)
  * - UserData (6개 모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
  */
 export class DcvInstanceConstruct extends Construct {
@@ -288,28 +288,42 @@ export class DcvInstanceConstruct extends Construct {
       `export ENABLE_BATCH="${props.enableBatch ?? false}"`,
       `export GROOT_WEIGHTS_URL="${props.grootWeightsUrl ?? ''}"`,
       '',
+      '# apt가 대화형 프롬프트(debconf 다이얼로그)로 멈추지 않도록 강제',
+      '# (keyboard-configuration 등이 입력을 기다리면 UserData가 영구 정지하고 신호 타임아웃으로 배포가 실패한다)',
+      'export DEBIAN_FRONTEND=noninteractive',
+      'export NEEDRESTART_MODE=a',
+      '',
+      '# UserData 로그 초기화 - 부트스트랩 첫 줄부터 /var/log/user-data.log에 기록 (source된 스크립트에도 상속)',
+      'exec > >(tee -a /var/log/user-data.log) 2>&1',
+      'echo "===== [$(date)] START: UserData bootstrap ====="',
+      '',
       '# Wait for IMDS and network connectivity before S3 access',
       'for i in $(seq 1 30); do TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null) && curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/ >/dev/null 2>&1 && break; echo "Waiting for IMDS credentials ($i/30)..."; sleep 10; done',
       '',
-      'aws s3 cp ${UserdataScriptsUrl} /tmp/userdata-scripts.zip',
-      'unzip -o /tmp/userdata-scripts.zip -d /tmp/userdata-scripts',
+      '# 자산 다운로드 실패는 즉시 [FAIL] 마커를 남긴다 - 침묵 실패 시 이후 모든 source가 no-op이 되어 원인 추적이 불가능하다',
+      'aws s3 cp ${UserdataScriptsUrl} /tmp/userdata-scripts.zip || { echo "[FAIL] S3 download of userdata-scripts.zip failed"; exit 1; }',
+      'if which unzip >/dev/null 2>&1; then unzip -o /tmp/userdata-scripts.zip -d /tmp/userdata-scripts || { echo "[FAIL] unzip of userdata-scripts failed"; exit 1; }; else python3 -m zipfile -e /tmp/userdata-scripts.zip /tmp/userdata-scripts || { echo "[FAIL] Python unzip of userdata-scripts failed"; exit 1; }; fi',
       'chmod +x /tmp/userdata-scripts/*.sh',
       '',
-      'aws s3 cp ${WorkshopAssetsUrl} /tmp/workshop-assets.zip',
-      'unzip -o /tmp/workshop-assets.zip -d /tmp/workshop-assets',
-      'cp /tmp/workshop-assets/Dockerfile /tmp/workshop-dockerfile',
-      'cp /tmp/workshop-assets/distributed_run.bash /tmp/workshop-distributed-run',
+      'aws s3 cp ${WorkshopAssetsUrl} /tmp/workshop-assets.zip || { echo "[FAIL] S3 download of workshop-assets.zip failed"; exit 1; }',
+      'if which unzip >/dev/null 2>&1; then unzip -o /tmp/workshop-assets.zip -d /tmp/workshop-assets || { echo "[FAIL] unzip of workshop-assets failed"; exit 1; }; else python3 -m zipfile -e /tmp/workshop-assets.zip /tmp/workshop-assets || { echo "[FAIL] Python unzip of workshop-assets failed"; exit 1; }; fi',
+      'cp /tmp/workshop-assets/Dockerfile /tmp/workshop-dockerfile || { echo "[FAIL] Dockerfile copy failed"; exit 1; }',
+      'cp /tmp/workshop-assets/distributed_run.bash /tmp/workshop-distributed-run || { echo "[FAIL] distributed_run.bash copy failed"; exit 1; }',
       '',
       'USERDATA_EXIT=0',
       "trap 'USERDATA_EXIT=1' ERR",
       'set -o pipefail',
       '',
-      'source /tmp/userdata-scripts/common.sh',
-      'source /tmp/userdata-scripts/nvidia-driver.sh',
-      ...(props.enableCloudWatch ? ['source /tmp/userdata-scripts/cloudwatch-agent.sh'] : []),
-      'source /tmp/userdata-scripts/isaac-lab.sh',
-      'source /tmp/userdata-scripts/efs-mount.sh',
-      ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh'] : []),
+      'echo "===== [$(date)] STAGE: common.sh ====="',
+      'source /tmp/userdata-scripts/common.sh || { echo "[FAIL] common.sh failed"; USERDATA_EXIT=1; }',
+      'echo "===== [$(date)] STAGE: nvidia-driver.sh ====="',
+      'source /tmp/userdata-scripts/nvidia-driver.sh || { echo "[FAIL] nvidia-driver.sh failed"; USERDATA_EXIT=1; }',
+      ...(props.enableCloudWatch ? ['source /tmp/userdata-scripts/cloudwatch-agent.sh || { echo "[FAIL] cloudwatch-agent.sh failed"; USERDATA_EXIT=1; }'] : []),
+      'echo "===== [$(date)] STAGE: isaac-lab.sh ====="',
+      'source /tmp/userdata-scripts/isaac-lab.sh || { echo "[FAIL] isaac-lab.sh failed"; USERDATA_EXIT=1; }',
+      'echo "===== [$(date)] STAGE: efs-mount.sh ====="',
+      'source /tmp/userdata-scripts/efs-mount.sh || { echo "[FAIL] efs-mount.sh failed"; USERDATA_EXIT=1; }',
+      ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }'] : []),
       '',
       'trap - ERR',
       'set +e',
@@ -317,7 +331,8 @@ export class DcvInstanceConstruct extends Construct {
       'unzip aws-cfn-bootstrap-py3-latest.zip',
       'cd aws-cfn-bootstrap-2.0/',
       'python3 setup.py install',
-      '/usr/local/bin/cfn-signal -e $USERDATA_EXIT --stack ${AWS::StackName} --resource ${InstanceLogicalId} --region ${AWS::Region}',
+      '# cfn-signal 폴백: 설치 실패 시 PATH에서 탐색 (신호를 아예 못 보내면 타임아웃까지 대기하게 됨)',
+      'if [ -x /usr/local/bin/cfn-signal ]; then /usr/local/bin/cfn-signal -e $USERDATA_EXIT --stack ${AWS::StackName} --resource ${InstanceLogicalId} --region ${AWS::Region}; elif which cfn-signal >/dev/null 2>&1; then cfn-signal -e $USERDATA_EXIT --stack ${AWS::StackName} --resource ${InstanceLogicalId} --region ${AWS::Region}; else echo "[WARN] cfn-signal not found - stack will wait for CreationPolicy timeout"; fi',
       '',
       'systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true',
       '',
@@ -377,7 +392,7 @@ export class DcvInstanceConstruct extends Construct {
     (cfnInstance as cdk.CfnResource).cfnOptions.creationPolicy = {
       resourceSignal: {
         count: 1,
-        timeout: 'PT90M',
+        timeout: 'PT120M',
       },
     };
 

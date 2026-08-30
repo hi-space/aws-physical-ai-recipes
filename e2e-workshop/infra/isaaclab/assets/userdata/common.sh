@@ -15,6 +15,11 @@ exec > >(tee /var/log/user-data.log) 2>&1
 
 echo "===== [$(date)] START: common.sh ====="
 
+# apt 대화형 프롬프트 방지 (독립 실행 대비 - 부트스트랩에서도 export하지만 이중 방어)
+# keyboard-configuration 등 debconf 다이얼로그가 입력을 기다리면 스크립트가 영구 정지한다.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # -----------------------------------------------------------------------------
 # 1. dpkg lock 해제 대기
 #    Ubuntu AMI 부팅 직후 unattended-upgrades가 dpkg lock을 잡고 있을 수 있다.
@@ -52,7 +57,7 @@ fi
 # -----------------------------------------------------------------------------
 # 2. 시스템 업데이트 및 업그레이드
 # -----------------------------------------------------------------------------
-apt-get update && apt-get upgrade -y
+apt-get update && apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 
 # -----------------------------------------------------------------------------
 # 2. 데스크톱 환경 설치
