@@ -26,7 +26,7 @@ export interface GrootFinetuneSharedStackProps extends cdk.StackProps {
 /**
  * 단일 통합 shared 스택 (관리자 1회 배포).
  *
- *   - GR00T 런타임 ECR + CodeBuild (auto-trigger build; 모듈 3 추론 + 부록 A Batch 공용)
+ *   - GR00T 런타임 ECR + CodeBuild (auto-trigger build; 모듈 3/5 Policy Server 이미지)
  *   - SageMaker training ECR
  *   - SageMaker training CodeBuild (공용 IAM role)
  *   - Default Notebook role (Studio Domain 기본 실행 역할)
@@ -45,7 +45,7 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
     cdk.Tags.of(this).add('Component', 'GrootFinetuneShared');
 
     // ---------- GR00T 런타임 ECR + CodeBuild (auto-trigger build) ----------
-    // 모듈 3의 base 모델 추론(Policy Server)과 부록 A의 Batch 학습이 공유하는 이미지.
+    // 모듈 3의 base 모델 추론과 모듈 5의 fine-tuned 서빙이 공유하는 Policy Server 이미지.
     const runtimeEcr = new EcrRepo(this, 'BatchEcr');
     const runtimeCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
       repository: runtimeEcr.repository,

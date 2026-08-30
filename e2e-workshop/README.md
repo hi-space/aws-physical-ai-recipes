@@ -103,7 +103,7 @@ npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
 e2e-workshop/
 ├── infra/
 │   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + EFS, Batch는 옵션)
-│   └── groot/                 GR00T VLA CDK 3-stack (ECR + CodeBuild + Batch + SageMaker + MLflow)
+│   └── groot/                 GR00T VLA CDK 2-stack (ECR + CodeBuild + SageMaker + MLflow)
 ├── groot/                     GR00T 학습 코드 (uv venv)
 │   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
 │   ├── pipeline/              학습 → FSx용 export 자동화 Pipeline
@@ -112,7 +112,7 @@ e2e-workshop/
 ├── apps/
 │   └── mlops-dashboard/       RL Fleet 모니터링 대시보드 (Next.js)
 ├── scripts/
-│   └── isaaclab-local-setup/  로컬 IsaacLab + Newton 설치 스크립트
+
 └── assets/                    스크린샷
 ```
 

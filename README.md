@@ -26,8 +26,7 @@ aws-physical-ai-recipes/
 │   ├── apps/                          #   사용자가 실행하는 애플리케이션
 │   │   └── mlops-dashboard/           #     RL 학습 Fleet 모니터링 대시보드 (Next.js)
 │   ├── scripts/                       #   셋업/검증 스크립트
-│   │   ├── groot-inference/           #     GR00T N1 추론 서버 테스트 클라이언트 (ZMQ)
-│   │   └── isaaclab-local-setup/      #     IsaacLab 로컬 수동 셋업 가이드
+│   │   └── groot-inference/           #     GR00T N1 추론 서버 테스트 클라이언트 (ZMQ)
 │   └── training/                      #   학습 레시피
 │       └── groot-sagemaker/           #     GR00T-N1.6-3B SageMaker 파인튜닝 파이프라인
 │
@@ -110,11 +109,10 @@ Isaac Lab 시뮬레이션 환경 구축부터 GR00T VLA 모델 파인튜닝, 추
 | 구성 요소 | 설명 |
 |-----------|------|
 | [infra/isaaclab](./e2e-workshop/infra/isaaclab/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (DCV, EFS, AZ 자동 탐색) |
-| [infra/groot](./e2e-workshop/infra/groot/) | Batch + SageMaker 통합 GR00T fine-tuning CDK 프로젝트 |
-| [groot](./e2e-workshop/groot/) | GR00T-N1.6-3B 학습 + SageMaker Pipeline + Endpoint 자동 배포 |
+| [infra/groot](./e2e-workshop/infra/groot/) | SageMaker GR00T fine-tuning CDK 프로젝트 |
+| [groot](./e2e-workshop/groot/) | GR00T-N1.6-3B 학습 + SageMaker Pipeline (노트북 05/07/08) |
 | [apps/mlops-dashboard](./e2e-workshop/apps/mlops-dashboard/) | RL 학습 Fleet 모니터링 대시보드 (Rerun + TensorBoard) |
 | [groot/inference/batch-zmq](./e2e-workshop/groot/inference/batch-zmq/) | GR00T N1 추론 서버 테스트 클라이언트 (ZMQ) |
-| [scripts/isaaclab-local-setup](./e2e-workshop/scripts/isaaclab-local-setup/) | 기존 GPU 인스턴스에서 IsaacLab 수동 셋업 |
 
 ### Distributed Training (HyperPod)
 

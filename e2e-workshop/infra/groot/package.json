@@ -1,7 +1,7 @@
 {
   "name": "isaac-lab-groot-finetune",
   "version": "1.0.0",
-  "description": "GR00T VLA fine-tuning infrastructure (SageMaker main path; AWS Batch via deploy:batch for Appendix A)",
+  "description": "GR00T VLA fine-tuning infrastructure on SageMaker (shares VPC/FSx with infra/isaaclab)",
   "scripts": {
     "cdk": "cdk",
     "build": "tsc",
@@ -11,9 +11,7 @@
     "update-config": "ts-node bin/update-config.ts",
     "deploy:shared": "cdk deploy GrootFinetuneShared --require-approval never",
     "deploy": "cdk deploy GrootFinetuneSagemaker --require-approval never",
-    "deploy:batch": "cdk deploy GrootBatchTrain --require-approval never",
-    "destroy": "cdk destroy GrootFinetuneSagemaker --force",
-    "destroy:batch": "cdk destroy GrootBatchTrain --force"
+    "destroy": "cdk destroy GrootFinetuneSagemaker --force"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.1041.0",

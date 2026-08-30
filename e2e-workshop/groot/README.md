@@ -18,7 +18,6 @@ GR00T는 카메라 영상과 자연어 명령("오렌지를 집어라")을 입�
 이 코드를 실행하려면 인프라가 먼저 배포되어 있어야 합니다. [`../infra/groot/`](../infra/groot/)의 CDK 스택이 다음을 제공합니다:
 
 - 학습 컨테이너를 빌드하는 ECR + CodeBuild
-- 학습 잡이 사용할 AWS Batch GPU 환경
 - 모델 아티팩트를 저장할 S3 버킷
 - 실행 권한을 가진 IAM 역할
 - 학습 곡선·모델 버전을 추적하는 MLflow tracking server

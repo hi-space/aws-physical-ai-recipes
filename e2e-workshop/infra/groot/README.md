@@ -4,15 +4,14 @@ NVIDIA GR00T VLA 모델을 AWS에서 fine-tuning하기 위한 인프라를 한 �
 
 ## Overview
 
-상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC와 EFS를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. 결과적으로 학습 데이터·체크포인트는 IsaacLab DCV 인스턴스와 GR00T Batch 노드가 같은 EFS를 공유하므로 학습이 끝나자마자 시뮬레이션에서 바로 검증할 수 있습니다.
+상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC와 공유 FSx for Lustre를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. SageMaker 학습 잡이 S3로 export한 체크포인트가 FSx 자동 동기화(DRA)를 통해 IsaacLab DCV 인스턴스의 `/fsx/groot/...`에 나타나므로, 학습이 끝나자마자 시뮬레이션에서 바로 검증할 수 있습니다.
 
-세 개의 CloudFormation 스택으로 나뉩니다.
+두 개의 CloudFormation 스택으로 나뉩니다.
 
 | 스택 | 용도 | 배포 단위 |
 |------|------|-----------|
-| **GrootFinetuneShared** | 모든 사용자가 공유하는 ECR 레포지토리 2개(Batch + SageMaker 학습)와 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개, SageMaker Studio Domain | 계정당 1회 (관리자) |
-| **GrootBatchTrain-`<userId>`** | AWS Batch Compute Environment, Job Queue, Job Definition. 학습 잡을 G6E GPU 인스턴스에서 실행 | 사용자별 |
-| **GrootFinetuneSagemaker-`<userId>`** | S3 아티팩트 버킷, IAM 역할들, MLflow tracking server, SageMaker Studio UserProfile | 사용자별 |
+| **GrootFinetuneShared** | 모든 사용자가 공유하는 ECR 레포지토리 2개(GR00T 런타임 + SageMaker 학습)와 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개, SageMaker Studio Domain | 계정당 1회 (관리자) |
+| **GrootFinetuneSagemaker-`<userId>`** | S3 아티팩트 버킷, 공유 FSx DRA, IAM 역할들, MLflow tracking server, SageMaker Studio UserProfile | 사용자별 |
 
 ## Prerequisites
 
@@ -28,11 +27,11 @@ npm install
 # 관리자가 한 번
 npm run deploy:shared
 
-# 사용자별 (Batch + SageMaker 두 스택을 동시에 배포)
+# 사용자별 (SageMaker per-user 스택 배포)
 npm run deploy -- -c userId=alice
 ```
 
-`Shared` 스택을 배포하면 Batch용 컨테이너 이미지(약 15GB)가 CodeBuild에서 자동으로 빌드됩니다. 약 30분 소요. SageMaker 학습 컨테이너는 빌드 프로젝트만 등록되며, 별도로 트리거합니다.
+`Shared` 스택을 배포하면 GR00T 런타임 컨테이너 이미지(약 15GB)가 CodeBuild에서 자동으로 빌드됩니다. 약 30분 소요. SageMaker 학습 컨테이너는 빌드 프로젝트만 등록되며, 별도로 트리거합니다.
 
 배포가 끝나면 GR00T 학습/추론 코드(`../../groot/`)가 사용하는 `config.yaml`을 갱신합니다:
 
@@ -55,7 +54,7 @@ npx ts-node bin/update-config.ts --user-id alice --region us-east-1
 | `bucketName` | `groot-sm-artifacts-<userId>` | SageMaker 아티팩트 버킷 이름 |
 | `mlflowSize` | `Small` | MLflow tracking server 사이즈 |
 
-`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<userId>` 스택의 outputs에서 VPC ID, Private Subnet, EFS 정보를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다. 부모 IsaacLab 스택을 찾지 못하면 per-user 스택(`GrootBatchTrain`, `GrootFinetuneSagemaker`)은 건너뛰고 `GrootFinetuneShared`만 배포 대상이 됩니다.
+`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<userId>` 스택의 outputs에서 VPC ID, Private Subnet, 공유 FSx 정보를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다. 부모 IsaacLab 스택을 찾지 못하면 per-user 스택(`GrootFinetuneSagemaker`)은 건너뛰고 `GrootFinetuneShared`만 배포 대상이 됩니다.
 
 ## Project Structure
 
@@ -67,11 +66,9 @@ infra/groot/
 │   └── update-config.ts           CFN outputs을 ../../groot/config.yaml로 동기화
 ├── lib/
 │   ├── groot-finetune-shared-stack.ts
-│   ├── groot-batch-train-stack.ts
 │   ├── groot-sagemaker-stack.ts
 │   └── constructs/
 ├── assets/                          학습 컨테이너 buildspec, fine-tune 실행 스크립트, modality config 예시
-├── docs/                            상세 가이드 + 트러블슈팅
 ├── cdk.json
 └── package.json
 ```

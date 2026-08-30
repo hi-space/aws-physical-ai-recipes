@@ -36,6 +36,3 @@ uv run --extra notebooks jupyter lab --no-browser --port 8889
 
 DCV 데스크탑의 브라우저에서 `http://localhost:8889` 로 접속합니다.
 
-## 참고
-
-모듈 6(AWS Batch를 이용한 학습)은 심화 옵션이며 노트북으로 제공하지 않습니다. [`../../infra/groot/docs/`](../../infra/groot/docs/) 문서를 참조하세요.

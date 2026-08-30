@@ -3,8 +3,8 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
-// GR00T 런타임 이미지 저장소. 모듈 3의 base 모델 추론과 부록 A의 Batch 학습이
-// 같은 이미지를 쓴다 — 메인 플로우가 pull 하는 이미지라 이름에 batch를 넣지 않는다.
+// GR00T 런타임 이미지 저장소. 모듈 3의 base 모델 추론(Policy Server)과
+// 모듈 5의 fine-tuned 모델 서빙이 같은 이미지를 쓴다.
 const REPOSITORY_NAME = 'groot-runtime';
 const KEEP_LAST_N_IMAGES = 10;
 

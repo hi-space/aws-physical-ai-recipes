@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { GrootFinetuneSharedStack } from '../lib/groot-finetune-shared-stack';
-import { GrootBatchTrainStack } from '../lib/groot-batch-train-stack';
 import { GrootSagemakerStack } from '../lib/groot-sagemaker-stack';
 import { resolveParentStack, saveToContext } from './resolve-parent-stack';
 
@@ -77,21 +76,7 @@ async function main() {
     }
   }
 
-  // ---- [3] Per-user Batch ----
-  if (vpcId && efsFileSystemId && efsSecurityGroupId && privateSubnetId && availabilityZone) {
-    new GrootBatchTrainStack(app, 'GrootBatchTrain', {
-      stackName: `GrootBatchTrain${userSuffix}`,
-      env,
-      vpcId,
-      efsFileSystemId,
-      efsSecurityGroupId,
-      privateSubnetId,
-      availabilityZone,
-      userId,
-    });
-  }
-
-  // ---- [4] Per-user SageMaker ----
+  // ---- [3] Per-user SageMaker ----
   // EFS를 쓰지 않으므로 VPC/Subnet만 확정되면 등록한다.
   if (vpcId && privateSubnetId) {
     new GrootSagemakerStack(app, 'GrootFinetuneSagemaker', {
