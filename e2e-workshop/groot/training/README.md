@@ -40,8 +40,7 @@ training/
 CodeBuild 프로젝트를 시작하고 빌드 종료까지 기다립니다.
 
 ```bash
-python training/scripts/trigger_build.py --type all          # training + inference 둘 다
-python training/scripts/trigger_build.py --type training     # 학습 이미지만
+python training/scripts/trigger_build.py --type training     # 학습 이미지 빌드
 python training/scripts/trigger_build.py --type training --groot-version n1.7
 ```
 
@@ -138,6 +137,6 @@ GR00T 내장 임베디먼트는 `meta/modality.json`만 있으면 됩니다.
 
 ## See Also
 
-- 학습 → Endpoint까지 한 번에 자동화: [`../pipeline/`](../pipeline/)
-- 학습된 모델 호출: [`../inference/sagemaker/`](../inference/sagemaker/)
+- 학습 → FSx용 export까지 한 번에 자동화: [`../pipeline/`](../pipeline/)
+- 시뮬레이션 closed-loop 평가: [`../inference/`](../inference/)
 - 인프라 정의: [`../../infra/groot/`](../../infra/groot/)

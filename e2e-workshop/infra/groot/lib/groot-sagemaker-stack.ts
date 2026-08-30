@@ -9,11 +9,9 @@ import { Construct } from 'constructs';
 import { ArtifactsBucket } from './constructs/artifacts-bucket';
 import { SageMakerExecutionRole } from './constructs/sagemaker-role';
 import { NotebookRole } from './constructs/notebook-role';
-import { DeployEndpointLambda } from './constructs/deploy-endpoint-lambda';
 import {
   STUDIO_DOMAIN_ID_PARAMETER,
   SM_TRAINING_REPO_NAME,
-  SM_INFERENCE_REPO_NAME,
 } from './groot-finetune-shared-stack';
 
 export interface GrootSagemakerStackProps extends cdk.StackProps {
@@ -37,7 +35,6 @@ export interface GrootSagemakerStackProps extends cdk.StackProps {
  *   - CloudWatch Log Group (학습 로그)
  *   - Studio UserProfile (도메인은 shared 스택의 SSM 파라미터에서 lookup)
  *   - MLflow tracking server
- *   - Deploy endpoint Lambda
  */
 export class GrootSagemakerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GrootSagemakerStackProps) {
@@ -56,11 +53,6 @@ export class GrootSagemakerStack extends cdk.Stack {
       this,
       'SharedTrainingRepo',
       SM_TRAINING_REPO_NAME,
-    );
-    const inferenceRepository = ecr.Repository.fromRepositoryName(
-      this,
-      'SharedInferenceRepo',
-      SM_INFERENCE_REPO_NAME,
     );
     const studioDomainId = ssm.StringParameter.valueForStringParameter(
       this,
@@ -109,13 +101,6 @@ export class GrootSagemakerStack extends cdk.Stack {
     });
     mlflow.addDependency(artifactsBucket.bucket.node.defaultChild as cdk.CfnResource);
 
-    // ---------- [6] Deploy endpoint Lambda ----------
-    const deployLambda = new DeployEndpointLambda(this, 'DeployEndpointLambda', {
-      functionName: named('groot-deploy-endpoint'),
-      roleName: named('GR00TDeployEndpointLambdaRole'),
-      sageMakerRoleArn: smRole.role.roleArn,
-    });
-
     // ---------- Outputs ----------
     new cdk.CfnOutput(this, 'BucketName', {
       value: artifactsBucket.bucket.bucketName,
@@ -141,11 +126,6 @@ export class GrootSagemakerStack extends cdk.Stack {
       description: 'Shared training ECR URI',
       exportName: `${this.stackName}-TrainingRepositoryUri`,
     });
-    new cdk.CfnOutput(this, 'InferenceRepositoryUri', {
-      value: inferenceRepository.repositoryUri,
-      description: 'Shared inference ECR URI',
-      exportName: `${this.stackName}-InferenceRepositoryUri`,
-    });
     new cdk.CfnOutput(this, 'MlflowTrackingServerArn', {
       value: mlflow.attrTrackingServerArn,
       description: 'MLflow tracking server ARN',
@@ -154,15 +134,6 @@ export class GrootSagemakerStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'MlflowTrackingServerName', {
       value: named('groot-mlflow'),
       description: 'MLflow tracking server name',
-    });
-    new cdk.CfnOutput(this, 'DeployEndpointLambdaArn', {
-      value: deployLambda.function.functionArn,
-      description: 'Deploy endpoint Lambda ARN',
-      exportName: `${this.stackName}-DeployEndpointLambdaArn`,
-    });
-    new cdk.CfnOutput(this, 'DeployEndpointLambdaName', {
-      value: deployLambda.function.functionName,
-      description: 'Deploy endpoint Lambda name',
     });
     if (userId) {
       new cdk.CfnOutput(this, 'UserId', {

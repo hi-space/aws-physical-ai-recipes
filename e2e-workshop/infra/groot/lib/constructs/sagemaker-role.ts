@@ -73,15 +73,5 @@ export class SageMakerExecutionRole extends Construct {
         resources: ['*'],
       }),
     );
-
-    this.role.addToPolicy(
-      new iam.PolicyStatement({
-        sid: 'InvokePipelineLambdas',
-        actions: ['lambda:InvokeFunction'],
-        resources: [
-          `arn:aws:lambda:${stack.region}:${stack.account}:function:groot-deploy-endpoint*`,
-        ],
-      }),
-    );
   }
 }

@@ -42,7 +42,6 @@ def test_resolve_project_names_no_alias():
     names = trigger_build.resolve_project_names({})
     assert names == {
         "training": "groot-sm-training-build",
-        "inference": "groot-sm-inference-build",
     }
 
 
@@ -54,16 +53,14 @@ def test_resolve_project_names_with_alias():
     names = trigger_build.resolve_project_names({
         "codebuild": {
             "training_project": "explicit-train",
-            "inference_project": "explicit-infer",
         },
     })
-    assert names == {"training": "explicit-train", "inference": "explicit-infer"}
+    assert names == {"training": "explicit-train"}
 
     # 2) codebuild.* 미존재, aws.alias만 있을 때 폴백
     names = trigger_build.resolve_project_names({"aws": {"alias": "alice"}})
     assert names == {
         "training": "groot-sm-training-build-alice",
-        "inference": "groot-sm-inference-build-alice",
     }
 
 
@@ -75,7 +72,7 @@ def test_no_overrides_when_groot_version_omitted():
     fake_cb.start_build.return_value = {"build": {"id": "fake-build-id"}}
     with patch("trigger_build.boto3.client", return_value=fake_cb):
         trigger_build.start_build(
-            project_name="groot-sm-inference-build",
+            project_name="groot-sm-training-build",
             region="us-east-1",
             source_s3_bucket="bucket",
             source_s3_key="key.zip",

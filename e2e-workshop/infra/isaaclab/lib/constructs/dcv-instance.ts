@@ -108,6 +108,7 @@ export class DcvInstanceConstruct extends Construct {
         'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
         'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
         'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
+        'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess',
         ...(props.enableCloudWatch ? ['arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'] : []),
       ],
       policies: [
@@ -230,6 +231,11 @@ export class DcvInstanceConstruct extends Construct {
                     ],
                   },
                 },
+              },
+              {
+                Effect: 'Allow',
+                Action: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:DescribeParameters'],
+                Resource: `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter/groot/*`,
               },
             ],
           },

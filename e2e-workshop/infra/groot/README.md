@@ -10,9 +10,9 @@ NVIDIA GR00T VLA 모델을 AWS에서 fine-tuning하기 위한 인프라를 한 �
 
 | 스택 | 용도 | 배포 단위 |
 |------|------|-----------|
-| **GrootFinetuneShared** | 모든 사용자가 공유하는 ECR 레포지토리 3개와 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 3개, SageMaker Studio Domain | 계정당 1회 (관리자) |
+| **GrootFinetuneShared** | 모든 사용자가 공유하는 ECR 레포지토리 2개(Batch + SageMaker 학습)와 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개, SageMaker Studio Domain | 계정당 1회 (관리자) |
 | **GrootBatchTrain-`<userId>`** | AWS Batch Compute Environment, Job Queue, Job Definition. 학습 잡을 G6E GPU 인스턴스에서 실행 | 사용자별 |
-| **GrootFinetuneSagemaker-`<userId>`** | S3 아티팩트 버킷, IAM 역할들, MLflow tracking server, SageMaker Studio UserProfile, Endpoint 자동 배포 Lambda | 사용자별 |
+| **GrootFinetuneSagemaker-`<userId>`** | S3 아티팩트 버킷, IAM 역할들, MLflow tracking server, SageMaker Studio UserProfile | 사용자별 |
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ npm run deploy:shared
 npm run deploy -- -c userId=alice
 ```
 
-`Shared` 스택을 배포하면 Batch용 컨테이너 이미지(약 15GB)가 CodeBuild에서 자동으로 빌드됩니다. 약 30분 소요. SageMaker 학습/추론 컨테이너는 빌드 프로젝트만 등록되며, 별도로 트리거합니다.
+`Shared` 스택을 배포하면 Batch용 컨테이너 이미지(약 15GB)가 CodeBuild에서 자동으로 빌드됩니다. 약 30분 소요. SageMaker 학습 컨테이너는 빌드 프로젝트만 등록되며, 별도로 트리거합니다.
 
 배포가 끝나면 GR00T 학습/추론 코드(`../../groot/`)가 사용하는 `config.yaml`을 갱신합니다:
 
@@ -70,7 +70,6 @@ infra/groot/
 │   ├── groot-batch-train-stack.ts
 │   ├── groot-sagemaker-stack.ts
 │   └── constructs/
-├── lambda/                          Endpoint 자동 배포 Lambda 소스
 ├── assets/                          학습 컨테이너 buildspec, fine-tune 실행 스크립트, modality config 예시
 ├── docs/                            상세 가이드 + 트러블슈팅
 ├── cdk.json

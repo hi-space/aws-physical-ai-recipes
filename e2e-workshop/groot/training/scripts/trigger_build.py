@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CodeBuild를 사용하여 GR00T 컨테이너 이미지를 빌드하고 ECR에 푸시합니다.
+"""CodeBuild를 사용하여 GR00T 학습 컨테이너 이미지를 빌드하고 ECR에 푸시합니다.
 
 AWS CodeBuild를 사용하므로 로컬 Docker 설치가 불필요합니다.
 빌드 로그는 CloudWatch Logs에서 확인할 수 있습니다.
@@ -9,18 +9,15 @@ AWS CodeBuild를 사용하므로 로컬 Docker 설치가 불필요합니다.
     - CodeBuild 프로젝트에 소스 설정 필요 (GitHub 연결 또는 S3 소스)
 
 사용법:
-    # 모든 컨테이너 빌드
-    python scripts/trigger_build.py --type all
-
-    # 학습 컨테이너만 빌드
+    # 학습 컨테이너 빌드
     python scripts/trigger_build.py --type training
 
-    # 추론 컨테이너만 빌드 (빌드 완료까지 대기하지 않음)
-    python scripts/trigger_build.py --type inference --no-wait
+    # 빌드 완료까지 대기하지 않음
+    python scripts/trigger_build.py --type training --no-wait
 
 S3 소스 업로드 방식 (GitHub 미사용 시):
     # 소스 코드를 S3에 업로드하여 CodeBuild 빌드 트리거
-    python scripts/trigger_build.py --type all --upload-source --bucket my-bucket
+    python scripts/trigger_build.py --type training --upload-source --bucket my-bucket
 """
 
 import argparse
@@ -42,7 +39,6 @@ CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 # CodeBuild 프로젝트별 buildspec 경로 (DOMAIN_ROOT 기준 상대 경로)
 BUILDSPEC_PATHS = {
     "training": "training/container/buildspec.yml",
-    "inference": "inference/sagemaker/container/buildspec.yml",
 }
 
 
@@ -63,7 +59,6 @@ def resolve_project_names(config: dict) -> dict:
     suffix = f"-{alias}" if alias else ""
     return {
         "training": cb.get("training_project") or f"groot-sm-training-build{suffix}",
-        "inference": cb.get("inference_project") or f"groot-sm-inference-build{suffix}",
     }
 
 
@@ -89,7 +84,6 @@ def upload_source_to_s3(bucket: str, region: str) -> str:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         include_paths = [
             DOMAIN_ROOT / "training" / "container",
-            DOMAIN_ROOT / "inference" / "sagemaker" / "container",
             DOMAIN_ROOT / "config.yaml",
         ]
         for include_path in include_paths:
@@ -211,9 +205,6 @@ def update_config_with_ecr_uris(config: dict, region: str) -> None:
     config["ecr"]["training_uri"] = (
         f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-sm-training{suffix}:latest"
     )
-    config["ecr"]["inference_uri"] = (
-        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-sm-inference{suffix}:latest"
-    )
 
     CONFIG_PATH.write_text(
         yaml.dump(config, allow_unicode=True, default_flow_style=False),
@@ -231,16 +222,16 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  python scripts/trigger_build.py --type all
+  python scripts/trigger_build.py --type training
   python scripts/trigger_build.py --type training --no-wait
-  python scripts/trigger_build.py --type all --upload-source --bucket my-bucket
+  python scripts/trigger_build.py --type training --upload-source --bucket my-bucket
         """,
     )
     parser.add_argument(
         "--type",
-        choices=["training", "inference", "all"],
-        default="all",
-        help="빌드할 컨테이너 타입 (기본값: all)",
+        choices=["training"],
+        default="training",
+        help="빌드할 컨테이너 타입 (현재 training만 지원 — inference 트랙 제거됨)",
     )
     parser.add_argument(
         "--region",
@@ -271,11 +262,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # 빌드할 프로젝트 목록 결정
-    if args.type == "all":
-        build_types = ["training", "inference"]
-    else:
-        build_types = [args.type]
+    # 빌드할 프로젝트 목록 결정 (inference 트랙 제거 후 training만 존재)
+    build_types = ["training"]
 
     # S3 소스 업로드 (NO_SOURCE 프로젝트이므로 항상 소스 업로드 필요)
     source_s3_bucket = ""
@@ -339,7 +327,7 @@ def main() -> None:
         if not args.no_update_config:
             update_config_with_ecr_uris(config, args.region)
         print("\n다음 단계:")
-        print("  python pipeline/run_pipeline.py --embodiment-tag my_robot --dataset-s3-uri s3://...")
+        print("  code-server에서 notebooks/07_sagemaker_pipeline.ipynb를 열어 학습 + FSx용 export를 실행하세요.")
     else:
         print("\n일부 빌드 실패. CloudWatch 로그를 확인하세요.")
         sys.exit(1)

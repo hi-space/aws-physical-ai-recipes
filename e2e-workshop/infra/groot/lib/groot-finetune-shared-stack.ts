@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { EcrRepo } from './constructs/ecr-repo';
 import { CodeBuildInfra } from './constructs/codebuild-infra';
-import { TrainingInferenceEcr } from './constructs/sm-ecr-repos';
+import { TrainingEcr } from './constructs/sm-ecr-repos';
 import { SmCodeBuildServiceRole } from './constructs/sm-codebuild-role';
 import { SmContainerBuildProjects } from './constructs/sm-codebuild-projects';
 import { NotebookRole } from './constructs/notebook-role';
@@ -11,9 +11,7 @@ import { resolveVpcAndSubnets } from './constructs/vpc-resolver';
 
 export const STUDIO_DOMAIN_ID_PARAMETER = '/groot-finetune/studio-domain-id';
 export const SM_TRAINING_REPO_NAME = 'groot-sm-training';
-export const SM_INFERENCE_REPO_NAME = 'groot-sm-inference';
 export const SM_TRAINING_BUILD_PROJECT = 'groot-sm-training-build';
-export const SM_INFERENCE_BUILD_PROJECT = 'groot-sm-inference-build';
 
 export interface GrootFinetuneSharedStackProps extends cdk.StackProps {
   useStableGroot?: boolean;
@@ -29,8 +27,8 @@ export interface GrootFinetuneSharedStackProps extends cdk.StackProps {
  * 단일 통합 shared 스택 (관리자 1회 배포).
  *
  *   - Batch ECR + Batch CodeBuild (auto-trigger build)
- *   - SageMaker training/inference ECR ×2
- *   - SageMaker training/inference CodeBuild ×2 (공용 IAM role)
+ *   - SageMaker training ECR
+ *   - SageMaker training CodeBuild (공용 IAM role)
  *   - Default Notebook role (Studio Domain 기본 실행 역할)
  *   - SageMaker Studio Domain (PublicInternetOnly + IAM)
  *   - SSM Parameter `/groot-finetune/studio-domain-id` (per-user 스택이 lookup)
@@ -55,23 +53,20 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
     });
     batchCodeBuild.node.addDependency(batchEcr);
 
-    // ---------- SageMaker ECR ×2 ----------
-    const smEcr = new TrainingInferenceEcr(this, 'SmEcr', {
+    // ---------- SageMaker training ECR ----------
+    const smEcr = new TrainingEcr(this, 'SmEcr', {
       trainingRepoName: SM_TRAINING_REPO_NAME,
-      inferenceRepoName: SM_INFERENCE_REPO_NAME,
     });
 
-    // ---------- SageMaker CodeBuild role + projects (shared) ----------
+    // ---------- SageMaker CodeBuild role + project (shared) ----------
     const smCodeBuildRole = new SmCodeBuildServiceRole(this, 'SmCodeBuildRole', {
       roleName: 'GR00TCodeBuildRole',
     });
 
     const smCodeBuild = new SmContainerBuildProjects(this, 'SmCodeBuild', {
       trainingProjectName: SM_TRAINING_BUILD_PROJECT,
-      inferenceProjectName: SM_INFERENCE_BUILD_PROJECT,
       role: smCodeBuildRole.role,
       trainingRepository: smEcr.trainingRepository,
-      inferenceRepository: smEcr.inferenceRepository,
       repositoryUrl: props.repositoryUrl ?? '',
     });
 
@@ -112,20 +107,9 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
       exportName: 'GrootFinetuneShared-SmTrainingEcrName',
     });
 
-    new cdk.CfnOutput(this, 'SmInferenceEcrName', {
-      value: smEcr.inferenceRepository.repositoryName,
-      description: 'Shared SageMaker inference ECR name',
-      exportName: 'GrootFinetuneShared-SmInferenceEcrName',
-    });
-
     new cdk.CfnOutput(this, 'SmTrainingBuildProjectName', {
       value: smCodeBuild.trainingProject.projectName,
       description: 'Shared SageMaker training CodeBuild project',
-    });
-
-    new cdk.CfnOutput(this, 'SmInferenceBuildProjectName', {
-      value: smCodeBuild.inferenceProject.projectName,
-      description: 'Shared SageMaker inference CodeBuild project',
     });
 
     new cdk.CfnOutput(this, 'StudioDomainId', {

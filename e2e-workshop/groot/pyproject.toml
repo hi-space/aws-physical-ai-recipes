@@ -16,3 +16,12 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[project.optional-dependencies]
+notebooks = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.29.0",
+    "msgpack>=1.0.0",
+    "pyzmq>=25.0.0",
+    "numpy>=1.24",
+]

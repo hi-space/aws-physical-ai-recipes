@@ -8,7 +8,7 @@ export interface NotebookRoleProps {
 
 /**
  * SageMaker Studio / Notebook 사용자 역할.
- *   - 이 repo의 스크립트(deploy_stack, run_training, trigger_build, deploy_endpoint, ...)를
+ *   - 이 repo의 스크립트(deploy_stack, run_training, trigger_build, run_pipeline, ...)를
  *     노트북에서 실행할 때 사용.
  *   - SageMaker / S3 FullAccess + CodeBuild, ECR, CloudFormation, IAM PassRole, SSM, Logs, MLflow.
  */

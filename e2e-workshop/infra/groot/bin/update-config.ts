@@ -137,17 +137,9 @@ async function main() {
   config.ecr.training_uri = userOut.TrainingRepositoryUri
     ? `${userOut.TrainingRepositoryUri}:latest`
     : config.ecr.training_uri ?? '';
-  config.ecr.inference_uri = userOut.InferenceRepositoryUri
-    ? `${userOut.InferenceRepositoryUri}:latest`
-    : config.ecr.inference_uri ?? '';
 
   config.codebuild ??= {};
   config.codebuild.training_project = sharedOut.SmTrainingBuildProjectName ?? 'groot-sm-training-build';
-  config.codebuild.inference_project = sharedOut.SmInferenceBuildProjectName ?? 'groot-sm-inference-build';
-
-  config.inference ??= {};
-  config.inference.endpoint_name = `groot-sm-endpoint${suffix}`;
-  config.inference.model_package_group = `groot-sm-models${suffix}`;
 
   config.mlflow ??= {};
   config.mlflow.tracking_server_arn =
@@ -155,12 +147,6 @@ async function main() {
   config.mlflow.tracking_server_name =
     userOut.MlflowTrackingServerName ?? `groot-mlflow${suffix}`;
   config.mlflow.experiment_name ??= 'groot-sm-finetune';
-
-  config.lambda ??= {};
-  config.lambda.deploy_endpoint_arn =
-    userOut.DeployEndpointLambdaArn ?? config.lambda.deploy_endpoint_arn ?? '';
-  config.lambda.deploy_endpoint_name =
-    userOut.DeployEndpointLambdaName ?? `groot-deploy-endpoint${suffix}`;
 
   fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: -1 }));
 
@@ -173,11 +159,9 @@ async function main() {
   console.log(`  SageMaker 역할   : ${userOut.SageMakerRoleArn}`);
   console.log(`  Notebook 역할    : ${userOut.NotebookRoleArn}`);
   console.log(`  학습 ECR URI     : ${userOut.TrainingRepositoryUri}`);
-  console.log(`  추론 ECR URI     : ${userOut.InferenceRepositoryUri}`);
   console.log(`  Studio 도메인 ID : ${sharedOut.StudioDomainId}`);
   console.log(`  Studio 사용자    : ${userOut.StudioUserProfileName}`);
   console.log(`  MLflow 서버 ARN  : ${userOut.MlflowTrackingServerArn}`);
-  console.log(`  Deploy Lambda    : ${userOut.DeployEndpointLambdaArn}`);
 }
 
 main().catch((err) => {

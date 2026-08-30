@@ -15,7 +15,7 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 | 트랙 | 설명 | 결과물 |
 |------|------|--------|
 | **RL Policy** (Isaac Lab) | 휴머노이드 로봇이 거친 지형에서 걷도록 PPO로 학습. 단일 GPU에서 2,048개의 가상 로봇을 동시에 시뮬레이션 | `.pt` 체크포인트 |
-| **VLA Foundation Model** (GR00T) | 카메라 영상 + 자연어 명령을 받아 로봇 관절 명령을 직접 생성하는 3B 파라미터 모델을 커스텀 데이터셋으로 fine-tune | SageMaker Endpoint 또는 EFS의 fine-tuned 모델 |
+| **VLA Foundation Model** (GR00T) | 카메라 영상 + 자연어 명령을 받아 로봇 관절 명령을 직접 생성하는 3B 파라미터 모델을 커스텀 데이터셋으로 fine-tune | S3에 export된 fine-tuned 모델 (FSx for Lustre로 IsaacSim에서 로드) |
 
 두 트랙 모두 같은 기반 인프라(VPC · GPU EC2 · EFS)를 공유합니다. 분산 학습용 AWS Batch는 각 트랙이 필요할 때 따로 배포합니다.
 
@@ -25,8 +25,8 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 - **멀티 사용자 격리** — `userId`만 다르게 주면 한 계정에서 여러 명이 충돌 없이 동시 사용
 - **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
 - **분산 학습 지원** — AWS Batch Multi-Node Parallel Jobs로 NCCL AllReduce 기반 멀티 노드 학습
-- **MLOps 통합** — SageMaker Model Registry 등록 → Lambda로 Endpoint 자동 배포까지 Pipeline 한 줄로
-- **두 가지 추론 백엔드** — SageMaker HTTPS Endpoint(운영용)와 ZMQ Policy Server(시뮬레이션 closed-loop용)
+- **MLOps 통합** — 학습 잡이 끝에 source에서 압축 해제된 모델을 S3로 직접 업로드하는 단일-스텝 SageMaker Pipeline, 모델 버전·지표는 MLflow로 추적
+- **FSx 연동 소비** — export한 S3 prefix를 FSx for Lustre로 마운트해 IsaacSim(EC2)에서 tar 해제 없이 바로 로드
 - **Fleet 모니터링** — 분산 학습 워커들의 Rerun 3D 뷰어와 TensorBoard를 한 화면에서 확인하는 Next.js 대시보드
 
 ## Prerequisites
@@ -90,18 +90,12 @@ uv sync && source .venv/bin/activate
 npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
     --user-id <본인> --region us-east-1
 
-# 학습 실행
-python training/scripts/run_training.py \
-    --hf-dataset-id LightwheelAI/leisaac-pick-orange \
-    --max-steps 100 --save-steps 50
-
-# Endpoint 배포 + 호출
-python inference/sagemaker/deploy_endpoint.py
-python inference/sagemaker/invoke_endpoint.py \
-    --image-path inference/sagemaker/sample/test.png \
-    --proprioception "single_arm:0.1,0.2,0.3,0.4,0.5;gripper:0.0" \
-    --instruction "pick up the orange"
+# 학습 + FSx용 export (Pipeline) — 노트북으로 실행
+./setup-notebooks.sh   # 1회만 실행 (커널·의존성 준비)
+# code-server에서 notebooks/07_sagemaker_pipeline.ipynb를 열어 순서대로 실행
 ```
+
+완료 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/` 에 압축되지 않은 모델이 생성됩니다. 이 prefix를 FSx for Lustre로 마운트해 IsaacSim에서 로드합니다.
 
 ## Project Structure
 
@@ -110,12 +104,11 @@ e2e-workshop/
 ├── infra/
 │   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + EFS, Batch는 옵션)
 │   └── groot/                 GR00T VLA CDK 3-stack (ECR + CodeBuild + Batch + SageMaker + MLflow)
-├── groot/                     GR00T 학습/추론 코드 (uv venv)
+├── groot/                     GR00T 학습 코드 (uv venv)
 │   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
-│   ├── pipeline/              학습 → 등록 → 배포 자동화 Pipeline
+│   ├── pipeline/              학습 → FSx용 export 자동화 Pipeline
 │   └── inference/
-│       ├── sagemaker/         FastAPI 기반 SageMaker Endpoint
-│       └── batch-zmq/         GR00T base 모델 ZMQ ping 클라이언트
+│       └── batch-zmq/         GR00T Policy Server ZMQ ping 클라이언트
 ├── apps/
 │   └── mlops-dashboard/       RL Fleet 모니터링 대시보드 (Next.js)
 ├── scripts/
@@ -134,10 +127,10 @@ e2e-workshop/
 | 1. 인프라 준비 | CDK로 GPU 데스크탑 띄우기 | `infra/isaaclab/` |
 | 2-3. RL 학습 | 휴머노이드 보행 학습 (단일 GPU. AWS Batch 분산은 `-c enableBatch=true` 재배포 필요) | `infra/isaaclab/assets/workshop/` |
 | 4. RL 시각화 | 학습된 정책으로 시뮬레이션 재생 | (DCV에서 IsaacSim) |
-| 5. VLA 인프라 | GR00T용 Batch + SageMaker 배포, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` |
+| 5. VLA 인프라 | GR00T용 Batch + SageMaker 배포, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` · 노트북: `groot/notebooks/05_infra_and_base_check.ipynb` |
 | 6. Batch fine-tuning | AWS Batch에서 GR00T fine-tune | `infra/groot/assets/` |
-| 7. SageMaker 파이프라인 | Train → Registry → Endpoint 자동화 | `groot/training/`, `groot/pipeline/`, `groot/inference/sagemaker/` |
-| 8. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` |
+| 7. SageMaker 파이프라인 | Train → FSx용 export 자동화 | `groot/training/`, `groot/pipeline/` · 노트북: `groot/notebooks/07_sagemaker_pipeline.ipynb` |
+| 8. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` · 노트북: `groot/notebooks/08_closed_loop_eval.ipynb` |
 
 ## License
 

@@ -108,6 +108,9 @@ def parse_sagemaker_env() -> dict:
         "global_batch_size": _get_hyperparameter("global_batch_size", "32"),
         "save_steps": _get_hyperparameter("save_steps", "2000"),
         "dataloader_num_workers": _get_hyperparameter("dataloader_num_workers", "4"),
+        # FSx용 export: 설정 시 학습 종료 후 SM_MODEL_DIR(비압축 슬림 체크포인트)을
+        # 이 S3 prefix로 그대로 sync. IsaacSim이 FSx Lustre로 마운트해 tar 해제 없이 로드.
+        "export_s3_uri": _get_hyperparameter("export_s3_uri", ""),
         "num_gpus": num_gpus,
         "video_key": _get_hyperparameter("video_key", "video.webcam"),
         "state_key": _get_hyperparameter("state_key", "state.single_arm"),
@@ -495,6 +498,46 @@ def copy_artifacts(env: dict) -> None:
 
 
 # -------------------------------------------------------------------------------
+# FSx용 비압축 export
+# -------------------------------------------------------------------------------
+
+def export_uncompressed_to_s3(env: dict) -> None:
+    """SM_MODEL_DIR(비압축 슬림 체크포인트)을 export_s3_uri prefix로 그대로 업로드합니다.
+
+    SageMaker가 SM_MODEL_DIR을 model.tar.gz로 압축해 output_path에 올리는 것과 별개로,
+    이 함수는 동일 내용을 **압축하지 않고** 지정 S3 prefix에 sync한다. 파일이 이미 컨테이너
+    로컬 디스크에 있으므로 재다운로드/재압축 없이 업로드만 수행한다(별도 ProcessingStep 불필요).
+    이 prefix를 FSx for Lustre DRA(import 소스)로 걸면 IsaacSim EC2가 tar 해제 없이 바로 로드한다.
+    """
+    export_uri = (env.get("export_s3_uri") or "").strip()
+    if not export_uri:
+        print("export_s3_uri 미설정 → 비압축 export 건너뜀 (model.tar.gz만 생성).")
+        return
+    if not export_uri.startswith("s3://"):
+        print(f"경고: export_s3_uri 형식이 s3:// 가 아님 → 건너뜀: {export_uri}")
+        return
+
+    import boto3
+    output_dir = env["output_dir"]
+    without_scheme = export_uri[len("s3://"):]
+    bucket, _, key_prefix = without_scheme.partition("/")
+    key_prefix = key_prefix.rstrip("/")
+
+    region = _resolve_aws_region()
+    s3 = boto3.client("s3", region_name=region)
+
+    n = 0
+    for root, _dirs, files in os.walk(output_dir):
+        for fname in files:
+            local_path = os.path.join(root, fname)
+            rel = os.path.relpath(local_path, output_dir)
+            key = f"{key_prefix}/{rel}" if key_prefix else rel
+            s3.upload_file(local_path, bucket, key)
+            n += 1
+    print(f"비압축 export 완료: {n}개 파일 → {export_uri}/ (FSx import 소스)")
+
+
+# -------------------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------------------
 
@@ -522,6 +565,7 @@ def main() -> None:
     run_gr00t_training(env)
     save_inference_metadata(env)
     copy_artifacts(env)
+    export_uncompressed_to_s3(env)
 
     print("=" * 60)
     print("학습 완료!")

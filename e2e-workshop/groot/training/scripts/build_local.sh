@@ -184,4 +184,4 @@ esac
 success "모든 빌드 완료!"
 echo ""
 echo "다음 단계:"
-echo "  python pipeline/run_pipeline.py --embodiment-tag my_robot --dataset-s3-uri s3://..."
+echo "  code-server에서 notebooks/07_sagemaker_pipeline.ipynb를 열어 학습 + FSx용 export를 실행하세요."
