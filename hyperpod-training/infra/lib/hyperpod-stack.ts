@@ -103,8 +103,9 @@ export class HyperPodStack extends cdk.Stack {
       lifecycleBucketName: cluster.lifecycleBucket.ref,
     });
 
-    // 5. MLflow - skip if already exists (handles orphaned resources from failed deploys)
-    const enableMlflow = (this.node.tryGetContext('enableMlflow') ?? 'true') === 'true';
+    // 5. MLflow (opt-in) - the workshop tracks RL runs via TensorBoard logs on FSx;
+    //    provision a managed MLflow server only when explicitly requested
+    const enableMlflow = (this.node.tryGetContext('enableMlflow') ?? 'false') === 'true';
     if (enableMlflow) {
       new MlflowConstruct(this, 'MLflow', {
         namePrefix,

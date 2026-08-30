@@ -64,7 +64,7 @@ npx cdk deploy -c userId=<your-name> -c region=us-east-1 --require-approval neve
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
-| `enableMlflow` | true | MLflow 서버 생성 여부 |
+| `enableMlflow` | false | (옵션) 관리형 MLflow 실험 추적 서버 생성 여부 |
 | `amiUpdateSchedule` | `cron(00 18 ? * 1#2 *)` | AMI 보안 패치 스케줄 (`off`로 비활성화) |
 
 예시 — 소규모 테스트:
