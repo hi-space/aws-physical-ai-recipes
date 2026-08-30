@@ -28,8 +28,8 @@ export class CodeBuildInfra extends Construct {
     });
 
     this.project = new codebuild.Project(this, 'BuildProject', {
-      projectName: 'groot-batch-train-build',
-      description: 'Builds GR00T fine-tuning container and pushes to ECR',
+      projectName: 'groot-runtime-build',
+      description: 'Builds the GR00T runtime container (inference + Batch training) and pushes to ECR',
       source: codebuild.Source.s3({
         bucket: sourceAsset.bucket,
         path: sourceAsset.s3ObjectKey,

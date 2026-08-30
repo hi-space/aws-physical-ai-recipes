@@ -3,7 +3,9 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
-const REPOSITORY_NAME = 'groot-batch-train';
+// GR00T 런타임 이미지 저장소. 모듈 3의 base 모델 추론과 부록 A의 Batch 학습이
+// 같은 이미지를 쓴다 — 메인 플로우가 pull 하는 이미지라 이름에 batch를 넣지 않는다.
+const REPOSITORY_NAME = 'groot-runtime';
 const KEEP_LAST_N_IMAGES = 10;
 
 export class EcrRepo extends Construct {

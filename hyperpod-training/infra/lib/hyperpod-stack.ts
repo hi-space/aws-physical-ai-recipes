@@ -5,7 +5,12 @@ import { StorageConstruct } from './constructs/storage';
 import { HyperPodClusterConstruct } from './constructs/hyperpod-cluster';
 import { JumpHostConstruct } from './constructs/jump-host';
 import { MlflowConstruct } from './constructs/mlflow';
-import { DEFAULT_CLUSTER_CONFIG, DEFAULT_AMI_UPDATE_SCHEDULE, buildGpuGroups } from './config/cluster-config';
+import {
+  DEFAULT_CLUSTER_CONFIG,
+  DEFAULT_AMI_UPDATE_SCHEDULE,
+  buildGpuGroups,
+  TRAIN_INSTANCE_PRESETS,
+} from './config/cluster-config';
 
 export interface HyperPodStackProps extends cdk.StackProps {
   userId: string;
@@ -13,6 +18,10 @@ export interface HyperPodStackProps extends cdk.StackProps {
   vpcCidr: string;
   gpuMaxCountPerType: number;
   gpuUseSpot: boolean;
+  /** 기본 학습 그룹(ml.g6e.12xlarge)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
+  gpuCount: number;
+  /** debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1). */
+  debugCount: number;
   fsxCapacityGiB: number;
 }
 
@@ -30,10 +39,16 @@ export class HyperPodStack extends cdk.Stack {
       cdk.Tags.of(this).add('UserId', userId);
     }
 
+    // HyperPod Slurm 은 job 제출 시 노드를 자동으로 올려주지 않는다. 그래서 실제로 쓰는
+    // 그룹만 gpuCount/debugCount 로 명시적으로 기동하고, 나머지는 0 으로 정의만 남겨둔다
+    // (노드가 0 인 그룹은 비용이 발생하지 않는다).
+    const trainInstanceType = TRAIN_INSTANCE_PRESETS.default;
     const clusterConfig = {
       head: { ...DEFAULT_CLUSTER_CONFIG.head },
-      gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot),
-      debug: { ...DEFAULT_CLUSTER_CONFIG.debug },
+      gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot).map((g) =>
+        g.instanceType === trainInstanceType ? { ...g, instanceCount: props.gpuCount } : g,
+      ),
+      debug: { ...DEFAULT_CLUSTER_CONFIG.debug, instanceCount: props.debugCount },
     };
 
     // 1. Networking

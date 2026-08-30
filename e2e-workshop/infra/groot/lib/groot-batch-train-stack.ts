@@ -34,11 +34,11 @@ export class GrootBatchTrainStack extends cdk.Stack {
       availabilityZone: props.availabilityZone,
     });
 
-    // [2] Import shared ECR repository (created by GrootBatchTrainShared stack)
+    // [2] Import shared ECR repository (created by GrootFinetuneShared stack)
     const sharedRepository = ecr.Repository.fromRepositoryName(
       this,
       'SharedEcr',
-      'groot-batch-train',
+      'groot-runtime',
     );
 
     // [3] Batch Compute Environment

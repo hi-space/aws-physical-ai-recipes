@@ -26,7 +26,7 @@ export interface GrootFinetuneSharedStackProps extends cdk.StackProps {
 /**
  * 단일 통합 shared 스택 (관리자 1회 배포).
  *
- *   - Batch ECR + Batch CodeBuild (auto-trigger build)
+ *   - GR00T 런타임 ECR + CodeBuild (auto-trigger build; 모듈 3 추론 + 부록 A Batch 공용)
  *   - SageMaker training ECR
  *   - SageMaker training CodeBuild (공용 IAM role)
  *   - Default Notebook role (Studio Domain 기본 실행 역할)
@@ -36,7 +36,7 @@ export interface GrootFinetuneSharedStackProps extends cdk.StackProps {
 export class GrootFinetuneSharedStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GrootFinetuneSharedStackProps = {}) {
     super(scope, id, {
-      description: 'GR00T Finetune shared infrastructure (Batch + SageMaker ECR/CodeBuild, Studio Domain)',
+      description: 'GR00T Finetune shared infrastructure (runtime + SageMaker ECR/CodeBuild, Studio Domain)',
       ...props,
     });
 
@@ -44,14 +44,15 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
     cdk.Tags.of(this).add('Scope', 'shared');
     cdk.Tags.of(this).add('Component', 'GrootFinetuneShared');
 
-    // ---------- Batch ECR + CodeBuild (기존 패턴 그대로) ----------
-    const batchEcr = new EcrRepo(this, 'BatchEcr');
-    const batchCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
-      repository: batchEcr.repository,
+    // ---------- GR00T 런타임 ECR + CodeBuild (auto-trigger build) ----------
+    // 모듈 3의 base 모델 추론(Policy Server)과 부록 A의 Batch 학습이 공유하는 이미지.
+    const runtimeEcr = new EcrRepo(this, 'BatchEcr');
+    const runtimeCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
+      repository: runtimeEcr.repository,
       useStableGroot: props.useStableGroot,
       grootVersion: props.grootVersion,
     });
-    batchCodeBuild.node.addDependency(batchEcr);
+    runtimeCodeBuild.node.addDependency(runtimeEcr);
 
     // ---------- SageMaker training ECR ----------
     const smEcr = new TrainingEcr(this, 'SmEcr', {
@@ -90,15 +91,15 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
     });
 
     // ---------- Outputs ----------
-    new cdk.CfnOutput(this, 'BatchEcrName', {
-      value: batchEcr.repository.repositoryName,
-      description: 'Shared Batch ECR repository name',
-      exportName: 'GrootFinetuneShared-BatchEcrName',
+    new cdk.CfnOutput(this, 'RuntimeEcrName', {
+      value: runtimeEcr.repository.repositoryName,
+      description: 'Shared GR00T runtime ECR repository name',
+      exportName: 'GrootFinetuneShared-RuntimeEcrName',
     });
 
-    new cdk.CfnOutput(this, 'BatchCodeBuildProjectName', {
-      value: batchCodeBuild.project.projectName,
-      description: 'Shared Batch CodeBuild project name',
+    new cdk.CfnOutput(this, 'RuntimeCodeBuildProjectName', {
+      value: runtimeCodeBuild.project.projectName,
+      description: 'Shared GR00T runtime CodeBuild project name',
     });
 
     new cdk.CfnOutput(this, 'SmTrainingEcrName', {
@@ -135,7 +136,7 @@ export class GrootFinetuneSharedStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'SharedStackVersion', {
-      value: '1',
+      value: '2',
       description: 'Shared stack schema version (bump to trigger update)',
     });
   }

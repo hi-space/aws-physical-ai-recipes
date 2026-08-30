@@ -111,8 +111,8 @@ export class JumpHostConstruct extends Construct {
     this.instance = instance;
     this.publicIp = instance.attrPublicIp;
 
-    new cdk.CfnOutput(this, 'JumpHostIp', { value: instance.attrPublicIp, description: 'Jump Host Public IP' });
-    new cdk.CfnOutput(this, 'JumpKeyCommand', {
+    const jumpHostIp = new cdk.CfnOutput(this, 'JumpHostIp', { value: instance.attrPublicIp, description: 'Jump Host Public IP' });
+    const jumpKeyCommand = new cdk.CfnOutput(this, 'JumpKeyCommand', {
       value: cdk.Fn.join('', [
         'aws ssm get-parameter --name /ec2/keypair/',
         keyPair.attrKeyPairId,
@@ -121,9 +121,14 @@ export class JumpHostConstruct extends Construct {
       ]),
       description: 'Command to retrieve SSH private key',
     });
-    new cdk.CfnOutput(this, 'SSHCommand', {
+    const sshCommand = new cdk.CfnOutput(this, 'SSHCommand', {
       value: cdk.Fn.join('', ['ssh -i ~/.ssh/', keyPair.keyName, '.pem ec2-user@', instance.attrPublicIp]),
       description: 'SSH command to jump host',
     });
+    // Nested-construct outputs would otherwise get a hashed logical ID that the
+    // workshop guide cannot name. Pin them so `Outputs[?OutputKey=='JumpHostIp']` works.
+    jumpHostIp.overrideLogicalId('JumpHostIp');
+    jumpKeyCommand.overrideLogicalId('JumpKeyCommand');
+    sshCommand.overrideLogicalId('SSHCommand');
   }
 }

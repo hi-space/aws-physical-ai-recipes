@@ -72,7 +72,7 @@ aws cloudformation describe-stacks \
 
 ### 2-1. 공유 스택 (관리자, 1회)
 
-ECR repo `groot-batch-train` 와 CodeBuild project `groot-batch-train-build` 를 만들고 컨테이너 이미지를 자동 빌드합니다. 이미 만들어진 경우 멱등하게 통과합니다 (재배포 안전).
+ECR repo `groot-runtime` 와 CodeBuild project `groot-runtime-build` 를 만들고 컨테이너 이미지를 자동 빌드합니다. 이미 만들어진 경우 멱등하게 통과합니다 (재배포 안전).
 
 ```bash
 cd infra/groot
@@ -105,7 +105,7 @@ CDK_DEFAULT_REGION=ap-northeast-2 npx cdk deploy GrootBatchTrain -c userId=yoo
 ```bash
 # 빌드 상태 확인
 aws codebuild list-builds-for-project \
-  --project-name groot-batch-train-build \
+  --project-name groot-runtime-build \
   --region ap-northeast-2 \
   --query "ids[0]" --output text | \
   xargs -I{} aws codebuild batch-get-builds --ids {} \
@@ -119,7 +119,7 @@ aws codebuild list-builds-for-project \
 ```bash
 # ECR 이미지 확인
 aws ecr describe-images \
-  --repository-name groot-batch-train \
+  --repository-name groot-runtime \
   --region ap-northeast-2 \
   --query "imageDetails[0].{Tags:imageTags,PushedAt:imagePushedAt}" \
   --output table

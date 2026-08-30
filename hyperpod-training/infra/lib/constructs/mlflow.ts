@@ -38,7 +38,10 @@ export class MlflowConstruct extends Construct {
     this.trackingServerArn = trackingServer.getAtt('TrackingServerArn').toString();
     this.trackingUri = `arn:aws:sagemaker:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:mlflow-tracking-server/${serverName}`;
 
-    new cdk.CfnOutput(this, 'MlflowTrackingArn', { value: this.trackingUri, description: 'MLflow Tracking ARN (for Python SDK: mlflow.set_tracking_uri)' });
-    new cdk.CfnOutput(this, 'MlflowPresignedUrlCommand', { value: `aws sagemaker create-presigned-mlflow-tracking-server-url --tracking-server-name ${serverName} --region ${cdk.Aws.REGION}`, description: 'Run this command to get MLflow UI URL (browser)' });
+    const trackingArnOut = new cdk.CfnOutput(this, 'MlflowTrackingArn', { value: this.trackingUri, description: 'MLflow Tracking ARN (for Python SDK: mlflow.set_tracking_uri)' });
+    const presignedOut = new cdk.CfnOutput(this, 'MlflowPresignedUrlCommand', { value: `aws sagemaker create-presigned-mlflow-tracking-server-url --tracking-server-name ${serverName} --region ${cdk.Aws.REGION}`, description: 'Run this command to get MLflow UI URL (browser)' });
+    // Pin the logical IDs so Module 8 can read them by name from the stack outputs.
+    trackingArnOut.overrideLogicalId('MlflowTrackingArn');
+    presignedOut.overrideLogicalId('MlflowPresignedUrlCommand');
   }
 }
