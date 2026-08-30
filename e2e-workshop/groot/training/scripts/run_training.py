@@ -39,15 +39,26 @@ def load_config() -> dict:
     return {}
 
 
-def launch_training_job(args: argparse.Namespace, config: dict) -> str:
-    """SageMaker Training Job을 시작합니다.
+def build_training_job(
+    args: argparse.Namespace,
+    config: dict,
+    *,
+    instance_type: str | None = None,
+    use_spot: bool | None = None,
+):
+    """Estimator/입력/작업이름/리전을 조립합니다 (`.fit()`은 호출하지 않음).
+
+    `run_with_fallback.py`가 인스턴스 타입을 바꿔가며 재사용할 수 있도록
+    실행부(`launch_training_job`)에서 분리한 seam입니다.
 
     Args:
         args: CLI 인수.
         config: config.yaml 설정.
+        instance_type: 지정 시 args.instance_type 대신 사용 (폴백용).
+        use_spot: 지정 시 args/config의 spot 설정을 덮어씀 (폴백은 False 강제).
 
     Returns:
-        학습 작업 이름.
+        (estimator, inputs, job_name, region) 튜플.
     """
     try:
         import sagemaker
@@ -101,8 +112,11 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
             print("  infra/deploy_stack.py 및 scripts/trigger_build.py를 먼저 실행하세요.")
             sys.exit(1)
 
-    use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", False)
+    if use_spot is None:
+        use_spot = args.use_spot if args.use_spot is not None else train_cfg.get("use_spot", False)
     max_wait = train_cfg.get("max_wait_seconds", 86400) if use_spot else None
+
+    resolved_instance_type = instance_type or args.instance_type
 
     session = sagemaker.Session(
         boto_session=boto3.Session(region_name=region)
@@ -167,7 +181,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         role=role_arn,
         entry_point="train.py",
         source_dir=train_source_dir,
-        instance_type=args.instance_type,
+        instance_type=resolved_instance_type,
         instance_count=1,
         output_path=f"s3://{bucket}/output",
         checkpoint_s3_uri=checkpoint_s3_uri,
@@ -191,7 +205,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
 
     print(f"SageMaker Training Job 시작 중...")
     print(f"  embodiment_tag:  {args.embodiment_tag}")
-    print(f"  인스턴스:        {args.instance_type}")
+    print(f"  인스턴스:        {resolved_instance_type}")
     print(f"  GR00T 버전:      {args.groot_version or '(빌드 디폴트)'}")
     print(f"  학습 이미지:     {training_image_uri}")
 
@@ -202,6 +216,21 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         # SageMaker는 빈 InputDataConfig를 거부하므로 None으로 fit 호출
         inputs = None
         print(f"  데이터셋:        HF/{args.hf_dataset_id} (컨테이너 내 다운로드)")
+
+    return estimator, inputs, job_name, region
+
+
+def launch_training_job(args: argparse.Namespace, config: dict) -> str:
+    """Training Job을 조립하고 `.fit()`으로 실행합니다.
+
+    Args:
+        args: CLI 인수.
+        config: config.yaml 설정.
+
+    Returns:
+        학습 작업 이름.
+    """
+    estimator, inputs, job_name, region = build_training_job(args, config)
 
     try:
         estimator.fit(inputs=inputs, job_name=job_name, wait=not args.no_wait)
@@ -228,8 +257,12 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
     return job_name
 
 
-def main() -> None:
-    config = load_config()
+def build_arg_parser(config: dict) -> argparse.ArgumentParser:
+    """공통 CLI 파서를 구성합니다 (기본값은 config.yaml에서 읽음).
+
+    `run_with_fallback.py`가 동일한 데이터/버전/학습 인자를 재사용하도록
+    `main`에서 분리했습니다.
+    """
     aws_cfg = config.get("aws", {})
     train_cfg = config.get("training", {})
 
@@ -304,7 +337,12 @@ def main() -> None:
                         default=config.get("mlflow", {}).get("experiment_name", "groot-sm-finetune"),
                         help="MLflow experiment 이름 (기본: groot-sm-finetune)")
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    config = load_config()
+    args = build_arg_parser(config).parse_args()
 
     launch_training_job(args, config)
 
