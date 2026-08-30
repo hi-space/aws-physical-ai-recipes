@@ -54,9 +54,23 @@ OUTPUT_DIR = "/opt/ml/processing/output"
 # 맞지 않을 수 있음 — 이 경우가 Task 1 스파이크가 커버하지 못하는 부분이다.
 SO101_VIDEO_KEYS = ["front", "wrist"]
 SO101_STATE_DIMS = {"single_arm": 5, "gripper": 1}
-SO101_ACTION_KEYS = ["single_arm", "gripper"]
+# action의 키/차원은 so101_modality_config.py에서 state와 동일한 구성(single_arm=5, gripper=1).
+SO101_ACTION_DIMS = {"single_arm": 5, "gripper": 1}
+SO101_ACTION_KEYS = list(SO101_ACTION_DIMS.keys())
 SO101_LANGUAGE_KEY = "annotation.human.task_description"
 DUMMY_IMAGE_HW = 224  # UNVERIFIED — processor가 내부적으로 리사이즈한다고 가정한 임의 값
+
+
+def expected_action_dim() -> int:
+    """so101/NEW_EMBODIMENT의 실제 concatenated action 마지막 축 크기(=6).
+
+    inference_metadata.json의 action_dim은 train.py의 하드코딩된 기본값 "7"이며(오버라이드
+    경로 없음 — training/scripts/run_training.py, training/container/train.py 확인), so101의
+    실제 action_dim(single_arm 5 + gripper 1 = 6)과 다르다. meta["action_dim"]을 그대로 쓰면
+    건강한 체크포인트도 항상 게이트에 걸리므로, video_key/state_key와 동일하게 이 스크립트의
+    정적 so101 설정에서 기대값을 파생시킨다(meta는 신뢰하지 않음).
+    """
+    return sum(SO101_ACTION_DIMS.values())
 
 
 def extract_checkpoint(input_dir: str) -> str:
@@ -72,7 +86,14 @@ def extract_checkpoint(input_dir: str) -> str:
 
 
 def load_metadata(ckpt_dir: str) -> dict:
-    """inference_metadata.json에서 embodiment_tag/video_key/state_key/action_dim을 읽는다."""
+    """inference_metadata.json을 읽는다. 실제로 소비하는 필드는 embodiment_tag뿐이다.
+
+    video_key/state_key/action_dim은 train.py가 담아 두지만 이 스크립트는 신뢰하지 않는다 —
+    so101은 다중 카메라/다중 상태 키를 쓰므로 단일 flat 키로 표현이 안 되고(위 SO101_* 상수
+    참고), action_dim의 train.py 기본값("7")도 so101의 실제 값(6)과 다르다
+    (expected_action_dim() 참고). 아래 기본값의 action_dim/video_key/state_key는 참고용으로만
+    남겨 두고 실제 게이트 판정에는 쓰지 않는다.
+    """
     meta_path = Path(ckpt_dir) / "inference_metadata.json"
     if meta_path.exists():
         return json.loads(meta_path.read_text())
@@ -151,12 +172,13 @@ def main() -> None:
     parser.add_argument("--output-dir", default=OUTPUT_DIR)
     args = parser.parse_args()
 
-    report = {"passed": 0, "action_shape": [], "all_finite": 0, "error": ""}
     try:
         ckpt = extract_checkpoint(args.input_dir)
         meta = load_metadata(ckpt)
         action = run_policy(ckpt, meta)
-        report = check_action(action, int(meta.get("action_dim", 7)))
+        # meta["action_dim"]이 아니라 so101 정적 설정에서 파생한 기대값을 쓴다 — 위
+        # expected_action_dim() 문서 참고 (meta 값은 train.py 기본값 7로 항상 틀림).
+        report = check_action(action, expected_action_dim())
     except Exception as e:  # noqa: BLE001
         report = {"passed": 0, "action_shape": [], "all_finite": 0, "error": repr(e)}
     write_report(args.output_dir, report)
