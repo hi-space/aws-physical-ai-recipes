@@ -10,6 +10,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as efs from 'aws-cdk-lib/aws-efs';
+import * as fsx from 'aws-cdk-lib/aws-fsx';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as s3_assets from 'aws-cdk-lib/aws-s3-assets';
@@ -31,6 +32,8 @@ export interface DcvInstanceProps {
   efsFileSystem: efs.CfnFileSystem;
   /** EFS 보안 그룹 참조 */
   efsSecurityGroup: ec2.CfnSecurityGroup;
+  /** 공유 FSx for Lustre 파일시스템 참조 (/fsx 마운트) */
+  fsxFileSystem: fsx.CfnFileSystem;
   /** EC2 인스턴스 타입 (예: 'g6.12xlarge') */
   instanceType: string;
   /** 버전 프로필 설정 객체 */
@@ -281,6 +284,9 @@ export class DcvInstanceConstruct extends Construct {
       `export ROS2_DISTRO="${props.versionProfile.ros2Distro}"`,
       `export VERSION_PROFILE="${props.versionProfileName}"`,
       'export EFS_ID="${EfsFileSystemId}"',
+      'export FSX_ID="${FsxFileSystemId}"',
+      'export FSX_DNS_NAME="${FsxDnsName}"',
+      'export FSX_MOUNT_NAME="${FsxMountName}"',
       'export REGION="${AWS::Region}"',
       'export ACCOUNT="${AWS::AccountId}"',
       'export SECRET_ID="${SecretId}"',
@@ -323,6 +329,9 @@ export class DcvInstanceConstruct extends Construct {
       'source /tmp/userdata-scripts/isaac-lab.sh || { echo "[FAIL] isaac-lab.sh failed"; USERDATA_EXIT=1; }',
       'echo "===== [$(date)] STAGE: efs-mount.sh ====="',
       'source /tmp/userdata-scripts/efs-mount.sh || { echo "[FAIL] efs-mount.sh failed"; USERDATA_EXIT=1; }',
+      'echo "===== [$(date)] STAGE: fsx-mount.sh ====="',
+      '# FSx 마운트 실패는 스크립트 내부에서 [WARN] 처리한다 (모듈 5에 s3 sync 폴백 존재)',
+      'source /tmp/userdata-scripts/fsx-mount.sh || echo "[WARN] fsx-mount.sh failed"',
       ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }'] : []),
       '',
       'trap - ERR',
@@ -360,6 +369,9 @@ export class DcvInstanceConstruct extends Construct {
       userData: cdk.Fn.base64(
         cdk.Fn.sub(userDataScript, {
           EfsFileSystemId: props.efsFileSystem.ref,
+          FsxFileSystemId: props.fsxFileSystem.ref,
+          FsxDnsName: props.fsxFileSystem.attrDnsName,
+          FsxMountName: props.fsxFileSystem.attrLustreMountName,
           SecretId: secret.ref,
           UserdataScriptsUrl: userdataAsset.s3ObjectUrl,
           WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,
@@ -380,6 +392,9 @@ export class DcvInstanceConstruct extends Construct {
     cfnInstance.userData = cdk.Fn.base64(
       cdk.Fn.sub(userDataWithLogicalId, {
         EfsFileSystemId: props.efsFileSystem.ref,
+        FsxFileSystemId: props.fsxFileSystem.ref,
+        FsxDnsName: props.fsxFileSystem.attrDnsName,
+        FsxMountName: props.fsxFileSystem.attrLustreMountName,
         SecretId: secret.ref,
         UserdataScriptsUrl: userdataAsset.s3ObjectUrl,
         WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,

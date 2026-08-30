@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as fsx from 'aws-cdk-lib/aws-fsx';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -25,6 +26,12 @@ export interface GrootSagemakerStackProps extends cdk.StackProps {
   availabilityZone?: string;
   /** SageMaker MLflow tracking server 사이즈 (Small/Medium/Large). */
   mlflowSize?: string;
+  /**
+   * 부모 IsaacLab 스택의 공유 FSx for Lustre ID. 지정되면 아티팩트 버킷과
+   * DRA(자동 import/export)를 연결해, SageMaker 학습 잡이 S3로 export한
+   * checkpoint가 DCV·HyperPod의 /fsx/groot/... 에 자동으로 나타난다.
+   */
+  fsxFileSystemId?: string;
 }
 
 /**
@@ -63,6 +70,30 @@ export class GrootSagemakerStack extends cdk.Stack {
     const artifactsBucket = new ArtifactsBucket(this, 'ArtifactsBucket', {
       bucketName: props.bucketName,
     });
+
+    // ---------- [1.5] 공유 FSx ↔ 아티팩트 버킷 DRA ----------
+    // S3에 쓰는 순간 FSx의 /groot 아래에 자동 반영(import)되고, FSx의 /groot 에
+    // 쓴 파일도 S3로 자동 export된다. 학습(S3) → 실험(DCV /fsx) → 클러스터
+    // (HyperPod /fsx)가 파일 복사 없이 같은 데이터를 본다.
+    if (props.fsxFileSystemId) {
+      // 부모 FSx는 사용자별 isaaclab 스택 소유이므로 경로에 userId 접미사가 필요 없다.
+      const dra = new fsx.CfnDataRepositoryAssociation(this, 'GrootFsxDra', {
+        fileSystemId: props.fsxFileSystemId,
+        fileSystemPath: '/groot',
+        dataRepositoryPath: `s3://${props.bucketName}`,
+        s3: {
+          autoImportPolicy: { events: ['NEW', 'CHANGED', 'DELETED'] },
+          autoExportPolicy: { events: ['NEW', 'CHANGED', 'DELETED'] },
+        },
+        tags: [{ key: 'Name', value: named('groot-fsx-dra') }],
+      });
+      dra.addDependency(artifactsBucket.bucket.node.defaultChild as cdk.CfnResource);
+
+      new cdk.CfnOutput(this, 'FsxGrootPath', {
+        value: '/fsx/groot',
+        description: 'FSx path mirroring the artifacts bucket (auto import/export)',
+      });
+    }
 
     // ---------- [2] IAM ----------
     const smRole = new SageMakerExecutionRole(this, 'SageMakerRole', {

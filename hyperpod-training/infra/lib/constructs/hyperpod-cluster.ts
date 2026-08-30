@@ -12,10 +12,13 @@ export interface HyperPodClusterProps {
   namePrefix: string;
   vpcId: string;
   privateSubnetId: string;
-  fsxSecurityGroup: ec2.CfnSecurityGroup;
-  /** Cluster's own Lustre filesystem — its DNS/mount name is staged to the
-   *  lifecycle bucket as fsx.env so setup_fsx.sh mounts the right filesystem. */
-  fileSystem: fsx.CfnFileSystem;
+  /** 클러스터 전용 FSx를 만든 경우의 SG. 공유 FSx import 시에는 원 소유 스택
+   *  SG가 VPC CIDR 인바운드를 이미 허용하므로 생략한다(ingress 규칙 스킵). */
+  fsxSecurityGroup?: ec2.CfnSecurityGroup;
+  /** Lustre DNS/mount name — lifecycle bucket에 fsx.env로 스테이징되어
+   *  setup_fsx.sh가 올바른 파일시스템을 마운트하게 한다. */
+  fsxDnsName: string;
+  fsxMountName: string;
   dataBucket: s3.CfnBucket;
   endpointSG?: ec2.CfnSecurityGroup;
   ssmEndpoints?: ec2.CfnVPCEndpoint[];
@@ -114,22 +117,24 @@ export class HyperPodClusterConstruct extends Construct {
       description: 'Inter-node communication (NCCL, Ray, SLURM)',
     });
 
-    new ec2.CfnSecurityGroupIngress(this, 'FsxFromCluster', {
-      groupId: props.fsxSecurityGroup.ref,
-      ipProtocol: 'tcp',
-      fromPort: 988,
-      toPort: 988,
-      sourceSecurityGroupId: clusterSG.ref,
-      description: 'Lustre from HyperPod',
-    });
-    new ec2.CfnSecurityGroupIngress(this, 'FsxFromCluster2', {
-      groupId: props.fsxSecurityGroup.ref,
-      ipProtocol: 'tcp',
-      fromPort: 1021,
-      toPort: 1023,
-      sourceSecurityGroupId: clusterSG.ref,
-      description: 'Lustre from HyperPod',
-    });
+    if (props.fsxSecurityGroup) {
+      new ec2.CfnSecurityGroupIngress(this, 'FsxFromCluster', {
+        groupId: props.fsxSecurityGroup.ref,
+        ipProtocol: 'tcp',
+        fromPort: 988,
+        toPort: 988,
+        sourceSecurityGroupId: clusterSG.ref,
+        description: 'Lustre from HyperPod',
+      });
+      new ec2.CfnSecurityGroupIngress(this, 'FsxFromCluster2', {
+        groupId: props.fsxSecurityGroup.ref,
+        ipProtocol: 'tcp',
+        fromPort: 1021,
+        toPort: 1023,
+        sourceSecurityGroupId: clusterSG.ref,
+        description: 'Lustre from HyperPod',
+      });
+    }
 
     // Upload lifecycle scripts to S3 (include bucket.conf for self-discovery).
     //
@@ -147,7 +152,7 @@ export class HyperPodClusterConstruct extends Construct {
         s3deploy.Source.data('bucket.conf', this.lifecycleBucket.ref),
         s3deploy.Source.data(
           'fsx.env',
-          `FSX_DNS_NAME=${props.fileSystem.attrDnsName}\nFSX_MOUNT_NAME=${props.fileSystem.attrLustreMountName}\n`,
+          `FSX_DNS_NAME=${props.fsxDnsName}\nFSX_MOUNT_NAME=${props.fsxMountName}\n`,
         ),
       ],
       destinationBucket: s3.Bucket.fromBucketName(this, 'LifecycleBucketRef', this.lifecycleBucket.ref),

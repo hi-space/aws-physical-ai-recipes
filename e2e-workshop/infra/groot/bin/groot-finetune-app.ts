@@ -59,6 +59,7 @@ async function main() {
   let efsSecurityGroupId = app.node.tryGetContext('efsSecurityGroupId') as string | undefined;
   let privateSubnetId = app.node.tryGetContext('privateSubnetId') as string | undefined;
   let availabilityZone = app.node.tryGetContext('availabilityZone') as string | undefined;
+  let fsxFileSystemId = app.node.tryGetContext('fsxFileSystemId') as string | undefined;
 
   const missingInfra = !vpcId || !efsFileSystemId || !efsSecurityGroupId || !privateSubnetId || !availabilityZone;
   if (missingInfra) {
@@ -69,7 +70,8 @@ async function main() {
       const params = await resolveParentStack(userId, region);
       saveToContext({ userId, ...params, region });
       ({ vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone } = params);
-      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, efs=${efsFileSystemId}, az=${availabilityZone}`);
+      fsxFileSystemId = params.fsxFileSystemId ?? fsxFileSystemId;
+      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, efs=${efsFileSystemId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
     } catch (err) {
       console.error(`[GrootFinetune] Skipping per-user stacks: ${(err as Error).message}`);
     }
@@ -102,6 +104,7 @@ async function main() {
       subnetIds: [privateSubnetId],
       availabilityZone,
       mlflowSize: app.node.tryGetContext('mlflowSize') ?? 'Small',
+      fsxFileSystemId,
     });
   }
 }

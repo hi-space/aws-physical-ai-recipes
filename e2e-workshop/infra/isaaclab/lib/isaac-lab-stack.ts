@@ -17,6 +17,7 @@ import { VERSION_PROFILES, VersionProfileName } from './config/version-profiles'
 import { DCV_AMI_MAPPING, BATCH_AMI_MAPPING } from './config/ami-mappings';
 import { NetworkingConstruct } from './constructs/networking';
 import { EfsStorageConstruct } from './constructs/efs-storage';
+import { FsxStorageConstruct } from './constructs/fsx-storage';
 import { DcvInstanceConstruct } from './constructs/dcv-instance';
 import { BatchInfraConstruct } from './constructs/batch-infra';
 import { CloudFrontCodeServerConstruct } from './constructs/cloudfront-code-server';
@@ -46,6 +47,8 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   enableBatch?: boolean;
   /** GR00T 가중치 S3 사본 위치. 미지정 시 HuggingFace에서 다운로드 */
   grootWeightsUrl?: string;
+  /** 공유 FSx for Lustre 용량 GiB (PERSISTENT_2, 기본값: 1200) */
+  fsxCapacityGiB?: number;
   /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
   isaacSimVersion?: string;
 }
@@ -150,6 +153,17 @@ export class IsaacLabStack extends cdk.Stack {
       vpcCidr: props.vpcCidr,
     });
 
+    // --- [2.5] FsxStorageConstruct ---
+    // 공유 FSx for Lustre — DCV(/fsx 마운트), SageMaker Training(groot 스택 DRA),
+    // HyperPod(-c fsxFileSystemId import)이 모두 이 파일시스템을 공유한다.
+    const fsxStorage = new FsxStorageConstruct(this, 'FsxStorage', {
+      namePrefix,
+      vpc: networking.vpc,
+      privateSubnet: networking.privateSubnet,
+      vpcCidr: props.vpcCidr,
+      capacityGiB: props.fsxCapacityGiB,
+    });
+
     // --- [3/5] DcvInstanceConstruct ---
     // DCV EC2 인스턴스 (Networking, EFS 의존)
     const dcvInstance = new DcvInstanceConstruct(this, 'DcvInstance', {
@@ -159,6 +173,7 @@ export class IsaacLabStack extends cdk.Stack {
       dcvSecurityGroup: networking.dcvSecurityGroup,
       efsFileSystem: efsStorage.fileSystem,
       efsSecurityGroup: efsStorage.securityGroup,
+      fsxFileSystem: fsxStorage.fileSystem,
       instanceType: resolvedInstanceType,
       versionProfile: profile,
       versionProfileName: props.versionProfile,
@@ -275,6 +290,21 @@ export class IsaacLabStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'EfsSecurityGroupId', {
       value: efsStorage.securityGroup.ref,
       description: 'EFS Security Group ID (for NFS access)',
+    });
+
+    new cdk.CfnOutput(this, 'FsxFileSystemId', {
+      value: fsxStorage.fileSystem.ref,
+      description: 'Shared FSx for Lustre File System ID',
+    });
+
+    new cdk.CfnOutput(this, 'FsxMountName', {
+      value: fsxStorage.fileSystem.attrLustreMountName,
+      description: 'Shared FSx for Lustre mount name',
+    });
+
+    new cdk.CfnOutput(this, 'FsxSecurityGroupId', {
+      value: fsxStorage.securityGroup.ref,
+      description: 'FSx Security Group ID (Lustre access)',
     });
 
     if (userId) {

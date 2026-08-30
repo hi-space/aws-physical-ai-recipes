@@ -20,6 +20,8 @@ export interface ParentStackParams {
   efsSecurityGroupId: string;
   privateSubnetId: string;
   availabilityZone: string;
+  /** 공유 FSx for Lustre ID. 구버전 부모 스택(FSx 도입 전)에는 없을 수 있다. */
+  fsxFileSystemId?: string;
 }
 
 export async function resolveParentStack(userId: string, region: string): Promise<ParentStackParams> {
@@ -58,6 +60,7 @@ export async function resolveParentStack(userId: string, region: string): Promis
   const getOutput = (key: string) => outputs.find((o) => o.OutputKey === key)?.OutputValue;
   const efsFileSystemId = getOutput('EfsFileSystemId');
   const privateSubnetId = getOutput('PrivateSubnetId');
+  const fsxFileSystemId = getOutput('FsxFileSystemId');
 
   if (!efsFileSystemId || !privateSubnetId) {
     throw new Error(`Parent stack ${foundStack} missing EfsFileSystemId or PrivateSubnetId outputs`);
@@ -79,7 +82,7 @@ export async function resolveParentStack(userId: string, region: string): Promis
   }
   const efsSecurityGroupId = SecurityGroups[0].GroupId!;
 
-  return { vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone };
+  return { vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone, fsxFileSystemId };
 }
 
 export function saveToContext(values: Record<string, string>): void {
@@ -97,13 +100,21 @@ if (require.main === module) {
 
   resolveParentStack(userId, region)
     .then((params) => {
-      saveToContext({ userId, ...params, region, useStableGroot: 'true' });
+      const { fsxFileSystemId, ...required } = params;
+      saveToContext({
+        userId,
+        ...required,
+        ...(fsxFileSystemId ? { fsxFileSystemId } : {}),
+        region,
+        useStableGroot: 'true',
+      });
       console.log('Resolved parameters:');
       console.log(`  vpcId:              ${params.vpcId}`);
       console.log(`  efsFileSystemId:    ${params.efsFileSystemId}`);
       console.log(`  efsSecurityGroupId: ${params.efsSecurityGroupId}`);
       console.log(`  privateSubnetId:    ${params.privateSubnetId}`);
       console.log(`  availabilityZone:   ${params.availabilityZone}`);
+      console.log(`  fsxFileSystemId:    ${params.fsxFileSystemId ?? '(없음 — 부모 스택에 FSx 미배포)'}`);
     })
     .catch((err) => {
       console.error('Error:', err.message);

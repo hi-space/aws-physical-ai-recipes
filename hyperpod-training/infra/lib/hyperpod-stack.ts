@@ -23,6 +23,9 @@ export interface HyperPodStackProps extends cdk.StackProps {
   /** debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1). */
   debugCount: number;
   fsxCapacityGiB: number;
+  /** 기존 FSx for Lustre 재사용 (isaaclab 공유 FSx, createVpc=false 필요). */
+  importedFsxId?: string;
+  importedFsxMountName?: string;
 }
 
 export class HyperPodStack extends cdk.Stack {
@@ -65,6 +68,8 @@ export class HyperPodStack extends cdk.Stack {
       vpcId: networking.vpcId,
       privateSubnetId: networking.privateSubnetId,
       fsxCapacityGiB: props.fsxCapacityGiB,
+      importedFsxId: props.importedFsxId,
+      importedFsxMountName: props.importedFsxMountName,
     });
 
     // AMI 보안 패치 스케줄. 기본은 켜진 상태이며, 끄려면 -c amiUpdateSchedule=off 로 배포한다.
@@ -81,7 +86,8 @@ export class HyperPodStack extends cdk.Stack {
       vpcId: networking.vpcId,
       privateSubnetId: networking.privateSubnetId,
       fsxSecurityGroup: storage.securityGroup,
-      fileSystem: storage.fileSystem,
+      fsxDnsName: storage.fsxDnsName,
+      fsxMountName: storage.fsxMountName,
       dataBucket: storage.bucket,
       endpointSG: networking.endpointSG,
       ssmEndpoints: networking.ssmEndpoints,
@@ -108,7 +114,7 @@ export class HyperPodStack extends cdk.Stack {
 
     // Stack Outputs
     new cdk.CfnOutput(this, 'S3BucketName', { value: storage.bucket.ref, description: 'Data S3 Bucket' });
-    new cdk.CfnOutput(this, 'FsxFileSystemId', { value: storage.fileSystem.ref, description: 'FSx for Lustre File System ID' });
+    new cdk.CfnOutput(this, 'FsxFileSystemId', { value: storage.fileSystemId, description: 'FSx for Lustre File System ID' });
     new cdk.CfnOutput(this, 'VpcId', { value: networking.vpcId, description: 'VPC ID' });
     new cdk.CfnOutput(this, 'PrivateSubnetId', { value: networking.privateSubnetId, description: 'Private Subnet ID' });
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName, description: 'HyperPod Cluster Name' });

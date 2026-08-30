@@ -46,6 +46,7 @@ const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') 
 const enableBatch = (app.node.tryGetContext('enableBatch') ?? 'false') === 'true';
 const grootWeightsUrl = app.node.tryGetContext('grootWeightsUrl') ?? '';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
+const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 // userId 미지정 시 계정 ID를 사용한다. 스택/버킷 이름은 synth 시점에 literal이어야
 // 하므로 토큰(cdk.Aws.ACCOUNT_ID)이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
 const userId = app.node.tryGetContext('userId') ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
@@ -81,4 +82,5 @@ new IsaacLabStack(app, stackName, {
   enableBatch,
   grootWeightsUrl,
   isaacSimVersion: isaacSimVersion || undefined,
+  fsxCapacityGiB,
 });

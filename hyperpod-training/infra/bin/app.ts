@@ -18,6 +18,11 @@ const gpuCount = parseInt(app.node.tryGetContext('gpuCount') ?? '0', 10);
 const debugCount = parseInt(app.node.tryGetContext('debugCount') ?? '0', 10);
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
+// 기존 FSx for Lustre 재사용 (isaaclab 스택의 공유 FSx와 스토리지를 합칠 때 사용).
+// Lustre는 같은 VPC에서만 마운트할 수 있으므로 createVpc=false(기존 VPC 합류)와
+// 함께 써야 한다. mountName은 `aws fsx describe-file-systems` 로 확인한다.
+const importedFsxId = app.node.tryGetContext('fsxFileSystemId') ?? '';
+const importedFsxMountName = app.node.tryGetContext('fsxMountName') ?? '';
 
 if (userId && !/^[a-z0-9-]+$/.test(userId)) {
   throw new Error(`userId는 영문소문자, 숫자, 하이픈만 허용됩니다: '${userId}'`);
@@ -28,6 +33,16 @@ if (!Number.isInteger(gpuCount) || gpuCount < 0 || gpuCount > gpuMaxCountPerType
 }
 if (!Number.isInteger(debugCount) || debugCount < 0 || debugCount > 1) {
   throw new Error(`debugCount는 0 또는 1 이어야 합니다: '${debugCount}'`);
+}
+
+if ((importedFsxId && !importedFsxMountName) || (!importedFsxId && importedFsxMountName)) {
+  throw new Error('fsxFileSystemId와 fsxMountName은 함께 지정해야 합니다.');
+}
+if (importedFsxId && createVpc) {
+  throw new Error(
+    'fsxFileSystemId(기존 FSx 재사용)는 같은 VPC에서만 마운트할 수 있습니다. ' +
+      '-c createVpc=false 와 함께 지정해 해당 FSx가 있는 VPC(태그 UserId 매칭)에 합류하세요.',
+  );
 }
 
 const env = {
@@ -48,4 +63,6 @@ new HyperPodStack(app, stackName, {
   gpuCount,
   debugCount,
   fsxCapacityGiB,
+  importedFsxId: importedFsxId || undefined,
+  importedFsxMountName: importedFsxMountName || undefined,
 });
