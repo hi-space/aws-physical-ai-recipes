@@ -180,7 +180,12 @@ def main() -> None:
         # expected_action_dim() 문서 참고 (meta 값은 train.py 기본값 7로 항상 틀림).
         report = check_action(action, expected_action_dim())
     except Exception as e:  # noqa: BLE001
-        report = {"passed": 0, "action_shape": [], "all_finite": 0, "error": repr(e)}
+        # 이 except는 extract_checkpoint/load_metadata/run_policy(정책 로드·get_action 호출)
+        # 실패를 잡는다 — "LOAD_OR_INFER_FAILURE:" 접두사로 표시해 check_action()이 잡는
+        # shape/finite 불일치(action_shape가 채워지고 error=""인 경우)와 구분한다. 첫 실행에서
+        # 이 접두사가 보이면 모델 품질 문제가 아니라 위 UNVERIFIED 스파이크 가정이 틀렸다는 뜻이다.
+        report = {"passed": 0, "action_shape": [], "all_finite": 0,
+                  "error": f"LOAD_OR_INFER_FAILURE: {e!r}"}
     write_report(args.output_dir, report)
     print("SMOKE EVAL REPORT:", json.dumps(report))
     sys.exit(0)  # 항상 0 — 게이트가 판정

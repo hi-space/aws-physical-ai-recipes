@@ -137,6 +137,6 @@ GR00T 내장 임베디먼트는 `meta/modality.json`만 있으면 됩니다.
 
 ## See Also
 
-- 학습 → FSx용 export까지 한 번에 자동화: [`../pipeline/`](../pipeline/)
+- 데이터 준비 → 학습 → 스모크 게이트 → 모델 등록까지 한 번에 자동화: [`../pipeline/`](../pipeline/)
 - 시뮬레이션 closed-loop 평가: [`../inference/`](../inference/)
 - 인프라 정의: [`../../infra/groot/`](../../infra/groot/)

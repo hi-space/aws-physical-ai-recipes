@@ -1,6 +1,6 @@
 # GR00T Workshop Notebooks
 
-워크숍 모듈 5·7·8을 노트북으로 따라올 수 있도록 정리한 디렉토리입니다. 스크립트를 직접 CLI로 실행하는 대신, 셀 단위로 실행하며 중간 출력을 확인하고 싶을 때 사용합니다.
+워크숍의 VLA 트랙(인프라·베이스 모델 확인 → 파이프라인 학습 → closed-loop 평가)을 노트북으로 따라올 수 있도록 정리한 디렉토리입니다. 스크립트를 직접 CLI로 실행하는 대신, 셀 단위로 실행하며 중간 출력을 확인하고 싶을 때 사용합니다.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ cd e2e-workshop/groot
 | 파일 | 내용 |
 | --- | --- |
 | [`05_infra_and_base_check.ipynb`](./05_infra_and_base_check.ipynb) | 인프라 배포 상태 + GR00T base 모델 검증 |
-| [`07_sagemaker_pipeline.ipynb`](./07_sagemaker_pipeline.ipynb) | Train → FSx export 파이프라인 실행 (핵심 모듈) |
+| [`07_sagemaker_pipeline.ipynb`](./07_sagemaker_pipeline.ipynb) | 5노드 SageMaker Pipeline(TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel/FailStep) 조립·실행 (핵심 모듈). 데이터셋 업로드 준비는 별도 단계 없이 TransformDataset이 흡수 |
 | [`08_closed_loop_eval.ipynb`](./08_closed_loop_eval.ipynb) | 시뮬레이션 closed-loop 평가 래퍼 |
 
 ## 실행법

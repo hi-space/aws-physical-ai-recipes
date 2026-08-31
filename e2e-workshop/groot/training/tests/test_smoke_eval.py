@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]  # groot/
 sys.path.insert(0, str(ROOT / "pipeline"))
 
@@ -50,3 +52,30 @@ def test_check_action_passes_healthy_so101_action_with_derived_dim():
     healthy_action = [[0.0] * 6 for _ in range(16)]
     r = smoke_eval.check_action(healthy_action, smoke_eval.expected_action_dim())
     assert r["passed"] == 1 and r["action_shape"] == [16, 6]
+
+
+def test_main_tags_policy_load_or_infer_failure_with_clear_prefix(tmp_path, monkeypatch):
+    """run_policy()(정책 로드/추론)가 실패하면 evaluation.json의 error에 "LOAD_OR_INFER_FAILURE:"
+    접두사가 붙어야 한다 — check_action()의 shape 불일치(error="")와 구분되는지 확인하는 회귀 테스트.
+    """
+    import smoke_eval
+
+    input_dir = tmp_path / "in"
+    output_dir = tmp_path / "out"
+    input_dir.mkdir()
+
+    def boom(ckpt_dir, meta):
+        raise RuntimeError("Gr00tPolicy ctor failed — UNVERIFIED spike assumption")
+
+    monkeypatch.setattr(smoke_eval, "run_policy", boom)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["smoke_eval.py", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        smoke_eval.main()
+    assert exc_info.value.code == 0
+
+    data = json.loads((output_dir / "evaluation.json").read_text())
+    assert data["smoke"]["passed"] == 0
+    assert data["smoke"]["error"].startswith("LOAD_OR_INFER_FAILURE:")

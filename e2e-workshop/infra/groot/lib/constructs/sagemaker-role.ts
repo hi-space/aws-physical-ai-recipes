@@ -56,6 +56,21 @@ export class SageMakerExecutionRole extends Construct {
 
     this.role.addToPolicy(
       new iam.PolicyStatement({
+        sid: 'ModelRegistry',
+        actions: [
+          'sagemaker:CreateModelPackage',
+          'sagemaker:CreateModelPackageGroup',
+          'sagemaker:DescribeModelPackage',
+          'sagemaker:DescribeModelPackageGroup',
+          'sagemaker:ListModelPackages',
+          'sagemaker:UpdateModelPackage',
+        ],
+        resources: ['*'],
+      }),
+    );
+
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
         sid: 'ECRPull',
         actions: [
           'ecr:GetDownloadUrlForLayer',

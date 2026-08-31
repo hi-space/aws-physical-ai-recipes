@@ -8,12 +8,16 @@ codebuild:
   training_project: groot-sm-training-build
 dataset:
   s3_prefix: datasets/leisaac-pick-orange
+  hf_dataset_id: LightwheelAI/leisaac-pick-orange
 ecr:
   training_uri: ''
+eval:
+  instance_type: ml.g6.xlarge
 model:
   hf_model_id: nvidia/GR00T-N1.6-3B
   s3_prefix: models/groot-sm
   groot_version: n1.6
+  package_group_name: groot-sm-models
 training:
   global_batch_size: 32
   instance_type: ml.g6e.12xlarge
@@ -25,3 +29,5 @@ training:
   instance_fallbacks: []
   # Pending(용량 대기)이 이 시간(초)을 넘으면 Job 중단하고 다음 후보로 폴백.
   capacity_timeout_seconds: 900
+transform:
+  instance_type: ml.m5.2xlarge
