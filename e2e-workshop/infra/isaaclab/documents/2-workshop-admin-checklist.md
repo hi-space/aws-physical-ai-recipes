@@ -37,8 +37,7 @@ cdk bootstrap aws://$ACCOUNT_ID/ap-northeast-2
 |--------|:------:|:--------------:|:---------------:|
 | Running On-Demand G and VT instances (vCPU) | 64 | g6.4xlarge=16, g6.12xlarge=48 | 160 (g6.4xlarge 기준) |
 | VPCs per Region | 5 | 1 | 10 |
-| EC2 Security Groups per Region | 2,500 | 4 | 40 |
-| EFS File Systems per Region | 1,000 | 1 | 10 |
+| EC2 Security Groups per Region | 2,500 | 2 | 20 |
 
 ### 할당량 확인 명령어
 
@@ -85,7 +84,7 @@ aws service-quotas request-service-quota-increase \
 참가자별 IAM 사용자 또는 역할을 사전 생성한다. 필요 권한:
 
 - `AdministratorAccess` (가장 간단) 또는
-- 최소 권한: EC2, VPC, EFS, ECS, ECR, IAM, Secrets Manager, CloudFormation, Lambda, CloudWatch Logs, S3 (CDK asset 업로드)
+- 최소 권한: EC2, VPC, FSx, IAM, Secrets Manager, CloudFormation, Lambda, CloudWatch Logs, S3 (CDK asset 업로드)
 
 ```bash
 # 참가자별 IAM 사용자 생성 예시
@@ -178,11 +177,6 @@ for USER in alice bob charlie; do
   echo "Deleted: IsaacLab-Latest-$USER"
 done
 
-# ECR 리포지토리 정리 (이미지 포함 강제 삭제)
-for USER in alice bob charlie; do
-  aws ecr delete-repository --repository-name isaaclab-batch-$USER --force --region $REGION 2>/dev/null
-done
-
 # IAM 사용자 정리
 for USER in alice bob charlie; do
   KEY_ID=$(aws iam list-access-keys --user-name workshop-$USER --query 'AccessKeyMetadata[0].AccessKeyId' --output text)
@@ -214,8 +208,3 @@ cdk deploy -c userId=alice -c region=us-west-2
 sudo tail -f /var/log/user-data.log
 ```
 
-### ECR 리포지토리 삭제 안 됨
-→ 이미지가 남아있으면 `--force` 옵션 필요:
-```bash
-aws ecr delete-repository --repository-name isaaclab-batch-alice --force --region $REGION
-```

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Resolves parent IsaacLab stack parameters (VPC/EFS/Subnet/AZ).
+ * Resolves parent IsaacLab stack parameters (VPC/Subnet/AZ/FSx).
  *
  * Importable: `resolveParentStack(userId, region)` — used by groot-finetune-app.ts
  * Standalone: `npx ts-node bin/resolve-parent-stack.ts [userId] [region]` — writes cdk.context.json
@@ -10,14 +10,12 @@ import {
   CloudFormationClient,
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
-import { EC2Client, DescribeSubnetsCommand, DescribeSecurityGroupsCommand } from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeSubnetsCommand } from '@aws-sdk/client-ec2';
 import * as fs from 'fs';
 import * as path from 'path';
 
 export interface ParentStackParams {
   vpcId: string;
-  efsFileSystemId: string;
-  efsSecurityGroupId: string;
   privateSubnetId: string;
   availabilityZone: string;
   /** 공유 FSx for Lustre ID. 구버전 부모 스택(FSx 도입 전)에는 없을 수 있다. */
@@ -58,12 +56,11 @@ export async function resolveParentStack(userId: string, region: string): Promis
   }
 
   const getOutput = (key: string) => outputs.find((o) => o.OutputKey === key)?.OutputValue;
-  const efsFileSystemId = getOutput('EfsFileSystemId');
   const privateSubnetId = getOutput('PrivateSubnetId');
   const fsxFileSystemId = getOutput('FsxFileSystemId');
 
-  if (!efsFileSystemId || !privateSubnetId) {
-    throw new Error(`Parent stack ${foundStack} missing EfsFileSystemId or PrivateSubnetId outputs`);
+  if (!privateSubnetId) {
+    throw new Error(`Parent stack ${foundStack} missing PrivateSubnetId output`);
   }
 
   const { Subnets } = await ec2.send(new DescribeSubnetsCommand({ SubnetIds: [privateSubnetId] }));
@@ -71,18 +68,7 @@ export async function resolveParentStack(userId: string, region: string): Promis
   const vpcId = Subnets[0].VpcId!;
   const availabilityZone = Subnets[0].AvailabilityZone!;
 
-  const { SecurityGroups } = await ec2.send(new DescribeSecurityGroupsCommand({
-    Filters: [
-      { Name: 'vpc-id', Values: [vpcId] },
-      { Name: 'description', Values: ['*for EFS*'] },
-    ],
-  }));
-  if (!SecurityGroups || SecurityGroups.length === 0) {
-    throw new Error(`No EFS security group found in VPC ${vpcId}`);
-  }
-  const efsSecurityGroupId = SecurityGroups[0].GroupId!;
-
-  return { vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone, fsxFileSystemId };
+  return { vpcId, privateSubnetId, availabilityZone, fsxFileSystemId };
 }
 
 export function saveToContext(values: Record<string, string>): void {
@@ -110,8 +96,6 @@ if (require.main === module) {
       });
       console.log('Resolved parameters:');
       console.log(`  vpcId:              ${params.vpcId}`);
-      console.log(`  efsFileSystemId:    ${params.efsFileSystemId}`);
-      console.log(`  efsSecurityGroupId: ${params.efsSecurityGroupId}`);
       console.log(`  privateSubnetId:    ${params.privateSubnetId}`);
       console.log(`  availabilityZone:   ${params.availabilityZone}`);
       console.log(`  fsxFileSystemId:    ${params.fsxFileSystemId ?? '(없음 — 부모 스택에 FSx 미배포)'}`);

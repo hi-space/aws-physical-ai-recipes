@@ -9,7 +9,6 @@
  */
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as efs from 'aws-cdk-lib/aws-efs';
 import * as fsx from 'aws-cdk-lib/aws-fsx';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -28,10 +27,6 @@ export interface DcvInstanceProps {
   publicSubnet: ec2.CfnSubnet;
   /** DCV용 보안 그룹 참조 */
   dcvSecurityGroup: ec2.CfnSecurityGroup;
-  /** EFS 파일 시스템 참조 */
-  efsFileSystem: efs.CfnFileSystem;
-  /** EFS 보안 그룹 참조 */
-  efsSecurityGroup: ec2.CfnSecurityGroup;
   /** 공유 FSx for Lustre 파일시스템 참조 (/fsx 마운트) */
   fsxFileSystem: fsx.CfnFileSystem;
   /** EC2 인스턴스 타입 (예: 'g6.12xlarge') */
@@ -44,16 +39,14 @@ export interface DcvInstanceProps {
   amiId: string;
   /** 리소스 Name 태그 접두사 (예: 'IsaacLab-Stable-alice') */
   namePrefix: string;
-  /** ECR 리포지토리 이름 (멀티 사용자 시 사용자별 분리) */
-  ecrRepoName?: string;
   /** CloudWatch Agent 설치 여부 (기본값: false) */
   enableCloudWatch?: boolean;
   /** code-server (VSCode) 설치 여부 (기본값: true) */
   enableCodeServer?: boolean;
-  /** Isaac Lab 이미지를 ECR에 푸시할지 여부 (Batch 분산 학습용, 기본값: false) */
-  enableBatch?: boolean;
   /** GR00T 가중치 S3 사본 위치. 미지정 시 HuggingFace에서 다운로드 */
   grootWeightsUrl?: string;
+  /** 모델·가중치를 내려받는 인스턴스 로컬 경로 (기본값: '/home/ubuntu/environment/models') */
+  modelsDir?: string;
 }
 
 /**
@@ -61,11 +54,11 @@ export interface DcvInstanceProps {
  *
  * 생성 리소스:
  * - Secrets Manager Secret (DCV 비밀번호 자동 생성, 32자, 구두점 제외)
- * - IAM Role (S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기 - ARN 제한)
+ * - IAM Role (S3 전체, ECR 전체, SSM, SageMaker, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
  * - EC2 Instance (GPU, 500GB EBS gp3, EBS 암호화 활성화)
  * - CloudFormation CreationPolicy (120분 타임아웃 - 가이드 안내 최대 소요 110분 대비 여유)
- * - UserData (6개 모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
+ * - UserData (모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
  */
 export class DcvInstanceConstruct extends Construct {
   /** DCV EC2 인스턴스 */
@@ -94,7 +87,7 @@ export class DcvInstanceConstruct extends Construct {
     this.secretArn = secret.ref;
 
     // --- IAM Role ---
-    // EC2 인스턴스용 역할: S3 전체, ECR 전체, EFS 전체, SSM, Secrets Manager 읽기
+    // EC2 인스턴스용 역할: S3 전체, ECR 전체, SSM, SageMaker, Secrets Manager 읽기
     const role = new iam.CfnRole(this, 'DcvInstanceRole', {
       assumeRolePolicyDocument: {
         Version: '2012-10-17',
@@ -109,7 +102,6 @@ export class DcvInstanceConstruct extends Construct {
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/AmazonS3FullAccess',
         'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
-        'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
         'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
         'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess',
         ...(props.enableCloudWatch ? ['arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'] : []),
@@ -252,17 +244,6 @@ export class DcvInstanceConstruct extends Construct {
       roles: [role.ref],
     });
 
-    // --- EFS 보안 그룹에 DCV SG 소스의 NFS 인그레스 규칙 추가 ---
-    // DCV 인스턴스에서 EFS에 NFS(2049) 접근할 수 있도록
-    // CfnSecurityGroupIngress를 별도 리소스로 생성하여 순환 참조 방지
-    new ec2.CfnSecurityGroupIngress(this, 'EfsFromDcvIngress', {
-      groupId: props.efsSecurityGroup.ref,
-      ipProtocol: 'tcp',
-      fromPort: 2049,
-      toPort: 2049,
-      sourceSecurityGroupId: props.dcvSecurityGroup.ref,
-    });
-
     // --- UserData 구성 ---
     // 셸 스크립트를 S3 Asset으로 업로드하고, UserData에서 다운로드 후 실행
     // (EC2 UserData 16KB 제한 회피)
@@ -283,16 +264,14 @@ export class DcvInstanceConstruct extends Construct {
       `export ISAAC_LAB_VERSION="${props.versionProfile.isaacLabVersion ?? ''}"`,
       `export ROS2_DISTRO="${props.versionProfile.ros2Distro}"`,
       `export VERSION_PROFILE="${props.versionProfileName}"`,
-      'export EFS_ID="${EfsFileSystemId}"',
       'export FSX_ID="${FsxFileSystemId}"',
       'export FSX_DNS_NAME="${FsxDnsName}"',
       'export FSX_MOUNT_NAME="${FsxMountName}"',
       'export REGION="${AWS::Region}"',
       'export ACCOUNT="${AWS::AccountId}"',
       'export SECRET_ID="${SecretId}"',
-      `export ECR_REPO_NAME="${props.ecrRepoName ?? 'isaaclab-batch'}"`,
-      `export ENABLE_BATCH="${props.enableBatch ?? false}"`,
       `export GROOT_WEIGHTS_URL="${props.grootWeightsUrl ?? ''}"`,
+      `export MODELS_DIR="${props.modelsDir ?? '/home/ubuntu/environment/models'}"`,
       '',
       '# apt가 대화형 프롬프트(debconf 다이얼로그)로 멈추지 않도록 강제',
       '# (keyboard-configuration 등이 입력을 기다리면 UserData가 영구 정지하고 신호 타임아웃으로 배포가 실패한다)',
@@ -327,8 +306,8 @@ export class DcvInstanceConstruct extends Construct {
       ...(props.enableCloudWatch ? ['source /tmp/userdata-scripts/cloudwatch-agent.sh || { echo "[FAIL] cloudwatch-agent.sh failed"; USERDATA_EXIT=1; }'] : []),
       'echo "===== [$(date)] STAGE: isaac-lab.sh ====="',
       'source /tmp/userdata-scripts/isaac-lab.sh || { echo "[FAIL] isaac-lab.sh failed"; USERDATA_EXIT=1; }',
-      'echo "===== [$(date)] STAGE: efs-mount.sh ====="',
-      'source /tmp/userdata-scripts/efs-mount.sh || { echo "[FAIL] efs-mount.sh failed"; USERDATA_EXIT=1; }',
+      'echo "===== [$(date)] STAGE: models-download.sh ====="',
+      'source /tmp/userdata-scripts/models-download.sh || { echo "[FAIL] models-download.sh failed"; USERDATA_EXIT=1; }',
       'echo "===== [$(date)] STAGE: fsx-mount.sh ====="',
       '# FSx 마운트 실패는 스크립트 내부에서 [WARN] 처리한다 (모듈 5에 s3 sync 폴백 존재)',
       'source /tmp/userdata-scripts/fsx-mount.sh || echo "[WARN] fsx-mount.sh failed"',
@@ -368,7 +347,6 @@ export class DcvInstanceConstruct extends Construct {
       // Fn.sub로 CloudFormation 의사 참조 및 리소스 참조를 치환한 후 Base64 인코딩
       userData: cdk.Fn.base64(
         cdk.Fn.sub(userDataScript, {
-          EfsFileSystemId: props.efsFileSystem.ref,
           FsxFileSystemId: props.fsxFileSystem.ref,
           FsxDnsName: props.fsxFileSystem.attrDnsName,
           FsxMountName: props.fsxFileSystem.attrLustreMountName,
@@ -391,7 +369,6 @@ export class DcvInstanceConstruct extends Construct {
     // UserData를 논리적 ID가 포함된 버전으로 업데이트
     cfnInstance.userData = cdk.Fn.base64(
       cdk.Fn.sub(userDataWithLogicalId, {
-        EfsFileSystemId: props.efsFileSystem.ref,
         FsxFileSystemId: props.fsxFileSystem.ref,
         FsxDnsName: props.fsxFileSystem.attrDnsName,
         FsxMountName: props.fsxFileSystem.attrLustreMountName,

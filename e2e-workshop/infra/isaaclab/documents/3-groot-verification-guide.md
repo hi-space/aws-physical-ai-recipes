@@ -1,14 +1,14 @@
 # GR00T N1 수동 빌드 및 테스트 가이드
 
-CDK 배포는 GR00T Docker 빌드와 추론 서버 실행을 수행하지 않는다. EFS에 받아진 `GR00T-N1.6-3B` 모델 가중치를 사용해 사용자가 직접 빌드·실행한다.
+CDK 배포는 GR00T Docker 빌드와 추론 서버 실행을 수행하지 않는다. 인스턴스 로컬 디스크에 받아진 `GR00T-N1.6-3B` 모델 가중치를 사용해 사용자가 직접 빌드·실행한다.
 
 ## 수동 빌드 및 실행
 
 ### 1. 사전 준비 확인
 
 ```bash
-# 모델 가중치(efs-mount.sh가 다운로드) 확인 (~6GB)
-du -sh /home/ubuntu/environment/efs/GR00T-N1.6-3B/
+# 모델 가중치(models-download.sh가 다운로드) 확인 (~6GB)
+du -sh /home/ubuntu/environment/models/GR00T-N1.6-3B/
 
 # GPU 확인
 nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
@@ -47,7 +47,7 @@ docker images | grep groot
 
 ```bash
 docker run --rm --gpus all --name groot-inference --network=host \
-  -v /home/ubuntu/environment/efs:/workspace/weights \
+  -v /home/ubuntu/environment/models:/workspace/weights \
   groot-n1:latest \
   gr00t/eval/run_gr00t_server.py \
   --model_path /workspace/weights/GR00T-N1.6-3B \
@@ -77,8 +77,8 @@ docker ps --filter name=groot-inference --format 'table {{.Names}}\t{{.Status}}\
 echo "=== Port 5555 ==="
 ss -tlnp | grep 5555
 
-echo "=== EFS Model ==="
-ls /home/ubuntu/environment/efs/GR00T-N1.6-3B/ 2>/dev/null | head -5 || echo "NOT FOUND"
+echo "=== Model Weights ==="
+ls /home/ubuntu/environment/models/GR00T-N1.6-3B/ 2>/dev/null | head -5 || echo "NOT FOUND"
 
 echo "=== GPU ==="
 nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
@@ -388,7 +388,7 @@ docker logs groot-inference 2>&1 | tail -200
 |------|------|------|
 | `docker: Error response from daemon: could not select device driver` | NVIDIA Container Toolkit 미설치 | `nvidia-ctk runtime configure --runtime=docker && systemctl restart docker` |
 | `OOM` 또는 `CUDA out of memory` | GPU 메모리 부족 | `nvidia-smi`로 확인. 다른 프로세스가 GPU 점유 중이면 종료. g6.xlarge(24GB)에서는 모델 로드 가능 |
-| `FileNotFoundError: GR00T-N1.6-3B` | EFS 마운트 안 됨 또는 모델 미다운로드 | `mount \| grep efs` 확인. 없으면 수동 마운트: `sudo mount -t nfs4 ... /home/ubuntu/environment/efs` |
+| `FileNotFoundError: GR00T-N1.6-3B` | 모델 미다운로드 | `ls /home/ubuntu/environment/models/` 확인. 없으면 아래 수동 다운로드 절차 수행 |
 | `Connection refused` on port 5555 | 컨테이너 미기동 또는 모델 로딩 중 | `docker ps`로 컨테이너 상태 확인. 모델 로딩에 1~2분 소요 |
 | `port is already allocated` | 이전 컨테이너가 남아있음 | `docker rm -f groot-inference` 후 다시 `docker run` |
 
@@ -397,14 +397,14 @@ docker logs groot-inference 2>&1 | tail -200
 ```bash
 # 수동 다운로드
 pip3 install huggingface_hub
-python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='/home/ubuntu/environment/efs/GR00T-N1.6-3B')"
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='/home/ubuntu/environment/models/GR00T-N1.6-3B')"
 ```
 
 | 증상 | 원인 | 해결 |
 |------|------|------|
 | `401 Unauthorized` | HuggingFace 인증 필요 | `huggingface-cli login` 후 재시도 |
 | 다운로드 중단 | 네트워크 불안정 | 재실행하면 이어받기됨 |
-| EFS에 쓰기 실패 | 마운트 안 됨 | `mount \| grep efs` 확인 |
+| 디스크 공간 부족 | 루트 볼륨 용량 초과 | `df -h /` 확인 (가중치 약 6GB 필요) |
 
 ### 처음부터 다시 빌드
 

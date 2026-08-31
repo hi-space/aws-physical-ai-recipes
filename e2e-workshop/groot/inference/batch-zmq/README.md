@@ -11,8 +11,8 @@ graph TB
         subgraph Docker["Docker: groot-n1:latest"]
             Server["gr00t/eval/run_gr00t_server.py<br/>--model_path /workspace/weights/GR00T-N1.6-3B<br/>--embodiment_tag GR1<br/>--host 0.0.0.0 --port 5555"]
         end
-        EFS[("EFS<br/>GR00T-N1.6-3B<br/>모델 가중치")]
-        EFS -->|volume mount| Docker
+        Weights[("로컬 디스크<br/>GR00T-N1.6-3B<br/>모델 가중치")]
+        Weights -->|volume mount| Docker
     end
 
     subgraph Client["Test Client (이 프로젝트)"]
@@ -28,11 +28,11 @@ graph TB
 
 ### 서버 배포 흐름 (CDK)
 
-CDK(`infra/isaaclab/`)로 배포하면 `groot.sh` userdata가 자동으로:
+CDK(`infra/isaaclab/`)로 배포하면 `models-download.sh` userdata가 `nvidia/GR00T-N1.6-3B`
+모델 가중치를 인스턴스 로컬 디스크(`/home/ubuntu/environment/models`)에 내려받는다.
 
-1. HuggingFace에서 `nvidia/GR00T-N1.6-3B` 모델 가중치를 EFS에 다운로드
-2. NVIDIA gr00t 리포지토리를 클론하고 Docker 이미지 빌드
-3. systemd 서비스로 등록하여 부팅 시 자동 실행
+Docker 이미지 빌드와 추론 서버 실행은 자동화되어 있지 않으므로, 사용자가 직접 수행한다
+(절차: `infra/isaaclab/documents/3-groot-verification-guide.md`).
 
 | 항목 | 값 |
 |------|-----|

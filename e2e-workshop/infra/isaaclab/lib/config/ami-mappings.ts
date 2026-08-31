@@ -1,8 +1,7 @@
 /**
  * AMI 매핑 설정 모듈
  *
- * 리전별·Ubuntu 버전별 AMI ID 매핑을 관리한다.
- * DCV Instance용 AMI와 Batch ECS Optimized AMI를 포함한다.
+ * 리전별·Ubuntu 버전별 DCV Instance용 AMI ID 매핑을 관리한다.
  *
  * DCV AMI 전략: Deep Learning OSS Nvidia Driver AMI GPU PyTorch 사용
  * - stable(22.04): PyTorch 2.4.1 (Ubuntu 22.04) 20250623
@@ -11,8 +10,6 @@
  *   NVIDIA 드라이버 580 사전 설치 → nvidia-driver.sh에서 570으로 교체
  * - 드라이버 교체는 lspci 기반 xorg.conf 생성으로 커널 모듈 의존성 없음
  * - DLAMI에는 AWS CLI, NVIDIA 드라이버, Docker, PyTorch가 사전 설치됨
- *
- * Batch AMI: SSM Parameter /aws/service/ecs/optimized-ami/amazon-linux-2/gpu/recommended/image_id
  *
  * 지원 리전: 12개 (g6.12xlarge 슬롯 존재 확인, Baywatch 2026-03-07 기준)
  */
@@ -93,28 +90,6 @@ export const DCV_AMI_MAPPING: Record<string, Record<string, string>> = {
   },
 };
 
-
-/**
- * Batch ECS Optimized GPU AMI 매핑 (리전별)
- *
- * SSM Parameter: /aws/service/ecs/optimized-ami/amazon-linux-2/gpu/recommended/image_id
- * 2026-03-07 조회 결과
- */
-export const BATCH_AMI_MAPPING: Record<string, string> = {
-  'us-east-1': 'ami-06a35af3c83f93d26',
-  'us-west-2': 'ami-00c5c872f48d930e6',
-  'eu-central-1': 'ami-0945883b4dc7f462d',
-  'us-east-2': 'ami-0cfcccb61a5e1b2cb',
-  'eu-west-2': 'ami-081fab966ac8c34e1',
-  'ca-central-1': 'ami-06883cf760401b5dc',
-  'ap-south-1': 'ami-07c839d514b8f0236',
-  'ap-northeast-1': 'ami-043caf61707678753',
-  'ap-southeast-2': 'ami-0f9f8eea3aa91bc78',
-  'sa-east-1': 'ami-00ccda32b7f5fea0b',
-  'ap-northeast-2': 'ami-064ed69c55514d586',
-  'eu-north-1': 'ami-0d4af4cad3d9f4e93',
-};
-
 /**
  * DCV Instance용 AMI ID를 조회한다.
  */
@@ -129,19 +104,6 @@ export function getDcvAmi(region: string, ubuntuVersion: string): string {
   if (!amiId) {
     throw new Error(
       `리전 ${region}에서 Ubuntu ${ubuntuVersion} 버전의 AMI를 찾을 수 없습니다.`,
-    );
-  }
-  return amiId;
-}
-
-/**
- * Batch ECS Optimized AMI ID를 조회한다.
- */
-export function getBatchAmi(region: string): string {
-  const amiId = BATCH_AMI_MAPPING[region];
-  if (!amiId) {
-    throw new Error(
-      `지원하지 않는 리전입니다: ${region}. 지원 리전: ${SUPPORTED_REGIONS.join(', ')}`,
     );
   }
   return amiId;

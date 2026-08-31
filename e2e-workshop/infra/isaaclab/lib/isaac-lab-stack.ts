@@ -1,11 +1,11 @@
 /**
  * IsaacLabStack 메인 스택
  *
- * 5개의 Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
- * 조합 순서: Networking → EFS → AzSelector(조건부) → DCV → CloudFront(조건부) → Batch(조건부)
+ * Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
+ * 조합 순서: Networking → FSx → AzSelector(조건부) → DCV → CloudFront(조건부)
  *
  * 멀티 사용자 지원:
- *   userId가 지정되면 ECR 리포지토리명과 리소스 태그에 사용자 식별자가 포함되어
+ *   userId가 지정되면 스택 이름과 리소스 태그에 사용자 식별자가 포함되어
  *   같은 계정에서 여러 사용자가 독립적으로 배포할 수 있다.
  *
  * CfnMapping을 사용하여 CloudFormation의 FindInMap으로 리전별 AMI를 조회한다.
@@ -14,12 +14,10 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { VERSION_PROFILES, VersionProfileName } from './config/version-profiles';
-import { DCV_AMI_MAPPING, BATCH_AMI_MAPPING } from './config/ami-mappings';
+import { DCV_AMI_MAPPING } from './config/ami-mappings';
 import { NetworkingConstruct } from './constructs/networking';
-import { EfsStorageConstruct } from './constructs/efs-storage';
 import { FsxStorageConstruct } from './constructs/fsx-storage';
 import { DcvInstanceConstruct } from './constructs/dcv-instance';
-import { BatchInfraConstruct } from './constructs/batch-infra';
 import { CloudFrontCodeServerConstruct } from './constructs/cloudfront-code-server';
 import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK } from './constructs/az-selector';
 
@@ -43,10 +41,10 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   enableCloudWatch?: boolean;
   /** code-server (VSCode) 설치 여부 (기본값: true) */
   enableCodeServer?: boolean;
-  /** AWS Batch 분산 학습 인프라 생성 및 ECR 이미지 푸시 여부 (기본값: false) */
-  enableBatch?: boolean;
   /** GR00T 가중치 S3 사본 위치. 미지정 시 HuggingFace에서 다운로드 */
   grootWeightsUrl?: string;
+  /** 모델·가중치를 내려받는 인스턴스 로컬 경로 (기본값: '/home/ubuntu/environment/models') */
+  modelsDir?: string;
   /** 공유 FSx for Lustre 용량 GiB (PERSISTENT_2, 기본값: 1200) */
   fsxCapacityGiB?: number;
   /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
@@ -56,7 +54,7 @@ export interface IsaacLabStackProps extends cdk.StackProps {
 /**
  * Isaac Lab 환경 메인 스택
  *
- * Networking, EFS, DCV Instance, Batch 인프라를 조합하여
+ * Networking, FSx, DCV Instance를 조합하여
  * 원클릭 배포 가능한 Isaac Lab 환경을 구성한다.
  */
 export class IsaacLabStack extends cdk.Stack {
@@ -68,15 +66,11 @@ export class IsaacLabStack extends cdk.Stack {
     const preferredAZ = props.preferredAZ ?? 'auto';
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
     const userId = props.userId ?? '';
-    const enableBatch = props.enableBatch ?? false;
 
     // --- 리소스 Name 태그 접두사 (스택 이름과 동일 패턴) ---
     const profilePart = props.versionProfile.charAt(0).toUpperCase() + props.versionProfile.slice(1);
     const userSuffix = userId ? `-${userId}` : '';
     const namePrefix = `IsaacLab-${profilePart}${userSuffix}`;
-
-    // --- 사용자별 ECR 리포지토리 이름 ---
-    const ecrRepoName = userId ? `isaaclab-batch-${userId}` : 'isaaclab-batch';
 
     // --- 스택 레벨 태그 (모든 리소스에 자동 전파) ---
     cdk.Tags.of(this).add('Project', 'IsaacLab');
@@ -131,7 +125,7 @@ export class IsaacLabStack extends cdk.Stack {
       resolvedInstanceType = azSelector.resolvedInstanceType;
     }
 
-    // --- [1/5] NetworkingConstruct ---
+    // --- [1/3] NetworkingConstruct ---
     // VPC, 서브넷, IGW, NAT, S3 Endpoint, Flow Log, DCV SG
     const enableCodeServer = props.enableCodeServer ?? true;
 
@@ -144,16 +138,7 @@ export class IsaacLabStack extends cdk.Stack {
       enableCodeServer,
     });
 
-    // --- [2/5] EfsStorageConstruct ---
-    // EFS 파일 시스템 + Mount Target (Networking 의존)
-    const efsStorage = new EfsStorageConstruct(this, 'EfsStorage', {
-      namePrefix,
-      vpc: networking.vpc,
-      privateSubnet: networking.privateSubnet,
-      vpcCidr: props.vpcCidr,
-    });
-
-    // --- [2.5] FsxStorageConstruct ---
+    // --- [2/3] FsxStorageConstruct ---
     // 공유 FSx for Lustre — DCV(/fsx 마운트), SageMaker Training(groot 스택 DRA),
     // HyperPod(-c fsxFileSystemId import)이 모두 이 파일시스템을 공유한다.
     const fsxStorage = new FsxStorageConstruct(this, 'FsxStorage', {
@@ -164,56 +149,30 @@ export class IsaacLabStack extends cdk.Stack {
       capacityGiB: props.fsxCapacityGiB,
     });
 
-    // --- [3/5] DcvInstanceConstruct ---
-    // DCV EC2 인스턴스 (Networking, EFS 의존)
+    // --- [3/3] DcvInstanceConstruct ---
+    // DCV EC2 인스턴스 (Networking, FSx 의존)
     const dcvInstance = new DcvInstanceConstruct(this, 'DcvInstance', {
       namePrefix,
       vpc: networking.vpc,
       publicSubnet: networking.publicSubnet,
       dcvSecurityGroup: networking.dcvSecurityGroup,
-      efsFileSystem: efsStorage.fileSystem,
-      efsSecurityGroup: efsStorage.securityGroup,
       fsxFileSystem: fsxStorage.fileSystem,
       instanceType: resolvedInstanceType,
       versionProfile: profile,
       versionProfileName: props.versionProfile,
       amiId: dcvAmiId,
-      ecrRepoName,
       enableCloudWatch: props.enableCloudWatch,
       enableCodeServer,
-      enableBatch,
       grootWeightsUrl: props.grootWeightsUrl,
+      modelsDir: props.modelsDir,
     });
 
-    // --- [4/5] CloudFrontCodeServerConstruct (code-server 활성화 시만 생성) ---
+    // --- [3.5] CloudFrontCodeServerConstruct (code-server 활성화 시만 생성) ---
     let codeServerCdn: CloudFrontCodeServerConstruct | undefined;
     if (enableCodeServer) {
       codeServerCdn = new CloudFrontCodeServerConstruct(this, 'CodeServerCdn', {
         instance: dcvInstance.instance,
         namePrefix,
-      });
-    }
-
-    // --- [5/5] BatchInfraConstruct (Batch 분산 학습 활성화 시만 생성) ---
-    // Batch Launch Template + IAM (Networking, EFS 의존)
-    let batchInfra: BatchInfraConstruct | undefined;
-    if (enableBatch) {
-      // Batch AMI 매핑: BATCH_AMI_MAPPING은 Record<string, string>이므로
-      // CfnMapping 형식(Record<string, Record<string, string>>)으로 래핑
-      const batchAmiMappingData: Record<string, Record<string, string>> = {};
-      for (const [region, amiId] of Object.entries(BATCH_AMI_MAPPING)) {
-        batchAmiMappingData[region] = { ami: amiId };
-      }
-      const batchAmiMapping = new cdk.CfnMapping(this, 'BatchAmiMapping', {
-        mapping: batchAmiMappingData,
-      });
-
-      batchInfra = new BatchInfraConstruct(this, 'BatchInfra', {
-        namePrefix,
-        vpc: networking.vpc,
-        privateSubnet: networking.privateSubnet,
-        efsSecurityGroup: efsStorage.securityGroup,
-        batchAmiId: batchAmiMapping.findInMap(cdk.Aws.REGION, 'ami'),
       });
     }
 
@@ -255,41 +214,14 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'Selected Version Profile',
     });
 
-    if (batchInfra) {
-      new cdk.CfnOutput(this, 'BatchLaunchTemplateId', {
-        value: batchInfra.launchTemplate.ref,
-        description: 'Batch Launch Template ID',
-      });
-
-      new cdk.CfnOutput(this, 'BatchInstanceProfileArn', {
-        value: batchInfra.instanceProfileArn,
-        description: 'Batch Instance Profile ARN',
-      });
-
-      new cdk.CfnOutput(this, 'BatchSecurityGroupId', {
-        value: batchInfra.securityGroup.ref,
-        description: 'Batch Security Group ID',
-      });
-    }
-
     new cdk.CfnOutput(this, 'VpcId', {
       value: networking.vpc.ref,
       description: 'VPC ID',
     });
 
-    new cdk.CfnOutput(this, 'EfsFileSystemId', {
-      value: efsStorage.fileSystem.ref,
-      description: 'EFS File System ID',
-    });
-
     new cdk.CfnOutput(this, 'PrivateSubnetId', {
       value: networking.privateSubnet.ref,
       description: 'Private Subnet ID',
-    });
-
-    new cdk.CfnOutput(this, 'EfsSecurityGroupId', {
-      value: efsStorage.securityGroup.ref,
-      description: 'EFS Security Group ID (for NFS access)',
     });
 
     new cdk.CfnOutput(this, 'FsxFileSystemId', {

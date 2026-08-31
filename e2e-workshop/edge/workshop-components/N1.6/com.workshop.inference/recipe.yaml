@@ -17,9 +17,9 @@ ComponentConfiguration:
     embodimentTag: "NEW_EMBODIMENT"
     policyHost: "0.0.0.0"
     policyPort: "5555"
-    # EFS host path is mounted 1:1 so a modelPath under EFS (e.g. the base SO-101
-    # dir with relative symlinks to base weights) resolves inside the container.
-    efsHostPath: "/home/ubuntu/environment/efs"
+    # The models host path is mounted 1:1 so a modelPath under it (e.g. the base
+    # SO-101 dir with relative symlinks to base weights) resolves in the container.
+    modelsHostPath: "/home/ubuntu/environment/models"
 Manifests:
   - Platform:
       os: linux
@@ -34,13 +34,13 @@ Manifests:
           EMBODIMENT="{configuration:/embodimentTag}"
           POLICY_HOST="{configuration:/policyHost}"
           POLICY_PORT="{configuration:/policyPort}"
-          EFS_HOST="{configuration:/efsHostPath}"
+          MODELS_HOST="{configuration:/modelsHostPath}"
 
-          # Mount the EFS host path 1:1 (if present) so a modelPath under EFS resolves
-          # inside the container (used by the Module 2 base SO-101 symlink dir).
-          EFS_MOUNT=""
-          if [ -n "$EFS_HOST" ] && [ -d "$EFS_HOST" ]; then
-            EFS_MOUNT="-v $EFS_HOST:$EFS_HOST"
+          # Mount the models host path 1:1 (if present) so a modelPath under it
+          # resolves in the container (used by the Module 2 base SO-101 symlink dir).
+          MODELS_MOUNT=""
+          if [ -n "$MODELS_HOST" ] && [ -d "$MODELS_HOST" ]; then
+            MODELS_MOUNT="-v $MODELS_HOST:$MODELS_HOST"
           fi
 
           docker stop groot-workshop-inference 2>/dev/null || true
@@ -59,7 +59,7 @@ Manifests:
             -v /opt/groot/models:/opt/groot/models \
             -v /opt/groot/trt_n16:/opt/groot/trt_n16 \
             -v /home/ubuntu/.cache/huggingface:/root/.cache/huggingface \
-            $EFS_MOUNT \
+            $MODELS_MOUNT \
             "$ECR_IMAGE" \
             -c "cd /workspace/gr00t-repo && python -m gr00t.eval.run_gr00t_server \
               --model-path $MODEL_PATH \

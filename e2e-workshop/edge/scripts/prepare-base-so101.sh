@@ -25,7 +25,9 @@
 # Usage:
 #   sudo bash prepare-base-so101.sh [BASE_MODEL_DIR] [OUTPUT_DIR]
 # Defaults:
-#   BASE_MODEL_DIR = /home/ubuntu/environment/efs/GR00T-N1.6-3B
+#   BASE_MODEL_DIR = ${MODELS_DIR}/GR00T-N1.6-3B
+#                    (MODELS_DIR defaults to /home/ubuntu/environment/models,
+#                     matching the path the CDK deployment downloads weights to)
 #   OUTPUT_DIR     = <base parent>/GR00T-N1.6-3B-so101
 # =============================================================================
 set -euo pipefail
@@ -33,7 +35,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ASSETS_DIR="${ASSETS_DIR:-$SCRIPT_DIR/../assets/so101-base-embodiment}"
 
-BASE_MODEL_DIR="${1:-/home/ubuntu/environment/efs/GR00T-N1.6-3B}"
+MODELS_DIR="${MODELS_DIR:-/home/ubuntu/environment/models}"
+BASE_MODEL_DIR="${1:-$MODELS_DIR/GR00T-N1.6-3B}"
 BASE_PARENT="$(cd "$(dirname "$BASE_MODEL_DIR")" && pwd)"
 BASE_NAME="$(basename "$BASE_MODEL_DIR")"
 OUTPUT_DIR="${2:-$BASE_PARENT/GR00T-N1.6-3B-so101}"
@@ -46,14 +49,14 @@ echo "  assets     : $ASSETS_DIR"
 # --- validate inputs -------------------------------------------------------
 [ -d "$BASE_MODEL_DIR" ] || { echo "ERROR: base model dir not found: $BASE_MODEL_DIR"; exit 1; }
 if [ "$(find "$BASE_MODEL_DIR" -maxdepth 1 -name '*.safetensors' | wc -l)" -lt 1 ]; then
-  echo "ERROR: no *.safetensors in $BASE_MODEL_DIR (is the base model staged on EFS?)"; exit 1
+  echo "ERROR: no *.safetensors in $BASE_MODEL_DIR (is the base model downloaded?)"; exit 1
 fi
 for f in processor_config.json embodiment_id.json statistics.json; do
   [ -f "$ASSETS_DIR/$f" ] || { echo "ERROR: bundled asset missing: $ASSETS_DIR/$f"; exit 1; }
 done
 
 # OUTPUT_DIR must be a sibling of BASE_MODEL_DIR so the relative symlinks resolve
-# both on the host and inside the container (when the EFS parent is mounted).
+# both on the host and inside the container (when the parent dir is bind-mounted).
 if [ "$(cd "$(dirname "$OUTPUT_DIR")" && pwd)" != "$BASE_PARENT" ]; then
   echo "ERROR: OUTPUT_DIR must be a sibling of BASE_MODEL_DIR (same parent: $BASE_PARENT)"; exit 1
 fi

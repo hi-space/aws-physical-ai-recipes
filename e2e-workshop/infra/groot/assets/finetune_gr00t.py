@@ -43,14 +43,13 @@ class FinetuneWorkflow:
         # Dataset directory
         self.dataset_local_dir = os.getenv("DATASET_LOCAL_DIR")
 
-        # Output directories (prefer EFS paths if provided by the Batch Job Definition)
+        # Output directory (entrypoint appends a per-run subdirectory)
         self.output_dir = os.getenv("OUTPUT_DIR", "/workspace/checkpoints")
 
         # Training parameters
         self.max_steps = int(os.getenv("MAX_STEPS", "6000"))
         self.save_steps = int(os.getenv("SAVE_STEPS", "2000"))
         self.num_gpus = int(os.getenv("NUM_GPUS", "1"))
-        self.num_nodes = int(os.getenv("NUM_NODES", "1"))
         self.base_model_path = os.getenv("BASE_MODEL_PATH", "nvidia/GR00T-N1.7-3B")
         self.groot_version = os.getenv("GROOT_VERSION", "n1.7").lower()
         self.embodiment_tag = os.getenv("EMBODIMENT_TAG", "new_embodiment")
@@ -333,11 +332,9 @@ class FinetuneWorkflow:
             self.num_gpus <= available_gpus
         ), f"Number of GPUs requested ({self.num_gpus}) is greater than the available GPUs ({available_gpus})"
         assert self.num_gpus > 0, "Number of GPUs must be greater than 0"
-        print(f"Using {self.num_gpus} GPUs across {self.num_nodes} node(s)")
+        print(f"Using {self.num_gpus} GPUs")
 
-        is_distributed = self.num_gpus > 1 or self.num_nodes > 1
-
-        if not is_distributed:
+        if self.num_gpus == 1:
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
             self._train_once()
         else:
@@ -348,25 +345,12 @@ class FinetuneWorkflow:
                 if "CUDA_VISIBLE_DEVICES" in os.environ:
                     del os.environ["CUDA_VISIBLE_DEVICES"]
 
-                if self.num_nodes > 1:
-                    master_addr = os.environ.get("MASTER_ADDR", "localhost")
-                    master_port = os.environ.get("MASTER_PORT", "29500")
-                    node_rank = int(os.environ.get("NODE_RANK", "0"))
-                    args = [
-                        f"--nproc_per_node={self.num_gpus}",
-                        f"--nnodes={self.num_nodes}",
-                        f"--node-rank={node_rank}",
-                        f"--master-addr={master_addr}",
-                        f"--master-port={master_port}",
-                        str(script_path),
-                    ]
-                else:
-                    args = [
-                        "--standalone",
-                        f"--nproc_per_node={self.num_gpus}",
-                        "--nnodes=1",
-                        str(script_path),
-                    ]
+                args = [
+                    "--standalone",
+                    f"--nproc_per_node={self.num_gpus}",
+                    "--nnodes=1",
+                    str(script_path),
+                ]
 
                 print("Running torchrun with args: ", args)
                 os.environ["IS_TORCHRUN"] = "1"
@@ -381,12 +365,8 @@ class FinetuneWorkflow:
         try:
             logger.info("Starting GR00T N1.7 fine-tuning...")
 
-            # Step 1: Validate dataset (only main node in multi-node setup)
-            node_rank = int(os.environ.get("NODE_RANK", "0"))
-            if node_rank == 0:
-                self.validate_dataset()
-            else:
-                logger.info(f"Worker node {node_rank}: skipping dataset validation (main node handles it)")
+            # Step 1: Validate dataset
+            self.validate_dataset()
 
             # Step 2: Run training
             self.run_training()

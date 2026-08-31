@@ -23,7 +23,7 @@ echo "============================================"
 echo ""
 
 # ── 0. 리포지토리 클론 ──
-echo -e "${CYAN}[1/4] 리포지토리 확인...${NC}"
+echo -e "${CYAN}[1/5] 리포지토리 확인...${NC}"
 if [ -d "$PROJECT_DIR" ]; then
   echo -e "  ${GREEN}[OK]${NC} 이미 존재 — git pull"
   git -C "$HOME/aws-physical-ai-recipes" pull --quiet 2>/dev/null || true
@@ -35,7 +35,7 @@ cd "$PROJECT_DIR"
 echo -e "  ${GREEN}[OK]${NC} $(pwd)"
 
 # ── 1. Node.js 버전 확인 (18+ 필요) ──
-echo -e "${CYAN}[2/4] Node.js 확인...${NC}"
+echo -e "${CYAN}[2/5] Node.js 확인...${NC}"
 if command -v node &>/dev/null; then
   NODE_VER=$(node -v | tr -d 'v' | cut -d. -f1)
   if (( NODE_VER >= 18 )); then
@@ -65,7 +65,7 @@ fi
 
 # ── 2. npm 프로젝트 의존성 설치 ──
 echo ""
-echo -e "${CYAN}[3/4] npm 의존성 설치...${NC}"
+echo -e "${CYAN}[3/5] npm 의존성 설치...${NC}"
 if [ -d "node_modules" ] && [ -d "node_modules/aws-cdk-lib" ]; then
   echo -e "  ${GREEN}[OK]${NC} node_modules 이미 존재"
 else
@@ -75,12 +75,35 @@ fi
 
 # ── 3. CDK CLI 확인 ──
 echo ""
-echo -e "${CYAN}[4/4] CDK CLI 확인...${NC}"
+echo -e "${CYAN}[4/5] CDK CLI 확인...${NC}"
 # npx cdk를 사용하므로 글로벌 설치 불필요하지만, 편의를 위해 확인
 if npx cdk --version &>/dev/null; then
   echo -e "  ${GREEN}[OK]${NC} CDK $(npx cdk --version 2>/dev/null | head -1)"
 else
   echo -e "  ${RED}[FAIL]${NC} CDK CLI 사용 불가 — npm install 확인 필요"
+  exit 1
+fi
+
+# ── 4. CDK Bootstrap (계정+리전당 1회) ──
+# 부트스트랩되지 않은 계정에서는 cdk deploy가 "this stack uses assets, so the
+# toolkit stack must be deployed" 로 실패한다. CDKToolkit 스택 존재 여부로 판단해
+# 이미 있으면 건너뛴다 — 한 계정을 여러 명이 쓸 때 동시 실행 충돌을 피하기 위함.
+echo ""
+echo -e "${CYAN}[5/5] CDK Bootstrap 확인...${NC}"
+BOOTSTRAP_REGION="${CDK_BOOTSTRAP_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}}"
+if ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null); then
+  if aws cloudformation describe-stacks --stack-name CDKToolkit \
+       --region "$BOOTSTRAP_REGION" &>/dev/null; then
+    echo -e "  ${GREEN}[OK]${NC} 이미 bootstrap됨 — ${ACCOUNT_ID} / ${BOOTSTRAP_REGION}"
+  else
+    echo -e "  ${YELLOW}[BOOTSTRAP]${NC} ${ACCOUNT_ID} / ${BOOTSTRAP_REGION} (수 분 소요)"
+    npx cdk bootstrap "aws://${ACCOUNT_ID}/${BOOTSTRAP_REGION}"
+    echo -e "  ${GREEN}[OK]${NC} bootstrap 완료"
+  fi
+  echo -e "  ${CYAN}[i]${NC} 다른 리전에 배포하려면(-c region=xxx) 그 리전도 부트스트랩이 필요합니다:"
+  echo -e "      CDK_BOOTSTRAP_REGION=<리전> source ./scripts/setup-cloudshell.sh"
+else
+  echo -e "  ${RED}[FAIL]${NC} AWS 자격증명 확인 실패 — aws sts get-caller-identity 를 먼저 점검하세요"
   exit 1
 fi
 

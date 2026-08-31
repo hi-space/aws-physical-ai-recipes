@@ -12,9 +12,8 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | 버전 관리 | 고정 | Version Profile 기반 (stable / latest) |
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
 | 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge 자동 fallback |
-| UserData | 모놀리식 | 6개 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션). GR00T-N1.6-3B 모델 가중치는 efs-mount.sh가 EFS로 자동 다운로드하며, Docker 빌드/추론 서버 실행은 사용자가 수동 수행 |
-| Batch 지원 | 미포함 | Launch Template + IAM 자동화 (`enableBatch=true` 옵션, 기본 비활성화) |
-| 보안 | 미흡 | allowedCidr, EFS SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
+| UserData | 모놀리식 | 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션). GR00T-N1.6-3B 모델 가중치는 models-download.sh가 인스턴스 로컬 디스크로 자동 다운로드하며, Docker 빌드/추론 서버 실행은 사용자가 수동 수행 |
+| 보안 | 미흡 | allowedCidr, FSx SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
 | NVIDIA 드라이버 | UserData에서 직접 설치 | 구 DLAMI(550) + 570 자연 업그레이드 |
 | DCV GL | 미설치 | DCV GL 자동 설치 + 단일 GPU xorg.conf 자동 생성 |
@@ -31,10 +30,9 @@ graph TB
         subgraph "Constructs"
             AZ["AzSelectorConstruct<br/>Lambda로 AZ 자동 탐색"]
             NET["NetworkingConstruct<br/>VPC · 서브넷 · IGW · NAT"]
-            EFS_C["EfsStorageConstruct<br/>EFS · Mount Target"]
+            FSX_C["FsxStorageConstruct<br/>공유 FSx for Lustre"]
             DCV["DcvInstanceConstruct<br/>GPU EC2 + NICE DCV"]
             CF["CloudFrontCodeServerConstruct<br/>code-server HTTPS (옵션)"]
-            BATCH["BatchInfraConstruct<br/>Launch Template + IAM (옵션)"]
         end
     end
 
@@ -44,29 +42,21 @@ graph TB
         PRI["프라이빗 서브넷<br/>10.0.1.0/24"]
         DCV_I["DCV Instance<br/>GPU + NICE DCV"]
         CF_D["CloudFront Distribution"]
-        EFS_R["EFS File System"]
-        BLT["Batch Launch Template"]
+        FSX_R["FSx for Lustre<br/>/fsx"]
         SM["Secrets Manager"]
-    end
-
-    subgraph "사용자 수동 생성"
-        BCE["Batch CE → JQ → JD"]
     end
 
     APP --> STACK
     STACK --> AZ
     AZ -->|capacity 있는 AZ| NET
     STACK --> NET --> VPC
-    STACK --> EFS_C --> EFS_R
+    STACK --> FSX_C --> FSX_R
     STACK --> DCV --> DCV_I
     STACK -.->|enableCodeServer| CF --> CF_D
     CF_D -.->|HTTPS → HTTP:8888| DCV_I
-    STACK -.->|enableBatch| BATCH --> BLT
     VPC --> PUB
     VPC --> PRI
-    DCV_I -.->|공유| EFS_R
-    BLT -.->|참조| EFS_R
-    BCE -.->|CfnOutput 참조| BLT
+    DCV_I -.->|/fsx 마운트| FSX_R
 ```
 
 ## 사전 요구사항
@@ -131,11 +121,10 @@ bash ./scripts/check-quotas.sh -n 20 -r us-west-2 --auto-request || true
 | NAT Gateways per AZ | 1 | |
 | Elastic IPs | 1 | NAT GW용 |
 | G/VT On-Demand vCPU | 48 | g6.12xlarge 기준, **자동 증가 불가 — 별도 티켓** |
-| EFS File Systems | 1 | |
 | CloudFront Distributions | 1 | code-server CDN |
 | Secrets Manager Secrets | 1 | DCV 비밀번호 |
 | CloudFormation Stacks | 1 | |
-| Security Groups | 2 (+1) | DCV, EFS (+ Batch는 `enableBatch=true` 시) |
+| Security Groups | 2 | DCV, FSx |
 
 > GPU vCPU 할당량(`Running On-Demand G and VT instances`)은 Service Quotas 콘솔에서 수동 요청하거나 AWS Support 티켓을 통해 증가해야 한다.
 
@@ -166,26 +155,23 @@ cdk deploy -c userId=alice -c enableCloudWatch=true
 # 8. code-server (VSCode) 비활성화 (CloudFront + code-server 미설치)
 cdk deploy -c userId=alice -c enableCodeServer=false
 
-# 9. AWS Batch 분산 학습 인프라 활성화 (기본 비활성화, ECR 푸시로 배포 시간 증가)
-cdk deploy -c userId=alice -c enableBatch=true
-
-# 10. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
+# 9. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
 cdk deploy -c userId=alice -c versionProfile=latest
 
-# 11. Isaac Sim 버전만 오버라이드 (프로필의 Isaac Lab 태그 고정은 해제됨 → main 클론)
+# 10. Isaac Sim 버전만 오버라이드 (프로필의 Isaac Lab 태그 고정은 해제됨 → main 클론)
 cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c isaacSimVersion=5.1.0 -c region=us-east-1
 
-# 12. CloudShell에서 배포 (세션 끊김 방지)
+# 11. CloudShell에서 배포 (세션 끊김 방지)
 nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
 tail -f deploy.log
 
-# 13. 변경 사항 미리보기
+# 12. 변경 사항 미리보기
 cdk diff
 
-# 14. CloudFormation 템플릿 생성 (배포 없이)
+# 13. CloudFormation 템플릿 생성 (배포 없이)
 cdk synth
 
-# 15. 스택 삭제
+# 14. 스택 삭제
 cdk destroy -c userId=alice
 ```
 
@@ -204,8 +190,8 @@ cdk destroy -c userId=alice
 | `vpcCidr` | CIDR 문자열 | `10.0.0.0/16` | VPC 네트워크 대역. 멀티 사용자 시 참가자별 고유 CIDR 지정 |
 | `enableCloudWatch` | `true` \| `false` | `false` | CloudWatch Agent 설치 여부 (GPU/CPU/메모리/디스크 모니터링) |
 | `enableCodeServer` | `true` \| `false` | `true` | code-server (VSCode) 설치 여부. `false` 시 code-server, CloudFront, SG 포트 8888 모두 생략 |
-| `enableBatch` | `true` \| `false` | `false` | AWS Batch 분산 학습 인프라 생성 여부. `false` 시 Batch IAM·SG·Launch Template과 ECR 이미지 푸시를 생략해 배포가 크게 빨라진다 |
 | `grootWeightsUrl` | `s3://...` \| `https://....tar.gz` | (없음) | GR00T-N1.6-3B 가중치(약 6.1GiB) 사본 위치. 미지정 시 HuggingFace에서 받는다. 같은 리전의 S3 사본을 지정하면 다운로드가 빨라지고 HuggingFace 가용성에 의존하지 않는다 |
+| `modelsDir` | 절대 경로 | `/home/ubuntu/environment/models` | 모델·가중치를 내려받는 인스턴스 로컬 경로. UserData의 `MODELS_DIR` 환경 변수로 전달되어 `models-download.sh`가 사용한다 |
 | `isaacSimVersion` | `string` | (프로필 기본값) | Isaac Sim 버전 오버라이드. 지정 시 프로필의 `isaacLabVersion` 고정이 해제되어 IsaacLab `main`을 클론한다. 검증된 조합은 `versionProfile` 사용 |
 
 Props는 CDK Context로 전달한다:
@@ -225,11 +211,14 @@ cdk deploy -c allowedCidr=10.0.0.0/8
 
 # GR00T 가중치를 같은 리전의 S3 사본에서 받기
 cdk deploy -c grootWeightsUrl=s3://my-assets/GR00T-N1.6-3B/
+
+# 모델 다운로드 경로 변경
+cdk deploy -c modelsDir=/data/models
 ```
 
 ## 멀티 사용자 배포
 
-하나의 AWS 계정에서 여러 사용자가 동시에 독립된 환경을 배포할 수 있다. `-c userId=<이름>`을 지정하면 스택 이름, ECR 리포지토리, 리소스 태그가 사용자별로 분리된다.
+하나의 AWS 계정에서 여러 사용자가 동시에 독립된 환경을 배포할 수 있다. `-c userId=<이름>`을 지정하면 스택 이름과 리소스 태그가 사용자별로 분리된다.
 
 ### 사용법
 
@@ -248,10 +237,9 @@ cdk destroy -c userId=alice
 | 항목 | userId 미지정 | userId=alice |
 |------|:------------:|:------------:|
 | 스택 이름 | `IsaacLab-Stable` | `IsaacLab-Stable-alice` |
-| ECR 리포지토리 | `isaaclab-batch` | `isaaclab-batch-alice` |
 | 리소스 태그 | (없음) | `UserId: alice` (전체 리소스) |
 | VPC / 서브넷 | 독립 생성 | 독립 생성 |
-| EFS | 독립 생성 | 독립 생성 |
+| 공유 FSx for Lustre | 독립 생성 | 독립 생성 |
 | DCV 인스턴스 | 독립 생성 | 독립 생성 |
 
 ### 주의사항
@@ -348,14 +336,14 @@ nvidia-smi
 # Isaac Lab Docker 이미지 확인
 docker images | grep isaaclab
 
-# EFS 마운트 확인
-df -h | grep efs
+# FSx 마운트 확인
+df -h | grep fsx
 
 # code-server 상태 확인
 systemctl status code-server
 
-# GR00T 모델 가중치 확인 (efs-mount.sh가 EFS로 다운로드)
-ls /home/ubuntu/environment/efs/GR00T-N1.6-3B
+# GR00T 모델 가중치 확인 (models-download.sh가 로컬 디스크로 다운로드)
+ls /home/ubuntu/environment/models/GR00T-N1.6-3B
 ```
 
 문제가 있으면 UserData 로그를 확인한다:
@@ -438,11 +426,10 @@ Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적�
 | `LogGroupArn` | VPC Flow Log 로그 그룹 ARN | IAM 정책 등에서 참조 |
 | `SecretArn` | DCV 비밀번호 Secret ARN | `aws secretsmanager get-secret-value`로 비밀번호 조회 |
 | `VersionProfile` | 선택된 버전 프로필 | 배포된 프로필 확인 |
-| `EfsFileSystemId` | EFS 파일 시스템 ID | Batch JD에서 EFS 마운트 설정 |
-| `PrivateSubnetId` | 프라이빗 서브넷 ID | Batch CE 생성 시 참조 |
-| `BatchLaunchTemplateId` | Batch Launch Template ID | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
-| `BatchInstanceProfileArn` | Batch Instance Profile ARN | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
-| `BatchSecurityGroupId` | Batch 보안 그룹 ID | Batch CE 생성 시 참조 (`enableBatch=true` 시) |
+| `PrivateSubnetId` | 프라이빗 서브넷 ID | groot·HyperPod 스택에서 참조 |
+| `FsxFileSystemId` | 공유 FSx for Lustre ID | groot SageMaker DRA·HyperPod에서 참조 |
+| `FsxMountName` | FSx Lustre mount name | 수동 마운트 시 참조 |
+| `FsxSecurityGroupId` | FSx 보안 그룹 ID | Lustre 접근 허용 시 참조 |
 
 DCV 비밀번호 조회:
 
@@ -452,65 +439,6 @@ aws secretsmanager get-secret-value \
   --query SecretString \
   --output text
 ```
-
-## AWS Batch 분산 학습 환경 설정
-
-Batch 분산 학습 인프라는 기본 비활성화되어 있다. 사용하려면 `-c enableBatch=true`로 배포한다.
-
-```bash
-cdk deploy -c enableBatch=true
-```
-
-`enableBatch=false`(기본값)에서는 아래가 모두 생략된다. Isaac Lab 이미지가 수십 GB라 ECR 푸시만으로 10분 이상 걸리므로, Batch를 쓰지 않는 참가자는 배포 시간을 그만큼 절약한다.
-
-- Batch IAM Role · Instance Profile · Security Group · Launch Template
-- Isaac Lab 이미지의 ECR 리포지토리 생성 및 푸시 (`docker build`는 그대로 수행되므로 DCV에서 `docker run isaaclab-batch:latest`는 정상 동작)
-- `BatchLaunchTemplateId` · `BatchInstanceProfileArn` · `BatchSecurityGroupId` CfnOutput
-
-AWS Batch의 Compute Environment, Job Queue, Job Definition은 워크숍 참가자가 직접 학습하며 구성하는 영역이므로 CDK 자동화 범위 밖이다. CDK는 Launch Template, IAM, Security Group 등 기반 리소스만 생성하며, 나머지는 CfnOutput 값을 참조하여 AWS 콘솔에서 수동 생성한다.
-
-> **단일 AZ 제약**: Batch 노드는 CDK가 선택한 AZ의 프라이빗 서브넷에서만 실행된다. 해당 AZ에 GPU capacity가 부족하면 Job이 RUNNABLE 상태에서 대기한다. 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
-
-### CDK가 생성한 Batch 리소스
-
-| CfnOutput Key | 설명 | 용도 |
-|---------------|------|------|
-| `BatchLaunchTemplateId` | EC2 Launch Template ID | CE 생성 시 참조 |
-| `BatchInstanceProfileArn` | Instance Profile ARN | CE 생성 시 Instance role |
-| `PrivateSubnetId` | 프라이빗 서브넷 ID | CE 네트워크 설정 |
-| `BatchSecurityGroupId` | Batch 보안 그룹 ID | CE 네트워크 설정 |
-| `EfsFileSystemId` | EFS 파일 시스템 ID | JD에서 EFS 볼륨 설정 |
-
-**Launch Template 구성:**
-
-| 항목 | 값 | 설명 |
-|------|---|------|
-| AMI | ECS Optimized GPU AMI (Amazon Linux 2) | NVIDIA 드라이버, ECS Agent, Docker 사전 설치 |
-| EBS | 250GB gp3, 암호화 | Isaac Sim 이미지(~50GB)와 학습 임시 데이터용 |
-
-**Instance Profile IAM 권한:**
-
-| 관리형 정책 | 용도 |
-|-------------|------|
-| `AmazonS3ReadOnlyAccess` | S3에서 데이터셋/모델 다운로드 |
-| `AmazonEC2ContainerServiceforEC2Role` | ECR 이미지 풀, CloudWatch 로그 전송 |
-| `AmazonElasticFileSystemFullAccess` | EFS 마운트 및 읽기/쓰기 |
-| `AmazonSSMManagedInstanceCore` | SSM을 통한 인스턴스 접속 (디버깅) |
-
-**Batch Security Group 규칙:**
-
-| 방향 | 프로토콜 | 소스/대상 | 용도 |
-|------|----------|-----------|------|
-| Inbound | 전체 (자기 참조) | Batch SG 자신 | 노드 간 NCCL 통신, PyTorch distributed rendezvous |
-| Outbound | 전체 | 0.0.0.0/0 | ECR 이미지 풀, NAT 경유 인터넷 접근 |
-
-EFS Security Group에도 Batch SG를 소스로 하는 NFS(TCP 2049) 인그레스 규칙이 자동 추가된다.
-
-### Batch CE / JQ / JD 수동 생성
-
-Compute Environment, Job Queue, Job Definition의 상세 생성 절차는 `documents/batch-distributed-training.md`를 참고한다. CfnOutput에서 출력된 값을 콘솔에 입력하여 구성한다.
-
-> 2노드 × 4GPU에서 100 iteration 완료까지 약 12분 소요. GPU 할당 대기로 시작이 지연될 수 있다.
 
 ## 배포 후 주요 작업 흐름
 
@@ -550,10 +478,10 @@ cd /workspace/IsaacLab && \
 학습된 체크포인트를 로드하여 로봇 동작을 시각적으로 확인한다:
 
 ```bash
-# EFS를 마운트한 컨테이너에서 실행
+# 모델 디렉터리를 마운트한 컨테이너에서 실행
 docker run --shm-size=60g --name isaac-lab \
   --entrypoint bash -it --gpus all --rm --network=host \
-  -v /home/ubuntu/environment/efs:/workspace/IsaacLab/TrainedModel \
+  -v /home/ubuntu/environment/models:/workspace/IsaacLab/TrainedModel \
   -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" -e DISPLAY \
   isaaclab-batch:latest
 ```
@@ -569,12 +497,12 @@ cd /workspace/IsaacLab && \
 
 | 체크포인트 | 경로 | 설명 |
 |------------|------|------|
-| 사전 학습 완료 | `/workspace/IsaacLab/TrainedModel/agent_72000.pt` | EFS에 자동 배치 (72,000 iteration) |
-| Batch 학습 결과 | `/workspace/IsaacLab/TrainedModel/models/h1_rough/{timestamp}_ppo_torch/checkpoints/best_agent.pt` | 분산 학습 최고 성능 시점 |
+| 사전 학습 완료 | `/workspace/IsaacLab/TrainedModel/agent_72000.pt` | 부팅 시 로컬 디스크에 자동 배치 (72,000 iteration) |
+| RL 학습 결과 | `/workspace/IsaacLab/TrainedModel/models/h1_rough/{timestamp}_ppo_torch/checkpoints/best_agent.pt` | 학습 최고 성능 시점 |
 
 ### GR00T N1 추론 테스트
 
-GR00T Docker 이미지 빌드와 추론 서버 실행은 더 이상 부팅 시 자동 수행되지 않는다. 모델 가중치(`/home/ubuntu/environment/efs/GR00T-N1.6-3B`)는 EFS에 미리 다운로드되어 있으므로, 사용자가 직접 빌드·실행한다.
+GR00T Docker 이미지 빌드와 추론 서버 실행은 더 이상 부팅 시 자동 수행되지 않는다. 모델 가중치(`/home/ubuntu/environment/models/GR00T-N1.6-3B`)는 인스턴스 로컬 디스크에 미리 다운로드되어 있으므로, 사용자가 직접 빌드·실행한다.
 
 ```bash
 # 1) GR00T 리포지토리 clone + Dockerfile 작성
@@ -597,9 +525,9 @@ EOF
 # 2) Docker 빌드 (수십 분 소요)
 docker build -t groot-n1:latest .
 
-# 3) 추론 서버 실행 (EFS 모델 가중치 마운트)
+# 3) 추론 서버 실행 (모델 가중치 디렉터리 마운트)
 docker run --rm --gpus all --name groot-inference --network=host \
-  -v /home/ubuntu/environment/efs:/workspace/weights \
+  -v /home/ubuntu/environment/models:/workspace/weights \
   groot-n1:latest \
   gr00t/eval/run_gr00t_server.py \
   --model_path /workspace/weights/GR00T-N1.6-3B \
@@ -635,7 +563,7 @@ print('SUCCESS' if policy.ping() else 'FAILED')
 
 ```bash
 cdk deploy -c inferenceInstanceType=g6.xlarge
-# Batch 분산 학습: g6.12xlarge (기본), g5.12xlarge (대안) — 12개 리전 모두 지원
+# 멀티 GPU: g6.12xlarge, g5.12xlarge — 12개 리전 모두 지원
 # DCV 워크숍 (단일 GPU): g6.xlarge, g5.xlarge — capacity 확보 용이
 # g6e/g7e는 일부 리전에만 존재하므로 기본 타입으로 부적합
 ```
@@ -741,10 +669,12 @@ sudo tail -f /var/log/user-data.log
 ===== [날짜] END: common.sh =====
 ===== [날짜] START: nvidia-driver.sh =====  ← NVIDIA 드라이버 업그레이드
 ===== [날짜] END: nvidia-driver.sh =====
-===== [날짜] START: isaac-lab.sh =====      ← Isaac Lab Docker 빌드 + ECR 푸시 (가장 오래 걸림)
+===== [날짜] START: isaac-lab.sh =====      ← Isaac Lab Docker 빌드 (가장 오래 걸림)
 ===== [날짜] END: isaac-lab.sh =====
-===== [날짜] START: efs-mount.sh =====      ← EFS 마운트 + 모델 다운로드
-===== [날짜] END: efs-mount.sh =====
+===== [날짜] START: models-download.sh ===== ← 모델 가중치 다운로드
+===== [날짜] END: models-download.sh =====
+===== [날짜] START: fsx-mount.sh =====      ← 공유 FSx for Lustre 마운트 (/fsx)
+===== [날짜] END: fsx-mount.sh =====
 ```
 
 > 일반적으로 `common.sh`의 dpkg lock 대기와 `isaac-lab.sh`의 Docker 빌드가 가장 오래 걸린다.
@@ -765,23 +695,22 @@ UserData 실행 중 에러가 발생하면 `trap ERR`에 의해 자동 감지되
 # 여기서 멈추면 nvidia-driver.sh에서 실패
 ```
 
-### EFS 마운트
+### FSx 마운트
 
-EFS는 UserData에서 NFS v4로 마운트되며, `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트된다. 수동 마운트가 필요한 경우:
+공유 FSx for Lustre는 UserData에서 `/fsx`에 마운트되며, `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트된다. Lustre 커널 모듈 설치가 실패하면 배포는 계속 진행되고 `[WARN]` 마커만 남으므로, 이 경우 수동 마운트한다:
 
 ```bash
-sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 \
-  <EFS_ID>.efs.<REGION>.amazonaws.com:/ /home/ubuntu/environment/efs
+sudo mount -t lustre -o relatime,flock \
+  <FSX_DNS_NAME>@tcp:/<FSX_MOUNT_NAME> /fsx
 ```
+
+`FsxFileSystemId`·`FsxMountName` 스택 Output에서 필요한 값을 확인할 수 있다.
 
 ### Docker 빌드 실패
 
-`isaac-lab.sh`에서 Docker 빌드 또는 ECR 푸시 실패 시:
+`isaac-lab.sh`에서 Docker 빌드 실패 시:
 
 ```bash
-# ECR 로그인 확인
-aws ecr get-login-password --region <REGION> | docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.<REGION>.amazonaws.com
-
 # Isaac Sim Docker 이미지 풀 확인
 docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 ```
@@ -793,8 +722,8 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - NVIDIA 드라이버: nvidia-driver.sh가 DLAMI에 사전 설치된 드라이버 버전을 자동 감지하여 프로필 지정 버전(570)으로 교체. stable(DLAMI 550→570 업그레이드), latest(DLAMI 580→570 교체) 모두 자동 처리. xorg.conf는 lspci 기반으로 생성하여 커널 모듈 상태에 무관
 - DCV GL: DLAMI에 DCV GL(`nice-dcv-gl`)이 포함되지 않음. `common.sh`에서 DCV 설치 시 DCV GL도 함께 설치하고 `dcvgladmin enable` 실행 필요
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
-- EFS 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
-- Batch와 단일 AZ 제약: 현재 구조는 AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 EFS Mount Target이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없지만, Batch Job은 나중에 실행되므로 해당 AZ에 GPU capacity가 없으면 Job이 실행되지 않는다. 다른 AZ에 capacity가 있어도 서브넷과 Mount Target이 없어 fallback할 수 없다. 이를 해결하려면 여러 AZ에 프라이빗 서브넷과 EFS Mount Target을 미리 생성해야 하나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다. Batch Job 실행 시 capacity 부족이 발생하면 시간을 두고 재시도하거나, 스택을 다른 리전에 재배포하는 것을 권장한다.
+- FSx 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
+- 단일 AZ 구조: AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 FSx 파일시스템이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없다. 여러 AZ에 걸치도록 만들 수도 있으나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다.
 - CreationPolicy 타임아웃: 90분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
 - Ubuntu 24.04 (latest) 고유 제한:
@@ -810,14 +739,13 @@ isaac-lab-golden-template/
 ├── bin/
 │   └── isaac-lab-app.ts            # CDK App 엔트리포인트 (멀티리전 env 설정)
 ├── lib/
-│   ├── isaac-lab-stack.ts          # 메인 스택 (5개 Construct 조합)
+│   ├── isaac-lab-stack.ts          # 메인 스택 (Construct 조합)
 │   ├── constructs/
 │   │   ├── az-selector.ts          # AZ 자동 탐색 (Custom Resource Lambda)
 │   │   ├── networking.ts           # VPC, 서브넷, IGW, NAT, S3 Endpoint, Flow Log
+│   │   ├── fsx-storage.ts          # 공유 FSx for Lustre + 보안 그룹
 │   │   ├── dcv-instance.ts         # DCV EC2 인스턴스 + IAM + Secrets Manager
 │   │   ├── cloudfront-code-server.ts # CloudFront → code-server HTTPS (옵션)
-│   │   ├── batch-infra.ts          # Batch Launch Template + IAM + Instance Profile
-│   │   └── efs-storage.ts          # EFS + Mount Target + 보안 그룹
 │   └── config/
 │       ├── version-profiles.ts     # 버전 프로필 매핑 (stable/latest)
 │       └── ami-mappings.ts         # 리전별 AMI ID 매핑 (12개 리전)
@@ -826,13 +754,13 @@ isaac-lab-golden-template/
 │   │   ├── common.sh              # 시스템 업데이트, DCV, ROS, Docker 설치
 │   │   ├── nvidia-driver.sh       # NVIDIA 드라이버 + container-toolkit (DLAMI 스킵)
 │   │   ├── cloudwatch-agent.sh    # CloudWatch Agent 설치 (옵션, enableCloudWatch=true 시)
-│   │   ├── isaac-lab.sh           # Isaac Lab Docker 빌드 + ECR 푸시
-│   │   ├── efs-mount.sh           # EFS 마운트 + 모델 다운로드
-│   │   ├── groot.sh               # GR00T 자동 빌드/systemd 등록 (UserData 미연결, 참고용 보존)
+│   │   ├── isaac-lab.sh           # Isaac Lab Docker 빌드
+│   │   ├── models-download.sh     # 모델 가중치 로컬 디스크 다운로드
+│   │   ├── fsx-mount.sh           # 공유 FSx for Lustre 마운트 (/fsx)
 │   │   └── code-server.sh         # code-server + Claude Code 설치 (옵션)
 │   └── workshop/
 │       ├── Dockerfile             # Isaac Lab Docker 이미지 빌드용
-│       └── distributed_run.bash   # 분산 학습 실행 스크립트
+│       └── distributed_run.bash   # 멀티 GPU 학습 실행 래퍼
 ├── reference/
 │   ├── IsaacLabEnvSetup.yml              # 원본 워크숍 템플릿 (보존)
 │   ├── IsaacLabEnvSetupHumble.yaml       # Humble 버전 원본 템플릿

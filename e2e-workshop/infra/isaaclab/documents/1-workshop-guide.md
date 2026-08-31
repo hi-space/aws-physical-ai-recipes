@@ -95,32 +95,21 @@ PPO(Proximal Policy Optimization) 알고리즘으로 **Unitree H1 휴머노이�
 | **Isaac Lab** | 로봇 학습 프레임워크 (환경, 태스크 정의) | 훈련 커리큘럼 |
 | **SKRL** | RL 알고리즘 라이브러리 (PPO 등 구현) | 코치 (학습 방법론) |
 | **PPO** | 사용되는 구체적 RL 알고리즘 | 코칭 전략 |
-| **AWS Batch** | 멀티노드 분산 학습 인프라 | 여러 체육관에서 동시 훈련 |
 
 ### SKRL이란?
 
-[SKRL](https://skrl.readthedocs.io/en/latest/)은 PyTorch/JAX 기반 강화학습 알고리즘 라이브러리다. PPO, SAC, TD3 등을 구현하며, Isaac Lab 환경과 네이티브 통합을 지원한다. 분산 멀티 GPU 학습을 지원하여 AWS Batch와의 조합에 적합하다.
+[SKRL](https://skrl.readthedocs.io/en/latest/)은 PyTorch/JAX 기반 강화학습 알고리즘 라이브러리다. PPO, SAC, TD3 등을 구현하며, Isaac Lab 환경과 네이티브 통합을 지원한다. 분산 멀티 GPU 학습도 지원한다.
 
 ## 사용하는 AWS 서비스
-
-기본 배포에 포함되는 서비스:
 
 | 서비스 | 용도 |
 |--------|------|
 | **Amazon VPC** | 퍼블릭 서브넷, 인터넷 게이트웨이, 보안 그룹 |
 | **Amazon EC2** (GPU) | DCV 인스턴스에서 학습/시뮬레이션 실행 |
 | **Amazon DCV** | GPU 원격 데스크톱 (Isaac Sim UI 접속) |
-| **Amazon EFS** | 체크포인트·모델 공유 스토리지 |
+| **Amazon FSx for Lustre** | 학습 체크포인트 공유 스토리지 (`/fsx`) |
 | **Amazon CloudFront** | code-server(브라우저 VSCode) HTTPS 접속 경로 |
 | **AWS Secrets Manager** | DCV / code-server 로그인 비밀번호 자동 생성·보관 |
-
-`-c enableBatch=true`로 재배포할 때 추가되는 서비스:
-
-| 서비스 | 용도 |
-|--------|------|
-| **AWS Batch** | 멀티노드 분산 학습 (headless) |
-| **Amazon ECR** | Isaac Lab Docker 이미지 저장소 (이미지 푸시로 배포 시간 증가) |
-| **Amazon ECS** | Batch 컨테이너 오케스트레이션 |
 
 ## 워크숍 진행 흐름
 
@@ -149,30 +138,11 @@ EC2 구성:
 - Instance Type: g6.4xlarge (1× NVIDIA L40S, 16 vCPU, 128 GiB)
 - 시간당 약 $3
 
-### Module 2: Launch Isaac Lab on AWS Batch (~20분)
-
-AWS Batch로 headless 분산 학습을 실행한다 (2노드 × 4 GPU).
-
-1. **Push IsaacSim Docker Image to ECR**
-2. **Create Compute Environments** — Launch Template, Instance Profile 참조
-3. **Create Job Definitions** — EFS 마운트 설정 포함
-4. **Set Up Job Queue**
-5. **Launch Robot Training Job** — CloudWatch Logs로 모니터링
-
-Batch 구성:
-- 노드당: g6.12xlarge (4× NVIDIA L40S, 48 vCPU, 384 GiB)
-- 시간당 약 $10.50/노드
-
-### Module 3: Launch Humanoid Model in IsaacSim (~15분)
+### Module 2: Launch Humanoid Model in IsaacSim (~15분)
 
 학습된 모델로 시뮬레이션을 실행하고 결과를 확인한다.
 
-1. **Mount Elastic File System** — Batch 학습 결과가 저장된 EFS 마운트
-2. **Launch Trained Humanoid Model** — Interactive 모드로 H1 로봇 시뮬레이션
-
-### Module 4: CDK and Tuning
-
-CDK를 사용한 IaC 배포와 CloudInstanceOptimizer를 활용한 RL 튜닝을 다룬다. 학습 파라미터를 자동으로 최적화하는 black-box 옵티마이저를 AWS Batch 위에서 실행한다.
+1. **Launch Trained Humanoid Model** — Interactive 모드로 H1 로봇 시뮬레이션
 
 ### Cleanup
 
@@ -185,14 +155,14 @@ CDK를 사용한 IaC 배포와 CloudInstanceOptimizer를 활용한 RL 튜닝을 
 ### agent_72000.pt (사전 제공)
 
 - 경로: `/workspace/IsaacLab/TrainedModel/agent_72000.pt`
-- 워크숍 S3 버킷에서 다운로드 → `efs-mount.sh`가 EFS에 자동 배치
+- 워크숍 S3 버킷에서 다운로드 → `models-download.sh`가 인스턴스 로컬 디스크에 자동 배치
 - 72,000 iteration에서 저장된 ANYmal 체크포인트
 - 용도: 학습 없이 바로 inference 테스트
 
 ### best_agent.pt (직접 학습)
 
 - 경로: `/workspace/IsaacLab/TrainedModel/models/h1_rough/{timestamp}_ppo_torch/checkpoints/best_agent.pt`
-- Module 2의 AWS Batch 분산 학습 실행 시 생성
+- Module 1의 RL 학습 실행 시 생성
 - 학습 중 가장 좋은 성능을 보인 시점의 체크포인트
 
 ### 어떤 것을 사용해야 하나?
@@ -209,7 +179,6 @@ CDK를 사용한 IaC 배포와 CloudInstanceOptimizer를 활용한 RL 튜닝을 
 - [Isaac Lab GitHub](https://github.com/isaac-sim/IsaacLab)
 - [SKRL Documentation](https://skrl.readthedocs.io/en/latest/)
 - [NVIDIA Isaac Sim Container Installation](https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_container.html)
-- [AWS HPC Blog: Scale RL with AWS Batch](https://aws.amazon.com/blogs/hpc/scale-reinforcement-learning-with-aws-batch-multi-node-parallel-jobs/)
 
 ---
 
@@ -320,8 +289,8 @@ nvidia-smi
 # Docker 이미지 빌드 확인 (컨테이너는 직접 실행 전까지 없음)
 docker images | grep isaaclab
 
-# EFS 마운트 확인
-df -h | grep efs
+# FSx 마운트 확인
+df -h | grep fsx
 
 # code-server 상태 확인
 systemctl status code-server
@@ -333,7 +302,7 @@ ls /home/ubuntu/environment/groot_docker
 정상 결과:
 - `nvidia-smi` → GPU 정보 출력 (L40S 또는 L4)
 - `docker images | grep isaaclab` → `isaaclab-batch:latest` 이미지 존재
-- `df -h | grep efs` → EFS 마운트 포인트 표시
+- `df -h | grep fsx` → `/fsx` 마운트 포인트 표시
 - `code-server` → `active (running)`
 
 문제가 있으면 UserData 로그 확인:
@@ -433,7 +402,6 @@ sudo ~/aws-physical-ai-recipes/e2e-workshop/infra/isaaclab/scripts/expand-ebs.sh
 | `vpcCidr` | VPC 네트워크 대역 (참가자별 고유) | `10.1.0.0/16` |
 | `versionProfile` | 소프트웨어 프로필 (스택 이름에 반영됨) | `latest` (기본), `stable` |
 | `region` | AWS 리전 | `us-east-1` |
-| `enableBatch` | AWS Batch 분산 학습 인프라 생성 | `false` (기본), `true` |
 
 프로필별 소프트웨어 조합:
 

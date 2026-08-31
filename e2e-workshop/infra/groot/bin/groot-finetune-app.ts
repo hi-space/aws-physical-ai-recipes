@@ -52,15 +52,13 @@ async function main() {
     subnetIds: sharedSubnetIds,
   });
 
-  // ---- [2] Per-user: parent IsaacLab 스택에서 VPC/EFS 자동 탐색 ----
+  // ---- [2] Per-user: parent IsaacLab 스택에서 VPC/Subnet/FSx 자동 탐색 ----
   let vpcId = app.node.tryGetContext('vpcId') as string | undefined;
-  let efsFileSystemId = app.node.tryGetContext('efsFileSystemId') as string | undefined;
-  let efsSecurityGroupId = app.node.tryGetContext('efsSecurityGroupId') as string | undefined;
   let privateSubnetId = app.node.tryGetContext('privateSubnetId') as string | undefined;
   let availabilityZone = app.node.tryGetContext('availabilityZone') as string | undefined;
   let fsxFileSystemId = app.node.tryGetContext('fsxFileSystemId') as string | undefined;
 
-  const missingInfra = !vpcId || !efsFileSystemId || !efsSecurityGroupId || !privateSubnetId || !availabilityZone;
+  const missingInfra = !vpcId || !privateSubnetId || !availabilityZone;
   if (missingInfra) {
     // 부모 IsaacLab 스택이 아직 없으면(= shared 먼저 배포하는 단계) per-user 스택을
     // 등록하지 않고 넘어간다. 여기서 throw하면 GrootFinetuneShared 배포도 막힌다.
@@ -68,16 +66,16 @@ async function main() {
     try {
       const params = await resolveParentStack(userId, region);
       saveToContext({ userId, ...params, region });
-      ({ vpcId, efsFileSystemId, efsSecurityGroupId, privateSubnetId, availabilityZone } = params);
+      ({ vpcId, privateSubnetId, availabilityZone } = params);
       fsxFileSystemId = params.fsxFileSystemId ?? fsxFileSystemId;
-      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, efs=${efsFileSystemId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
+      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
     } catch (err) {
       console.error(`[GrootFinetune] Skipping per-user stacks: ${(err as Error).message}`);
     }
   }
 
   // ---- [3] Per-user SageMaker ----
-  // EFS를 쓰지 않으므로 VPC/Subnet만 확정되면 등록한다.
+  // VPC/Subnet만 확정되면 등록한다.
   if (vpcId && privateSubnetId) {
     new GrootSagemakerStack(app, 'GrootFinetuneSagemaker', {
       stackName: `GrootFinetuneSagemaker${userSuffix}`,

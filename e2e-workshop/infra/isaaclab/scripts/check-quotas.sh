@@ -128,9 +128,6 @@ NAT_COUNT=$(aws ec2 describe-nat-gateways --region "$REGION" \
   --filter "Name=state,Values=available,pending" \
   --query 'length(NatGateways)' --output text 2>/dev/null || echo 0)
 
-EFS_COUNT=$(aws efs describe-file-systems --region "$REGION" \
-  --query 'length(FileSystems)' --output text 2>/dev/null || echo 0)
-
 CF_COUNT=$(aws cloudfront list-distributions \
   --query 'DistributionList.Quantity' --output text 2>/dev/null || echo 0)
 [[ "$CF_COUNT" =~ ^[0-9]+$ ]] || CF_COUNT=0
@@ -160,7 +157,7 @@ print(sum(i['c']*i['t'] for sub in data for i in sub if i))
 echo ""
 
 # ==========================================================================
-# 체크 (사용자당 리소스: VPC 1, IGW 1, NAT 1, EIP 1, EFS 1, CF 1, Secret 1, CFN 1, SG 3, vCPU 16~48)
+# 체크 (사용자당 리소스: VPC 1, IGW 1, NAT 1, EIP 1, CF 1, Secret 1, CFN 1, SG 2, vCPU 16~48)
 # vCPU는 fallback 최대치(g6.12xlarge=48) 기준으로 체크
 # ==========================================================================
 echo "── VPC ──"
@@ -176,14 +173,13 @@ check "G/VT On-Demand vCPU"          "ec2" "L-DB2E81BA" "$GPU_VCPU" 48 --manual
 
 echo ""
 echo "── Storage & CDN ──"
-check "EFS File Systems"             "elasticfilesystem" "L-848C634D" "$EFS_COUNT" 1
 check "CloudFront Distributions"     "cloudfront" "L-24B04930" "$CF_COUNT" 1
 
 echo ""
 echo "── Other ──"
 check "Secrets Manager Secrets"      "secretsmanager" "L-2F66C23C" "$SECRET_COUNT" 1
 check "CloudFormation Stacks"        "cloudformation" "L-0485CB21" "$CFN_COUNT" 1
-check "Security Groups"              "vpc" "L-E79EC296" "$SG_COUNT" 3
+check "Security Groups"              "vpc" "L-E79EC296" "$SG_COUNT" 2
 
 # ==========================================================================
 # 결과

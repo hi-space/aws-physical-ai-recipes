@@ -7,8 +7,8 @@ evaluation.json의 smoke.passed=0으로 표시해 ConditionStep이 판정하게 
 
 Task 1 스파이크 상태(2026-08-30):
 이 머신에는 로컬 GPU가 없고(nvidia-smi 통신 실패), config.yaml의 ecr.training_uri가
-비어 있어 training 이미지가 아직 빌드되지 않았으며, /mnt/efs/GR00T-N1.6-3B 베이스 가중치도
-없다. 따라서 브리프 Step 2/6의 "컨테이너 안에서 오프라인 로드 + get_action 실행"은
+비어 있어 training 이미지가 아직 빌드되지 않았으며, GR00T-N1.6-3B 베이스 가중치도
+로컬에 없다. 따라서 브리프 Step 2/6의 "컨테이너 안에서 오프라인 로드 + get_action 실행"은
 실제로 수행하지 못했다.
 
 대신 training 이미지가 고정하는 Isaac-GR00T 커밋
