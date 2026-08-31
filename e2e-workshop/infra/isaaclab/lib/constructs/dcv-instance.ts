@@ -358,11 +358,11 @@ export class DcvInstanceConstruct extends Construct {
       tags: [{ key: 'Name', value: `${p}-Instance` }],
     });
 
-    // cfn-signal의 --resource 값에 인스턴스의 논리적 ID를 사용해야 함
-    // Fn.sub에서 ${InstanceLogicalId}를 치환하기 위해 UserData를 재구성
-    // cfnInstance.logicalId를 사용하여 정확한 논리적 ID를 전달
+    // cfn-signal의 --resource에는 인스턴스의 논리적 ID가 필요하다.
+    // 폴백 분기까지 포함해 ${InstanceLogicalId}가 두 번 나오므로 전역 치환해야 한다.
+    // 하나라도 남으면 CloudFormation이 "Unresolved resource dependencies"로 템플릿을 거부한다.
     const userDataWithLogicalId = userDataScript.replace(
-      '${InstanceLogicalId}',
+      /\$\{InstanceLogicalId\}/g,
       cfnInstance.logicalId,
     );
 
