@@ -85,11 +85,16 @@ def main():
     print(f"Playing: {args.task}  (envs: {args.num_envs})")
     print("Close the Isaac Sim window, or Ctrl+C the job, to stop.")
 
-    obs, _ = env.get_observations()
+    # rsl_rl 버전에 따라 get_observations()/step() 반환 형태가 다르다:
+    # 구버전은 (obs, extras) 튜플, 신버전(rsl_rl 3.x)은 obs 단독. 둘 다 지원한다.
+    def _obs_of(ret):
+        return ret[0] if isinstance(ret, tuple) else ret
+
+    obs = _obs_of(env.get_observations())
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = policy(obs)
-            obs, _, _, _ = env.step(actions)
+            obs = _obs_of(env.step(actions))
 
     env.close()
     simulation_app.close()

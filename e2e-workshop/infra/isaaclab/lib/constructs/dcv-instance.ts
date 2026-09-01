@@ -195,6 +195,46 @@ export class DcvInstanceConstruct extends Construct {
                   'ecr:DescribeRepositories',
                   'codebuild:StartBuild',
                   'codebuild:BatchGetBuilds',
+                  'codebuild:ListBuildsForProject',
+                ],
+                Resource: '*',
+              },
+              {
+                // 워크숍 문서의 `aws logs tail`(CodeBuild/SageMaker/Greengrass 로그 확인)
+                Effect: 'Allow',
+                Action: [
+                  'logs:DescribeLogGroups',
+                  'logs:DescribeLogStreams',
+                  'logs:GetLogEvents',
+                  'logs:FilterLogEvents',
+                  'logs:StartLiveTail',
+                  'logs:StopLiveTail',
+                ],
+                Resource: '*',
+              },
+              {
+                // 모듈 7: HyperPod 배포 전 GPU 쿼터 확인
+                Effect: 'Allow',
+                Action: ['servicequotas:ListServiceQuotas', 'servicequotas:GetServiceQuota'],
+                Resource: '*',
+              },
+              {
+                // 모듈 7: code-server에서 HyperPod head node로 SSM 세션 접속
+                Effect: 'Allow',
+                Action: ['ssm:StartSession', 'ssm:TerminateSession', 'ssm:ResumeSession'],
+                Resource: '*',
+              },
+              {
+                // 모듈 10 §10.10: 잔여 리소스 감사(NAT GW/EIP/SG) + 수동 정리 폴백
+                Effect: 'Allow',
+                Action: [
+                  'ec2:DescribeNatGateways',
+                  'ec2:DescribeAddresses',
+                  'ec2:DescribeSecurityGroups',
+                  'ec2:DeleteNatGateway',
+                  'ec2:ReleaseAddress',
+                  'ec2:DeleteSecurityGroup',
+                  'logs:DeleteLogGroup',
                 ],
                 Resource: '*',
               },
@@ -236,7 +276,13 @@ export class DcvInstanceConstruct extends Construct {
               },
               {
                 Effect: 'Allow',
-                Action: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:DescribeParameters'],
+                // PutParameter: 모듈 3 §3.3.5에서 HF 토큰을 /groot/hf-token 에 저장
+                Action: [
+                  'ssm:GetParameter',
+                  'ssm:GetParameters',
+                  'ssm:DescribeParameters',
+                  'ssm:PutParameter',
+                ],
                 Resource: `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter/groot/*`,
               },
             ],

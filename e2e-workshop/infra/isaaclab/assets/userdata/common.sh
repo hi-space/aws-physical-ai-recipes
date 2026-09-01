@@ -55,6 +55,19 @@ if ! which aws > /dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
+# 1.6. Session Manager plugin 설치
+#      모듈 7에서 code-server 터미널로 HyperPod head node에
+#      `aws ssm start-session` 접속할 때 필요.
+# -----------------------------------------------------------------------------
+if ! which session-manager-plugin > /dev/null 2>&1; then
+  curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+    -o /tmp/session-manager-plugin.deb
+  apt-get install -y /tmp/session-manager-plugin.deb
+  rm -f /tmp/session-manager-plugin.deb
+  echo "Session Manager plugin 설치 완료: $(session-manager-plugin --version 2>/dev/null || true)"
+fi
+
+# -----------------------------------------------------------------------------
 # 2. 시스템 업데이트 및 업그레이드
 # -----------------------------------------------------------------------------
 apt-get update && apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"

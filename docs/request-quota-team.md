@@ -18,9 +18,16 @@ us-west-2 전환).
   - SageMaker Studio 도메인·ECR·S3 버킷은 공유해도 문제없습니다.
 - **큰 값의 증설 요청은 자동 승인되지 않고 검토(케이스)로 넘어갈 수 있습니다.**
   워크숍 목적·기간·리전을 요청 사유에 적고, **최소 1~2주 전에** 신청하세요.
-- 계정당 **동시 오픈 SQI 요청 수 한도**가 있으므로(실측), 두 리전 × 여러 항목을 한 번에
-  넣으면 `QuotaExceededException`이 납니다. 아래 스크립트처럼 돌리되 실패분은 기존 요청이
-  처리된 뒤 재실행하세요.
+- 계정당 **동시 오픈 SQI 요청 수 한도**가 있으므로(실측 20건, 리전·서비스 구분 없이
+  계정 전체 기준), 두 리전 × 여러 항목을 한 번에 넣으면 `QuotaExceededException`이
+  납니다. 수동 재실행 대신 [scripts/quota-drip.sh](./scripts/quota-drip.sh)를 백그라운드로
+  돌려 두세요 — 10분마다 슬롯을 확인해 빈 만큼 우선순위 순서로 제출하고, 전 항목이
+  제출되면 스스로 종료합니다 (멱등, 우선순위: DCV vCPU → SmokeEval GPU → 본 학습 타입 →
+  폴백 타입 순).
+  - 슬롯을 빨리 비우려면: 콘솔 [Support Center](https://support.console.aws.amazon.com/support/home#/case/history)에서
+    더 이상 필요 없는 SQI 케이스를 직접 닫으세요. Support API(`ResolveCase`)는 프리미엄
+    서포트 플랜이 없으면 `SubscriptionRequiredException`이 나므로(실측) 콘솔에서만
+    가능합니다.
 
 ## 산정 원칙
 

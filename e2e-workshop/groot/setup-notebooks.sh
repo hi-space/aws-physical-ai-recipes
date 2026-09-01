@@ -37,7 +37,11 @@ else
 fi
 
 echo "[6/6] config.yaml 채우기 (GrootFinetune-<ACCOUNT_ID> 스택 outputs 사용)"
-( cd "${SCRIPT_DIR}" && npx --prefix "${INFRA_DIR}" ts-node "${INFRA_DIR}/bin/update-config.ts" \
+# npx 캐시의 ts-node는 typescript peer가 없어 실패한다 → infra 로컬 의존성으로 실행
+if [ ! -x "${INFRA_DIR}/node_modules/.bin/ts-node" ]; then
+  ( cd "${INFRA_DIR}" && npm ci --silent --no-audit --no-fund )
+fi
+( cd "${SCRIPT_DIR}" && "${INFRA_DIR}/node_modules/.bin/ts-node" "${INFRA_DIR}/bin/update-config.ts" \
     --region "${REGION}" )
 
 echo
