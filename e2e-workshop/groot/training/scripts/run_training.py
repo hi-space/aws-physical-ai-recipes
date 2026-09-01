@@ -3,7 +3,7 @@
 
 파이프라인 없이 SageMaker Training Job을 직접 실행합니다.
 개발/디버깅 시 또는 간단한 실행에 사용합니다.
-프로덕션 환경에서는 notebooks/07_sagemaker_pipeline.ipynb 사용을 권장합니다.
+프로덕션 환경에서는 notebooks/02_sagemaker_pipeline.ipynb 사용을 권장합니다.
 
 사용법:
     # SO-101 + S3 채널 (검증 표준 100 step):
@@ -249,7 +249,7 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         model_artifacts = estimator.model_data
         print(f"  모델 아티팩트:   {model_artifacts}")
         print(f"\n다음 단계:")
-        print(f"  · 압축된 model.tar.gz입니다. FSx용 압축 해제 export는 notebooks/07_sagemaker_pipeline.ipynb")
+        print(f"  · 압축된 model.tar.gz입니다. FSx용 압축 해제 export는 notebooks/02_sagemaker_pipeline.ipynb")
         print(f"    (ExportModelForFsx 스텝)에서 자동 수행됩니다.")
     else:
         print(f"  학습 중... 완료 후 model.tar.gz는 s3://<bucket>/output/{job_name}/output/ 에 생성됩니다.")

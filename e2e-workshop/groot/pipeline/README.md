@@ -26,7 +26,7 @@ TransformDataset → GR00TFinetune → SmokeEval → SmokeGate ─┬─(pass)�
 
 | 파일 | 역할 |
 |------|------|
-| `build_pipeline.py` | 위 5개 스텝을 `Pipeline` 객체로 배선하는 순수 함수(`build_pipeline(...)`). Pipeline 정의·등록·실행은 CLI 대신 노트북(`../notebooks/07_sagemaker_pipeline.ipynb`)에서 이 함수를 호출해 진행합니다. |
+| `build_pipeline.py` | 위 5개 스텝을 `Pipeline` 객체로 배선하는 순수 함수(`build_pipeline(...)`). Pipeline 정의·등록·실행은 CLI 대신 노트북(`../notebooks/02_sagemaker_pipeline.ipynb`)에서 이 함수를 호출해 진행합니다. |
 | `smoke_eval.py` | SmokeEval 스텝의 엔트리포인트. 체크포인트를 로드해 추론 sanity만 확인하고 `evaluation.json`을 남깁니다(위 SmokeGate 설명 참고). |
 
 데이터셋 다운로드/변환/검증 로직(`transform_dataset.py`)은 `../training/data/`에 있으며, TransformDataset 스텝이 이를 호출합니다.
@@ -38,7 +38,7 @@ cd ../  # groot/
 ./setup-notebooks.sh   # 1회만 실행 (커널·의존성 준비)
 ```
 
-code-server에서 [`../notebooks/07_sagemaker_pipeline.ipynb`](../notebooks/07_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행하세요. 노트북 안에서 Model Package Group 생성, `build_pipeline` 호출을 통한 Pipeline 정의·업서트, 실행(5스텝)까지 모두 다룹니다. 별도의 데이터셋 업로드 준비 단계는 없습니다 — TransformDataset 스텝이 그 역할을 흡수합니다. 자세한 사용법은 [`../notebooks/README.md`](../notebooks/README.md).
+code-server에서 [`../notebooks/02_sagemaker_pipeline.ipynb`](../notebooks/02_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행하세요. 노트북 안에서 Model Package Group 생성, `build_pipeline` 호출을 통한 Pipeline 정의·업서트, 실행(5스텝)까지 모두 다룹니다. 별도의 데이터셋 업로드 준비 단계는 없습니다 — TransformDataset 스텝이 그 역할을 흡수합니다. 자세한 사용법은 [`../notebooks/README.md`](../notebooks/README.md).
 
 ## Configuration
 

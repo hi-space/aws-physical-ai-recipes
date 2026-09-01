@@ -83,7 +83,7 @@ python training/scripts/run_training.py \
 ./setup-notebooks.sh <region>            # 1회만 실행 (커널·의존성·config.yaml 준비)
 ```
 
-code-server에서 [`notebooks/07_sagemaker_pipeline.ipynb`](./notebooks/07_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행합니다.
+code-server에서 [`notebooks/02_sagemaker_pipeline.ipynb`](./notebooks/02_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행합니다.
 
 학습 스텝은 끝에 압축 해제된 모델을 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`로 직접 업로드합니다 (SmokeGate 결과와 무관하게 항상 수행 — `pipeline/README.md` 참고). 이 prefix를 FSx for Lustre로 마운트하면 IsaacSim에서 바로 로드할 수 있습니다. 자세한 내용은 [`pipeline/README.md`](./pipeline/README.md), [`notebooks/README.md`](./notebooks/README.md).
 

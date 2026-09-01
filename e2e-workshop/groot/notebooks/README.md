@@ -13,11 +13,11 @@ cd e2e-workshop/groot
 
 ## Notebooks
 
-| 파일 | 내용 |
-| --- | --- |
-| [`05_infra_and_base_check.ipynb`](./05_infra_and_base_check.ipynb) | 인프라 배포 상태 + GR00T base 모델 검증 |
-| [`07_sagemaker_pipeline.ipynb`](./07_sagemaker_pipeline.ipynb) | 5노드 SageMaker Pipeline(TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel/FailStep) 조립·실행 (핵심 모듈). 데이터셋 업로드 준비는 별도 단계 없이 TransformDataset이 흡수 |
-| [`08_closed_loop_eval.ipynb`](./08_closed_loop_eval.ipynb) | 시뮬레이션 closed-loop 평가 래퍼 |
+| 파일 | 워크숍 모듈 | 내용 |
+| --- | --- | --- |
+| [`01_infra_and_base_check.ipynb`](./01_infra_and_base_check.ipynb) | 모듈 3 | 인프라 배포 상태 + GR00T base 모델 검증 |
+| [`02_sagemaker_pipeline.ipynb`](./02_sagemaker_pipeline.ipynb) | 모듈 4 | 5노드 SageMaker Pipeline(TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel/FailStep) 조립·실행 (핵심 모듈). 데이터셋 업로드 준비는 별도 단계 없이 TransformDataset이 흡수 |
+| [`03_closed_loop_eval.ipynb`](./03_closed_loop_eval.ipynb) | 모듈 5 | 시뮬레이션 closed-loop 평가 래퍼 |
 
 ## 실행법
 

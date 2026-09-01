@@ -1,8 +1,8 @@
-"""노트북 07이 build_pipeline을 쓰고, 수동 upload_dataset 실행 셀을 더 이상 갖지 않음을 확인."""
+"""노트북 02가 build_pipeline을 쓰고, 수동 upload_dataset 실행 셀을 더 이상 갖지 않음을 확인."""
 import json
 from pathlib import Path
 
-NB = Path(__file__).resolve().parents[2] / "notebooks" / "07_sagemaker_pipeline.ipynb"
+NB = Path(__file__).resolve().parents[2] / "notebooks" / "02_sagemaker_pipeline.ipynb"
 
 
 def _sources():

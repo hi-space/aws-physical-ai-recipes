@@ -31,7 +31,7 @@ uv run python test_inference_remote.py <INSTANCE_IP>  # 원격
 
 GR00T base 모델(GR1 임베디먼트) 검증용 더미 데이터를 사용하므로 fine-tune 결과 검증은 아래 시뮬레이션 평가(`run-isaaclab.sh`)를 쓰세요. 자세한 프로토콜은 [`batch-zmq/README.md`](./batch-zmq/README.md).
 
-> 워크숍 모듈 5(VLA 인프라 + base 모델 추론 검증)는 이 클라이언트를 그대로 노트북으로 감싼 [`../notebooks/05_infra_and_base_check.ipynb`](../notebooks/05_infra_and_base_check.ipynb)로 실행할 수 있습니다.
+> 워크숍 모듈 3(VLA 인프라 + base 모델 추론 검증)은 이 클라이언트를 그대로 노트북으로 감싼 [`../notebooks/01_infra_and_base_check.ipynb`](../notebooks/01_infra_and_base_check.ipynb)로 실행할 수 있습니다.
 
 ## Closed-loop Evaluation (`run-isaaclab.sh`)
 
@@ -51,4 +51,4 @@ GR00T Policy Server는 별도로 띄워둬야 합니다 (보통 ECR에서 받은
 | `ISAAC_LAB_IMAGE` | `nvcr.io/nvidia/isaac-lab:2.3.0` | 사용할 Isaac Lab 이미지 |
 | `LEISAAC_COMMIT` | (스크립트에 명시) | leisaac 리포 고정 커밋 |
 
-워크숍 모듈 8(Closed-loop 평가)은 이 스크립트를 감싼 [`../notebooks/08_closed_loop_eval.ipynb`](../notebooks/08_closed_loop_eval.ipynb)로 실행할 수 있습니다. 전체 절차는 [워크숍 가이드 Module 8](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)을 참고하세요.
+워크숍 모듈 5(Closed-loop 평가)는 이 스크립트를 감싼 [`../notebooks/03_closed_loop_eval.ipynb`](../notebooks/03_closed_loop_eval.ipynb)로 실행할 수 있습니다. 전체 절차는 [워크숍 가이드 모듈 5](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)를 참고하세요.

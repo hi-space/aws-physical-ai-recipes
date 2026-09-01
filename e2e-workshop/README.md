@@ -84,7 +84,7 @@ npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
 
 # 학습 + FSx용 export (Pipeline) — 노트북으로 실행
 ./setup-notebooks.sh   # 1회만 실행 (커널·의존성 준비)
-# code-server에서 notebooks/07_sagemaker_pipeline.ipynb를 열어 순서대로 실행
+# code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 순서대로 실행
 ```
 
 완료 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/` 에 압축되지 않은 모델이 생성됩니다. 이 prefix를 FSx for Lustre로 마운트해 IsaacSim에서 로드합니다.
@@ -112,17 +112,18 @@ e2e-workshop/
 
 ## Workshop Modules
 
-[워크숍 가이드](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)가 이 코드베이스를 8개 모듈로 나눠 따라할 수 있게 안내합니다.
+[워크숍 가이드](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)가 이 코드베이스를 모듈 단위로 나눠 따라할 수 있게 안내합니다.
 
 | 모듈 | 다루는 내용 | 주로 사용하는 디렉토리 |
 |------|-------------|------------------------|
-| 1. 인프라 준비 | CDK로 GPU 데스크탑 띄우기 | `infra/isaaclab/` |
-| 2-3. RL 학습 | 휴머노이드 보행 학습 (단일 GPU) | `infra/isaaclab/assets/workshop/` |
-| 4. RL 시각화 | 학습된 정책으로 시뮬레이션 재생 | (DCV에서 IsaacSim) |
-| 5. VLA 인프라 | GR00T용 ECR + SageMaker 배포, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` · 노트북: `groot/notebooks/05_infra_and_base_check.ipynb` |
-| 6. 컨테이너 fine-tuning | GR00T 학습 컨테이너를 GPU 인스턴스에서 직접 실행 | `infra/groot/assets/` |
-| 7. SageMaker 파이프라인 | Train → FSx용 export 자동화 | `groot/training/`, `groot/pipeline/` · 노트북: `groot/notebooks/07_sagemaker_pipeline.ipynb` |
-| 8. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` · 노트북: `groot/notebooks/08_closed_loop_eval.ipynb` |
+| 1. 인프라 확인 및 환경 접속 | 사전 배포된 GPU 데스크탑(DCV)·code-server 접속 | `infra/isaaclab/` |
+| 2. Greengrass base 모델 배포 | GR00T base 모델을 Greengrass 컴포넌트로 시뮬레이션 배포 | `infra/groot/` |
+| 3. VLA 인프라 | GR00T용 ECR + SageMaker 확인, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` · 노트북: `groot/notebooks/01_infra_and_base_check.ipynb` |
+| 4. SageMaker 파이프라인 | GR00T fine-tuning + FSx용 export 자동화 | `groot/training/`, `groot/pipeline/` · 노트북: `groot/notebooks/02_sagemaker_pipeline.ipynb` |
+| 5. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` · 노트북: `groot/notebooks/03_closed_loop_eval.ipynb` |
+| 6. Greengrass 엣지 배포 | fine-tuned 모델 엣지 배포 (TensorRT) | `infra/groot/` |
+| 7-10. RL 트랙 | Isaac Lab 단일 노드 RL → HyperPod 분산 학습 → 정책 검증 | `infra/isaaclab/assets/workshop/`, `../hyperpod-training/` |
+| 11. 리소스 정리 | 전체 스택 정리 | — |
 
 ## License
 

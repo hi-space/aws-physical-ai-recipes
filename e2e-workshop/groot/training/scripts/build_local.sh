@@ -173,4 +173,4 @@ esac
 success "모든 빌드 완료!"
 echo ""
 echo "다음 단계:"
-echo "  code-server에서 notebooks/07_sagemaker_pipeline.ipynb를 열어 학습 + FSx용 export를 실행하세요."
+echo "  code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 학습 + FSx용 export를 실행하세요."
