@@ -9,7 +9,8 @@ export interface NetworkingProps {
   namePrefix: string;
   vpcCidr?: string;
   createVpc?: boolean;
-  userId?: string;
+  /** 기존 VPC 합류(createVpc=false) 시 tag:UserId 조회에 쓰는 계정 ID. */
+  accountId?: string;
 }
 
 export class NetworkingConstruct extends Construct {
@@ -34,7 +35,7 @@ export class NetworkingConstruct extends Construct {
         onCreate: {
           service: 'EC2',
           action: 'describeVpcs',
-          parameters: { Filters: [{ Name: 'tag:UserId', Values: [props.userId ?? ''] }] },
+          parameters: { Filters: [{ Name: 'tag:UserId', Values: [props.accountId ?? ''] }] },
           physicalResourceId: cr.PhysicalResourceId.of('vpc-lookup'),
         },
         installLatestAwsSdk: false,

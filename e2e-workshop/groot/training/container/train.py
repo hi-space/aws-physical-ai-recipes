@@ -441,6 +441,11 @@ def copy_artifacts(env: dict) -> None:
             return True
         if name.startswith("global_step") or name == "latest":
             return True
+        # SageMaker 체크포인트 업로더의 임시 마커. listdir 과 copy 사이에
+        # 사라져 FileNotFoundError 를 내는 레이스가 실측됐다 — 항상 제외한다.
+        if name.endswith((".sagemaker-uploading", ".sagemaker-uploaded",
+                          ".sagemaker-upload-complete")):
+            return True
         return False
 
     def _copytree_filtered(src: str, dst: str) -> None:
@@ -454,7 +459,11 @@ def copy_artifacts(env: dict) -> None:
             if os.path.isdir(s):
                 _copytree_filtered(s, d)
             else:
-                shutil.copy2(s, d)
+                try:
+                    shutil.copy2(s, d)
+                except FileNotFoundError:
+                    # 업로더 임시 파일이 스캔과 복사 사이에 사라진 경우
+                    print(f"  skip (복사 중 사라짐): {entry}")
 
     # checkpoint-N 디렉토리들 중 가장 최신(가장 큰 N)만 보존하고 나머지는 skip.
     # 추론은 최신 가중치만 필요하고, intermediate checkpoint 가 누적되면 tarball 폭증.
@@ -480,7 +489,10 @@ def copy_artifacts(env: dict) -> None:
         if os.path.isdir(src):
             _copytree_filtered(src, dst)
         else:
-            shutil.copy2(src, dst)
+            try:
+                shutil.copy2(src, dst)
+            except FileNotFoundError:
+                print(f"  skip (복사 중 사라짐): {item}")
 
     # 프로세서 파일을 루트로 복사 (Gr00tPolicy가 model_dir 루트에서 로드)
     for subdir in ["processor", "checkpoint-1", "checkpoint"]:

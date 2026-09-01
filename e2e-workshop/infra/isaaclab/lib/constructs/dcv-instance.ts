@@ -214,6 +214,13 @@ export class DcvInstanceConstruct extends Construct {
                 Resource: '*',
               },
               {
+                // CDK v2 배포는 부트스트랩 롤(cdk-hnb659fds-*)을 AssumeRole 한다.
+                // 이 인스턴스에서 infra/groot·hyperpod-training/infra를 수동 배포할 때 필요.
+                Effect: 'Allow',
+                Action: 'sts:AssumeRole',
+                Resource: 'arn:aws:iam::*:role/cdk-*',
+              },
+              {
                 Effect: 'Allow',
                 Action: 'iam:PassRole',
                 Resource: '*',

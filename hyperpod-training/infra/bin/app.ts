@@ -4,9 +4,9 @@ import { HyperPodStack } from '../lib/hyperpod-stack';
 
 const app = new cdk.App();
 
-// userId 미지정 시 계정 ID를 사용한다(계정당 1명 전제). 스택 이름은 synth 시점에
+// 식별자는 배포 대상 계정 ID(1인 1계정 전제). 스택 이름은 synth 시점에
 // literal이어야 하므로 토큰이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
-const userId = app.node.tryGetContext('userId') ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
+const accountId = process.env.CDK_DEFAULT_ACCOUNT ?? '';
 const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION;
 const createVpc = (app.node.tryGetContext('createVpc') ?? 'true') === 'true';
 const gpuMaxCountPerType = parseInt(app.node.tryGetContext('gpuMaxCount') ?? '4', 10);
@@ -21,12 +21,9 @@ const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 // 기존 FSx for Lustre 재사용 (isaaclab 스택의 공유 FSx와 스토리지를 합칠 때 사용).
 // Lustre는 같은 VPC에서만 마운트할 수 있으므로 createVpc=false(기존 VPC 합류)와
 // 함께 써야 한다. mountName은 `aws fsx describe-file-systems` 로 확인한다.
+// 기존 VPC 합류 시 isaaclab VPC는 tag:UserId=<ACCOUNT_ID> 로 찾는다.
 const importedFsxId = app.node.tryGetContext('fsxFileSystemId') ?? '';
 const importedFsxMountName = app.node.tryGetContext('fsxMountName') ?? '';
-
-if (userId && !/^[a-z0-9-]+$/.test(userId)) {
-  throw new Error(`userId는 영문소문자, 숫자, 하이픈만 허용됩니다: '${userId}'`);
-}
 
 if (!Number.isInteger(gpuCount) || gpuCount < 0 || gpuCount > gpuMaxCountPerType) {
   throw new Error(`gpuCount는 0 이상 gpuMaxCount(${gpuMaxCountPerType}) 이하의 정수여야 합니다: '${gpuCount}'`);
@@ -41,7 +38,7 @@ if ((importedFsxId && !importedFsxMountName) || (!importedFsxId && importedFsxMo
 if (importedFsxId && createVpc) {
   throw new Error(
     'fsxFileSystemId(기존 FSx 재사용)는 같은 VPC에서만 마운트할 수 있습니다. ' +
-      '-c createVpc=false 와 함께 지정해 해당 FSx가 있는 VPC(태그 UserId 매칭)에 합류하세요.',
+      '-c createVpc=false 와 함께 지정해 해당 FSx가 있는 VPC(태그 UserId=<ACCOUNT_ID> 매칭)에 합류하세요.',
   );
 }
 
@@ -50,12 +47,12 @@ const env = {
   region,
 };
 
-const userSuffix = userId ? `-${userId}` : '';
-const stackName = `HyperPod${userSuffix}`;
+const accountSuffix = accountId ? `-${accountId}` : '';
+const stackName = `HyperPod${accountSuffix}`;
 
 new HyperPodStack(app, stackName, {
   env,
-  userId,
+  accountId,
   createVpc,
   vpcCidr,
   gpuMaxCountPerType,

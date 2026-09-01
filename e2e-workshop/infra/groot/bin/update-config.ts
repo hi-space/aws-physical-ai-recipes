@@ -4,14 +4,10 @@
  *
  * 사용법:
  *   npx ts-node bin/update-config.ts
- *   npx ts-node bin/update-config.ts --user-id alice
- *   npx ts-node bin/update-config.ts --user-id alice --config-path /path/to/config.yaml
+ *   npx ts-node bin/update-config.ts --region us-east-1 --config-path /path/to/config.yaml
  *
- * --user-id 를 생략하면 배포된 GrootFinetuneSagemaker-* 스택에서 자동으로 찾습니다
- * (userId 기본값이 계정 ID이므로 대개 지정할 필요가 없습니다).
- *
- * 두 스택(GrootFinetuneShared + GrootFinetuneSagemaker[-userId])의 outputs를 합쳐서
- * config.yaml을 갱신합니다.
+ * 통합 스택 GrootFinetune-<ACCOUNT_ID>의 outputs로 config.yaml을 갱신합니다.
+ * (1인 1계정 전제 — 계정 ID는 배포된 GrootFinetune-* 스택에서 자동으로 찾습니다.)
  */
 import {
   CloudFormationClient,
@@ -25,11 +21,9 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 
 interface Args {
-  userId?: string;
   region?: string;
   configPath?: string;
-  sharedStackName?: string;
-  userStackName?: string;
+  stackName?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -37,14 +31,12 @@ function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
-    if (a === '--user-id') args.userId = next();
-    else if (a === '--region') args.region = next();
+    if (a === '--region') args.region = next();
     else if (a === '--config-path') args.configPath = next();
-    else if (a === '--shared-stack-name') args.sharedStackName = next();
-    else if (a === '--user-stack-name') args.userStackName = next();
+    else if (a === '--stack-name') args.stackName = next();
     else if (a === '-h' || a === '--help') {
       console.log(
-        'Usage: ts-node bin/update-config.ts [--user-id <id>] [--region R] [--config-path P]',
+        'Usage: ts-node bin/update-config.ts [--region R] [--config-path P] [--stack-name S]',
       );
       process.exit(0);
     }
@@ -71,9 +63,9 @@ async function describeStack(cfn: CloudFormationClient, name: string): Promise<S
   }
 }
 
-/** --user-id 생략 시, 배포된 GrootFinetuneSagemaker-* 스택에서 userId를 역추적한다. */
-async function discoverUserId(cfn: CloudFormationClient): Promise<string> {
-  const prefix = 'GrootFinetuneSagemaker-';
+/** --stack-name 생략 시, 배포된 GrootFinetune-* 스택을 자동 탐색한다. */
+async function discoverStackName(cfn: CloudFormationClient): Promise<string> {
+  const prefix = 'GrootFinetune-';
   const found: string[] = [];
   let token: string | undefined;
   do {
@@ -82,16 +74,16 @@ async function discoverUserId(cfn: CloudFormationClient): Promise<string> {
       StackStatusFilter: ['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE', 'IMPORT_COMPLETE'],
     }));
     for (const s of resp.StackSummaries ?? []) {
-      if (s.StackName?.startsWith(prefix)) found.push(s.StackName.slice(prefix.length));
+      if (s.StackName?.startsWith(prefix)) found.push(s.StackName);
     }
     token = resp.NextToken;
   } while (token);
 
   if (found.length === 0) {
-    throw new Error(`배포된 ${prefix}* 스택이 없습니다. 먼저 cdk deploy 하거나 --user-id 를 지정하세요.`);
+    throw new Error(`배포된 ${prefix}* 스택이 없습니다. 먼저 cdk deploy 하거나 --stack-name 을 지정하세요.`);
   }
   if (found.length > 1) {
-    throw new Error(`${prefix}* 스택이 여러 개입니다(${found.join(', ')}). --user-id 로 지정하세요.`);
+    throw new Error(`${prefix}* 스택이 여러 개입니다(${found.join(', ')}). --stack-name 으로 지정하세요.`);
   }
   return found[0];
 }
@@ -101,11 +93,7 @@ async function main() {
   const region = args.region ?? process.env.AWS_REGION ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 
   const cfn = new CloudFormationClient({ region });
-  const userId = args.userId ?? await discoverUserId(cfn);
-  const suffix = `-${userId}`;
-
-  const sharedStackName = args.sharedStackName ?? 'GrootFinetuneShared';
-  const userStackName = args.userStackName ?? `GrootFinetuneSagemaker${suffix}`;
+  const stackName = args.stackName ?? await discoverStackName(cfn);
 
   // config.yaml 위치: e2e-workshop/groot/config.yaml (모든 SM 스크립트가 여기서 읽음).
   const configPath =
@@ -116,36 +104,34 @@ async function main() {
     throw new Error(`config.yaml not found: ${configPath}`);
   }
 
-  const sharedStack = await describeStack(cfn, sharedStackName);
-  if (!sharedStack) throw new Error(`스택 '${sharedStackName}' 을(를) 찾을 수 없습니다.`);
-  const userStack = await describeStack(cfn, userStackName);
-  if (!userStack) throw new Error(`스택 '${userStackName}' 을(를) 찾을 수 없습니다.`);
+  const stack = await describeStack(cfn, stackName);
+  if (!stack) throw new Error(`스택 '${stackName}' 을(를) 찾을 수 없습니다.`);
 
-  const sharedOut = outputsToMap(sharedStack.Outputs);
-  const userOut = outputsToMap(userStack.Outputs);
-  const accountId = userStack.StackId?.split(':')[4] ?? '';
+  const out = outputsToMap(stack.Outputs);
+  const accountId = stack.StackId?.split(':')[4] ?? '';
 
   const config = yaml.load(fs.readFileSync(configPath, 'utf-8')) as Record<string, any>;
   config.aws ??= {};
   config.aws.account_id = accountId;
-  config.aws.alias = userId;
-  config.aws.bucket_name = userOut.BucketName ?? config.aws.bucket_name ?? '';
-  config.aws.role_arn = userOut.SageMakerRoleArn ?? config.aws.role_arn ?? '';
+  // alias는 파이프라인/모델 그룹 이름 접미사로 쓰인다. 1인 1계정 전제로 계정 ID를 쓴다.
+  config.aws.alias = out.UserId ?? accountId;
+  config.aws.bucket_name = out.BucketName ?? config.aws.bucket_name ?? '';
+  config.aws.role_arn = out.SageMakerRoleArn ?? config.aws.role_arn ?? '';
   config.aws.region = region;
 
   config.ecr ??= {};
-  config.ecr.training_uri = userOut.TrainingRepositoryUri
-    ? `${userOut.TrainingRepositoryUri}:latest`
+  config.ecr.training_uri = out.TrainingRepositoryUri
+    ? `${out.TrainingRepositoryUri}:latest`
     : config.ecr.training_uri ?? '';
 
   config.codebuild ??= {};
-  config.codebuild.training_project = sharedOut.SmTrainingBuildProjectName ?? 'groot-sm-training-build';
+  config.codebuild.training_project = out.SmTrainingBuildProjectName ?? 'groot-sm-training-build';
 
   config.mlflow ??= {};
   config.mlflow.tracking_server_arn =
-    userOut.MlflowTrackingServerArn ?? config.mlflow.tracking_server_arn ?? '';
+    out.MlflowTrackingServerArn ?? config.mlflow.tracking_server_arn ?? '';
   config.mlflow.tracking_server_name =
-    userOut.MlflowTrackingServerName ?? `groot-mlflow${suffix}`;
+    out.MlflowTrackingServerName ?? `groot-mlflow-${accountId}`;
   config.mlflow.experiment_name ??= 'groot-sm-finetune';
 
   fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: -1 }));
@@ -154,14 +140,14 @@ async function main() {
   console.log('--------------------------------------------------');
   console.log(`  계정 ID         : ${accountId}`);
   console.log(`  리전             : ${region}`);
-  console.log(`  사용자 ID        : ${userId}`);
-  console.log(`  S3 버킷          : ${userOut.BucketName}`);
-  console.log(`  SageMaker 역할   : ${userOut.SageMakerRoleArn}`);
-  console.log(`  Notebook 역할    : ${userOut.NotebookRoleArn}`);
-  console.log(`  학습 ECR URI     : ${userOut.TrainingRepositoryUri}`);
-  console.log(`  Studio 도메인 ID : ${sharedOut.StudioDomainId}`);
-  console.log(`  Studio 사용자    : ${userOut.StudioUserProfileName}`);
-  console.log(`  MLflow 서버 ARN  : ${userOut.MlflowTrackingServerArn}`);
+  console.log(`  스택             : ${stackName}`);
+  console.log(`  S3 버킷          : ${out.BucketName}`);
+  console.log(`  SageMaker 역할   : ${out.SageMakerRoleArn}`);
+  console.log(`  Notebook 역할    : ${out.NotebookRoleArn}`);
+  console.log(`  학습 ECR URI     : ${out.TrainingRepositoryUri}`);
+  console.log(`  Studio 도메인 ID : ${out.StudioDomainId}`);
+  console.log(`  Studio 사용자    : ${out.StudioUserProfileName}`);
+  console.log(`  MLflow 서버 ARN  : ${out.MlflowTrackingServerArn}`);
 }
 
 main().catch((err) => {

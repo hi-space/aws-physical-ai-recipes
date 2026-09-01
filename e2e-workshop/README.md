@@ -22,7 +22,7 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 ## Features
 
 - **원클릭 배포** — VPC, GPU EC2(DCV), 공유 FSx for Lustre를 CDK 한 번에 생성. ECR·SageMaker Studio·MLflow는 필요한 트랙에서 추가 배포
-- **멀티 사용자 격리** — `userId`만 다르게 주면 한 계정에서 여러 명이 충돌 없이 동시 사용
+- **1인 1계정 모델** — 스택·리소스 식별자에 계정 ID를 자동 사용, 별도 인자 없이 이름이 항상 확정
 - **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
 - **MLOps 통합** — 학습 잡이 끝에 source에서 압축 해제된 모델을 S3로 직접 업로드하는 단일-스텝 SageMaker Pipeline, 모델 버전·지표는 MLflow로 추적
 - **FSx 연동 소비** — export한 S3 prefix를 FSx for Lustre로 마운트해 IsaacSim(EC2)에서 tar 해제 없이 바로 로드
@@ -46,14 +46,10 @@ git clone https://github.com/hi-space/aws-physical-ai-recipes.git
 cd aws-physical-ai-recipes/e2e-workshop/infra/isaaclab
 npm install
 
-cdk deploy \
-  -c userId=<본인 이름> \
-  -c vpcCidr=10.<번호>.0.0/16 \
-  -c region=us-east-1
+cdk deploy -c region=us-east-1
 ```
 
-`-c userId`는 한 계정을 여러 명이 나눠 쓸 때만 필요합니다. 생략하면 배포 대상
-계정 ID가 자동으로 쓰여서 스택 이름이 `IsaacLab-Latest-<계정ID>`가 됩니다.
+스택 이름은 배포 대상 계정 ID가 붙은 `IsaacLab-Latest-<ACCOUNT_ID>`가 됩니다(1인 1계정 전제).
 
 배포에 70~110분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
 
@@ -78,14 +74,13 @@ cd /workspace/IsaacLab
 # GR00T용 인프라 추가 배포
 cd ../../infra/groot
 npm install
-npm run deploy:shared                 # 관리자 1회 (account-wide)
-npm run deploy -- -c userId=<본인>    # 사용자별
+npm run deploy                        # 단일 스택 GrootFinetune-<ACCOUNT_ID>
 
 # 학습 코드 환경
 cd ../../groot
 uv sync && source .venv/bin/activate
 npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
-    --user-id <본인> --region us-east-1
+    --region us-east-1
 
 # 학습 + FSx용 export (Pipeline) — 노트북으로 실행
 ./setup-notebooks.sh   # 1회만 실행 (커널·의존성 준비)
@@ -100,7 +95,7 @@ npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
 e2e-workshop/
 ├── infra/
 │   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV + 공유 FSx)
-│   └── groot/                 GR00T VLA CDK 2-stack (ECR + CodeBuild + SageMaker + MLflow)
+│   └── groot/                 GR00T VLA CDK 단일 스택 (ECR + CodeBuild + SageMaker + MLflow)
 ├── groot/                     GR00T 학습 코드 (uv venv)
 │   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
 │   ├── pipeline/              학습 → FSx용 export 자동화 Pipeline

@@ -49,16 +49,15 @@ def load_config() -> dict:
 
 
 def resolve_project_names(config: dict) -> dict:
-    """config.yaml에서 CodeBuild 프로젝트 이름을 읽음. alias가 적용된 이름이 저장돼 있음.
+    """config.yaml에서 CodeBuild 프로젝트 이름을 읽음.
 
-    deploy_stack.py가 alias 기반 이름을 config.yaml에 기록하므로,
-    여기서는 단순히 그 값을 사용한다. 누락 시 디폴트로 폴백.
+    update-config.ts가 스택 outputs의 이름을 config.yaml에 기록하므로,
+    여기서는 단순히 그 값을 사용한다. 누락 시 고정 기본값으로 폴백
+    (CodeBuild 프로젝트는 계정당 1개, 이름 고정).
     """
     cb = config.get("codebuild", {}) or {}
-    alias = (config.get("aws", {}) or {}).get("alias", "") or ""
-    suffix = f"-{alias}" if alias else ""
     return {
-        "training": cb.get("training_project") or f"groot-sm-training-build{suffix}",
+        "training": cb.get("training_project") or "groot-sm-training-build",
     }
 
 
@@ -200,10 +199,9 @@ def update_config_with_ecr_uris(config: dict, region: str) -> None:
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
 
-    alias = (config.get("aws", {}) or {}).get("alias", "") or ""
-    suffix = f"-{alias}" if alias else ""
+    # ECR 리포지토리는 계정당 1개, 이름 고정(groot-sm-training).
     config["ecr"]["training_uri"] = (
-        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-sm-training{suffix}:latest"
+        f"{account_id}.dkr.ecr.{region}.amazonaws.com/groot-sm-training:latest"
     )
 
     CONFIG_PATH.write_text(

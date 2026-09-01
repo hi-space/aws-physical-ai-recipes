@@ -11,7 +11,7 @@ if [ -z "$TRACKING_URI" ]; then
   echo "MLFLOW_TRACKING_URI가 설정되지 않았습니다."
   echo "CDK 배포 후 출력된 MlflowTrackingArn 값을 사용하세요:"
   echo ""
-  echo "  export MLFLOW_TRACKING_URI=\"arn:aws:sagemaker:<REGION>:<ACCOUNT_ID>:mlflow-tracking-server/hyperpod-<userId>-mlflow\""
+  echo "  export MLFLOW_TRACKING_URI=\"arn:aws:sagemaker:<REGION>:<ACCOUNT_ID>:mlflow-tracking-server/hyperpod-<ACCOUNT_ID>-mlflow\""
   echo ""
   echo "또는 ~/.bashrc에 추가:"
   echo "  echo 'export MLFLOW_TRACKING_URI=...' >> ~/.bashrc"

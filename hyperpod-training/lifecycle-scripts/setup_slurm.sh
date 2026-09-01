@@ -4,14 +4,41 @@ set -euo pipefail
 echo "[setup_slurm] SLURM configuration is managed by HyperPod (SlurmConfigStrategy: Managed)."
 echo "[setup_slurm] Partitions are auto-configured based on instance groups."
 
-# Determine head node (slurmctld host) IP from slurm.conf
+# Determine head node (slurmctld host) IP.
+# 1) slurm.conf (있으면 — 단, HyperPod slurmd 유닛은 ExecStartPre 로 slurm.conf
+#    를 지우는 configless 설계라 compute 노드에는 보통 없다)
+# 2) /opt/ml/config/resource_config.json 의 head CustomerIpAddress (모든 노드에
+#    존재 — 가장 신뢰할 수 있는 소스. 실측: S3 head_ip.txt 체계는 LCS 시점에
+#    SAGEMAKER_INSTANCE_GROUP_NAME 이 비어 있으면 업로드 자체가 안 된다)
 SLURMCTLD_HOST=""
 if [ -f /opt/slurm/etc/slurm.conf ]; then
   SLURMCTLD_HOST=$(grep -oP 'SlurmctldHost=\S+\(\K[^)]+' /opt/slurm/etc/slurm.conf 2>/dev/null || true)
 fi
+if [ -z "$SLURMCTLD_HOST" ] && [ -f /opt/ml/config/resource_config.json ]; then
+  SLURMCTLD_HOST=$(python3 - <<'PY' 2>/dev/null || true
+import json
+d = json.load(open("/opt/ml/config/resource_config.json"))
+for g in d.get("InstanceGroups", []):
+    if g.get("Name") == "head":
+        insts = g.get("Instances") or []
+        if insts and insts[0].get("CustomerIpAddress"):
+            print(insts[0]["CustomerIpAddress"])
+            break
+PY
+)
+  [ -n "$SLURMCTLD_HOST" ] && echo "[setup_slurm] Controller IP from resource_config.json: ${SLURMCTLD_HOST}"
+fi
+
+# head 판별: 그룹 env(비어 있을 수 있음 — 실측) 또는 로컬 IP == controller IP
+IS_HEAD=false
+if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" = "head" ]; then
+  IS_HEAD=true
+elif [ -n "$SLURMCTLD_HOST" ] && hostname -I | tr ' ' '\n' | grep -qx "$SLURMCTLD_HOST"; then
+  IS_HEAD=true
+fi
 
 # For compute nodes: ensure slurmd can find slurmctld and detect GPUs
-if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head" ] && [ -n "$SLURMCTLD_HOST" ]; then
+if [ "$IS_HEAD" != true ] && [ -n "$SLURMCTLD_HOST" ]; then
   # Create environment file for slurmd configless mode
   mkdir -p /opt/slurm/etc/default
   echo "SLURMD_OPTIONS=--conf-server ${SLURMCTLD_HOST}" > /opt/slurm/etc/default/slurmd
@@ -31,7 +58,7 @@ if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head" ] && [ -n "$SLURMCTLD_HOST" 
       echo "[setup_slurm] Configured explicit gres for ${GPU_COUNT} GPU(s)."
     fi
   fi
-elif [ -z "$SLURMCTLD_HOST" ] && [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" != "head" ]; then
+elif [ -z "$SLURMCTLD_HOST" ] && [ "$IS_HEAD" != true ]; then
   # Fallback: discover head node IP from lifecycle bucket
   if [ -z "${LIFECYCLE_BUCKET:-}" ]; then
     LIFECYCLE_BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'hyperpod-lifecycle-[^ ]*' | head -1 || true)

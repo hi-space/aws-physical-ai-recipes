@@ -7,8 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # groot/
 INFRA_DIR="$(cd "${SCRIPT_DIR}/../infra/groot" && pwd)"
-USER_ID="${1:-}"
-REGION="${2:-us-east-1}"
+REGION="${1:-us-east-1}"
 
 echo "[1/6] repo 위치 확인: ${SCRIPT_DIR}"
 if [ ! -f "${SCRIPT_DIR}/pyproject.toml" ]; then
@@ -37,13 +36,9 @@ else
   echo "  경고: code-server 미발견 — 확장 설치 건너뜀 (jupyter lab fallback 사용 가능)"
 fi
 
-echo "[6/6] config.yaml 채우기"
-if [ -n "${USER_ID}" ]; then
-  ( cd "${SCRIPT_DIR}" && npx --prefix "${INFRA_DIR}" ts-node "${INFRA_DIR}/bin/update-config.ts" \
-      --user-id "${USER_ID}" --region "${REGION}" )
-else
-  echo "  건너뜀: userId 인자 없음. 필요 시: setup-notebooks.sh <userId> <region>"
-fi
+echo "[6/6] config.yaml 채우기 (GrootFinetune-<ACCOUNT_ID> 스택 outputs 사용)"
+( cd "${SCRIPT_DIR}" && npx --prefix "${INFRA_DIR}" ts-node "${INFRA_DIR}/bin/update-config.ts" \
+    --region "${REGION}" )
 
 echo
 echo "완료. 다음 순서로 진행하세요:"

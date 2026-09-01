@@ -48,7 +48,7 @@ cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ### 기본 배포
 
 ```bash
-npx cdk deploy -c userId=<your-name> -c region=us-east-1 --require-approval never
+npx cdk deploy -c region=us-east-1 --require-approval never
 ```
 
 ### 배포 파라미터 커스터마이즈
@@ -57,11 +57,12 @@ npx cdk deploy -c userId=<your-name> -c region=us-east-1 --require-approval neve
 
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
-| `userId` | (필수) | 사용자 식별자 (영소문자, 숫자, 하이픈) |
 | `region` | `CDK_DEFAULT_REGION` | 배포 리전 |
 | `createVpc` | true | VPC를 새로 생성 (false면 기존 VPC 사용) |
 | `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
+| `gpuCount` | 0 | 기본 학습 그룹(ml.g6e.12xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
+| `debugCount` | 0 | debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1) |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
 | `enableMlflow` | false | (옵션) 관리형 MLflow 실험 추적 서버 생성 여부 |
@@ -70,7 +71,6 @@ npx cdk deploy -c userId=<your-name> -c region=us-east-1 --require-approval neve
 예시 — 소규모 테스트:
 ```bash
 npx cdk deploy \
-  -c userId=researcher-a \
   -c region=us-east-1 \
   -c gpuMaxCount=1 \
   -c fsxCapacityGiB=1200 \
@@ -91,21 +91,44 @@ npx cdk deploy \
 ```bash
 # 스택 상태 확인
 aws cloudformation describe-stacks \
-  --stack-name HyperPod-<userId> \
+  --stack-name HyperPod-<ACCOUNT_ID> \
   --region us-east-1 \
   --query "Stacks[0].StackStatus"
 
 # 출력값 확인
 aws cloudformation describe-stacks \
-  --stack-name HyperPod-<userId> \
+  --stack-name HyperPod-<ACCOUNT_ID> \
   --region us-east-1 \
   --query "Stacks[0].Outputs"
 ```
 
+## GPU 노드 스케일 업/다운 (scale-cluster.sh)
+
+GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비용 0). 학습 직전에
+노드를 올리고, 끝나면 다시 0으로 내립니다. CDK 재배포 없이
+`aws sagemaker update-cluster`를 감싼 스크립트를 사용하세요:
+
+```bash
+# 학습용 GPU 노드 1대 기동 (InService까지 대기, 10~20분)
+./scripts/scale-cluster.sh gpu-g6e-12x 1 --wait
+
+# 학습 종료 후 0으로 축소
+./scripts/scale-cluster.sh gpu-g6e-12x 0
+
+# DCV 디버그 노드 (시각화 검증)
+./scripts/scale-cluster.sh debug 1 --wait
+```
+
+> 스크립트는 CloudFormation 밖에서 노드 수를 바꾸므로 CDK 스택과 드리프트가 생깁니다.
+> 이후 `cdk deploy`를 다시 실행하면 노드 수가 context 값(기본 0)으로 되돌아가고,
+> `cdk destroy`에는 영향이 없습니다. IaC로 일관되게 관리하고 싶다면
+> `-c gpuCount=1` 재배포 방식도 유효합니다(이때 기존 배포에 사용한 다른 context
+> 값들을 반드시 함께 지정).
+
 ## Step 3: 클러스터 상태 확인
 
 ```bash
-CLUSTER_NAME="hyperpod-<userId>"
+CLUSTER_NAME="hyperpod-<ACCOUNT_ID>"
 
 # 클러스터 상태
 aws sagemaker describe-cluster \
@@ -228,7 +251,7 @@ ssh -i ~/.ssh/cluster_access_key ubuntu@${HEAD_IP}
 또는 로컬에서 ProxyJump로 한 번에 접속:
 ```bash
 ssh -i ~/.ssh/hyperpod-jump.pem -o ProxyCommand="ssh -i ~/.ssh/hyperpod-jump.pem -W %h:%p ec2-user@${JUMP_IP}" \
-  -i <(aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key -) \
+  -i <(aws s3 cp s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key -) \
   ubuntu@${HEAD_IP}
 ```
 
@@ -251,7 +274,7 @@ Host hyperpod
 
 > `cluster_access_key`는 Jump Host의 `~/.ssh/cluster_access_key`를 로컬로 복사하거나, S3에서 다운로드합니다:
 > ```bash
-> aws s3 cp s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key ~/.ssh/cluster_access_key
+> aws s3 cp s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key ~/.ssh/cluster_access_key
 > chmod 600 ~/.ssh/cluster_access_key
 > ```
 
@@ -269,7 +292,7 @@ S3에 데이터를 업로드하면 FSx `/fsx/datasets/`에 자동으로 동기�
 
 ```bash
 # 로컬에서 S3로 데이터 업로드
-BUCKET="hyperpod-data-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1"
+BUCKET="hyperpod-data-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1"
 
 aws s3 cp ./my-dataset/ s3://${BUCKET}/datasets/groot/my-robot/ --recursive
 
@@ -369,14 +392,14 @@ Actor-Learner 패턴으로 시뮬레이션과 학습을 동시 실행합니다.
 pip install mlflow sagemaker-mlflow boto3
 
 # 트래킹 URI 설정 (CDK 출력값 사용)
-export MLFLOW_TRACKING_URI="https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow"
+export MLFLOW_TRACKING_URI="https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<ACCOUNT_ID>-mlflow"
 ```
 
 ### MLflow UI 접근
 
 SageMaker Managed MLflow UI는 CDK 배포 시 출력되는 `MLflowTrackingUri`로 접근합니다:
 ```
-https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<userId>-mlflow
+https://us-east-1.experiments.sagemaker.aws/mlflow/hyperpod-<ACCOUNT_ID>-mlflow
 ```
 
 ### 학습 코드에서 MLflow 사용
@@ -410,11 +433,11 @@ aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-aloha/
 ```bash
 # 스택 삭제 (20분 소요)
 cd hyperpod-training/infra
-npx cdk destroy -c userId=<your-name> -c region=us-east-1 --force
+npx cdk destroy -c region=us-east-1 --force
 
 # 삭제 실패 시 (S3 버킷 비어있지 않음):
-aws s3 rm s3://hyperpod-lifecycle-hyperpod-<userId>-<ACCOUNT_ID>-us-east-1 --recursive
-aws cloudformation delete-stack --stack-name HyperPod-<userId> --region us-east-1
+aws s3 rm s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1 --recursive
+aws cloudformation delete-stack --stack-name HyperPod-<ACCOUNT_ID> --region us-east-1
 ```
 
 ---

@@ -80,7 +80,7 @@ python training/scripts/run_training.py \
 데이터 준비부터 모델 등록까지 한 번에 도는 5노드 파이프라인입니다 (TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel/FailStep). HF 데이터셋 ID만 지정하면 3)의 업로드 없이 TransformDataset이 다운로드·검증·staging을 대신하고, SmokeGate를 통과한 모델만 Model Registry에 **Approved**로 등록됩니다.
 
 ```bash
-./setup-notebooks.sh <userId> <region>   # 1회만 실행 (커널·의존성·config.yaml 준비)
+./setup-notebooks.sh <region>            # 1회만 실행 (커널·의존성·config.yaml 준비)
 ```
 
 code-server에서 [`notebooks/07_sagemaker_pipeline.ipynb`](./notebooks/07_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행합니다.

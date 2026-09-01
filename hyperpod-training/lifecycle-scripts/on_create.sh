@@ -127,24 +127,17 @@ bash "${SCRIPT_DIR}/setup_fsx.sh" || echo "[on_create] FSx mount skipped or fail
 # Configure SLURM (head saves IP, compute connects to head)
 bash "${SCRIPT_DIR}/setup_slurm.sh" || echo "[on_create] SLURM setup skipped or failed (non-fatal)."
 
-# Start SLURM services
-if [ "${SAGEMAKER_INSTANCE_GROUP_NAME:-}" = "head" ]; then
-  if [ -f /opt/slurm/sbin/slurmctld ]; then
-    systemctl enable slurmctld 2>/dev/null || true
-    systemctl start slurmctld 2>/dev/null || true
-    echo "[on_create] SLURM controller started."
-  fi
-else
-  # Compute nodes: ensure FSx is mounted then start slurmd
-  if ! mount | grep -q "/fsx"; then
-    mount /fsx 2>/dev/null || echo "[on_create] WARNING: FSx mount retry failed."
-  fi
-  if [ -f /opt/slurm/sbin/slurmd ]; then
-    systemctl enable slurmd 2>/dev/null || true
-    systemctl start slurmd 2>/dev/null || true
-    echo "[on_create] SLURM worker (slurmd) started."
-  fi
-fi
+# Start SLURM services — 백그라운드 watcher 로 위임.
+# HyperPod(Managed Slurm)는 이 스크립트가 끝난 *뒤에* Slurm 을 설치하므로
+# 여기서 바로 systemctl start 를 하면 바이너리가 없어 조용히 건너뛴다
+# (실측: on_create 실행 후 4분+ 뒤에 Slurm 설치 완료). FSx 도 아직 CREATING
+# 이면 첫 mount 가 실패한다. watcher 가 설치/생성 완료를 기다렸다가 마무리한다.
+mkdir -p /var/log/provision
+# setsid 로 세션을 분리해 lifecycle 실행이 끝나도 watcher 가 살아남게 한다.
+SAGEMAKER_INSTANCE_GROUP_NAME="${SAGEMAKER_INSTANCE_GROUP_NAME:-}" \
+  setsid nohup bash "${SCRIPT_DIR}/post_provision_watcher.sh" \
+  >> /var/log/provision/post-provision-watcher.log 2>&1 &
+echo "[on_create] post_provision_watcher started (FSx mount retry + Slurm daemon start)."
 
 # Setup DCV for remote desktop (GPU nodes only, runs after Slurm is up)
 bash "${SCRIPT_DIR}/setup_dcv.sh" || echo "[on_create] DCV setup skipped or failed (non-fatal)."

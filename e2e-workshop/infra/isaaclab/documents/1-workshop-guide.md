@@ -1,5 +1,10 @@
 # NVIDIA Isaac Lab on AWS — Workshop Guide
 
+> **[변경 공지]** 이 문서는 멀티 사용자(한 계정 공유) 시절의 기록입니다. 현재 코드는
+> **1인 1계정** 전제로 동작하며 `-c userId` context는 제거되었습니다(지정해도 무시됨).
+> 스택 이름 식별자는 항상 배포 대상 계정 ID입니다 (예: `IsaacLab-Latest-<ACCOUNT_ID>`).
+> 최신 배포 절차는 [`../README.md`](../README.md)를 참조하세요.
+
 > 이 문서는 [NVIDIA Isaac Lab on AWS 워크숍](https://catalog.us-east-1.prod.workshops.aws/workshops/075ce3fe-6888-4ea9-986e-5bdd1b767ef7/en-US)의 내용과 보충 자료를 통합 정리한 것이다.
 
 ## 워크숍 개요

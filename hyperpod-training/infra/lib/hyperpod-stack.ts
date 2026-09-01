@@ -13,7 +13,8 @@ import {
 } from './config/cluster-config';
 
 export interface HyperPodStackProps extends cdk.StackProps {
-  userId: string;
+  /** 배포 대상 계정 ID (1인 1계정 전제, 리소스 이름·태그 식별자). */
+  accountId: string;
   createVpc: boolean;
   vpcCidr: string;
   gpuMaxCountPerType: number;
@@ -32,14 +33,14 @@ export class HyperPodStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: HyperPodStackProps) {
     super(scope, id, props);
 
-    const userId = props.userId;
-    const userSuffix = userId ? `-${userId}` : '';
-    const namePrefix = `HyperPod${userSuffix}`;
+    const accountId = props.accountId;
+    const accountSuffix = accountId ? `-${accountId}` : '';
+    const namePrefix = `HyperPod${accountSuffix}`;
 
     cdk.Tags.of(this).add('Project', 'HyperPod');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
-    if (userId) {
-      cdk.Tags.of(this).add('UserId', userId);
+    if (accountId) {
+      cdk.Tags.of(this).add('UserId', accountId);
     }
 
     // HyperPod Slurm 은 job 제출 시 노드를 자동으로 올려주지 않는다. 그래서 실제로 쓰는
@@ -58,7 +59,7 @@ export class HyperPodStack extends cdk.Stack {
     const networking = new NetworkingConstruct(this, 'Networking', {
       namePrefix,
       createVpc: props.createVpc,
-      userId: props.userId,
+      accountId: props.accountId,
       vpcCidr: props.vpcCidr,
     });
 

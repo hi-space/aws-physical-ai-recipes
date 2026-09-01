@@ -2,9 +2,9 @@
 /**
  * Resolves parent IsaacLab stack parameters (VPC/Subnet/AZ/FSx).
  *
- * Importable: `resolveParentStack(userId, region)` — used by groot-finetune-app.ts
- * Standalone: `npx ts-node bin/resolve-parent-stack.ts [userId] [region]` — writes cdk.context.json
- *   userId 생략 시 CDK_DEFAULT_ACCOUNT(계정 ID)를 사용한다.
+ * Importable: `resolveParentStack(accountId, region)` — used by groot-finetune-app.ts
+ * Standalone: `npx ts-node bin/resolve-parent-stack.ts [accountId] [region]` — writes cdk.context.json
+ *   accountId 생략 시 CDK_DEFAULT_ACCOUNT를 사용한다(1인 1계정 전제).
  */
 import {
   CloudFormationClient,
@@ -22,13 +22,13 @@ export interface ParentStackParams {
   fsxFileSystemId?: string;
 }
 
-export async function resolveParentStack(userId: string, region: string): Promise<ParentStackParams> {
+export async function resolveParentStack(accountId: string, region: string): Promise<ParentStackParams> {
   const cfn = new CloudFormationClient({ region });
   const ec2 = new EC2Client({ region });
 
-  // suffix 없는 이름은 userId 기본값이 도입되기 전에 배포된 스택을 위한 fallback.
-  const candidates = userId
-    ? [`IsaacLab-Latest-${userId}`, `IsaacLab-Stable-${userId}`, 'IsaacLab-Latest', 'IsaacLab-Stable']
+  // suffix 없는 이름은 계정 ID suffix 도입 전에 배포된 스택을 위한 fallback.
+  const candidates = accountId
+    ? [`IsaacLab-Latest-${accountId}`, `IsaacLab-Stable-${accountId}`, 'IsaacLab-Latest', 'IsaacLab-Stable']
     : ['IsaacLab-Latest', 'IsaacLab-Stable'];
 
   let foundStack: string | undefined;
@@ -51,7 +51,7 @@ export async function resolveParentStack(userId: string, region: string): Promis
 
   if (!foundStack) {
     throw new Error(
-      `No parent stack found for userId "${userId}" in ${region}. Tried: ${candidates.join(', ')}`,
+      `No parent IsaacLab stack found in ${region} (account ${accountId}). Tried: ${candidates.join(', ')}. 모듈 1의 IsaacLab 스택을 먼저 배포하세요.`,
     );
   }
 
@@ -81,14 +81,13 @@ export function saveToContext(values: Record<string, string>): void {
 }
 
 if (require.main === module) {
-  const userId = process.argv[2] ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
+  const accountId = process.argv[2] ?? process.env.CDK_DEFAULT_ACCOUNT ?? '';
   const region = process.argv[3] ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 
-  resolveParentStack(userId, region)
+  resolveParentStack(accountId, region)
     .then((params) => {
       const { fsxFileSystemId, ...required } = params;
       saveToContext({
-        userId,
         ...required,
         ...(fsxFileSystemId ? { fsxFileSystemId } : {}),
         region,

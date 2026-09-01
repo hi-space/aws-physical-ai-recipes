@@ -45,8 +45,8 @@ def test_resolve_project_names_no_alias():
     }
 
 
-def test_resolve_project_names_with_alias():
-    """config의 codebuild.* 값이 우선, 없으면 aws.alias로 폴백."""
+def test_resolve_project_names_explicit_and_fallback():
+    """config의 codebuild.* 값이 우선, 없으면 고정 기본 이름으로 폴백."""
     import trigger_build
 
     # 1) config에 명시된 이름 사용
@@ -57,10 +57,10 @@ def test_resolve_project_names_with_alias():
     })
     assert names == {"training": "explicit-train"}
 
-    # 2) codebuild.* 미존재, aws.alias만 있을 때 폴백
-    names = trigger_build.resolve_project_names({"aws": {"alias": "alice"}})
+    # 2) codebuild.* 미존재 시 고정 이름 폴백 (alias는 이름에 영향 없음)
+    names = trigger_build.resolve_project_names({"aws": {"alias": "123456789012"}})
     assert names == {
-        "training": "groot-sm-training-build-alice",
+        "training": "groot-sm-training-build",
     }
 
 

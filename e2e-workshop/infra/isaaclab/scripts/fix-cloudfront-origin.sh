@@ -4,26 +4,23 @@
 #
 # DCV 인스턴스를 stop/start하면 퍼블릭 DNS가 바뀌어
 # CloudFront origin이 stale 상태가 되고 code-server URL이 502를 반환한다.
-# 이 스크립트는 userId로 인스턴스와 CloudFront distribution을 찾아
+# 이 스크립트는 배포 식별자(계정 ID)로 인스턴스와 CloudFront distribution을 찾아
 # 현재 퍼블릭 DNS로 origin DomainName을 갱신한다.
 #
 # 사용법:
-#   ./scripts/fix-cloudfront-origin.sh <userId> [profile]
-#
-# 예시:
-#   ./scripts/fix-cloudfront-origin.sh alice
-#   ./scripts/fix-cloudfront-origin.sh alice stable
+#   ./scripts/fix-cloudfront-origin.sh [profile]
+#   (식별자는 현재 자격증명의 계정 ID를 자동 사용)
 # =============================================================================
 set -euo pipefail
 
-USER_ID="${1:-}"
-PROFILE_FILTER="${2:-}"
+PROFILE_FILTER="${1:-}"
 REGION="${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}"
 
+# 1인 1계정 전제: 식별자는 항상 계정 ID
+USER_ID="$(aws sts get-caller-identity --query Account --output text)"
+
 if [[ -z "$USER_ID" ]]; then
-  echo "Usage: $0 <userId> [profile]"
-  echo "  userId  : CDK 배포 시 지정한 사용자 식별자"
-  echo "  profile : (선택) stable | latest — 같은 userId로 여러 프로필 배포 시"
+  echo "Error: 계정 ID를 확인할 수 없습니다 (aws sts get-caller-identity 실패)."
   exit 1
 fi
 

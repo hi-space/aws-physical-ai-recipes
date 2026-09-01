@@ -35,7 +35,9 @@ def parse_args() -> argparse.Namespace:
                         help="Number of parallel environments to render")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
-    args.headless = False
+    # 기본은 GUI(DCV 데스크톱에서 시각 확인용, --headless 미지정 시 False).
+    # --headless 를 명시하면 그대로 존중한다 — GUI 없이 체크포인트 로드와
+    # 정책 실행만 검증할 때(예: SSH/SSM 터미널) 유용하다.
     return args
 
 

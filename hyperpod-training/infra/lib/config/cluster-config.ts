@@ -49,6 +49,7 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
  * | ml.g6.12xlarge    | 4× L4 (24GB)    | 96GB  | 추론/경량 학습               |
  * | ml.g6.24xlarge    | 4× L4 (24GB)    | 96GB  | 더 많은 CPU/RAM              |
  * | ml.g6.48xlarge    | 8× L4 (24GB)    | 192GB | 대규모 L4                    |
+ * | ml.g5.12xlarge    | 4× A10G (24GB)  | 96GB  | g6/g6e 쿼터·용량 부족 시 대체 |
  * | ml.p4d.24xlarge   | 8× A100 (40GB)  | 320GB | 대규모 학습 (NVLink)         |
  * | ml.p5.48xlarge    | 8× H100 (80GB)  | 640GB | 최대 성능 (NVLink)           |
  */
@@ -59,6 +60,7 @@ export const GPU_INSTANCES: { type: string; shortName: string }[] = [
   { type: 'ml.g6.12xlarge', shortName: 'g6-12x' },
   { type: 'ml.g6.24xlarge', shortName: 'g6-24x' },
   { type: 'ml.g6.48xlarge', shortName: 'g6-48x' },
+  { type: 'ml.g5.12xlarge', shortName: 'g5-12x' },
   { type: 'ml.p4d.24xlarge', shortName: 'p4d' },
   { type: 'ml.p5.48xlarge', shortName: 'p5' },
 ];

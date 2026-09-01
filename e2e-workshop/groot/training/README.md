@@ -114,14 +114,14 @@ MLflow UI는 다음 명령으로 발급한 URL로 접속합니다:
 
 ```bash
 aws sagemaker create-presigned-mlflow-tracking-server-url \
-    --tracking-server-name groot-mlflow-<userId> \
+    --tracking-server-name groot-mlflow-<ACCOUNT_ID> \
     --query AuthorizedUrl --output text
 ```
 
 비용을 아끼려면 안 쓸 때 정지하세요:
 
 ```bash
-aws sagemaker stop-mlflow-tracking-server --tracking-server-name groot-mlflow-<userId>
+aws sagemaker stop-mlflow-tracking-server --tracking-server-name groot-mlflow-<ACCOUNT_ID>
 ```
 
 ## Custom Robot

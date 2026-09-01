@@ -143,6 +143,54 @@ def build_dummy_observation(meta: dict):
     return {"video": video, "state": state, "language": language}
 
 
+def _disable_flash_attention(ckpt_dir: str) -> None:
+    """체크포인트 config 의 flash_attention_2 를 eager 로 바꾼다 (CPU 전용).
+
+    fine-tune 된 config 에는 FlashAttention2 가 켜져 있어 CPU 로드 시
+    'Flash Attention 2 is not available on CPU' ValueError 로 실패한다(실측).
+    GR00T config 는 표준 transformers 의 attn_implementation 문자열이 아니라
+    불리언 "use_flash_attention": true 로 표기한다(실측) — 둘 다 처리한다.
+    스모크 평가는 정확도가 아니라 형태/유효성 검사이므로 eager 로 충분하다.
+    """
+    import json as _json
+
+    for root, _dirs, files in os.walk(ckpt_dir):
+        for fname in files:
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(root, fname)
+            try:
+                with open(path) as f:
+                    text = f.read()
+                if "flash_attention" not in text:
+                    continue
+                data = _json.loads(text)
+            except (OSError, ValueError):
+                continue
+
+            def _patch(node):
+                changed = False
+                if isinstance(node, dict):
+                    for k, v in node.items():
+                        if v == "flash_attention_2":
+                            node[k] = "eager"
+                            changed = True
+                        elif k == "use_flash_attention" and v is True:
+                            node[k] = False
+                            changed = True
+                        else:
+                            changed = _patch(v) or changed
+                elif isinstance(node, list):
+                    for item in node:
+                        changed = _patch(item) or changed
+                return changed
+
+            if _patch(data):
+                with open(path, "w") as f:
+                    _json.dump(data, f, indent=2)
+                print(f"CPU 모드: flash_attention_2 → eager 패치: {path}")
+
+
 def run_policy(ckpt_dir: str, meta: dict):
     """Step 2 스파이크(소스코드 확인)에서 확정한 오프라인 로드 경로로 policy를 만들고
     get_action을 호출해 [horizon, action_dim] 형태의 concatenated action을 반환한다.
@@ -152,10 +200,20 @@ def run_policy(ckpt_dir: str, meta: dict):
     from gr00t.policy.gr00t_policy import Gr00tPolicy
 
     embodiment_tag = EmbodimentTag[meta.get("embodiment_tag", "NEW_EMBODIMENT")]
+    # GPU가 없으면 CPU로 시도는 한다(크래시 대신 리포트로 실패하도록).
+    # 단, GR00T N1.6 의 Eagle 백본은 코드에서 flash attention 을 assert 하므로
+    # (eagle_backbone.py: "requires flash attention by default" — 실측)
+    # 실제 CPU 완주는 그 assert 가 없는 모델에서만 가능하다. GPU processing
+    # 쿼터가 0인 계정은 쿼터 증설이 정답이다 (EvalInstanceType 파라미터로
+    # 쿼터가 있는 다른 GPU 타입을 고르는 것도 방법).
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu":
+        _disable_flash_attention(ckpt_dir)
     policy = Gr00tPolicy(
         embodiment_tag=embodiment_tag,
         model_path=ckpt_dir,
-        device="cuda",
+        device=device,
         strict=True,
     )
     obs = build_dummy_observation(meta)

@@ -1,7 +1,7 @@
 {
   "name": "isaac-lab-groot-finetune",
   "version": "1.0.0",
-  "description": "GR00T VLA fine-tuning infrastructure on SageMaker (shares VPC/FSx with infra/isaaclab)",
+  "description": "GR00T VLA fine-tuning infrastructure on SageMaker (single stack; shares VPC/FSx with infra/isaaclab)",
   "scripts": {
     "cdk": "cdk",
     "build": "tsc",
@@ -9,9 +9,8 @@
     "synth": "cdk synth",
     "resolve": "ts-node bin/resolve-parent-stack.ts",
     "update-config": "ts-node bin/update-config.ts",
-    "deploy:shared": "cdk deploy GrootFinetuneShared --require-approval never",
-    "deploy": "cdk deploy GrootFinetuneSagemaker --require-approval never",
-    "destroy": "cdk destroy GrootFinetuneSagemaker --force"
+    "deploy": "cdk deploy GrootFinetune --require-approval never",
+    "destroy": "cdk destroy GrootFinetune --force"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.1041.0",

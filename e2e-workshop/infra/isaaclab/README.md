@@ -101,7 +101,7 @@ DCV 인스턴스에는 **Deep Learning OSS Nvidia Driver AMI GPU PyTorch**를 �
 
 ## 할당량 사전 체크 (워크숍 관리자용)
 
-멀티 사용자 배포 시 VPC, EIP, GPU vCPU 등 서비스 할당량이 부족할 수 있다. 배포 전 `check-quotas.sh`로 현재 사용량 대비 N명분 여유가 있는지 확인한다.
+VPC, EIP, GPU vCPU 등 서비스 할당량이 부족하면 배포가 실패한다. 배포 전 `check-quotas.sh`로 현재 사용량 대비 여유가 있는지 확인한다.
 
 ```bash
 # 10명 배포 예정 — 체크만 (bash 서브셸로 실행하여 exit 1이 현재 셸에 영향 없도록)
@@ -140,39 +140,36 @@ cdk bootstrap
 # 3. 기본 배포 (인스턴스 타입 자동 fallback)
 cdk deploy
 
-# 4. 사용자별 독립 배포 (멀티 사용자)
-cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16
+# 4. 다른 리전에 배포
+cdk deploy -c region=us-west-2
 
-# 5. 다른 리전에 배포
-cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c region=us-west-2
+# 5. 인스턴스 타입 직접 지정 (fallback 무시)
+cdk deploy -c inferenceInstanceType=g6e.4xlarge
 
-# 6. 인스턴스 타입 직접 지정 (fallback 무시)
-cdk deploy -c userId=alice -c inferenceInstanceType=g6e.4xlarge
+# 6. CloudWatch Agent 활성화 (GPU/CPU/메모리/디스크 모니터링)
+cdk deploy -c enableCloudWatch=true
 
-# 7. CloudWatch Agent 활성화 (GPU/CPU/메모리/디스크 모니터링)
-cdk deploy -c userId=alice -c enableCloudWatch=true
+# 7. code-server (VSCode) 비활성화 (CloudFront + code-server 미설치)
+cdk deploy -c enableCodeServer=false
 
-# 8. code-server (VSCode) 비활성화 (CloudFront + code-server 미설치)
-cdk deploy -c userId=alice -c enableCodeServer=false
+# 8. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
+cdk deploy -c versionProfile=latest
 
-# 9. latest 프로필 (Ubuntu 24.04 + Isaac Sim 5.1.0)
-cdk deploy -c userId=alice -c versionProfile=latest
+# 9. Isaac Sim 버전만 오버라이드 (프로필의 Isaac Lab 태그 고정은 해제됨 → main 클론)
+cdk deploy -c isaacSimVersion=5.1.0 -c region=us-east-1
 
-# 10. Isaac Sim 버전만 오버라이드 (프로필의 Isaac Lab 태그 고정은 해제됨 → main 클론)
-cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 -c isaacSimVersion=5.1.0 -c region=us-east-1
-
-# 11. CloudShell에서 배포 (세션 끊김 방지)
-nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
+# 10. 원격 셸에서 배포 (세션 끊김 방지)
+nohup npx cdk deploy --require-approval never > deploy.log 2>&1 &
 tail -f deploy.log
 
-# 12. 변경 사항 미리보기
+# 11. 변경 사항 미리보기
 cdk diff
 
-# 13. CloudFormation 템플릿 생성 (배포 없이)
+# 12. CloudFormation 템플릿 생성 (배포 없이)
 cdk synth
 
-# 14. 스택 삭제
-cdk destroy -c userId=alice
+# 13. 스택 삭제
+cdk destroy
 ```
 
 > 인스턴스 타입 미지정 시 자동 fallback 순서: `g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge`
@@ -186,8 +183,7 @@ cdk destroy -c userId=alice
 | `preferredAZ` | `auto` \| `0`~`5` | `auto` | AZ 선택. auto는 Lambda로 capacity 자동 탐색 |
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
 | `region` | 리전 코드 | CDK 기본 리전 | 배포 대상 리전 (멀티리전 배포용) |
-| `userId` | 영문소문자·숫자·하이픈 | (없음) | 멀티 사용자 배포 시 사용자 식별자 |
-| `vpcCidr` | CIDR 문자열 | `10.0.0.0/16` | VPC 네트워크 대역. 멀티 사용자 시 참가자별 고유 CIDR 지정 |
+| `vpcCidr` | CIDR 문자열 | `10.0.0.0/16` | VPC 네트워크 대역 |
 | `enableCloudWatch` | `true` \| `false` | `false` | CloudWatch Agent 설치 여부 (GPU/CPU/메모리/디스크 모니터링) |
 | `enableCodeServer` | `true` \| `false` | `true` | code-server (VSCode) 설치 여부. `false` 시 code-server, CloudFront, SG 포트 8888 모두 생략 |
 | `grootWeightsUrl` | `s3://...` \| `https://....tar.gz` | (없음) | GR00T-N1.6-3B 가중치(약 6.1GiB) 사본 위치. 미지정 시 HuggingFace에서 받는다. 같은 리전의 S3 사본을 지정하면 다운로드가 빨라지고 HuggingFace 가용성에 의존하지 않는다 |
@@ -216,39 +212,17 @@ cdk deploy -c grootWeightsUrl=s3://my-assets/GR00T-N1.6-3B/
 cdk deploy -c modelsDir=/data/models
 ```
 
-## 멀티 사용자 배포
+## 배포 식별자 (1인 1계정)
 
-하나의 AWS 계정에서 여러 사용자가 동시에 독립된 환경을 배포할 수 있다. `-c userId=<이름>`을 지정하면 스택 이름과 리소스 태그가 사용자별로 분리된다.
+이 인프라는 1인 1계정 사용을 전제로 한다. 스택 이름과 리소스 태그의 식별자에는 배포 대상 계정 ID가 자동으로 사용된다.
 
-### 사용법
+| 항목 | 값 |
+|------|----|
+| 스택 이름 | `IsaacLab-Latest-<ACCOUNT_ID>` (versionProfile에 따라 `-Stable-`) |
+| 리소스 태그 | `UserId: <ACCOUNT_ID>` (전체 리소스 — HyperPod 스택의 VPC 조회에 사용) |
 
-```bash
-# 사용자별 독립 배포
-cdk deploy -c userId=alice
-cdk deploy -c userId=bob
-cdk deploy -c userId=charlie -c region=us-west-2
-
-# 각자 스택 삭제
-cdk destroy -c userId=alice
-```
-
-### 격리되는 항목
-
-| 항목 | userId 미지정 | userId=alice |
-|------|:------------:|:------------:|
-| 스택 이름 | `IsaacLab-Stable` | `IsaacLab-Stable-alice` |
-| 리소스 태그 | (없음) | `UserId: alice` (전체 리소스) |
-| VPC / 서브넷 | 독립 생성 | 독립 생성 |
-| 공유 FSx for Lustre | 독립 생성 | 독립 생성 |
-| DCV 인스턴스 | 독립 생성 | 독립 생성 |
-
-### 주의사항
-
-- `userId`는 영문소문자, 숫자, 하이픈만 허용 (예: `alice`, `team-1`, `user01`)
-- `userId`를 지정하지 않으면 기존과 완전히 동일하게 동작 (하위 호환)
-- 같은 계정·리전에서 동일 `userId` 없이 여러 명이 배포하면 스택 이름이 충돌하므로, 멀티 사용자 환경에서는 반드시 `userId`를 지정할 것
-- GPU 인스턴스 할당량(`Running On-Demand G and VT instances`)은 계정 레벨에서 공유되므로, 동시 사용자 수에 맞게 Service Quotas 증가 요청 필요
-- VPC 기본 할당량은 리전당 5개이므로, 5명 이상 동시 배포 시 할당량 증가 필요
+- GPU 인스턴스 할당량(`Running On-Demand G and VT instances`)이 부족하면 배포가 실패하므로 사전에 Service Quotas를 확인한다.
+- VPC 기본 할당량은 리전당 5개다. 기존 VPC가 많은 계정에서는 정리 후 배포한다.
 
 ## CloudShell 배포 가이드
 
@@ -284,7 +258,7 @@ source ~/aws-physical-ai-recipes/e2e-workshop/infra/isaaclab/scripts/setup-cloud
 npx cdk bootstrap
 
 # 배포 (nohup으로 세션 끊김 방지 — CloudShell은 20분 비활성 시 종료)
-nohup npx cdk deploy -c userId=alice -c vpcCidr=10.1.0.0/16 --require-approval never > deploy.log 2>&1 &
+nohup npx cdk deploy --require-approval never > deploy.log 2>&1 &
 
 # 진행 상황 확인
 tail -f deploy.log
@@ -316,7 +290,7 @@ aws secretsmanager get-secret-value \
   --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
 ```
 
-또는 AWS 콘솔 → Secrets Manager에서 확인한다. 시크릿 이름은 CloudFormation이 자동 생성하므로(`IsaacLab-<프로필>-<userId>-DcvSecret-<임의문자열>`) 스택 출력의 `SecretArn`으로 찾는 것이 확실하다. 콘솔에서 찾을 때는 Name 태그가 `IsaacLab-<프로필>-<userId>-Secret`인 항목을 보면 된다.
+또는 AWS 콘솔 → Secrets Manager에서 확인한다. 시크릿 이름은 CloudFormation이 자동 생성하므로(`IsaacLab-<프로필>-<ACCOUNT_ID>-DcvSecret-<임의문자열>`) 스택 출력의 `SecretArn`으로 찾는 것이 확실하다. 콘솔에서 찾을 때는 Name 태그가 `IsaacLab-<프로필>-<ACCOUNT_ID>-Secret`인 항목을 보면 된다.
 
 ### code-server (VSCode) 접속
 
@@ -355,7 +329,7 @@ sudo tail -100 /var/log/user-data.log
 ### 스택 삭제
 
 ```bash
-npx cdk destroy -c userId=alice
+npx cdk destroy
 ```
 
 ## AZ 자동 선택

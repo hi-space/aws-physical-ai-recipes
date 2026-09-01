@@ -4,9 +4,8 @@
  * Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
  * 조합 순서: Networking → FSx → AzSelector(조건부) → DCV → CloudFront(조건부)
  *
- * 멀티 사용자 지원:
- *   userId가 지정되면 스택 이름과 리소스 태그에 사용자 식별자가 포함되어
- *   같은 계정에서 여러 사용자가 독립적으로 배포할 수 있다.
+ * 식별자 규칙 (1인 1계정 전제):
+ *   스택 이름과 리소스 태그에는 배포 대상 계정 ID가 식별자로 포함된다.
  *
  * CfnMapping을 사용하여 CloudFormation의 FindInMap으로 리전별 AMI를 조회한다.
  * CDK synth 시점에는 리전이 확정되지 않으므로, 런타임에 리전을 결정하는 방식이다.
@@ -33,8 +32,8 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   preferredAZ?: string;
   /** DCV 보안 그룹 인바운드 소스 CIDR (기본값: '0.0.0.0/0') */
   allowedCidr?: string;
-  /** 사용자 식별자 (멀티 사용자 배포 시 스택·리소스 격리용, 기본값: '') */
-  userId?: string;
+  /** 배포 대상 계정 ID (리소스 태그·Output 식별자, 기본값: '') */
+  accountId?: string;
   /** VPC CIDR (기본값: '10.0.0.0/16') */
   vpcCidr?: string;
   /** CloudWatch Agent 설치 여부 (기본값: false) */
@@ -65,19 +64,22 @@ export class IsaacLabStack extends cdk.Stack {
     const instanceType = props.inferenceInstanceType ?? 'g6e.4xlarge';
     const preferredAZ = props.preferredAZ ?? 'auto';
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
-    const userId = props.userId ?? '';
+    const accountId = props.accountId ?? '';
 
     // --- 리소스 Name 태그 접두사 (스택 이름과 동일 패턴) ---
     const profilePart = props.versionProfile.charAt(0).toUpperCase() + props.versionProfile.slice(1);
-    const userSuffix = userId ? `-${userId}` : '';
-    const namePrefix = `IsaacLab-${profilePart}${userSuffix}`;
+    const accountSuffix = accountId ? `-${accountId}` : '';
+    const namePrefix = `IsaacLab-${profilePart}${accountSuffix}`;
+
 
     // --- 스택 레벨 태그 (모든 리소스에 자동 전파) ---
     cdk.Tags.of(this).add('Project', 'IsaacLab');
     cdk.Tags.of(this).add('Environment', props.versionProfile);
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
-    if (userId) {
-      cdk.Tags.of(this).add('UserId', userId);
+    if (accountId) {
+      // HyperPod 스택의 createVpc=false 경로가 tag:UserId로 이 VPC를 찾는다.
+      // 1인 1계정 전제이므로 값은 항상 계정 ID다.
+      cdk.Tags.of(this).add('UserId', accountId);
     }
 
     // --- 버전 프로필 조회 ---
@@ -239,10 +241,10 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'FSx Security Group ID (Lustre access)',
     });
 
-    if (userId) {
+    if (accountId) {
       new cdk.CfnOutput(this, 'UserId', {
-        value: userId,
-        description: 'User identifier for this deployment',
+        value: accountId,
+        description: 'Deployment identifier (AWS account ID)',
       });
     }
   }

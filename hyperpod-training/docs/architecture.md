@@ -568,39 +568,21 @@ CLUSTER_NAME=hyperpod-robotics
 
 ## 9. 멀티유저 설정
 
-### 9.1 사용자별 격리
+### 9.1 계정 단위 격리 (1인 1계정)
 
-**시나리오:** 여러 연구자가 별도의 VPC에서 독립적인 학습 실행
+식별자는 배포 대상 계정 ID를 자동으로 사용합니다. 스택 이름은 `HyperPod-<ACCOUNT_ID>`,
+클러스터 이름은 `hyperpod-<ACCOUNT_ID>` 로 확정됩니다.
 
 ```bash
-# 사용자 A
-cdk deploy \
-  -c userId=researcher-a \
-  -c createVpc=true \
-  -c vpcCidr="10.0.0.0/16"
-
-# 사용자 B (같은 account, 다른 VPC)
-cdk deploy \
-  -c userId=researcher-b \
-  -c createVpc=true \
-  -c vpcCidr="10.1.0.0/16"
+cdk deploy -c createVpc=true -c vpcCidr="10.0.0.0/16"
 ```
 
 ### 9.2 VPC 재사용
 
-여러 클러스터가 같은 VPC를 공유할 수 있습니다:
+기존 IsaacLab 스택의 VPC에 합류할 수 있습니다 (`tag:UserId=<ACCOUNT_ID>` 로 자동 검색):
 
 ```bash
-# 첫 번째 배포: VPC 생성
-cdk deploy \
-  -c userId=team-a \
-  -c createVpc=true
-
-# 두 번째 배포: VPC 재사용
-cdk deploy \
-  -c userId=team-b \
-  -c createVpc=false \
-  # (userId=team-b 태그로 VPC 자동 검색)
+cdk deploy -c createVpc=false
 ```
 
 ### 9.3 격리 메커니즘

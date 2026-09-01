@@ -8,7 +8,7 @@
 
 ```bash
 cd e2e-workshop/groot
-./setup-notebooks.sh <userId> <region>
+./setup-notebooks.sh <region>
 ```
 
 ## Notebooks

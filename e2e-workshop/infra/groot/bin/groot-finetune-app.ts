@@ -1,13 +1,20 @@
 #!/usr/bin/env node
+/**
+ * GR00T 파인튜닝 인프라 CDK App (단일 스택, 1인 1계정 전제).
+ *
+ * 스택 이름: GrootFinetune-<ACCOUNT_ID>
+ *
+ * 부모 IsaacLab 스택(IsaacLab-Latest-<ACCOUNT_ID> 등)에서 VPC/Subnet/FSx를
+ * 자동 탐색(resolve)해 cdk.context.json에 캐시한다. 부모 스택이 없으면 배포할 수
+ * 없다 — 모듈 1의 IsaacLab 인프라를 먼저 배포할 것.
+ *
+ * 사용 예시:
+ *   npm run deploy                        # GrootFinetune-<ACCOUNT_ID> 배포
+ *   npx cdk deploy -c grootVersion=n1.7   # GR00T N1.7 런타임 이미지
+ */
 import * as cdk from 'aws-cdk-lib';
-import { GrootFinetuneSharedStack } from '../lib/groot-finetune-shared-stack';
-import { GrootSagemakerStack } from '../lib/groot-sagemaker-stack';
+import { GrootFinetuneStack } from '../lib/groot-finetune-stack';
 import { resolveParentStack, saveToContext } from './resolve-parent-stack';
-
-function parseList(value: unknown): string[] | undefined {
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-}
 
 async function main() {
   const app = new cdk.App();
@@ -15,81 +22,49 @@ async function main() {
   const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
   const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region };
 
-  // userId 미지정 시 계정 ID로 대체한다(계정당 1명 전제). 스택/버킷 이름은 synth
-  // 시점에 literal이어야 하므로 토큰이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
+  // 식별자는 배포 대상 계정 ID(1인 1계정 전제). 스택/버킷 이름은 synth 시점에
+  // literal이어야 하므로 토큰이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
   // isaaclab 쪽 isaac-lab-app.ts와 동일한 규칙이어야 부모 스택 탐색이 성립한다.
-  const userId = (app.node.tryGetContext('userId') as string | undefined)
-    ?? process.env.CDK_DEFAULT_ACCOUNT;
-  if (!userId) {
-    throw new Error(
-      'userId를 확정할 수 없습니다. AWS 자격증명을 설정하거나 -c userId=<name>을 지정하세요.',
-    );
+  const accountId = process.env.CDK_DEFAULT_ACCOUNT;
+  if (!accountId) {
+    throw new Error('계정 ID를 확정할 수 없습니다. AWS 자격증명을 설정하세요.');
   }
-  const userSuffix = `-${userId}`;
 
   const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
   const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
   const repositoryUrl = app.node.tryGetContext('repositoryUrl') ?? '';
 
-  // ---- [1] Shared (admin once) ----
-  // 단일 통합 shared. Studio Domain VPC 우선순위:
-  //   1. -c sharedVpcId/sharedSubnetIds 명시값
-  //   2. cdk.context.json에 캐시된 per-user VPC (이전 배포 값 재사용)
-  //   3. default VPC 자동 탐지 (resolveVpcAndSubnets)
-  const cachedSubnet = app.node.tryGetContext('privateSubnetId') as string | undefined;
-  const sharedVpcId = (app.node.tryGetContext('sharedVpcId') as string | undefined)
-    ?? (app.node.tryGetContext('vpcId') as string | undefined);
-  const sharedSubnetIds = parseList(app.node.tryGetContext('sharedSubnetIds'))
-    ?? (cachedSubnet ? [cachedSubnet] : undefined);
-
-  new GrootFinetuneSharedStack(app, 'GrootFinetuneShared', {
-    stackName: 'GrootFinetuneShared',
-    env,
-    useStableGroot,
-    grootVersion,
-    repositoryUrl,
-    vpcId: sharedVpcId,
-    subnetIds: sharedSubnetIds,
-  });
-
-  // ---- [2] Per-user: parent IsaacLab 스택에서 VPC/Subnet/FSx 자동 탐색 ----
+  // ---- 부모 IsaacLab 스택에서 VPC/EFS/FSx 자동 탐색 ----
+  // context로 직접 지정하면(수동 오버라이드) 탐색을 건너뛴다.
   let vpcId = app.node.tryGetContext('vpcId') as string | undefined;
   let privateSubnetId = app.node.tryGetContext('privateSubnetId') as string | undefined;
   let availabilityZone = app.node.tryGetContext('availabilityZone') as string | undefined;
   let fsxFileSystemId = app.node.tryGetContext('fsxFileSystemId') as string | undefined;
 
-  const missingInfra = !vpcId || !privateSubnetId || !availabilityZone;
-  if (missingInfra) {
-    // 부모 IsaacLab 스택이 아직 없으면(= shared 먼저 배포하는 단계) per-user 스택을
-    // 등록하지 않고 넘어간다. 여기서 throw하면 GrootFinetuneShared 배포도 막힌다.
-    console.error(`[GrootFinetune] Resolving parent IsaacLab stack for userId="${userId}" in ${region}...`);
-    try {
-      const params = await resolveParentStack(userId, region);
-      saveToContext({ userId, ...params, region });
-      ({ vpcId, privateSubnetId, availabilityZone } = params);
-      fsxFileSystemId = params.fsxFileSystemId ?? fsxFileSystemId;
-      console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
-    } catch (err) {
-      console.error(`[GrootFinetune] Skipping per-user stacks: ${(err as Error).message}`);
-    }
+  if (!vpcId || !privateSubnetId || !availabilityZone) {
+    console.error(`[GrootFinetune] Resolving parent IsaacLab stack (account ${accountId}) in ${region}...`);
+    const params = await resolveParentStack(accountId, region);
+    saveToContext({ ...params, region });
+    ({ vpcId, privateSubnetId, availabilityZone } = params);
+    fsxFileSystemId = fsxFileSystemId ?? params.fsxFileSystemId;
+    console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, subnet=${privateSubnetId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
   }
 
-  // ---- [3] Per-user SageMaker ----
-  // VPC/Subnet만 확정되면 등록한다.
-  if (vpcId && privateSubnetId) {
-    new GrootSagemakerStack(app, 'GrootFinetuneSagemaker', {
-      stackName: `GrootFinetuneSagemaker${userSuffix}`,
-      env,
-      userId,
-      bucketName: (app.node.tryGetContext('bucketName') as string | undefined)
-        ?? `groot-sm-artifacts-${userId}`,
-      vpcId,
-      subnetIds: [privateSubnetId],
-      availabilityZone,
-      mlflowSize: app.node.tryGetContext('mlflowSize') ?? 'Small',
-      fsxFileSystemId,
-    });
-  }
+  new GrootFinetuneStack(app, 'GrootFinetune', {
+    stackName: `GrootFinetune-${accountId}`,
+    env,
+    accountId,
+    bucketName: (app.node.tryGetContext('bucketName') as string | undefined)
+      ?? `groot-sm-artifacts-${accountId}`,
+    vpcId,
+    subnetIds: [privateSubnetId],
+    availabilityZone,
+    mlflowSize: app.node.tryGetContext('mlflowSize') ?? 'Small',
+    fsxFileSystemId,
+    useStableGroot,
+    grootVersion,
+    repositoryUrl,
+  });
 }
 
 main().catch((err) => {

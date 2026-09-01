@@ -44,20 +44,22 @@
 # =============================================================================
 set -euo pipefail
 
-# ─── userId 입력 확인 ─────────────────────────────────────────────────────────
-if [ -z "${1:-}" ]; then
-  echo "❌ 사용법: sudo bash setup-greengrass-workshop-N16.sh <USER_ID> [--uninstall]"
-  echo "   설치: sudo bash setup-greengrass-workshop-N16.sh jinseony"
-  echo "   제거: sudo bash setup-greengrass-workshop-N16.sh jinseony --uninstall"
-  exit 1
-fi
-USER_ID="$1"
-UNINSTALL="${2:-}"
-
 # ─── 환경 감지 ───────────────────────────────────────────────────────────────
 IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 REGION=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
 ACCOUNT_ID=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | python3 -c "import sys,json;print(json.load(sys.stdin)['accountId'])")
+
+# ─── USER_ID 결정 ────────────────────────────────────────────────────────────
+# 1인 1계정 전제: 인자를 생략하면 계정 ID를 식별자로 사용한다.
+#   설치: sudo bash setup-greengrass-workshop-N16.sh
+#   제거: sudo bash setup-greengrass-workshop-N16.sh --uninstall
+if [ "${1:-}" = "--uninstall" ]; then
+  USER_ID="${ACCOUNT_ID}"
+  UNINSTALL="--uninstall"
+else
+  USER_ID="${1:-${ACCOUNT_ID}}"
+  UNINSTALL="${2:-}"
+fi
 
 THING_NAME="groot-${USER_ID}"
 THING_GROUP="${THING_NAME}-group"
