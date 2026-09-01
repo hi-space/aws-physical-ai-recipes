@@ -54,8 +54,10 @@ async function main() {
     stackName: `GrootFinetune-${accountId}`,
     env,
     accountId,
+    // S3 버킷 이름은 글로벌 네임스페이스이므로 리전을 포함해야
+    // 같은 계정의 다른 리전 배포와 충돌하지 않는다.
     bucketName: (app.node.tryGetContext('bucketName') as string | undefined)
-      ?? `groot-sm-artifacts-${accountId}`,
+      ?? `groot-sm-artifacts-${accountId}-${region}`,
     vpcId,
     subnetIds: [privateSubnetId],
     availabilityZone,

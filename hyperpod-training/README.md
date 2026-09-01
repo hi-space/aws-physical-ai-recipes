@@ -186,7 +186,7 @@ aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us
 
 1. **라이프사이클 버킷이 살아 있어야 합니다.** 패치는 루트 볼륨을 새 AMI로 교체한 뒤 `LifeCycleConfig.SourceS3Uri`의 `on_create.sh`를 다시 실행합니다. 버킷이 없으면 패치가 실패하고 클러스터가 `Failed`로 떨어집니다.
    ```bash
-   aws s3 ls s3://hyperpod-lifecycle-<prefix>-<account>-<region>/lifecycle-scripts/
+   aws s3 ls s3://hyperpod-lifecycle-<account>-<region>/lifecycle-scripts/
    ```
 2. **루트 볼륨은 초기화됩니다.** `/fsx`(FSx Lustre)는 유지되지만 `/home/ubuntu`, Slurm accounting DB(mariadb) 등 루트 볼륨 데이터는 사라집니다. 필요하면 AWS 제공 [`patching-backup.sh`](https://github.com/aws-samples/awsome-distributed-training/blob/main/1.architectures/5.sagemaker-hyperpod/patching-backup.sh)로 S3에 백업합니다.
    ```bash
@@ -251,7 +251,7 @@ ssh -i ~/.ssh/cluster_access_key ubuntu@${HEAD_IP}
 또는 로컬에서 ProxyJump로 한 번에 접속:
 ```bash
 ssh -i ~/.ssh/hyperpod-jump.pem -o ProxyCommand="ssh -i ~/.ssh/hyperpod-jump.pem -W %h:%p ec2-user@${JUMP_IP}" \
-  -i <(aws s3 cp s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key -) \
+  -i <(aws s3 cp s3://hyperpod-lifecycle-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key -) \
   ubuntu@${HEAD_IP}
 ```
 
@@ -274,7 +274,7 @@ Host hyperpod
 
 > `cluster_access_key`는 Jump Host의 `~/.ssh/cluster_access_key`를 로컬로 복사하거나, S3에서 다운로드합니다:
 > ```bash
-> aws s3 cp s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key ~/.ssh/cluster_access_key
+> aws s3 cp s3://hyperpod-lifecycle-<ACCOUNT_ID>-us-east-1/ssh/cluster_access_key ~/.ssh/cluster_access_key
 > chmod 600 ~/.ssh/cluster_access_key
 > ```
 
@@ -292,7 +292,7 @@ S3에 데이터를 업로드하면 FSx `/fsx/datasets/`에 자동으로 동기�
 
 ```bash
 # 로컬에서 S3로 데이터 업로드
-BUCKET="hyperpod-data-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1"
+BUCKET="hyperpod-data-<ACCOUNT_ID>-us-east-1"
 
 aws s3 cp ./my-dataset/ s3://${BUCKET}/datasets/groot/my-robot/ --recursive
 
@@ -436,7 +436,7 @@ cd hyperpod-training/infra
 npx cdk destroy -c region=us-east-1 --force
 
 # 삭제 실패 시 (S3 버킷 비어있지 않음):
-aws s3 rm s3://hyperpod-lifecycle-hyperpod-<ACCOUNT_ID>-<ACCOUNT_ID>-us-east-1 --recursive
+aws s3 rm s3://hyperpod-lifecycle-<ACCOUNT_ID>-us-east-1 --recursive
 aws cloudformation delete-stack --stack-name HyperPod-<ACCOUNT_ID> --region us-east-1
 ```
 
@@ -467,7 +467,7 @@ aws cloudformation delete-stack --stack-name HyperPod-<ACCOUNT_ID> --region us-e
 - 클러스터가 `SystemUpdating` → `RollingBack` → `Failed`로 떨어짐 (노드는 교체 전에 중단되므로 데이터는 보존됨)
 - 복구: 같은 이름으로 버킷을 다시 만들고 스크립트를 올린 뒤 패치를 재시도
   ```bash
-  B=hyperpod-lifecycle-<prefix>-<account>-us-east-1
+  B=hyperpod-lifecycle-<account>-us-east-1
   aws s3api create-bucket --bucket $B --region us-east-1 \
     --create-bucket-configuration LocationConstraint=us-east-1
   aws s3 cp lifecycle-scripts/ s3://$B/lifecycle-scripts/ --recursive --exclude "*" --include "*.sh"

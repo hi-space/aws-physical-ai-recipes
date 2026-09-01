@@ -163,6 +163,14 @@ rosdep update || true
 # ROS2 환경 설정을 .bashrc에 추가
 echo "source /opt/ros/${ROS2_DISTRO}/setup.bash" >> /home/ubuntu/.bashrc
 
+# 워크샵 공용 환경 변수를 .bashrc에 등록 — 모든 모듈의 명령 블록이 참조하므로
+# 문서에 리전을 하드코딩하지 않고 배포 리전을 그대로 따라간다.
+cat >> /home/ubuntu/.bashrc <<WORKSHOP_ENV
+export REGION=${REGION}
+export USER_ID=${ACCOUNT}
+export ACCOUNT_ID=${ACCOUNT}
+WORKSHOP_ENV
+
 # -----------------------------------------------------------------------------
 # 5. Docker 설치 (External_Script)
 # -----------------------------------------------------------------------------

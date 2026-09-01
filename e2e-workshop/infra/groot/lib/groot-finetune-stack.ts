@@ -63,6 +63,9 @@ export class GrootFinetuneStack extends cdk.Stack {
 
     const { accountId } = props;
     const named = (base: string) => `${base}-${accountId}`;
+    // IAM 롤 이름은 계정 단위 글로벌 네임스페이스 — 리전을 포함해야
+    // 같은 계정의 다른 리전 배포와 충돌하지 않는다 (S3 버킷도 동일: bin/app 참고).
+    const namedGlobal = (base: string) => `${base}-${accountId}-${this.region}`;
 
     cdk.Tags.of(this).add('Project', 'GrootFinetune');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
@@ -83,7 +86,7 @@ export class GrootFinetuneStack extends cdk.Stack {
     });
 
     const smCodeBuildRole = new SmCodeBuildServiceRole(this, 'SmCodeBuildRole', {
-      roleName: 'GR00TCodeBuildRole',
+      roleName: namedGlobal('GR00TCodeBuildRole'),
     });
 
     const smCodeBuild = new SmContainerBuildProjects(this, 'SmCodeBuild', {
@@ -123,13 +126,13 @@ export class GrootFinetuneStack extends cdk.Stack {
 
     // ---------- [4] IAM ----------
     const smRole = new SageMakerExecutionRole(this, 'SageMakerRole', {
-      roleName: named('GR00TSageMakerRole'),
+      roleName: namedGlobal('GR00TSageMakerRole'),
       bucketName: props.bucketName,
     });
 
     // 단일 Notebook role: Studio Domain 기본 실행 역할과 UserProfile 실행 역할을 겸한다.
     const notebookRole = new NotebookRole(this, 'NotebookRole', {
-      roleName: named('GR00TNotebookRole'),
+      roleName: namedGlobal('GR00TNotebookRole'),
     });
 
     // ---------- [5] CloudWatch Log Group ----------

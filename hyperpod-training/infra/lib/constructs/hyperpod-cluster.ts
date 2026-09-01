@@ -97,7 +97,9 @@ export class HyperPodClusterConstruct extends Construct {
     });
 
     this.lifecycleBucket = new s3.CfnBucket(this, 'LifecycleBucket', {
-      bucketName: cdk.Fn.join('-', ['hyperpod-lifecycle', p.toLowerCase(), cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
+      // storage.ts의 DataBucket과 같은 이유로 namePrefix를 빼고 계정 ID+리전만 사용
+      // (기존 hyperpod-lifecycle-hyperpod-<acct>-<acct>-<region>은 68자로 63자 제한 초과).
+      bucketName: cdk.Fn.join('-', ['hyperpod-lifecycle', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
       tags: [{ key: 'Name', value: `${p}-Lifecycle-Bucket` }],
     });
     this.lifecycleBucket.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);

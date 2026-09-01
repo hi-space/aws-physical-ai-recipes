@@ -36,7 +36,9 @@ export class StorageConstruct extends Construct {
     const p = props.namePrefix;
 
     this.bucket = new s3.CfnBucket(this, 'DataBucket', {
-      bucketName: cdk.Fn.join('-', ['hyperpod-data', p.toLowerCase(), cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
+      // namePrefix(hyperpod-<ACCOUNT_ID>)를 그대로 붙이면 'hyperpod'와 계정 ID가
+      // 중복되어 리전명이 긴 리전(ap-northeast-1 등)에서 S3 63자 제한을 초과한다.
+      bucketName: cdk.Fn.join('-', ['hyperpod-data', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
       versioningConfiguration: { status: 'Enabled' },
       lifecycleConfiguration: {
         rules: [{ id: 'TransitionToIA', status: 'Enabled', transitions: [{ storageClass: 'INTELLIGENT_TIERING', transitionInDays: 30 }] }],
