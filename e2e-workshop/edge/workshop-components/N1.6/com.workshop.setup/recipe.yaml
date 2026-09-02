@@ -48,13 +48,13 @@ Manifests:
             mkdir -p "$MODEL_DIR"
             if [ -n "$HF_REPO" ]; then
               # Preferred: pull the fine-tuned checkpoint from HuggingFace. Only the
-              # inference files are fetched; training-only state (optimizer/rng/
-              # scheduler, ~13GB) is excluded to keep the edge download small.
+              # inference files are needed, so the ~13GB training optimizer state is
+              # excluded. NOTE: pass a single --exclude value — the hf CLI mis-parses
+              # multiple space-separated patterns as explicit filenames.
               echo "=== Downloading $MODEL_NAME from HuggingFace ($HF_REPO) ==="
               pip3 install -q -U "huggingface_hub[cli]" 2>/dev/null || pip install -q -U "huggingface_hub[cli]"
               export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-              hf download "$HF_REPO" --local-dir "$MODEL_DIR/$MODEL_NAME" \
-                --exclude "optimizer.pt" "rng_state.pth" "scheduler.pt" "trainer_state.json" "training_args.bin" "wandb_config.json"
+              hf download "$HF_REPO" --local-dir "$MODEL_DIR/$MODEL_NAME" --exclude "optimizer.pt"
             else
               # Fallback: download a pre-packaged tarball from modelUrl (s3:// or https://).
               echo "=== Downloading $MODEL_NAME from $MODEL_URL ==="
