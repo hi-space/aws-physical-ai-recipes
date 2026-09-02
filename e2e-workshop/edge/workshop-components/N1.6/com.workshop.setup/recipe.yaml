@@ -4,10 +4,6 @@ ComponentName: com.workshop.setup
 ComponentVersion: "1.0.0"
 ComponentDescription: "GR00T N1.6 Pick-Orange 모델 다운로드 + TRT 엔진 빌드 (DiT Action Head)"
 ComponentPublisher: Custom
-ComponentDependencies:
-  com.workshop.docker-build:
-    VersionRequirement: ">=1.0.0"
-    DependencyType: HARD
 ComponentConfiguration:
   DefaultConfiguration:
     modelUrl: "s3://S3_BUCKET_PLACEHOLDER/workshop/GR00T-N1.6-3B-Pick-Orange.tar.gz"
@@ -19,6 +15,9 @@ ComponentConfiguration:
     precision: "bf16"
     embodimentTag: "new_embodiment"
     region: "us-east-1"
+    # Runtime image used for the TRT build (Module 6, buildTrt=true). Rewritten
+    # per-account by the setup script; pulled on demand in the TRT block below.
+    ecrImage: "ECR_REPO_PLACEHOLDER:latest"
 Manifests:
   - Platform:
       os: linux
@@ -61,11 +60,15 @@ Manifests:
               echo "TRT engine already exists: $TRT_DIR/dit_model_${PRECISION}.trt, skipping"
             else
               echo "=== Building TRT engine (N1.6 DiT Action Head) ==="
-              ECR_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "groot-runtime-trt" | head -1)
-              if [ -z "$ECR_IMAGE" ]; then
-                echo "ERROR: groot-runtime-trt image not found"
-                exit 1
-              fi
+              # Pull the account-specific runtime image (ECR login + pull) so we do
+              # not depend on a separate pre-pull component. Account/region are
+              # parsed from the ecrImage URI.
+              ECR_IMAGE="{configuration:/ecrImage}"
+              REGISTRY="${ECR_IMAGE%%/*}"
+              ECR_REGION="$(echo "$REGISTRY" | cut -d. -f4)"
+              echo "ECR login + pull: $ECR_IMAGE (region $ECR_REGION)"
+              aws ecr get-login-password --region "$ECR_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+              docker pull "$ECR_IMAGE"
 
               # 데이터셋 다운로드 (TRT export에 필요)
               LOCAL_DATASET="/opt/groot/datasets/leisaac-pick-orange"

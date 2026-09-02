@@ -143,7 +143,7 @@ if [ "$UNINSTALL" = "--uninstall" ]; then
 
   # 4. Greengrass 컴포넌트 삭제
   echo ">>> [4/6] Deleting Greengrass components (N1.6)"
-  for COMP in com.workshop.${USER_ID}.benchmark com.workshop.${USER_ID}.docker-build com.workshop.${USER_ID}.inference com.workshop.${USER_ID}.setup; do
+  for COMP in com.workshop.${USER_ID}.benchmark com.workshop.${USER_ID}.inference com.workshop.${USER_ID}.setup; do
     VERSIONS=$(aws greengrassv2 list-component-versions \
       --arn "arn:aws:greengrass:${REGION}:${ACCOUNT_ID}:components:${COMP}" \
       --query "componentVersions[?starts_with(componentVersion,'1.')].componentVersion" \
@@ -427,7 +427,7 @@ echo " [1/3] 환경 준비 (Docker + 모델 + TRT 빌드):"
 echo "   aws greengrassv2 create-deployment \\"
 echo "     --target-arn arn:aws:iot:${REGION}:${ACCOUNT_ID}:thinggroup/${THING_GROUP} \\"
 echo "     --deployment-name \"workshop-n16-setup\" \\"
-echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"}}' \\"
+echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"}}' \\"
 echo "     --deployment-policies '{\"componentUpdatePolicy\":{\"action\":\"SKIP_NOTIFY_COMPONENTS\"}}' \\"
 echo "     --region $REGION"
 echo ""
@@ -435,7 +435,7 @@ echo " [2/3] 벤치마크 (PyTorch vs TRT, inference 제외):"
 echo "   aws greengrassv2 create-deployment \\"
 echo "     --target-arn arn:aws:iot:${REGION}:${ACCOUNT_ID}:thinggroup/${THING_GROUP} \\"
 echo "     --deployment-name \"workshop-n16-benchmark\" \\"
-echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.benchmark\":{\"componentVersion\":\"1.0.0\"}}' \\"
+echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.benchmark\":{\"componentVersion\":\"1.0.0\"}}' \\"
 echo "     --deployment-policies '{\"componentUpdatePolicy\":{\"action\":\"SKIP_NOTIFY_COMPONENTS\"}}' \\"
 echo "     --region $REGION"
 echo ""
@@ -443,7 +443,7 @@ echo " [3/3] 추론 서버 (Policy Server 포트 5555, 벤치마크 제외):"
 echo "   aws greengrassv2 create-deployment \\"
 echo "     --target-arn arn:aws:iot:${REGION}:${ACCOUNT_ID}:thinggroup/${THING_GROUP} \\"
 echo "     --deployment-name \"workshop-n16-inference\" \\"
-echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.docker-build\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.inference\":{\"componentVersion\":\"1.0.0\"}}' \\"
+echo "     --components '{\"aws.greengrass.Nucleus\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.Cli\":{\"componentVersion\":\"2.17.0\"},\"aws.greengrass.SecureTunneling\":{\"componentVersion\":\"2.0.0\"},\"aws.greengrass.LogManager\":{\"componentVersion\":\"2.3.12\"},\"com.workshop.${USER_ID}.setup\":{\"componentVersion\":\"1.0.0\"},\"com.workshop.${USER_ID}.inference\":{\"componentVersion\":\"1.0.0\"}}' \\"
 echo "     --deployment-policies '{\"componentUpdatePolicy\":{\"action\":\"SKIP_NOTIFY_COMPONENTS\"}}' \\"
 echo "     --region $REGION"
 echo ""
