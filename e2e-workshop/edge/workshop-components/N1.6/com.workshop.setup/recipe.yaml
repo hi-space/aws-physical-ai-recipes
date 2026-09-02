@@ -39,7 +39,7 @@ Manifests:
           DATASET_URL="{configuration:/datasetUrl}"
 
           # === Step 1: 모델 다운로드 (이미 있으면 스킵) ===
-          if [ -d "$MODEL_DIR/$MODEL_NAME" ] && [ $(find "$MODEL_DIR/$MODEL_NAME" -name "*.safetensors" 2>/dev/null | wc -l) -ge 2 ]; then
+          if [ -d "$MODEL_DIR/$MODEL_NAME" ] && [ $(find "$MODEL_DIR/$MODEL_NAME" -name "*.safetensors" 2>/dev/null | wc -l) -ge 1 ]; then
             echo "Model $MODEL_NAME already exists ($(du -sh $MODEL_DIR/$MODEL_NAME | cut -f1)), skipping"
           else
             echo "=== Downloading GR00T-N1.6-3B-Pick-Orange ==="
@@ -61,9 +61,9 @@ Manifests:
               echo "TRT engine already exists: $TRT_DIR/dit_model_${PRECISION}.trt, skipping"
             else
               echo "=== Building TRT engine (N1.6 DiT Action Head) ==="
-              ECR_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "groot-n16-inference" | head -1)
+              ECR_IMAGE=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "groot-runtime-trt" | head -1)
               if [ -z "$ECR_IMAGE" ]; then
-                echo "ERROR: groot-n16-inference image not found"
+                echo "ERROR: groot-runtime-trt image not found"
                 exit 1
               fi
 

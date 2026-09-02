@@ -10,7 +10,7 @@ ComponentDependencies:
     DependencyType: HARD
 ComponentConfiguration:
   DefaultConfiguration:
-    ecrImage: "007023064118.dkr.ecr.us-east-1.amazonaws.com/groot-n16-inference-jinseony:latest"
+    ecrImage: "ECR_REPO_PLACEHOLDER:latest"
     modelPath: "/opt/groot/models/GR00T-N1.6-3B-Pick-Orange"
     embodimentTag: "NEW_EMBODIMENT"
     trtEnginePath: "/opt/groot/trt_n16"

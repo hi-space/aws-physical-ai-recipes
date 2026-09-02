@@ -6,7 +6,7 @@ ComponentDescription: "GR00T N1.6 Docker 이미지 ECR Pull (이미 있으면 �
 ComponentPublisher: Custom
 ComponentConfiguration:
   DefaultConfiguration:
-    ecrRepo: "007023064118.dkr.ecr.us-east-1.amazonaws.com/groot-n16-inference-jinseony"
+    ecrRepo: "ECR_REPO_PLACEHOLDER"
     imageTag: "latest"
     region: "us-east-1"
 Manifests:
@@ -23,9 +23,10 @@ Manifests:
           REGION="{configuration:/region}"
           FULL_IMAGE="${ECR_REPO}:${IMAGE_TAG}"
           ACCOUNT_ID=$(echo "$ECR_REPO" | cut -d. -f1)
+          LOCAL_TAG="$(basename "$ECR_REPO"):${IMAGE_TAG}"
 
-          if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "groot-n16-inference:${IMAGE_TAG}"; then
-            echo "Docker image already exists, skipping"
+          if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${LOCAL_TAG}$"; then
+            echo "Docker image already exists ($LOCAL_TAG), skipping"
             exit 0
           fi
 
@@ -33,6 +34,6 @@ Manifests:
           aws ecr get-login-password --region "$REGION" | \
             docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
           docker pull "$FULL_IMAGE"
-          docker tag "$FULL_IMAGE" "groot-n16-inference:${IMAGE_TAG}"
-          echo "=== Pull 완료 ==="
+          docker tag "$FULL_IMAGE" "$LOCAL_TAG"
+          echo "=== Pull 완료 ($LOCAL_TAG) ==="
         Timeout: 3600

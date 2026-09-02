@@ -5,11 +5,13 @@
 #
 # N1.7과 동일 구조, 차이점:
 #   - 모델: hi-space/GR00T-N1.6-3B-Pick-Orange
-#   - Docker: groot-n16-inference-jinseony:latest
+#   - Docker: groot-runtime-trt:latest = groot-runtime (Module 3) + TRT/onnx layer (Module 6; Module 2 uses groot-runtime directly)
 #   - TRT: DiT(Action Head)만 가속 (export_onnx_n1d6.py → build_tensorrt_engine.py)
 #   - 컴포넌트 버전: 1.6.0
 #
-# 사용법: sudo bash setup-greengrass-workshop-N16.sh <USER_ID>
+# 사용법:
+#   sudo bash setup-greengrass-workshop-N16.sh [USER_ID] [--skip-image-build] [--uninstall]
+#   (USER_ID 생략 시 계정 ID 사용. --skip-image-build: 이미지 빌드 없이 프로비저닝+등록만 = 모듈 2)
 #
 # ─── ⚠️  사전 요구사항: IAM 권한 ─────────────────────────────────────────────
 # 이 스크립트는 Greengrass Nucleus 프로비저닝(Step 4)에서 IoT/IAM 리소스를
@@ -53,19 +55,28 @@ ACCOUNT_ID=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.1
 # 1인 1계정 전제: 인자를 생략하면 계정 ID를 식별자로 사용한다.
 #   설치: sudo bash setup-greengrass-workshop-N16.sh
 #   제거: sudo bash setup-greengrass-workshop-N16.sh --uninstall
-if [ "${1:-}" = "--uninstall" ]; then
-  USER_ID="${ACCOUNT_ID}"
-  UNINSTALL="--uninstall"
-else
-  USER_ID="${1:-${ACCOUNT_ID}}"
-  UNINSTALL="${2:-}"
-fi
+# Flags (any order): --uninstall, --skip-image-build. First non-flag arg = USER_ID.
+#   설치:              sudo bash setup-greengrass-workshop-N16.sh
+#   이미지 빌드 없이:  sudo bash setup-greengrass-workshop-N16.sh --skip-image-build   (모듈 2)
+#   제거:              sudo bash setup-greengrass-workshop-N16.sh --uninstall
+UNINSTALL=""
+SKIP_IMAGE_BUILD=""
+USER_ID=""
+for arg in "$@"; do
+  case "$arg" in
+    --uninstall)        UNINSTALL="--uninstall" ;;
+    --skip-image-build) SKIP_IMAGE_BUILD="1" ;;
+    *)                  [ -z "$USER_ID" ] && USER_ID="$arg" ;;
+  esac
+done
+USER_ID="${USER_ID:-${ACCOUNT_ID}}"
 
 THING_NAME="groot-${USER_ID}"
 THING_GROUP="${THING_NAME}-group"
 S3_BUCKET="groot-workshop-${USER_ID}-${ACCOUNT_ID}"
-ECR_REPO="groot-n16-inference-${USER_ID}"
+ECR_REPO="groot-runtime-trt"
 ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}:latest"
+RUNTIME_BASE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/groot-runtime:latest"
 
 # ─── Uninstall 모드 ──────────────────────────────────────────────────────────
 if [ "$UNINSTALL" = "--uninstall" ]; then
@@ -214,7 +225,13 @@ echo "   Files in s3://${S3_BUCKET}/workshop/:"
 aws s3 ls "s3://${S3_BUCKET}/workshop/" --region "$REGION" --human-readable 2>/dev/null || true
 
 # ─── Step 3: ECR + Docker 이미지 ─────────────────────────────────────────────
-echo ">>> [3/6] ECR + Docker"
+echo ">>> [3/6] ECR + Docker (groot-runtime-trt)"
+
+if [ -n "$SKIP_IMAGE_BUILD" ]; then
+  echo "   --skip-image-build set: skipping ECR repo create + Docker build/push."
+  echo "   (Module 2 uses the pre-built groot-runtime image directly; groot-runtime-trt"
+  echo "    is built in Module 6. Components are still registered below.)"
+else
 
 aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$REGION" &>/dev/null || \
   aws ecr create-repository --repository-name "$ECR_REPO" --region "$REGION" --image-scanning-configuration scanOnPush=true
@@ -227,60 +244,39 @@ ECR_EXISTS=$(aws ecr describe-images --repository-name "$ECR_REPO" --image-ids i
 if [ "$ECR_EXISTS" = "yes" ]; then
   echo "   Image already in ECR: $ECR_IMAGE (skipping)"
 else
-  echo "   Building N1.6 Docker image (PyTorch + TRT 10.7 compatible)..."
-  BUILD_DIR="/tmp/groot-n16-build"
+  echo "   Building groot-runtime-trt (FROM groot-runtime + thin TRT/onnx layer)..."
+  # Base = the GR00T runtime image built by Module 3 (GrootFinetune CDK -> groot-runtime-build).
+  docker pull "$RUNTIME_BASE" || { echo "   ERROR: base image not found: $RUNTIME_BASE"; echo "   Run Module 3 first to build the groot-runtime image."; exit 1; }
+
+  BUILD_DIR="/tmp/groot-runtime-trt-build"
   rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
 
+  # Written with a quoted heredoc (all literal); the FROM base is substituted afterwards.
   cat > "$BUILD_DIR/Dockerfile" << 'DKEOF'
-# Base: pytorch:24.12-py3 — CUDA 12.4, Python 3.12, system TRT 10.7 (working)
-FROM nvcr.io/nvidia/pytorch:24.12-py3
-ENV DEBIAN_FRONTEND=noninteractive
-ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
-
-RUN apt-get update && apt-get install -y git git-lfs ffmpeg wget curl && rm -rf /var/lib/apt/lists/*
-RUN pip install uv
-
-# Upgrade torch + transformers (Qwen3 support required for N1.6)
-RUN pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu124
-RUN pip install --upgrade transformers accelerate
-
-# Isaac-GR00T N1.6 stable — uv sync handles all deps + dataclass compat
-RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \
-    cd /workspace/gr00t-repo && \
-    git checkout 5dc80c4afd726b34faad1d8f7e007a13b34e4c88 && \
-    uv sync && uv pip install -e .
-
-# ONNX export dependencies (must be after uv sync creates the venv)
-RUN uv pip install --python /workspace/gr00t-repo/.venv/bin/python onnxscript onnx onnxruntime
-
-ENV VIRTUAL_ENV="/workspace/gr00t-repo/.venv"
-ENV PATH="/workspace/gr00t-repo/.venv/bin:${PATH}"
-ENV PYTHONPATH="/workspace/gr00t-repo:/workspace"
-
-# TRT fix: remove pip TRT 10.16 (CUDA error 35 bug), use system TRT 10.7
+# Thin TRT/ONNX layer on top of the Module 3 groot-runtime image
+# (base pytorch:25.04-py3, Python 3.12, system TensorRT 10.9).
+FROM __RUNTIME_BASE__
+# ONNX export deps (onnx is already present in groot-runtime)
+RUN uv pip install --python /workspace/gr00t-repo/.venv/bin/python onnxscript onnxruntime
+# TRT fix: drop the venv's buggy pip TRT (10.16, CUDA-init error 35) and use the
+# container's system TensorRT (10.9) via symlink.
 RUN VENV_SP="/workspace/gr00t-repo/.venv/lib/python3.12/site-packages" && \
     SYS_SP="/usr/local/lib/python3.12/dist-packages" && \
     rm -rf $VENV_SP/tensorrt $VENV_SP/tensorrt_libs $VENV_SP/tensorrt_bindings \
-           $VENV_SP/tensorrt_cu12* $VENV_SP/tensorrt-* $VENV_SP/tensorrt_*.dist-info && \
+           $VENV_SP/tensorrt-*.dist-info $VENV_SP/tensorrt_cu1* && \
     ln -sf $SYS_SP/tensorrt $VENV_SP/tensorrt && \
-    [ -d $SYS_SP/tensorrt_libs ] && ln -sf $SYS_SP/tensorrt_libs $VENV_SP/tensorrt_libs; \
-    [ -d $SYS_SP/tensorrt_bindings ] && ln -sf $SYS_SP/tensorrt_bindings $VENV_SP/tensorrt_bindings; \
-    for f in $SYS_SP/tensorrt-10.7*.dist-info $SYS_SP/tensorrt_*10.7*.dist-info; do \
-      [ -e "$f" ] && ln -sf "$f" "$VENV_SP/$(basename $f)"; \
-    done; \
-    python -c "import tensorrt as trt; print('TRT', trt.__version__)"
-
-WORKDIR /workspace/gr00t-repo
-ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}"
-ENTRYPOINT ["python", "-m", "gr00t.eval.run_gr00t_server"]
+    for d in $SYS_SP/tensorrt-*.dist-info; do ln -sf "$d" "$VENV_SP/$(basename $d)"; done && \
+    /workspace/gr00t-repo/.venv/bin/python -c "import tensorrt as trt; print('venv TRT', trt.__version__)"
 DKEOF
+  sed -i "s|__RUNTIME_BASE__|${RUNTIME_BASE}|" "$BUILD_DIR/Dockerfile"
 
-  docker build -t "groot-n16-inference:latest" "$BUILD_DIR"
-  docker tag "groot-n16-inference:latest" "$ECR_IMAGE"
+  docker build -t "groot-runtime-trt:latest" "$BUILD_DIR"
+  docker tag "groot-runtime-trt:latest" "$ECR_IMAGE"
   docker push "$ECR_IMAGE"
   rm -rf "$BUILD_DIR"
   echo "   ✅ Image pushed: $ECR_IMAGE"
 fi
+fi  # end --skip-image-build guard
 
 # ─── Step 3.5: EC2 Instance Role에 IoT/Greengrass 권한 확인 ──────────────────
 echo ">>> [3.5/6] Checking IoT/Greengrass permissions on EC2 Role"
@@ -396,7 +392,7 @@ if [ ! -d "$COMPONENTS_DIR" ]; then
   aws s3 sync "s3://${S3_BUCKET}/workshop-components/N1.6" "$COMPONENTS_DIR" --region "$REGION" 2>/dev/null || true
 fi
 
-OLD_ECR_PATTERN="007023064118\.dkr\.ecr\.[a-z0-9-]*\.amazonaws\.com/groot-n16-inference-jinseony"
+OLD_ECR_PATTERN="ECR_REPO_PLACEHOLDER"
 NEW_ECR="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}"
 
 for RECIPE in "$COMPONENTS_DIR"/com.workshop.*/recipe.yaml; do
