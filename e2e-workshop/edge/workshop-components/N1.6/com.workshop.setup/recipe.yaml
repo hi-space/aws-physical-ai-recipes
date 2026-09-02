@@ -10,6 +10,9 @@ ComponentConfiguration:
     datasetUrl: "https://d3ru2qz80ictoo.cloudfront.net/workshop/leisaac-pick-orange.tar.gz"
     modelDir: "/opt/groot/models"
     modelName: "GR00T-N1.6-3B-Pick-Orange"
+    # Primary model source: HuggingFace repo (inference files only). When set it
+    # takes precedence over modelUrl. Clear it ("") to fall back to the modelUrl tarball.
+    hfRepo: "hi-space/GR00T-N1.6-3B-Pick-Orange"
     buildTrt: "true"
     trtEngineDir: "/opt/groot/trt_n16"
     precision: "bf16"
@@ -36,21 +39,34 @@ Manifests:
           PRECISION="{configuration:/precision}"
           EMBODIMENT="{configuration:/embodimentTag}"
           DATASET_URL="{configuration:/datasetUrl}"
+          HF_REPO="{configuration:/hfRepo}"
 
           # === Step 1: 모델 다운로드 (이미 있으면 스킵) ===
           if [ -d "$MODEL_DIR/$MODEL_NAME" ] && [ $(find "$MODEL_DIR/$MODEL_NAME" -name "*.safetensors" 2>/dev/null | wc -l) -ge 1 ]; then
             echo "Model $MODEL_NAME already exists ($(du -sh $MODEL_DIR/$MODEL_NAME | cut -f1)), skipping"
           else
-            echo "=== Downloading GR00T-N1.6-3B-Pick-Orange ==="
             mkdir -p "$MODEL_DIR"
-            CACHE_FILE="/tmp/${MODEL_NAME}.tar.gz"
-            if echo "$MODEL_URL" | grep -q "^s3://"; then
-              aws s3 cp "$MODEL_URL" "$CACHE_FILE" --region "$AWS_DEFAULT_REGION"
+            if [ -n "$HF_REPO" ]; then
+              # Preferred: pull the fine-tuned checkpoint from HuggingFace. Only the
+              # inference files are fetched; training-only state (optimizer/rng/
+              # scheduler, ~13GB) is excluded to keep the edge download small.
+              echo "=== Downloading $MODEL_NAME from HuggingFace ($HF_REPO) ==="
+              pip3 install -q -U "huggingface_hub[cli]" 2>/dev/null || pip install -q -U "huggingface_hub[cli]"
+              export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+              hf download "$HF_REPO" --local-dir "$MODEL_DIR/$MODEL_NAME" \
+                --exclude "optimizer.pt" "rng_state.pth" "scheduler.pt" "trainer_state.json" "training_args.bin" "wandb_config.json"
             else
-              wget -q --show-progress -O "$CACHE_FILE" "$MODEL_URL"
+              # Fallback: download a pre-packaged tarball from modelUrl (s3:// or https://).
+              echo "=== Downloading $MODEL_NAME from $MODEL_URL ==="
+              CACHE_FILE="/tmp/${MODEL_NAME}.tar.gz"
+              if echo "$MODEL_URL" | grep -q "^s3://"; then
+                aws s3 cp "$MODEL_URL" "$CACHE_FILE" --region "$AWS_DEFAULT_REGION"
+              else
+                wget -q --show-progress -O "$CACHE_FILE" "$MODEL_URL"
+              fi
+              tar -xzf "$CACHE_FILE" -C "$MODEL_DIR/"
+              rm -f "$CACHE_FILE"
             fi
-            tar -xzf "$CACHE_FILE" -C "$MODEL_DIR/"
-            rm -f "$CACHE_FILE"
             echo "Model ready: $MODEL_DIR/$MODEL_NAME ($(du -sh $MODEL_DIR/$MODEL_NAME | cut -f1))"
           fi
 
