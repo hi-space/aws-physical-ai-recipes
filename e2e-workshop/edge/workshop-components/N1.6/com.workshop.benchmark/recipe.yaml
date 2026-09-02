@@ -148,6 +148,15 @@ Manifests:
           print(json.dumps(results, indent=2))
           PYEOF
 
+          # Pull the account-specific runtime image (ECR login + pull) so this component
+          # does not depend on another component having pre-pulled it (avoids a startup race).
+          # Account/region are parsed from the ecrImage URI.
+          REGISTRY="${ECR_IMAGE%%/*}"
+          ECR_REGION="$(echo "$REGISTRY" | cut -d. -f4)"
+          echo "ECR login + pull: $ECR_IMAGE (region $ECR_REGION)"
+          aws ecr get-login-password --region "$ECR_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          docker pull "$ECR_IMAGE"
+
           echo "=== N1.6 Benchmark: PyTorch vs TRT (DiT) ==="
           docker run --rm --gpus all --ipc=host --network=host --entrypoint /bin/bash \
             -v /opt/groot/models:/opt/groot/models \

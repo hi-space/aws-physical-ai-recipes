@@ -51,6 +51,19 @@ Manifests:
           echo "Embodiment: $EMBODIMENT"
           echo "Listen: $POLICY_HOST:$POLICY_PORT"
 
+          # Pull the account-specific runtime image here (ECR login + pull) so this
+          # component does not depend on another component having pre-pulled it —
+          # this avoids a startup race where docker run fails with "no basic auth
+          # credentials" because the image is not yet local.
+          # Account and region are parsed from the ecrImage URI
+          # (<account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>), so it always
+          # pulls the image belonging to the current account/region.
+          REGISTRY="${ECR_IMAGE%%/*}"
+          ECR_REGION="$(echo "$REGISTRY" | cut -d. -f4)"
+          echo "ECR login + pull: $ECR_IMAGE (region $ECR_REGION)"
+          aws ecr get-login-password --region "$ECR_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          docker pull "$ECR_IMAGE"
+
           docker run -d --gpus all --network=host --entrypoint /bin/bash \
             --name groot-workshop-inference \
             --shm-size=8g \
