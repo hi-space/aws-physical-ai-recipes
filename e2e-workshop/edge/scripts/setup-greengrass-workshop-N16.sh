@@ -192,7 +192,7 @@ apt-get update -qq
 apt-get install -y -qq default-jdk unzip curl jq 2>/dev/null
 
 # ─── Step 2: S3 버킷 + 모델 다운로드 ────────────────────────────────────────
-echo ">>> [2/6] S3 Bucket + Model"
+echo ">>> [2/6] S3 Bucket"
 
 if aws s3api head-bucket --bucket "$S3_BUCKET" --region "$REGION" 2>/dev/null; then
   echo "   Bucket already exists: $S3_BUCKET"
@@ -208,18 +208,9 @@ else
     --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 fi
 
-CF_BASE="https://d3ru2qz80ictoo.cloudfront.net/workshop"
-
-# Pick-Orange N1.6 모델
-if aws s3 ls "s3://${S3_BUCKET}/workshop/GR00T-N1.6-3B-Pick-Orange.tar.gz" --region "$REGION" &>/dev/null; then
-  echo "   Model already in S3, skipping"
-else
-  echo "   Downloading N1.6 model from CloudFront → S3..."
-  wget -q --show-progress -O /tmp/GR00T-N1.6-3B-Pick-Orange.tar.gz "${CF_BASE}/GR00T-N1.6-3B-Pick-Orange.tar.gz"
-  aws s3 cp /tmp/GR00T-N1.6-3B-Pick-Orange.tar.gz "s3://${S3_BUCKET}/workshop/GR00T-N1.6-3B-Pick-Orange.tar.gz" --region "$REGION"
-  rm -f /tmp/GR00T-N1.6-3B-Pick-Orange.tar.gz
-  echo "   ✅ Model uploaded"
-fi
+# Pick-Orange 모델 다운로드는 여기서 제거됨 — 모듈 2는 이 모델을 사용하지 않습니다.
+# 모듈 6에서 필요 시 setup 컴포넌트의 modelUrl로 제공하세요
+# (예: CloudFront URL 직접 지정, 또는 모듈 4의 fine-tuned 체크포인트).
 
 echo "   Files in s3://${S3_BUCKET}/workshop/:"
 aws s3 ls "s3://${S3_BUCKET}/workshop/" --region "$REGION" --human-readable 2>/dev/null || true
