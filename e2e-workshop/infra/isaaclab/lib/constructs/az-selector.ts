@@ -41,10 +41,14 @@ export interface AzSelectorProps {
 
 /** 기본 인스턴스 타입 fallback 순서 */
 export const DEFAULT_INSTANCE_TYPE_FALLBACK = [
-  'g6e.4xlarge',  // L40S × 1 — 고성능 단일 GPU
+  'g6e.4xlarge',  // L40S × 1 — 고성능 단일 GPU (vCPU 16, 128GB)
   'g6.4xlarge',   // L4 × 1 — 단일 GPU (vCPU 16, 64GB)
+  'g6e.8xlarge',  // L40S × 1 — 4xlarge와 GPU 동일, vCPU/RAM 2배 (vCPU 32, 256GB)
+  'g6.8xlarge',   // L4 × 1 — 4xlarge와 GPU 동일, vCPU/RAM 2배 (vCPU 32, 128GB)
   'g6.12xlarge',  // L4 × 4 — 분산 학습 최적
   'g6e.12xlarge', // L40S × 4 — 고성능 분산 학습
+  'g6e.2xlarge',  // L40S × 1 — 최후 수단 (vCPU 8, 64GB: 시뮬레이션 로딩이 느릴 수 있음)
+  'g6.2xlarge',   // L4 × 1 — 정말 최후 수단 (vCPU 8, 32GB: RAM이 Isaac Sim 최소 사양 수준, OOM 주의)
 ];
 
 /**

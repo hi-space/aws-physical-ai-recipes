@@ -17,6 +17,9 @@
 
 echo "===== [$(date)] START: models-download.sh ====="
 
+# GNOME 설치가 유발하는 일시적 DNS 붕괴 대비 — S3/HuggingFace 다운로드 전에 복구 확인
+[ -f /tmp/userdata-scripts/dns-guard.sh ] && source /tmp/userdata-scripts/dns-guard.sh
+
 MODELS_DIR="${MODELS_DIR:-/home/ubuntu/environment/models}"
 echo "모델 디렉터리: ${MODELS_DIR}"
 mkdir -p "${MODELS_DIR}"
@@ -77,7 +80,9 @@ elif [ -n "${GROOT_WEIGHTS_URL}" ]; then
 else
   echo "GROOT_WEIGHTS_URL 미지정. HuggingFace에서 받습니다."
   if ! which pip3 > /dev/null 2>&1; then
-    apt-get install -y python3-pip
+    # 이 스크립트는 백그라운드로 병렬 실행되므로 다른 스테이지의 apt와 lock이
+    # 겹칠 수 있다 — lock을 기다린다 (기본 동작은 즉시 실패).
+    apt-get -o DPkg::Lock::Timeout=300 install -y python3-pip
   fi
   pip3 install --break-system-packages -q huggingface_hub
   python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='${GROOT_DIR}')" \

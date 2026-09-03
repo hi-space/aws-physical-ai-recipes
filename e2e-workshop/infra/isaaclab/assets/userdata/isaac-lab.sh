@@ -12,6 +12,9 @@
 
 echo "===== [$(date)] START: isaac-lab.sh ====="
 
+# GNOME 설치가 유발하는 일시적 DNS 붕괴 대비 — git clone/docker pull 전에 복구 확인
+[ -f /tmp/userdata-scripts/dns-guard.sh ] && source /tmp/userdata-scripts/dns-guard.sh
+
 # -----------------------------------------------------------------------------
 # 1. ISAAC_SIM_VERSION이 비어있으면 스킵
 #    isaacSimVersion이 빈 문자열인 프로필에서는 Isaac Sim/Lab 설치를 건너뛴다.

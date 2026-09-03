@@ -68,15 +68,31 @@ if ! which session-manager-plugin > /dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 2. 시스템 업데이트 및 업그레이드
+# 2. 패키지 인덱스 갱신
+#    전체 upgrade는 하지 않는다 — DLAMI는 이미 최신에 가깝고, 전체 업그레이드는
+#    5~15분을 소모하는 데 비해 워크샵 수명(수 시간) 동안 얻는 것이 없다.
+#    NVIDIA 드라이버는 nvidia-driver.sh가 명시 버전으로 직접 설치/교체한다.
 # -----------------------------------------------------------------------------
-apt-get update && apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+apt-get update
 
 # -----------------------------------------------------------------------------
 # 2. 데스크톱 환경 설치
 #    Ubuntu 24.04에서는 install-desktop.sh가 GDM을 설치하지 않을 수 있으므로
 #    ubuntu-desktop을 직접 설치한다.
 # -----------------------------------------------------------------------------
+# ubuntu-desktop 설치는 netplan 기본 renderer를 NetworkManager로 전환한다
+# (/usr/lib/netplan/00-network-manager-all.yaml). 이 전환 과정에서 systemd-networkd가
+# 주 인터페이스(enp*) 관리권을 잃어 DHCP/DNS가 붕괴하고 재부팅 전까지 복구되지 않는
+# 현상이 실측됨 (2026-09-02 서울 배포 3회 재현). 설치 전에 renderer를 networkd로
+# 고정하는 netplan 파일(파일명 순서상 마지막 = 최종 우선)을 심어 소유권 전환을 차단한다.
+# NM은 설치되어 GNOME UI용으로 남지만 주 인터페이스는 계속 networkd가 관리한다.
+cat > /etc/netplan/99-workshop-keep-networkd.yaml <<'NPEOF'
+network:
+  version: 2
+  renderer: networkd
+NPEOF
+chmod 600 /etc/netplan/99-workshop-keep-networkd.yaml
+
 UBUNTU_VERSION=$(lsb_release -rs)
 if echo "$UBUNTU_VERSION" | grep -q "24.04"; then
   apt-get install -y ubuntu-desktop
@@ -144,9 +160,11 @@ apt-get install -y software-properties-common curl
 curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
-# ROS2 설치
+# ROS2 설치 — ros-base(CLI + 라이브러리)만 설치한다.
+# 워크샵 콘텐츠는 rviz2/rqt 등 GUI 도구를 사용하지 않으므로 desktop 메타패키지
+# (수 GB, 설치 수 분)는 불필요하다. 필요 시 apt-get install ros-${ROS2_DISTRO}-desktop 로 추가 가능.
 apt-get update
-apt-get install -y ros-${ROS2_DISTRO}-desktop
+apt-get install -y ros-${ROS2_DISTRO}-ros-base
 
 # rosdep 초기화
 # Ubuntu 24.04(Jazzy)에서는 python3-rosdep2 apt 패키지가 없고,

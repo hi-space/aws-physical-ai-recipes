@@ -37,11 +37,13 @@ if ! modprobe -n lustre 2>/dev/null && ! dpkg -l "lustre-client-modules-$(uname 
     | gpg --dearmor > /usr/share/keyrings/fsx-ubuntu-public-key.gpg || FSX_MOUNT_OK=0
   echo "deb [signed-by=/usr/share/keyrings/fsx-ubuntu-public-key.gpg] https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu $(lsb_release -cs) main" \
     > /etc/apt/sources.list.d/fsxlustreclientrepo.list
-  apt-get update -y || FSX_MOUNT_OK=0
+  # DPkg::Lock::Timeout: 백그라운드로 병렬 실행되는 models-download.sh가 apt를 잡고
+  # 있을 수 있으므로 lock을 기다린다 (기본 동작은 즉시 실패).
+  apt-get -o DPkg::Lock::Timeout=300 update -y || FSX_MOUNT_OK=0
   # 실행 중인 커널에 맞는 모듈 우선, 없으면 aws 커널 메타 패키지 시도
-  if ! apt-get install -y "lustre-client-modules-$(uname -r)"; then
+  if ! apt-get -o DPkg::Lock::Timeout=300 install -y "lustre-client-modules-$(uname -r)"; then
     echo "[WARN] lustre-client-modules-$(uname -r) 패키지 없음 — lustre-client-modules-aws 시도"
-    apt-get install -y lustre-client-modules-aws || FSX_MOUNT_OK=0
+    apt-get -o DPkg::Lock::Timeout=300 install -y lustre-client-modules-aws || FSX_MOUNT_OK=0
   fi
 fi
 echo "----- [$(date)] END: fsx-mount (lustre client install) -----"

@@ -11,7 +11,7 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | 리전 지원 | 3개 리전 하드코딩 | 12개 리전 DLAMI 매핑 + 멀티리전 배포 |
 | 버전 관리 | 고정 | Version Profile 기반 (stable / latest) |
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
-| 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge 자동 fallback |
+| 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge 자동 fallback |
 | UserData | 모놀리식 | 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션). GR00T-N1.6-3B 모델 가중치는 models-download.sh가 인스턴스 로컬 디스크로 자동 다운로드하며, Docker 빌드/추론 서버 실행은 사용자가 수동 수행 |
 | 보안 | 미흡 | allowedCidr, FSx SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
@@ -172,14 +172,14 @@ cdk synth
 cdk destroy
 ```
 
-> 인스턴스 타입 미지정 시 자동 fallback 순서: `g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge`
+> 인스턴스 타입 미지정 시 자동 fallback 순서: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge`
 
 ## Props 설명
 
 | Props | 타입 | 기본값 | 설명 |
 |-------|------|--------|------|
 | `versionProfile` | `stable` \| `latest` | `latest` | 소프트웨어 스택 프로필 선택 |
-| `inferenceInstanceType` | `string` | (auto fallback) | DCV GPU 인스턴스 타입. 미지정 시 `g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge` 순서로 자동 탐색 |
+| `inferenceInstanceType` | `string` | (auto fallback) | DCV GPU 인스턴스 타입. 미지정 시 `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge` 순서로 자동 탐색 |
 | `preferredAZ` | `auto` \| `0`~`5` | `auto` | AZ 선택. auto는 Lambda로 capacity 자동 탐색 |
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
 | `region` | 리전 코드 | CDK 기본 리전 | 배포 대상 리전 (멀티리전 배포용) |
@@ -337,7 +337,7 @@ npx cdk destroy
 `preferredAZ=auto` (기본값)일 때, Custom Resource Lambda가 배포 시점에 GPU capacity가 있는 AZ와 인스턴스 타입을 자동으로 탐색한다.
 
 동작 방식:
-1. 인스턴스 타입 fallback 리스트를 순차 시도: `g6e.4xlarge → g6.4xlarge → g6.12xlarge → g6e.12xlarge`
+1. 인스턴스 타입 fallback 리스트를 순차 시도: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge`
 2. 각 인스턴스 타입에 대해 `describe-instance-type-offerings`로 지원 AZ 목록 조회
 3. AZ 목록을 셔플하여 특정 AZ 집중 방지
 4. 각 AZ에서 `RunInstances` (MinCount=1) 시도
@@ -643,14 +643,15 @@ sudo tail -f /var/log/user-data.log
 ===== [날짜] END: common.sh =====
 ===== [날짜] START: nvidia-driver.sh =====  ← NVIDIA 드라이버 업그레이드
 ===== [날짜] END: nvidia-driver.sh =====
-===== [날짜] START: isaac-lab.sh =====      ← Isaac Lab Docker 빌드 (가장 오래 걸림)
-===== [날짜] END: isaac-lab.sh =====
-===== [날짜] START: models-download.sh ===== ← 모델 가중치 다운로드
-===== [날짜] END: models-download.sh =====
-===== [날짜] START: fsx-mount.sh =====      ← 공유 FSx for Lustre 마운트 (/fsx)
-===== [날짜] END: fsx-mount.sh =====
+===== [날짜] STAGE: isaac-lab.sh (background) =====      ← Isaac Lab Docker 빌드 (백그라운드, 가장 오래 걸림)
+===== [날짜] STAGE: models-download.sh (background) ===== ← 모델 가중치 다운로드 (백그라운드)
+===== [날짜] STAGE: fsx-mount.sh =====      ← 공유 FSx for Lustre 마운트 (/fsx)
+===== [날짜] STAGE: waiting for background jobs ... ===== ← 백그라운드 작업 완료 대기
 ```
 
+> `isaac-lab.sh`(Docker 빌드)와 `models-download.sh`(가중치 다운로드)는 백그라운드로 병렬 실행되며,
+> 진행 로그는 각각 `/var/log/isaac-lab.log`, `/var/log/models-download.log`에 기록된다
+> (완료 시 user-data.log에 병합). 실시간 진행은 `sudo tail -f /var/log/isaac-lab.log`로 확인한다.
 > 일반적으로 `common.sh`의 dpkg lock 대기와 `isaac-lab.sh`의 Docker 빌드가 가장 오래 걸린다.
 
 ### UserData 실패 디버깅
