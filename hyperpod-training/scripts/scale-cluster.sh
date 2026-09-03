@@ -27,6 +27,10 @@
 # =============================================================================
 set -euo pipefail
 
+# 워크숍 env(common.sh가 ~/.bashrc에 등록하는 $REGION)를 이후 REGION="" 초기화가
+# 지우기 전에 미리 보존해 둔다.
+WORKSHOP_REGION="${REGION:-}"
+
 GROUP="${1:-}"
 COUNT="${2:-}"
 shift 2 2>/dev/null || true
@@ -49,11 +53,13 @@ if [[ -z "$GROUP" || -z "$COUNT" ]] || ! [[ "$COUNT" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-# 리전: --region > AWS_REGION > AWS_DEFAULT_REGION > aws configure 순서로 해석.
-# 워크숍 DCV 인스턴스에서는 기본값이 곧 클러스터 리전이지만, 다른 환경에서
-# 실행할 때는 --region 으로 명시해야 한다.
+# 리전: --region > $REGION(워크숍 env, common.sh가 ~/.bashrc에 등록) > AWS_REGION
+# > AWS_DEFAULT_REGION > aws configure 순서로 해석. 워크숍 DCV 인스턴스는
+# AWS_REGION/AWS_DEFAULT_REGION을 설정하지 않으므로(REGION만 등록) $REGION을
+# 반드시 먼저 확인해야 한다 — 아니면 us-east-1 폴백으로 조용히 잘못된 리전을
+# 조회하게 된다(실측: ap-northeast-1 배포에서 재현).
 if [[ -z "$REGION" ]]; then
-  REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}"
+  REGION="${WORKSHOP_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
 fi
 
 # 클러스터 이름 기본값: hyperpod-<ACCOUNT_ID> (1인 1계정 전제)
