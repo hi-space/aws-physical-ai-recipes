@@ -425,15 +425,38 @@ aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-aloha/
 
 ## Step 10: 리소스 정리
 
-```bash
-# 스택 삭제 (20분 소요)
-cd hyperpod-training/infra
-npx cdk destroy -c region=us-east-1 --force
+CloudFormation은 빈 버킷만 삭제한다. destroy 시점에 두 버킷은 비어 있지 않으므로(lifecycle 버킷: 스택이 올린 스크립트 + 클러스터가 기록한 `config/head_ip.txt`, 데이터 버킷: FSx에서 동기화된 체크포인트/데이터셋) **먼저 비우고 destroy 한다.**
 
-# 삭제 실패 시 (S3 버킷 비어있지 않음):
-aws s3 rm s3://hyperpod-lifecycle-<ACCOUNT_ID>-us-east-1 --recursive
-aws cloudformation delete-stack --stack-name HyperPod-<ACCOUNT_ID> --region us-east-1
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=us-east-1
+
+# 1) S3 버킷 두 개 비우기 (필수)
+aws s3 rm s3://hyperpod-data-${ACCOUNT_ID}-${REGION} --recursive --region ${REGION}
+aws s3 rm s3://hyperpod-lifecycle-${ACCOUNT_ID}-${REGION} --recursive --region ${REGION}
+
+# 2) 스택 삭제 (클러스터 + FSx + Jump Host + VPC, 약 20분)
+cd hyperpod-training/infra
+npx cdk destroy -c region=${REGION} --force
 ```
+
+스택이 `DELETE_FAILED`(The bucket you tried to delete is not empty)로 끝나면 — 1)을 건너뛰었거나, 데이터 버킷의 버저닝 때문에 이전 버전·삭제 마커가 남은 경우 — 실패한 버킷의 모든 버전을 지우고 삭제를 재실행한다. 이 시점에 클러스터·FSx·NAT GW·Jump Host는 이미 삭제돼 있다.
+
+```bash
+aws cloudformation describe-stack-events --stack-name HyperPod-${ACCOUNT_ID} --region ${REGION} \
+  --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,PhysicalResourceId]" --output table
+
+BUCKET=hyperpod-data-${ACCOUNT_ID}-${REGION}   # 또는 hyperpod-lifecycle-${ACCOUNT_ID}-${REGION}
+aws s3api list-object-versions --bucket $BUCKET --region ${REGION} \
+  --query '{Objects: [Versions[].{Key:Key,VersionId:VersionId}, DeleteMarkers[].{Key:Key,VersionId:VersionId}][] }' \
+  --output json > /tmp/versions.json
+aws s3api delete-objects --bucket $BUCKET --region ${REGION} --delete file:///tmp/versions.json
+
+aws cloudformation delete-stack --stack-name HyperPod-${ACCOUNT_ID} --region ${REGION}
+aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID} --region ${REGION}
+```
+
+워크숍 참가자용 절차는 콘텐츠 모듈 11 §11.7과 동일하다.
 
 ---
 
