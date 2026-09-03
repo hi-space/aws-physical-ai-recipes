@@ -3,6 +3,7 @@
  *
  * Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
  * 조합 순서: Networking → FSx → AzSelector(조건부) → DCV → CloudFront(조건부)
+ * 배포 프로필(-c profile): personal(GPU 워크스테이션) | workshop-studio(CPU 워크스테이션)
  *
  * 식별자 규칙 (1인 1계정 전제):
  *   스택 이름과 리소스 태그에는 배포 대상 계정 ID가 식별자로 포함된다.
@@ -18,7 +19,8 @@ import { NetworkingConstruct } from './constructs/networking';
 import { FsxStorageConstruct } from './constructs/fsx-storage';
 import { DcvInstanceConstruct } from './constructs/dcv-instance';
 import { CloudFrontCodeServerConstruct } from './constructs/cloudfront-code-server';
-import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK } from './constructs/az-selector';
+import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK, CPU_INSTANCE_TYPE_FALLBACK } from './constructs/az-selector';
+import { DeploymentProfile } from './config/deployment-profile';
 
 /**
  * IsaacLabStack Props
@@ -26,7 +28,7 @@ import { AzSelectorConstruct, DEFAULT_INSTANCE_TYPE_FALLBACK } from './construct
 export interface IsaacLabStackProps extends cdk.StackProps {
   /** 버전 프로필 이름 (stable, latest) */
   versionProfile: VersionProfileName;
-  /** DCV 인스턴스 타입 (기본값: 'g6e.4xlarge') */
+  /** DCV 인스턴스 타입 (기본값: personal은 'g6e.4xlarge', workshop-studio는 'm6i.4xlarge') */
   inferenceInstanceType?: string;
   /** AZ 선택: 'auto' 또는 '0'~'5' 인덱스 (기본값: 'auto') */
   preferredAZ?: string;
@@ -48,6 +50,8 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   fsxCapacityGiB?: number;
   /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
   isaacSimVersion?: string;
+  /** 배포 프로필 (기본 personal). workshop-studio 는 CPU 워크스테이션 */
+  profile?: DeploymentProfile;
 }
 
 /**
@@ -61,10 +65,15 @@ export class IsaacLabStack extends cdk.Stack {
     super(scope, id, props);
 
     // --- Props 기본값 적용 ---
-    const instanceType = props.inferenceInstanceType ?? 'g6e.4xlarge';
     const preferredAZ = props.preferredAZ ?? 'auto';
     const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
     const accountId = props.accountId ?? '';
+    const profile: DeploymentProfile = props.profile ?? 'personal';
+    const cpuWorkstation = profile === 'workshop-studio';
+    // 기본 타입은 프로필에 따른다. preferredAZ 를 인덱스로 지정해 AZ 탐색을 건너뛰는 경우에도
+    // workshop-studio 는 CPU 워크스테이션을 써야 하므로 CPU fallback 목록의 첫 타입을 기본값으로 한다.
+    const instanceType =
+      props.inferenceInstanceType ?? (cpuWorkstation ? CPU_INSTANCE_TYPE_FALLBACK[0] : 'g6e.4xlarge');
 
     // --- 리소스 Name 태그 접두사 (스택 이름과 동일 패턴) ---
     const profilePart = props.versionProfile.charAt(0).toUpperCase() + props.versionProfile.slice(1);
@@ -88,7 +97,7 @@ export class IsaacLabStack extends cdk.Stack {
     // 프로필의 isaacLabVersion은 해당 Isaac Sim 버전에만 대응하므로 함께 해제한다
     // (빈 값이면 isaac-lab.sh가 IsaacLab main을 클론). 버전 조합을 맞추려면
     // isaacSimVersion 오버라이드 대신 versionProfile을 사용할 것.
-    const profile = props.isaacSimVersion
+    const versionProfileConfig = props.isaacSimVersion
       ? {
           ...baseProfile,
           isaacSimVersion: props.isaacSimVersion,
@@ -104,7 +113,7 @@ export class IsaacLabStack extends cdk.Stack {
     });
 
     // AMI ID 조회 (CloudFormation FindInMap — 배포 시점에 리전 결정)
-    const dcvAmiId = dcvAmiMapping.findInMap(cdk.Aws.REGION, profile.ubuntuVersion);
+    const dcvAmiId = dcvAmiMapping.findInMap(cdk.Aws.REGION, versionProfileConfig.ubuntuVersion);
 
     // --- AZ 자동 탐색 (preferredAZ === 'auto'일 때) ---
     // Custom Resource Lambda로 실제 GPU capacity가 있는 AZ를 탐색한다.
@@ -114,10 +123,12 @@ export class IsaacLabStack extends cdk.Stack {
     let resolvedAZ: string | undefined;
     let resolvedInstanceType: string = instanceType;
     if (preferredAZ === 'auto') {
-      // 인스턴스 타입이 명시적으로 지정되었으면 해당 타입만, 아니면 fallback 리스트 사용
+      // 인스턴스 타입이 명시적으로 지정되었으면 해당 타입만, 아니면 프로필별 fallback 리스트 사용
       const instanceTypes = props.inferenceInstanceType
         ? [props.inferenceInstanceType]
-        : DEFAULT_INSTANCE_TYPE_FALLBACK;
+        : cpuWorkstation
+          ? CPU_INSTANCE_TYPE_FALLBACK
+          : DEFAULT_INSTANCE_TYPE_FALLBACK;
 
       const azSelector = new AzSelectorConstruct(this, 'AzSelector', {
         instanceTypes,
@@ -160,13 +171,14 @@ export class IsaacLabStack extends cdk.Stack {
       dcvSecurityGroup: networking.dcvSecurityGroup,
       fsxFileSystem: fsxStorage.fileSystem,
       instanceType: resolvedInstanceType,
-      versionProfile: profile,
+      versionProfile: versionProfileConfig,
       versionProfileName: props.versionProfile,
       amiId: dcvAmiId,
       enableCloudWatch: props.enableCloudWatch,
       enableCodeServer,
       grootWeightsUrl: props.grootWeightsUrl,
       modelsDir: props.modelsDir,
+      workstationMode: cpuWorkstation ? 'cpu' : 'gpu',
     });
 
     // --- [3.5] CloudFrontCodeServerConstruct (code-server 활성화 시만 생성) ---
@@ -214,6 +226,11 @@ export class IsaacLabStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'VersionProfile', {
       value: props.versionProfile,
       description: 'Selected Version Profile',
+    });
+
+    new cdk.CfnOutput(this, 'DeploymentProfile', {
+      value: profile,
+      description: 'Deployment profile (personal | workshop-studio)',
     });
 
     new cdk.CfnOutput(this, 'VpcId', {

@@ -1,7 +1,7 @@
 /**
  * DcvInstanceConstruct
  *
- * NICE DCV가 설치된 GPU EC2 인스턴스, IAM 역할, Secrets Manager Secret,
+ * NICE DCV가 설치된 EC2 인스턴스(GPU 또는 CPU 워크스테이션), IAM 역할, Secrets Manager Secret,
  * CloudFormation CreationPolicy를 생성하는 L1 Construct.
  *
  * L1 Construct(Cfn* 클래스)를 사용하여 원본 CloudFormation 템플릿과
@@ -47,6 +47,14 @@ export interface DcvInstanceProps {
   grootWeightsUrl?: string;
   /** 모델·가중치를 내려받는 인스턴스 로컬 경로 (기본값: '/home/ubuntu/environment/models') */
   modelsDir?: string;
+  /**
+   * 워크스테이션 모드 (기본 gpu).
+   * cpu: GPU가 없는 인스턴스. UserData에서 nvidia-driver.sh 단계만 생략한다.
+   *      common.sh(데스크톱·DCV·ROS2), isaac-lab.sh(Docker 이미지 빌드),
+   *      models-download.sh, fsx-mount.sh, code-server.sh는 GPU 모드와 동일하게 실행되어
+   *      파일·이미지·경로가 같아진다.
+   */
+  workstationMode?: 'gpu' | 'cpu';
 }
 
 /**
@@ -56,8 +64,8 @@ export interface DcvInstanceProps {
  * - Secrets Manager Secret (DCV 비밀번호 자동 생성, 32자, 구두점 제외)
  * - IAM Role (S3 전체, ECR 전체, SSM, SageMaker, Secrets Manager 읽기 - ARN 제한)
  * - Instance Profile
- * - EC2 Instance (GPU, 500GB EBS gp3, EBS 암호화 활성화)
- * - CloudFormation CreationPolicy (120분 타임아웃 - 가이드 안내 최대 소요 110분 대비 여유)
+ * - EC2 Instance (GPU 또는 CPU 워크스테이션, 500GB EBS gp3, EBS 암호화 활성화)
+ * - CloudFormation CreationPolicy (120분 타임아웃; UserData 약 25분 소요)
  * - UserData (모듈 순차 실행, 환경 변수 주입, cfn-signal + reboot)
  */
 export class DcvInstanceConstruct extends Construct {
@@ -70,6 +78,7 @@ export class DcvInstanceConstruct extends Construct {
     super(scope, id);
 
     const p = props.namePrefix;
+    const workstationMode = props.workstationMode ?? 'gpu';
 
     // --- Secrets Manager Secret ---
     // DCV 비밀번호 자동 생성 (32자, 구두점 제외)
@@ -324,6 +333,7 @@ export class DcvInstanceConstruct extends Construct {
       `export ISAAC_LAB_VERSION="${props.versionProfile.isaacLabVersion ?? ''}"`,
       `export ROS2_DISTRO="${props.versionProfile.ros2Distro}"`,
       `export VERSION_PROFILE="${props.versionProfileName}"`,
+      `export WORKSTATION_MODE="${workstationMode}"`,
       'export FSX_ID="${FsxFileSystemId}"',
       'export FSX_DNS_NAME="${FsxDnsName}"',
       'export FSX_MOUNT_NAME="${FsxMountName}"',
@@ -368,8 +378,13 @@ export class DcvInstanceConstruct extends Construct {
       '',
       'echo "===== [$(date)] STAGE: common.sh ====="',
       'source /tmp/userdata-scripts/common.sh || { echo "[FAIL] common.sh failed"; USERDATA_EXIT=1; }',
-      'echo "===== [$(date)] STAGE: nvidia-driver.sh ====="',
-      'source /tmp/userdata-scripts/nvidia-driver.sh || { echo "[FAIL] nvidia-driver.sh failed"; USERDATA_EXIT=1; }',
+      // cpu 워크스테이션(workshop-studio 프로필)에는 GPU가 없으므로 드라이버 단계를 생략한다.
+      ...(workstationMode === 'cpu'
+        ? ['echo "===== [$(date)] STAGE: nvidia-driver.sh (skipped: WORKSTATION_MODE=cpu) ====="']
+        : [
+            'echo "===== [$(date)] STAGE: nvidia-driver.sh ====="',
+            'source /tmp/userdata-scripts/nvidia-driver.sh || { echo "[FAIL] nvidia-driver.sh failed"; USERDATA_EXIT=1; }',
+          ]),
       ...(props.enableCloudWatch ? ['source /tmp/userdata-scripts/cloudwatch-agent.sh || { echo "[FAIL] cloudwatch-agent.sh failed"; USERDATA_EXIT=1; }'] : []),
       '',
       '# GNOME(ubuntu-desktop) 설치가 networkd/resolved를 재시작하며 DNS가 일시 붕괴하는',
@@ -469,7 +484,7 @@ export class DcvInstanceConstruct extends Construct {
     );
 
     // --- CreationPolicy ---
-    // UserData 완료 시 cfn-signal을 수신하며, 타임아웃은 90분
+    // UserData 완료 시 cfn-signal을 수신하며, 타임아웃은 120분
     // DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축
     (cfnInstance as cdk.CfnResource).cfnOptions.creationPolicy = {
       resourceSignal: {

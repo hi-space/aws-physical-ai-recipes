@@ -106,6 +106,8 @@ graph TB
 
 Isaac Lab 시뮬레이션 환경 구축부터 GR00T VLA 모델 파인튜닝, 추론 검증, 모니터링까지 전체 파이프라인을 한 워크스페이스에서 실습합니다.
 
+Workshop Studio 이벤트 계정에서는 `-c profile=workshop-studio`(또는 프로비저너 `DeploymentProfile=workshop-studio`)로 배포한다 — 자세한 내용은 `e2e-workshop/README.md`.
+
 | 구성 요소 | 설명 |
 |-----------|------|
 | [infra/isaaclab](./e2e-workshop/infra/isaaclab/) | 멀티유저 GPU 환경 원클릭 CDK 배포 (DCV, EFS, AZ 자동 탐색) |
@@ -118,7 +120,7 @@ Isaac Lab 시뮬레이션 환경 구축부터 GR00T VLA 모델 파인튜닝, 추
 
 SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라입니다. SLURM 관리 클러스터에 FSx for Lustre 스토리지와 MLflow 트래킹 서버를 결합해 데이터 준비부터 분산 학습, 실험 추적까지 통합 환경을 제공합니다.
 
-- **클러스터**: head (m5.xlarge) + sim (g5.12xlarge) + train (g6e.12xlarge) + debug (g5.4xlarge)
+- **클러스터**: head (m5.xlarge) + train (gpu-g5-12x, ml.g5.12xlarge) + debug (ml.g5.8xlarge); `-c gpuGroups=extended`로 g6e/g6/p4d/p5 그룹 추가
 - **스토리지**: FSx for Lustre (1.2TB) ↔ S3 자동 동기화
 - **트래킹**: SageMaker Managed MLflow
 

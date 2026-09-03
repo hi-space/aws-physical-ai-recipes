@@ -13,7 +13,7 @@ CONFIG = {
         "region": "us-east-1",
     },
     "ecr": {"training_uri": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest"},
-    "training": {"instance_type": "ml.g6e.12xlarge"},
+    "training": {"instance_type": "ml.g5.12xlarge"},
 }
 
 
@@ -26,7 +26,7 @@ def _parse(argv):
 def test_build_arg_parser_defaults_instance_type_from_config():
     """CLI 미지정 시 인스턴스 타입 기본값을 config에서 읽는다."""
     args = _parse(["--dataset-s3-uri", "s3://b/ds"])
-    assert args.instance_type == "ml.g6e.12xlarge"
+    assert args.instance_type == "ml.g5.12xlarge"
 
 
 def test_build_training_job_applies_instance_type_and_forces_on_demand():
@@ -35,9 +35,9 @@ def test_build_training_job_applies_instance_type_and_forces_on_demand():
 
     args = _parse(["--dataset-s3-uri", "s3://b/ds"])
     estimator, inputs, job_name, region = run_training.build_training_job(
-        args, CONFIG, instance_type="ml.g5.12xlarge", use_spot=False
+        args, CONFIG, instance_type="ml.g6e.12xlarge", use_spot=False
     )
-    assert estimator.instance_type == "ml.g5.12xlarge"
+    assert estimator.instance_type == "ml.g6e.12xlarge"
     assert not estimator.use_spot_instances
     assert region == "us-east-1"
     assert job_name.startswith("groot-finetune")

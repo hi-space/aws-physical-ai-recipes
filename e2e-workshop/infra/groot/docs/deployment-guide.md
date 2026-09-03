@@ -1,7 +1,7 @@
 # GrootFinetune 스택 수동 배포 가이드
 
-워크샵(Workshop Studio) 환경에서는 이 스택이 이벤트 프로비저닝 시 자동으로 배포됩니다.
-이 문서는 **자동 배포가 없는 환경(개인 계정, 셀프 페이스)** 에서 직접 배포할 때의 절차입니다.
+이 워크샵은 개인 AWS 계정에서 진행합니다 (Workshop Studio 이벤트 계정은 GPU `g` 계열 인스턴스를 허용하지 않음). 기본 경로는 프로비저너 템플릿(`e2e-workshop-provisioner.yaml`)이 이 스택을 자동 배포하는 것이고,
+이 문서는 **CDK로 이 스택만 직접 배포**할 때(방법 2, 또는 파라미터를 바꿔 재배포할 때)의 절차입니다.
 
 ## 어디서 배포하나
 
@@ -63,6 +63,9 @@ npm run deploy -- -c grootVersion=n1.7
 # 부모 스택 자동 탐색을 건너뛰고 네트워크를 직접 지정
 npm run deploy -- -c vpcId=vpc-xxxx -c privateSubnetId=subnet-xxxx \
   -c availabilityZone=us-east-1a -c fsxFileSystemId=fs-xxxx
+
+# Workshop Studio 이벤트 계정: TransformDataset을 ml.g5.2xlarge로 (update-config.ts가 config.yaml에 기록)
+npm run deploy -- -c profile=workshop-studio
 ```
 
 ## 트러블슈팅

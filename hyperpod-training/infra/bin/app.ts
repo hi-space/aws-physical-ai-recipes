@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
+import { parseDeploymentProfile } from '../lib/config/deployment-profile';
 
 const app = new cdk.App();
 
@@ -11,9 +12,14 @@ const region = app.node.tryGetContext('region') ?? process.env.CDK_DEFAULT_REGIO
 const createVpc = (app.node.tryGetContext('createVpc') ?? 'true') === 'true';
 const gpuMaxCountPerType = parseInt(app.node.tryGetContext('gpuMaxCount') ?? '4', 10);
 const gpuUseSpot = (app.node.tryGetContext('gpuUseSpot') ?? 'false') === 'true';
+// GPU 그룹 프로필. 기본 core 는 gpu-g5-12x 하나만 만든다(Workshop Studio SageMaker 허용 목록 호환).
+// g6e/g6/p4d/p5 그룹까지 만들려면 -c gpuGroups=extended (해당 타입 cluster 쿼터가 있는 계정용).
+const gpuGroups = (app.node.tryGetContext('gpuGroups') ?? 'core') as 'core' | 'extended';
+// 배포 프로필. workshop-studio 는 Workshop Studio 이벤트 계정(head 노드 ml.g5.2xlarge).
+const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
 // 기동할 노드 수. HyperPod Slurm 은 job 제출 시 자동 스케일업하지 않으므로, 학습 전에
 // 이 값을 올려 재배포하고 끝나면 0 으로 되돌리는 방식으로 비용을 통제한다.
-// gpuCount 는 기본 학습 그룹(TRAIN_INSTANCE_PRESETS.default = ml.g6e.12xlarge)에만 적용된다.
+// gpuCount 는 기본 학습 그룹(TRAIN_INSTANCE_PRESETS.default = ml.g5.12xlarge, gpu-g5-12x)에만 적용된다.
 const gpuCount = parseInt(app.node.tryGetContext('gpuCount') ?? '0', 10);
 const debugCount = parseInt(app.node.tryGetContext('debugCount') ?? '0', 10);
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
@@ -25,6 +31,9 @@ const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const importedFsxId = app.node.tryGetContext('fsxFileSystemId') ?? '';
 const importedFsxMountName = app.node.tryGetContext('fsxMountName') ?? '';
 
+if (gpuGroups !== 'core' && gpuGroups !== 'extended') {
+  throw new Error(`gpuGroups는 'core' 또는 'extended' 여야 합니다: '${gpuGroups}'`);
+}
 if (!Number.isInteger(gpuCount) || gpuCount < 0 || gpuCount > gpuMaxCountPerType) {
   throw new Error(`gpuCount는 0 이상 gpuMaxCount(${gpuMaxCountPerType}) 이하의 정수여야 합니다: '${gpuCount}'`);
 }
@@ -57,6 +66,8 @@ new HyperPodStack(app, stackName, {
   vpcCidr,
   gpuMaxCountPerType,
   gpuUseSpot,
+  gpuGroups,
+  profile,
   gpuCount,
   debugCount,
   fsxCapacityGiB,

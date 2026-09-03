@@ -84,7 +84,10 @@ else
     # 겹칠 수 있다 — lock을 기다린다 (기본 동작은 즉시 실패).
     apt-get -o DPkg::Lock::Timeout=300 install -y python3-pip
   fi
-  pip3 install --break-system-packages -q huggingface_hub
+  # --ignore-installed: DLAMI(Ubuntu 24.04)의 Debian 관리 typing_extensions 를 pip 이 제거하려다
+  # "Cannot uninstall typing_extensions, RECORD file not found" 로 실패하는 것을 피한다.
+  # /usr/local 에 설치된 사본이 sys.path 에서 우선하므로 시스템 패키지는 건드리지 않는다.
+  pip3 install --break-system-packages --ignore-installed -q huggingface_hub
   python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='${GROOT_DIR}')" \
     || echo "[WARN] GR00T-N1.6-3B 모델 다운로드 실패 — 수동 다운로드 필요"
 fi

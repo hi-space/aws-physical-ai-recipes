@@ -22,7 +22,7 @@ def _completed_job():
         "ModelArtifacts": {"S3ModelArtifacts": "s3://b/output/job-1/output/model.tar.gz"},
         "HyperParameters": {"export_s3_uri": "s3://b/models/groot-sm/job-1"},
         "CheckpointConfig": {"S3Uri": "s3://b/checkpoints/job-1"},
-        "ResourceConfig": {"InstanceType": "ml.g6e.12xlarge"},
+        "ResourceConfig": {"InstanceType": "ml.g5.12xlarge"},
     }
 
 

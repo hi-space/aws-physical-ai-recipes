@@ -12,7 +12,7 @@
     },
     {
       "InstanceGroupName": "debug",
-      "InstanceType": "ml.g6e.4xlarge",
+      "InstanceType": "ml.g5.8xlarge",
       "InstanceCount": 0,
       "LifeCycleConfig": {
         "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
@@ -20,71 +20,8 @@
       }
     },
     {
-      "InstanceGroupName": "gpu-g6e-12x",
-      "InstanceType": "ml.g6e.12xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-g6e-24x",
-      "InstanceType": "ml.g6e.24xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-g6e-48x",
-      "InstanceType": "ml.g6e.48xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-g6-12x",
-      "InstanceType": "ml.g6.12xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-g6-24x",
-      "InstanceType": "ml.g6.24xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-g6-48x",
-      "InstanceType": "ml.g6.48xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-p4d",
-      "InstanceType": "ml.p4d.24xlarge",
-      "InstanceCount": 0,
-      "LifeCycleConfig": {
-        "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
-        "OnCreate": "on_create.sh"
-      }
-    },
-    {
-      "InstanceGroupName": "gpu-p5",
-      "InstanceType": "ml.p5.48xlarge",
+      "InstanceGroupName": "gpu-g5-12x",
+      "InstanceType": "ml.g5.12xlarge",
       "InstanceCount": 0,
       "LifeCycleConfig": {
         "SourceS3Uri": "s3://LIFECYCLE_BUCKET/lifecycle-scripts/",
@@ -93,7 +30,11 @@
     }
   ],
   "VpcConfig": {
-    "SecurityGroupIds": ["sg-REPLACE"],
-    "Subnets": ["subnet-REPLACE"]
+    "SecurityGroupIds": [
+      "sg-REPLACE"
+    ],
+    "Subnets": [
+      "subnet-REPLACE"
+    ]
   }
 }

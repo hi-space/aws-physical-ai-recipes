@@ -9,7 +9,7 @@
 사용법:
     python scripts/run_with_fallback.py \\
         --dataset-s3-uri s3://my-bucket/datasets/leisaac-pick-orange \\
-        --instance-types ml.g6e.12xlarge ml.g5.12xlarge \\
+        --instance-types ml.g5.12xlarge ml.g6e.12xlarge \\
         --capacity-timeout-seconds 900
 
     # config.yaml의 training.instance_type + instance_fallbacks 사용:

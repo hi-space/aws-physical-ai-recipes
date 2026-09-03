@@ -13,6 +13,7 @@ import { NotebookRole } from './constructs/notebook-role';
 import { StudioDomain } from './constructs/studio-domain';
 import { ArtifactsBucket } from './constructs/artifacts-bucket';
 import { SageMakerExecutionRole } from './constructs/sagemaker-role';
+import { DeploymentProfile } from './deployment-profile';
 
 export const STUDIO_DOMAIN_ID_PARAMETER = '/groot-finetune/studio-domain-id';
 export const SM_TRAINING_REPO_NAME = 'groot-sm-training';
@@ -39,6 +40,8 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
   grootVersion?: string;
   /** SageMaker CodeBuild GitHub source. 비워두면 NO_SOURCE. */
   repositoryUrl?: string;
+  /** 배포 프로필 (기본 personal). update-config.ts가 이 출력을 읽어 config.yaml을 조정한다. */
+  profile?: DeploymentProfile;
 }
 
 /**
@@ -239,6 +242,10 @@ export class GrootFinetuneStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserId', {
       value: accountId,
       description: 'Deployment identifier (AWS account ID)',
+    });
+    new cdk.CfnOutput(this, 'DeploymentProfile', {
+      value: props.profile ?? 'personal',
+      description: 'Deployment profile (personal | workshop-studio)',
     });
   }
 }

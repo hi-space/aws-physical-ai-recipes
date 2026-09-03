@@ -11,9 +11,11 @@
  * 사용 예시:
  *   npm run deploy                        # GrootFinetune-<ACCOUNT_ID> 배포
  *   npx cdk deploy -c grootVersion=n1.7   # GR00T N1.7 런타임 이미지
+ *   npx cdk deploy -c profile=workshop-studio   # Workshop Studio 계정 (TransformDataset ml.g5.2xlarge)
  */
 import * as cdk from 'aws-cdk-lib';
 import { GrootFinetuneStack } from '../lib/groot-finetune-stack';
+import { parseDeploymentProfile } from '../lib/deployment-profile';
 import { resolveParentStack, saveToContext } from './resolve-parent-stack';
 
 async function main() {
@@ -33,6 +35,7 @@ async function main() {
   const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
   const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
   const repositoryUrl = app.node.tryGetContext('repositoryUrl') ?? '';
+  const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
 
   // ---- 부모 IsaacLab 스택에서 VPC/EFS/FSx 자동 탐색 ----
   // context로 직접 지정하면(수동 오버라이드) 탐색을 건너뛴다.
@@ -66,6 +69,7 @@ async function main() {
     useStableGroot,
     grootVersion,
     repositoryUrl,
+    profile,
   });
 }
 

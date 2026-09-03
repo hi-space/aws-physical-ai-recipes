@@ -53,9 +53,9 @@ us-west-2 전환).
 
 | 쿼터 | 권장값 | 산정 |
 |---|---|---|
-| ml.g6e.12xlarge for training job usage | **12** | 본격 학습(배치 32) — 10명 동시 + 재시도 겹침 여유 |
-| ml.g6.12xlarge for training job usage | **12** | 폴백 — 전원이 몰릴 수 있음 |
-| ml.g5.12xlarge for training job usage | **12** | 폴백 — 전원이 몰릴 수 있음 |
+| ml.g5.12xlarge for training job usage | **12** | **학습 기본**(4× A10G) — 10명 동시 + 재시도 겹침 여유 |
+| ml.g6e.12xlarge for training job usage | 12 (선택) | 더 빠른 학습(4× L40S) — g6e 쿼터를 받을 수 있는 계정만 |
+| ml.g6.12xlarge for training job usage | 12 (선택) | 폴백 — 전원이 몰릴 수 있음 |
 | ml.g6e.2xlarge for training job usage | **12** | 단일 GPU(1× L40S 48GB) 최소 검증 경로(배치 ≤4, 실측) — 첫 실행은 이쪽으로 유도 |
 | ml.g6e.4xlarge for training job usage | **12** | 단일 GPU(48GB) — 사이즈 분산용 |
 | ml.g6e.8xlarge for training job usage | **10** | 단일 GPU(48GB) — 사이즈 분산용 |
@@ -69,18 +69,18 @@ us-west-2 전환).
 
 | 쿼터 | 권장값 | 산정 |
 |---|---|---|
-| ml.g6.xlarge for processing job usage | **12** | 10명의 SmokeEval 동시 실행 + 여유. GPU 필수 (N1.6은 CPU 불가 — 실측) |
-| ml.g6.2xlarge for processing job usage | **10** | 폴백 (`EvalInstanceType` 파라미터) |
+| ml.g5.2xlarge for processing job usage | **12** | 10명의 SmokeEval 동시 실행 + 여유. GPU 필수 (N1.6은 CPU 불가 — 실측) |
+| ml.g6.xlarge for processing job usage | 10 (선택) | 폴백 (`EvalInstanceType` 파라미터) |
 
 ### 4) SageMaker HyperPod (모듈 7–9)
 
 | 쿼터 | 권장값 | 산정 |
 |---|---|---|
 | ml.m5.xlarge for cluster usage | **1** | head 노드 (클러스터 공유, 1대면 충분) |
-| ml.g6e.12xlarge for cluster usage | **10** | 학습 그룹 — 1인 1노드 동시 학습 |
-| ml.g5.12xlarge for cluster usage | **10** | 폴백 그룹 — 전원이 몰릴 수 있음 |
-| ml.g6.12xlarge for cluster usage | **10** | 폴백 그룹 |
-| ml.g6e.4xlarge for cluster usage | **10** | debug 그룹 (모듈 9, 1인 1노드) |
+| ml.g5.12xlarge for cluster usage | **10** | 학습 그룹 `gpu-g5-12x` (기본) — 1인 1노드 동시 학습 |
+| ml.g5.8xlarge for cluster usage | **10** | debug 그룹 (모듈 10, 1인 1노드) |
+| ml.g6e.12xlarge for cluster usage | 10 (선택) | `-c gpuGroups=extended` 배포 시 `gpu-g6e-12x` |
+| ml.g6.12xlarge for cluster usage | 10 (선택) | `-c gpuGroups=extended` 배포 시 `gpu-g6-12x` |
 
 > 클러스터 배포 시 그룹당 최대 노드 수(`gpuMaxCount`, 기본 4)를 10 이상으로 올려야
 > 쿼터가 있어도 그룹이 그만큼 확장됩니다.
@@ -110,22 +110,22 @@ for q in d['Quotas']:
       || echo "FAILED (동시 요청 한도 — 기존 요청 처리 후 재실행): $NAME"
   }
 
-  # Training (12x = 본격 학습, 2x/4x/8x = 단일 GPU 최소 검증·사이즈 분산)
+  # Training (g5.12x = 기본, g6e/g6.12x = 선택, g6e 2x/4x/8x = 단일 GPU 최소 검증·사이즈 분산)
+  request "ml.g5.12xlarge for training job usage" 12
   request "ml.g6e.12xlarge for training job usage" 12
   request "ml.g6.12xlarge for training job usage" 12
-  request "ml.g5.12xlarge for training job usage" 12
   request "ml.g6e.2xlarge for training job usage" 12
   request "ml.g6e.4xlarge for training job usage" 12
   request "ml.g6e.8xlarge for training job usage" 10
   # Processing (Transform + SmokeEval)
   request "ml.m5.2xlarge for processing job usage" 12
-  request "ml.g6.xlarge for processing job usage" 12
-  request "ml.g6.2xlarge for processing job usage" 10
-  # HyperPod cluster
-  request "ml.g6e.12xlarge for cluster usage" 10
+  request "ml.g5.2xlarge for processing job usage" 12
+  request "ml.g6.xlarge for processing job usage" 10
+  # HyperPod cluster (core = g5.12x + g5.8x; g6e/g6는 extended 프로필용)
   request "ml.g5.12xlarge for cluster usage" 10
+  request "ml.g5.8xlarge for cluster usage" 10
+  request "ml.g6e.12xlarge for cluster usage" 10
   request "ml.g6.12xlarge for cluster usage" 10
-  request "ml.g6e.4xlarge for cluster usage" 10
 
   # EC2 G/VT vCPU
   aws service-quotas request-service-quota-increase --region "$REGION" \

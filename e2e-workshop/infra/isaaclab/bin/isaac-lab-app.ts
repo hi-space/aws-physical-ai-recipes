@@ -17,6 +17,7 @@
  *   cdk deploy                                          # 기본 리전에 latest 프로필 배포
  *   cdk deploy -c region=us-west-2
  *   cdk deploy -c versionProfile=stable                  # Isaac Sim 4.5.0 조합
+ *   cdk deploy -c profile=workshop-studio                # Workshop Studio 계정(CPU 워크스테이션)
  *
  * GR00T 가중치(약 6.1GiB)는 기본적으로 HuggingFace에서 받는다. 같은 리전의 S3
  * 사본을 지정하면 배포가 빨라지고 HuggingFace 가용성에 의존하지 않는다:
@@ -28,6 +29,7 @@
  */
 import * as cdk from 'aws-cdk-lib';
 import { IsaacLabStack } from '../lib/isaac-lab-stack';
+import { parseDeploymentProfile } from '../lib/config/deployment-profile';
 
 const app = new cdk.App();
 
@@ -43,6 +45,8 @@ const grootWeightsUrl = app.node.tryGetContext('grootWeightsUrl') ?? '';
 const modelsDir = app.node.tryGetContext('modelsDir') ?? '/home/ubuntu/environment/models';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
+// 배포 프로필. workshop-studio = Workshop Studio 이벤트 계정(EC2 GPU 불가 → CPU 워크스테이션).
+const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
 // 식별자는 배포 대상 계정 ID를 사용한다(1인 1계정 전제). 스택 이름은 synth 시점에
 // literal이어야 하므로 토큰(cdk.Aws.ACCOUNT_ID)이 아니라 CDK CLI가 주입하는 환경 변수를 읽는다.
 const accountId = process.env.CDK_DEFAULT_ACCOUNT ?? '';
@@ -74,4 +78,5 @@ new IsaacLabStack(app, stackName, {
   modelsDir,
   isaacSimVersion: isaacSimVersion || undefined,
   fsxCapacityGiB,
+  profile,
 });

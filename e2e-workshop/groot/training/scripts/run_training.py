@@ -309,8 +309,8 @@ def build_arg_parser(config: dict) -> argparse.ArgumentParser:
     parser.add_argument("--training-image-uri", default="",
                         help="학습 컨테이너 ECR URI 직접 지정 (--groot-version과 무관)")
     parser.add_argument("--instance-type",
-                        default=train_cfg.get("instance_type", "ml.g6e.12xlarge"),
-                        help="학습 인스턴스 타입 (기본 ml.g6e.12xlarge — L40S 4-GPU)")
+                        default=train_cfg.get("instance_type", "ml.g5.12xlarge"),
+                        help="학습 인스턴스 타입 (기본 ml.g5.12xlarge — A10G 4-GPU)")
     parser.add_argument("--max-steps", type=int,
                         default=int(train_cfg.get("max_steps", 100)),
                         help="최대 학습 스텝 (기본 100 — 검증용)")

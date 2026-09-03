@@ -47,11 +47,16 @@ cd aws-physical-ai-recipes/e2e-workshop/infra/isaaclab
 npm install
 
 cdk deploy -c region=us-east-1
+
+# Workshop Studio 이벤트 계정 (EC2 GPU 불가): CPU 워크스테이션 + SageMaker/HyperPod 모듈만
+cdk deploy -c region=us-east-1 -c profile=workshop-studio
 ```
+
+배포 프로필은 `personal`(기본, GPU 워크스테이션)과 `workshop-studio`(CPU 워크스테이션, TransformDataset·HyperPod head `ml.g5.2xlarge`, us-east-1/us-west-2)입니다. 세 스택(IsaacLab·GrootFinetune·HyperPod)에 같은 값을 지정합니다.
 
 스택 이름은 배포 대상 계정 ID가 붙은 `IsaacLab-Latest-<ACCOUNT_ID>`가 됩니다(1인 1계정 전제).
 
-배포에 70~110분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
+배포에 35~45분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
 
 ### 2) RL 학습 — Isaac Lab으로 휴머노이드 보행
 

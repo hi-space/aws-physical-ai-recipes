@@ -11,7 +11,7 @@ CDK 프로젝트 자체가 메인 결과물이며, CloudFormation 템플릿은 `
 | 리전 지원 | 3개 리전 하드코딩 | 12개 리전 DLAMI 매핑 + 멀티리전 배포 |
 | 버전 관리 | 고정 | Version Profile 기반 (stable / latest) |
 | AZ 선택 | 인덱스 0 고정 | Custom Resource Lambda로 capacity 자동 탐색 + 인스턴스 타입 fallback |
-| 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge 자동 fallback |
+| 인스턴스 타입 | g6.12xlarge 고정 | g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge 자동 fallback |
 | UserData | 모놀리식 | 독립 셸 스크립트 모듈 (cloudwatch-agent.sh, code-server.sh는 옵션). GR00T-N1.6-3B 모델 가중치는 models-download.sh가 인스턴스 로컬 디스크로 자동 다운로드하며, Docker 빌드/추론 서버 실행은 사용자가 수동 수행 |
 | 보안 | 미흡 | allowedCidr, FSx SG VPC CIDR 제한, EBS 암호화, Secrets Manager ARN 제한 |
 | 네트워크 안정성 | Route-IGW 의존성 미지정 | PublicRoute → VPCGatewayAttachment DependsOn 명시 |
@@ -170,16 +170,19 @@ cdk synth
 
 # 13. 스택 삭제
 cdk destroy
+
+cdk deploy -c profile=workshop-studio   # Workshop Studio 계정 (CPU 워크스테이션)
 ```
 
-> 인스턴스 타입 미지정 시 자동 fallback 순서: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge`
+> 인스턴스 타입 미지정 시 자동 fallback 순서: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge`
 
 ## Props 설명
 
 | Props | 타입 | 기본값 | 설명 |
 |-------|------|--------|------|
+| `profile` | `personal` \| `workshop-studio` | `personal` | 배포 프로필. `workshop-studio`는 Workshop Studio 이벤트 계정용 — EC2 G/P 계열 vCPU 한도가 0이라 CPU 워크스테이션(`m6i.4xlarge → m5.4xlarge → m6a.4xlarge`)을 쓰고 UserData의 `nvidia-driver.sh`만 생략한다(AMI·Docker 이미지 빌드·모델 다운로드·code-server는 동일). Isaac Sim 모듈은 진행 불가 |
 | `versionProfile` | `stable` \| `latest` | `latest` | 소프트웨어 스택 프로필 선택 |
-| `inferenceInstanceType` | `string` | (auto fallback) | DCV GPU 인스턴스 타입. 미지정 시 `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge` 순서로 자동 탐색 |
+| `inferenceInstanceType` | `string` | (auto fallback) | DCV GPU 인스턴스 타입. 미지정 시 `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge` 순서로 자동 탐색 (`profile=workshop-studio`면 `m6i.4xlarge → m5.4xlarge → m6a.4xlarge`) |
 | `preferredAZ` | `auto` \| `0`~`5` | `auto` | AZ 선택. auto는 Lambda로 capacity 자동 탐색 |
 | `allowedCidr` | CIDR 문자열 | `0.0.0.0/0` | DCV 보안 그룹 인바운드 소스 CIDR |
 | `region` | 리전 코드 | CDK 기본 리전 | 배포 대상 리전 (멀티리전 배포용) |
@@ -337,7 +340,7 @@ npx cdk destroy
 `preferredAZ=auto` (기본값)일 때, Custom Resource Lambda가 배포 시점에 GPU capacity가 있는 AZ와 인스턴스 타입을 자동으로 탐색한다.
 
 동작 방식:
-1. 인스턴스 타입 fallback 리스트를 순차 시도: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge → g6.2xlarge`
+1. 인스턴스 타입 fallback 리스트를 순차 시도: `g6e.4xlarge → g6.4xlarge → g6e.8xlarge → g6.8xlarge → g6.12xlarge → g6e.12xlarge → g6e.2xlarge`. workshop-studio 프로필에서는 `m6i.4xlarge → m5.4xlarge → m6a.4xlarge`.
 2. 각 인스턴스 타입에 대해 `describe-instance-type-offerings`로 지원 AZ 목록 조회
 3. AZ 목록을 셔플하여 특정 AZ 집중 방지
 4. 각 AZ에서 `RunInstances` (MinCount=1) 시도
@@ -400,6 +403,7 @@ Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적�
 | `LogGroupArn` | VPC Flow Log 로그 그룹 ARN | IAM 정책 등에서 참조 |
 | `SecretArn` | DCV 비밀번호 Secret ARN | `aws secretsmanager get-secret-value`로 비밀번호 조회 |
 | `VersionProfile` | 선택된 버전 프로필 | 배포된 프로필 확인 |
+| `DeploymentProfile` | 배포 프로필 (`personal` \| `workshop-studio`) | CPU/GPU 워크스테이션 여부 확인 |
 | `PrivateSubnetId` | 프라이빗 서브넷 ID | groot·HyperPod 스택에서 참조 |
 | `FsxFileSystemId` | 공유 FSx for Lustre ID | groot SageMaker DRA·HyperPod에서 참조 |
 | `FsxMountName` | FSx Lustre mount name | 수동 마운트 시 참조 |
@@ -625,7 +629,7 @@ cdk deploy
 
 ### 배포가 오래 걸릴 때 (UserData 진행 상황 확인)
 
-`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 90분) 대기한다.
+`cdk deploy`가 오래 걸리는 것은 정상이다. EC2 인스턴스가 UserData를 통해 패키지 설치, NVIDIA 드라이버 업그레이드, Isaac Lab Docker 빌드 등을 수행하며, CreationPolicy가 cfn-signal을 받을 때까지 (최대 120분) 대기한다. UserData 약 25분, 스택 전체 약 35분 소요.
 
 진행 상황을 실시간으로 확인하려면:
 
@@ -699,7 +703,7 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
 - FSx 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
 - 단일 AZ 구조: AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 FSx 파일시스템이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없다. 여러 AZ에 걸치도록 만들 수도 있으나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다.
-- CreationPolicy 타임아웃: 90분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
+- CreationPolicy 타임아웃: 120분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
 - Ubuntu 24.04 (latest) 고유 제한:
   - External Script `install-dcv.sh`, `install-desktop.sh`가 24.04를 완전히 지원하지 않아 자체 로직으로 대체

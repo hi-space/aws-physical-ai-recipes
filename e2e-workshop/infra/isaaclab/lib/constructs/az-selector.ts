@@ -48,7 +48,18 @@ export const DEFAULT_INSTANCE_TYPE_FALLBACK = [
   'g6.12xlarge',  // L4 × 4 — 분산 학습 최적
   'g6e.12xlarge', // L40S × 4 — 고성능 분산 학습
   'g6e.2xlarge',  // L40S × 1 — 최후 수단 (vCPU 8, 64GB: 시뮬레이션 로딩이 느릴 수 있음)
-  'g6.2xlarge',   // L4 × 1 — 정말 최후 수단 (vCPU 8, 32GB: RAM이 Isaac Sim 최소 사양 수준, OOM 주의)
+];
+
+/**
+ * workshop-studio 프로필용 CPU 워크스테이션 fallback 순서.
+ * Workshop Studio 계정은 EC2 G/P 계열 vCPU 한도가 0이라 GPU 인스턴스를 띄울 수 없다.
+ * 16 vCPU를 고르는 이유: UserData의 docker build(pip 설치)가 CPU 바운드라
+ * g6e.4xlarge(16 vCPU)와 비슷한 빌드 시간을 유지하기 위해서다.
+ */
+export const CPU_INSTANCE_TYPE_FALLBACK = [
+  'm6i.4xlarge',  // 16 vCPU, 64GB
+  'm5.4xlarge',   // 16 vCPU, 64GB
+  'm6a.4xlarge',  // 16 vCPU, 64GB (AMD)
 ];
 
 /**

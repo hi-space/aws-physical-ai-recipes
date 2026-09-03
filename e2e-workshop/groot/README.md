@@ -25,6 +25,7 @@ HF 데이터셋 ID → pipeline/ (TransformDataset → GR00TFinetune → SmokeEv
 - 학습 곡선·모델 버전을 추적하는 MLflow tracking server
 
 배포가 끝나면 인프라 정보가 `config.yaml`에 자동으로 채워지고, 이 디렉토리의 모든 스크립트가 그 값을 기본값으로 사용합니다.
+`DeploymentProfile` 출력이 `workshop-studio`면 `update-config.ts`가 `transform.instance_type`을 `ml.g5.2xlarge`로 기록한다(Workshop Studio 계정의 processing-job 허용 타입).
 
 추가로 Python 3.10+ 와 [`uv`](https://docs.astral.sh/uv/)가 필요합니다.
 
@@ -71,7 +72,7 @@ python training/scripts/run_training.py \
     --max-steps 100 --save-steps 50
 ```
 
-기본 인스턴스는 `ml.g6e.12xlarge` (L40S 4-GPU)입니다. 본격 학습은 `--max-steps 6000 --save-steps 2000`처럼 step만 키워서 실행하면 됩니다.
+기본 인스턴스는 `ml.g5.12xlarge` (A10G 4-GPU)입니다. g6e 쿼터가 있으면 `--instance-type ml.g6e.12xlarge`(L40S 4-GPU)로 더 빠르게 학습할 수 있습니다. 본격 학습은 `--max-steps 6000 --save-steps 2000`처럼 step만 키워서 실행하면 됩니다.
 
 학습 곡선은 SageMaker 콘솔의 *Performance* 탭과 MLflow에서 확인할 수 있습니다.
 

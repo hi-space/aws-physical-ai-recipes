@@ -20,6 +20,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 
+import { applyOutputsToConfig } from './update-config-core';
+
 interface Args {
   region?: string;
   configPath?: string;
@@ -111,28 +113,7 @@ async function main() {
   const accountId = stack.StackId?.split(':')[4] ?? '';
 
   const config = yaml.load(fs.readFileSync(configPath, 'utf-8')) as Record<string, any>;
-  config.aws ??= {};
-  config.aws.account_id = accountId;
-  // alias는 파이프라인/모델 그룹 이름 접미사로 쓰인다. 1인 1계정 전제로 계정 ID를 쓴다.
-  config.aws.alias = out.UserId ?? accountId;
-  config.aws.bucket_name = out.BucketName ?? config.aws.bucket_name ?? '';
-  config.aws.role_arn = out.SageMakerRoleArn ?? config.aws.role_arn ?? '';
-  config.aws.region = region;
-
-  config.ecr ??= {};
-  config.ecr.training_uri = out.TrainingRepositoryUri
-    ? `${out.TrainingRepositoryUri}:latest`
-    : config.ecr.training_uri ?? '';
-
-  config.codebuild ??= {};
-  config.codebuild.training_project = out.SmTrainingBuildProjectName ?? 'groot-sm-training-build';
-
-  config.mlflow ??= {};
-  config.mlflow.tracking_server_arn =
-    out.MlflowTrackingServerArn ?? config.mlflow.tracking_server_arn ?? '';
-  config.mlflow.tracking_server_name =
-    out.MlflowTrackingServerName ?? `groot-mlflow-${accountId}`;
-  config.mlflow.experiment_name ??= 'groot-sm-finetune';
+  applyOutputsToConfig(config, out, accountId, region);
 
   fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: -1 }));
 
@@ -148,6 +129,8 @@ async function main() {
   console.log(`  Studio 도메인 ID : ${out.StudioDomainId}`);
   console.log(`  Studio 사용자    : ${out.StudioUserProfileName}`);
   console.log(`  MLflow 서버 ARN  : ${out.MlflowTrackingServerArn}`);
+  console.log(`  배포 프로필      : ${out.DeploymentProfile ?? 'personal'}`);
+  console.log(`  Transform 타입   : ${config.transform?.instance_type}`);
 }
 
 main().catch((err) => {

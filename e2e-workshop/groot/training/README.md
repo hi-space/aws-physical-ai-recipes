@@ -58,7 +58,7 @@ python training/data/upload_dataset.py \
 
 ### 학습 실행
 
-기본 인스턴스는 `ml.g6e.12xlarge` (L40S 4-GPU)입니다.
+기본 인스턴스는 `ml.g5.12xlarge` (A10G 4-GPU)입니다. g6e 쿼터가 있으면 `--instance-type ml.g6e.12xlarge`(L40S 4-GPU)도 사용할 수 있습니다.
 
 빠른 검증 (100 step):
 

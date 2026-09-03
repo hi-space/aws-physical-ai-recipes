@@ -27,8 +27,8 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
                    model_package_group="groot-sm-models",
                    hf_dataset_id="LightwheelAI/leisaac-pick-orange",
                    transform_instance_type="ml.m5.2xlarge",
-                   train_instance_type="ml.g6e.12xlarge",
-                   eval_instance_type="ml.g6.xlarge",
+                   train_instance_type="ml.g5.12xlarge",
+                   eval_instance_type="ml.g5.2xlarge",
                    max_steps=100, global_batch_size=32, save_steps=50,
                    num_gpus=0, embodiment_tag="NEW_EMBODIMENT", alias="", env=None):
     root = Path(source_root)
@@ -39,7 +39,7 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     p_hf_dataset = ParameterString(name="HfDatasetId", default_value=hf_dataset_id)
     p_train_inst = ParameterString(name="InstanceType", default_value=train_instance_type)
     # 평가 인스턴스도 런타임 파라미터: processing job usage 쿼터는 training 과
-    # 별개 축이라(예: ml.g6.xlarge processing 쿼터 0인 계정 실측), 계정/리전에
+    # 별개 축이라(예: GPU processing 쿼터 0인 계정 실측), 계정/리전에
     # 따라 re-upsert 없이 다른 GPU 타입으로 바꿔 실행할 수 있어야 한다.
     p_eval_inst = ParameterString(name="EvalInstanceType", default_value=eval_instance_type)
     p_max_steps = ParameterInteger(name="MaxSteps", default_value=int(max_steps))
@@ -134,7 +134,7 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
                   sagemaker_session=session, role=role)
     register_step = ModelStep(name="RegisterModel", step_args=model.register(
         content_types=["application/x-npy"], response_types=["application/json"],
-        inference_instances=["ml.g6.xlarge"], transform_instances=["ml.g6.xlarge"],
+        inference_instances=["ml.g6.4xlarge"], transform_instances=["ml.g6.4xlarge"],
         model_package_group_name=model_package_group, approval_status="Approved"))
     fail_step = FailStep(name="SmokeFailed",
                          error_message="Smoke eval failed — model not registered")

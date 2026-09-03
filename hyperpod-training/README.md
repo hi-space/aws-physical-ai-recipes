@@ -7,11 +7,11 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ HyperPod Cluster (SLURM Managed)                        │
-│  ├─ head   (ml.m5.xlarge)     — 컨트롤러, 상시 운영      │
-│  ├─ gpu-*  (GPU 타입별 그룹)  — VLA/RL 학습, 시뮬레이션  │
-│  │     g6e-12x/24x/48x, g6-12x/24x/48x, p4d, p5         │
+│  ├─ head   (ml.m5.xlarge; workshop-studio 프로필은 ml.g5.2xlarge) — 컨트롤러, 상시 운영 │
+│  ├─ gpu-g5-12x (ml.g5.12xlarge) — VLA/RL 학습 (0에서)    │
+│  │     -c gpuGroups=extended: g6e/g6/p4d/p5 그룹 추가    │
 │  │     (전부 노드 0에서 시작)                            │
-│  └─ debug  (ml.g6e.4xlarge)   — 디버깅/시각화 (0에서)    │
+│  └─ debug  (ml.g5.8xlarge)    — 디버깅/시각화 (0에서)    │
 ├─────────────────────────────────────────────────────────┤
 │ Storage                                                  │
 │  ├─ FSx for Lustre (1.2TB) ← /fsx 마운트               │
@@ -61,7 +61,9 @@ npx cdk deploy -c region=us-east-1 --require-approval never
 | `createVpc` | true | VPC를 새로 생성 (false면 기존 VPC 사용) |
 | `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
-| `gpuCount` | 0 | 기본 학습 그룹(ml.g6e.12xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
+| `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-12x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
+| `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(head 노드 `ml.g5.2xlarge` — cluster 허용 타입 중 최소; SageMaker 증량 리전 us-east-1/us-west-2에서만) |
+| `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-12x, ml.g5.12xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
 | `debugCount` | 0 | debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1) |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
@@ -78,7 +80,7 @@ npx cdk deploy \
 ```
 
 > **GPU 쿼터 확인 필수.** GPU 인스턴스 그룹은 `lib/config/cluster-config.ts`의
-> `GPU_INSTANCES` 목록(g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
+> 프로필(`core`: g5-12x / `extended`: + g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
 > 모두 0입니다. 쿼터가 0인 타입은 job이 영구히 `PENDING`에 머무르므로 배포 전에 확인하세요.
 >
 > ```bash
@@ -110,10 +112,10 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 
 ```bash
 # 학습용 GPU 노드 1대 기동 (InService까지 대기, 10~20분)
-./scripts/scale-cluster.sh gpu-g6e-12x 1 --wait
+./scripts/scale-cluster.sh gpu-g5-12x 1 --wait
 
 # 학습 종료 후 0으로 축소
-./scripts/scale-cluster.sh gpu-g6e-12x 0
+./scripts/scale-cluster.sh gpu-g5-12x 0
 
 # DCV 디버그 노드 (시각화 검증)
 ./scripts/scale-cluster.sh debug 1 --wait
@@ -148,14 +150,7 @@ aws sagemaker list-cluster-nodes \
   "Status": "InService",
   "Groups": [
     { "Name": "head",        "Count": 1, "Status": "InService" },
-    { "Name": "gpu-g6e-12x", "Count": 0, "Status": "InService" },
-    { "Name": "gpu-g6e-24x", "Count": 0, "Status": "InService" },
-    { "Name": "gpu-g6e-48x", "Count": 0, "Status": "InService" },
-    { "Name": "gpu-g6-12x",  "Count": 0, "Status": "InService" },
-    { "Name": "gpu-g6-24x",  "Count": 0, "Status": "InService" },
-    { "Name": "gpu-g6-48x",  "Count": 0, "Status": "InService" },
-    { "Name": "gpu-p4d",     "Count": 0, "Status": "InService" },
-    { "Name": "gpu-p5",      "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g5-12x",  "Count": 0, "Status": "InService" },
     { "Name": "debug",       "Count": 0, "Status": "InService" }
   ]
 }
@@ -487,8 +482,9 @@ aws cloudformation delete-stack --stack-name HyperPod-<ACCOUNT_ID> --region us-e
 | 컴포넌트 | 시간당 비용 | 비고 |
 |---------|------------|------|
 | Head Node (ml.m5.xlarge) | ~$0.20 | 상시 운영 |
-| Train (ml.g6e.12xlarge) | ~$7.00 | 학습 시에만 |
-| Sim (ml.g5.12xlarge, Spot) | ~$2.00 | 시뮬레이션 시에만 |
+| Head Node (workshop-studio 프로필, ml.g5.2xlarge) | ~$1.21 | 위 행을 대체 |
+| Train (gpu-g5-12x, ml.g5.12xlarge) | ~$7.00 | 학습 시에만 |
+| Debug (ml.g5.8xlarge) | ~$3.00 | 시각 검증 시에만 |
 | FSx (1.2TB) | ~$0.55 | 상시 |
 | MLflow | ~$0.10 | 상시 |
 | **실습 중 (head only)** | **~$0.85/hr** | |

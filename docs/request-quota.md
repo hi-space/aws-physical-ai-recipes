@@ -58,9 +58,9 @@ Physical AI on AWS 워크숍(e2e-workshop + hyperpod-training)을 새 계정에�
 
 | 쿼터 이름 | 권장값 | 용도 |
 |---|---|---|
-| ml.g6e.12xlarge for training job usage | **2** | 본격 학습 기본 (4× L40S, 배치 32) |
-| ml.g6.12xlarge for training job usage | **2** | 용량 부족 시 폴백 (4× L4, DeepSpeed로 통과 가능) |
-| ml.g5.12xlarge for training job usage | **2** | 용량 부족 시 폴백 (4× A10G) |
+| ml.g5.12xlarge for training job usage | **2** | **학습 기본** (4× A10G, DeepSpeed 분산 — Workshop Studio SageMaker 허용 목록에 포함) |
+| ml.g6e.12xlarge for training job usage | 2 (선택) | 더 빠른 학습 (4× L40S) — g6e 쿼터가 있는 개인 계정에서 `InstanceType` 파라미터로 전환 |
+| ml.g6.12xlarge for training job usage | 2 (선택) | 용량 부족 시 폴백 (4× L4, DeepSpeed로 통과 가능) |
 | ml.g6e.2xlarge for training job usage | **1–2** | 단일 GPU(1× L40S 48GB) 최소 검증 경로 — 배치 1~4 실측 통과 |
 | ml.g6e.4xlarge for training job usage | **1–2** | 단일 GPU(48GB), CPU/RAM 여유 |
 | ml.g6e.8xlarge for training job usage | **1** | 단일 GPU(48GB), 2x/4x 용량 부족 시 대체 |
@@ -78,18 +78,18 @@ Physical AI on AWS 워크숍(e2e-workshop + hyperpod-training)을 새 계정에�
 
 | 쿼터 이름 | 권장값 | 용도 |
 |---|---|---|
-| ml.g6.xlarge for processing job usage | **2** | SmokeEval 기본 인스턴스. **GPU 필수** — GR00T N1.6 백본이 flash attention을 코드에서 강제하므로 CPU 인스턴스로는 평가가 불가능합니다 (실측) |
-| ml.g6.2xlarge for processing job usage | 1 (선택) | 폴백 (파이프라인 `EvalInstanceType` 파라미터로 전환) |
+| ml.g5.2xlarge for processing job usage | **2** | SmokeEval 기본 인스턴스 (Workshop Studio SageMaker 허용 목록에 포함). **GPU 필수** — GR00T N1.6 백본이 flash attention을 코드에서 강제하므로 CPU 인스턴스로는 평가가 불가능합니다 (실측) |
+| ml.g6.xlarge for processing job usage | 1 (선택) | 폴백 (파이프라인 `EvalInstanceType` 파라미터로 전환) |
 
 ### 4) 모듈 7–9 — HyperPod 클러스터 (cluster usage)
 
 | 쿼터 이름 | 권장값 | 용도 |
 |---|---|---|
 | ml.m5.xlarge for cluster usage | 1 (기본값 확인) | head 노드 (Slurm controller) |
-| ml.g6e.12xlarge for cluster usage | **1–2** | 학습 그룹 `gpu-g6e-12x` (문서 기본) |
-| ml.g5.12xlarge for cluster usage | **1** | 폴백 그룹 `gpu-g5-12x` — g6e/g6가 리전 용량 부족(ICE)일 때 실질적 탈출구 (실측: g6e/g6가 수 시간 ICE인 동안 g5만 잡힘) |
-| ml.g6.12xlarge for cluster usage | 1 (선택) | 폴백 그룹 `gpu-g6-12x` |
-| ml.g6e.4xlarge for cluster usage | **1** | `debug` 그룹 (모듈 9 DCV 시각 검증) |
+| ml.g5.12xlarge for cluster usage | **1–2** | 학습 그룹 `gpu-g5-12x` (기본 `core` 프로필) — 실측: g6e/g6가 수 시간 ICE인 동안에도 g5는 잡힘 |
+| ml.g5.8xlarge for cluster usage | **1** | `debug` 그룹 (모듈 10 DCV 시각 검증) |
+| ml.g6e.12xlarge for cluster usage | 1 (선택) | `-c gpuGroups=extended` 배포 시 `gpu-g6e-12x` 그룹 |
+| ml.g6.12xlarge for cluster usage | 1 (선택) | `-c gpuGroups=extended` 배포 시 `gpu-g6-12x` 그룹 |
 
 ## 일괄 요청 스크립트
 
@@ -114,20 +114,21 @@ for q in d['Quotas']:
     || echo "FAILED (동시 요청 한도일 수 있음 — 나중에 재시도): $NAME"
 }
 
-# training (12x = 본격 학습, 2x/4x/8x = 단일 GPU 최소 검증·폴백)
+# training (g5.12x = 기본, g6e/g6.12x = 선택, g6e 2x/4x/8x = 단일 GPU 최소 검증·폴백)
+request "ml.g5.12xlarge for training job usage" 2
 request "ml.g6e.12xlarge for training job usage" 2
 request "ml.g6.12xlarge for training job usage" 2
-request "ml.g5.12xlarge for training job usage" 2
 request "ml.g6e.2xlarge for training job usage" 2
 request "ml.g6e.4xlarge for training job usage" 2
 request "ml.g6e.8xlarge for training job usage" 1
 # processing (SmokeEval)
-request "ml.g6.xlarge for processing job usage" 2
-# HyperPod cluster
-request "ml.g6e.12xlarge for cluster usage" 2
-request "ml.g5.12xlarge for cluster usage" 1
+request "ml.g5.2xlarge for processing job usage" 2
+request "ml.g6.xlarge for processing job usage" 1
+# HyperPod cluster (core 프로필 = g5.12x + g5.8x; 나머지는 extended 프로필용)
+request "ml.g5.12xlarge for cluster usage" 2
+request "ml.g5.8xlarge for cluster usage" 1
+request "ml.g6e.12xlarge for cluster usage" 1
 request "ml.g6.12xlarge for cluster usage" 1
-request "ml.g6e.4xlarge for cluster usage" 1
 ```
 
 EC2 vCPU 쿼터(G/VT)는 서비스 코드가 다릅니다:
@@ -148,7 +149,7 @@ aws sagemaker create-processing-job --region "$REGION" \
   --processing-job-name "$NAME" \
   --role-arn <SageMaker 실행 롤 ARN> \
   --app-specification '{"ImageUri":"<아무 ECR 이미지>","ContainerEntrypoint":["python3","-c","print(1)"]}' \
-  --processing-resources '{"ClusterConfig":{"InstanceCount":1,"InstanceType":"ml.g6.xlarge","VolumeSizeInGB":30}}' \
+  --processing-resources '{"ClusterConfig":{"InstanceCount":1,"InstanceType":"ml.g5.2xlarge","VolumeSizeInGB":30}}' \
   && aws sagemaker stop-processing-job --region "$REGION" --processing-job-name "$NAME"
 # ResourceLimitExceeded 가 나오면 아직 적용 전
 ```
@@ -158,7 +159,7 @@ aws sagemaker create-processing-job --region "$REGION" \
 쿼터가 있어도 리전에 물리 GPU가 없으면 `InsufficientInstanceCapacity`(EC2/HyperPod) 또는
 학습 Job의 "waiting for capacity"로 대기합니다. 대응책:
 
-- 파이프라인: `InstanceType` 파라미터로 g6e.12x ↔ g6.12x ↔ g5.12x 전환 (재시도 정책 내장)
-- HyperPod: `scale-cluster.sh`가 롤백을 감지하고 종료하므로, 다른 그룹(`gpu-g5-12x` 등)으로
-  재시도. 단일 GPU 소형(g6e.2x/4x/8x)이 12xlarge보다 먼저 잡히는 경향 (실측)
+- 파이프라인: `InstanceType` 파라미터로 g5.12x ↔ g6e.12x ↔ g6.12x 전환 (재시도 정책 내장)
+- HyperPod: `scale-cluster.sh`가 롤백을 감지하고 종료하므로 잠시 후 재시도. extended 프로필이면
+  다른 그룹(`gpu-g6e-12x` 등)으로 재시도. 단일 GPU 소형(g6e.2x/4x/8x)이 12xlarge보다 먼저 잡히는 경향 (실측)
 - EC2(DCV): AZ 셀렉터가 자동으로 타입/AZ를 폴백하고 ODCR로 용량을 예약

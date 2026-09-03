@@ -27,6 +27,13 @@
 | 그룹 | 인스턴스 유형 | GPU | 초기/최대 노드 | 상시 운영 |
 |--------|---------------|-----|---------|---------|
 | **head** | ml.m5.xlarge | - | 1 / 1 | Yes |
+| **gpu-g5-12x** | ml.g5.12xlarge | 4× A10G (24GB) | 0 / `gpuMaxCount` | No |
+| **debug** | ml.g5.8xlarge | 1× A10G (24GB) | 0 / 1 | No |
+
+`-c gpuGroups=extended`로 배포하면 다음 그룹이 추가됩니다 (해당 타입의 cluster usage 쿼터가 있는 계정용):
+
+| 그룹 | 인스턴스 유형 | GPU | 초기/최대 노드 | 상시 운영 |
+|--------|---------------|-----|---------|---------|
 | **gpu-g6e-12x** | ml.g6e.12xlarge | 4× L40S (48GB) | 0 / `gpuMaxCount` | No |
 | **gpu-g6e-24x** | ml.g6e.24xlarge | 4× L40S (48GB) | 0 / `gpuMaxCount` | No |
 | **gpu-g6e-48x** | ml.g6e.48xlarge | 8× L40S (48GB) | 0 / `gpuMaxCount` | No |
@@ -35,7 +42,6 @@
 | **gpu-g6-48x** | ml.g6.48xlarge | 8× L4 (24GB) | 0 / `gpuMaxCount` | No |
 | **gpu-p4d** | ml.p4d.24xlarge | 8× A100 (40GB) | 0 / `gpuMaxCount` | No |
 | **gpu-p5** | ml.p5.48xlarge | 8× H100 (80GB) | 0 / `gpuMaxCount` | No |
-| **debug** | ml.g6e.4xlarge | 1× L40S (48GB) | 0 / 1 | No |
 
 SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지 않고 **모든 compute 노드를 담는
 `dev` 단일 파티션**이 생성됩니다(`PartitionName=dev Nodes=ALL Default=YES`). job이 어느 그룹에서
@@ -92,8 +98,8 @@ SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지
 
 ```json
 {
-  "InstanceGroupName": "train",
-  "InstanceType": "ml.g6e.12xlarge",
+  "InstanceGroupName": "gpu-g5-12x",
+  "InstanceType": "ml.g5.12xlarge",
   "InstanceCount": 0,
   "MaxCount": 4,
   "UseSpot": false
@@ -130,7 +136,8 @@ SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지
 
 | 프리셋 | 인스턴스 | GPU | 메모리/GPU | 적합한 작업 | 예상 비용 (시간당) |
 |--------|---------|-----|-----------|-----------|-----------------|
-| **default** | ml.g6e.12xlarge | 4× L40S (48GB) | 12GB | GR00T-3B LoRA/Full, 기본 VLA | ~$7.00 |
+| **default** | ml.g5.12xlarge | 4× A10G (24GB) | 6GB | GR00T-3B Full FT(DeepSpeed 분산), 기본 VLA/RL | ~$7.00 |
+| **perf** | ml.g6e.12xlarge | 4× L40S (48GB) | 12GB | 더 빠른 학습 (extended 프로필, g6e 쿼터 필요) | ~$10.50 |
 | **heavy** | ml.p4d.24xlarge | 8× A100 (40GB) | 5GB | 대규모 VLA, 멀티노드 학습 | ~$32.00 |
 | **max** | ml.p5.48xlarge | 8× H100 (80GB) | 10GB | 큰 모델 full fine-tuning, 장시간 학습 | ~$98.00 |
 
@@ -502,7 +509,7 @@ Head Node 설정:
 |----------|-------------|----------|
 | **Head Node** (m5.xlarge, 24h) | $150 | 필수, 상시 운영 |
 | **Sim Nodes** (g5.12xlarge × 4, Spot) | $350 | Spot 사용 → -70% |
-| **Train Nodes** (g6e.12xlarge × 4) | $1,300 | 필요할 때만 |
+| **Train Nodes** (g5.12xlarge × 4) | $1,300 | 필요할 때만 |
 | **FSx** (1TB, PERSISTENT_2) | $400 | 필요한 용량만 할당 |
 | **S3** (100GB) | $20 | Intelligent-Tiering |
 | **NAT Gateway** | $50 | VPC Endpoint로 절감 |

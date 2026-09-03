@@ -9,8 +9,11 @@ import {
   DEFAULT_CLUSTER_CONFIG,
   DEFAULT_AMI_UPDATE_SCHEDULE,
   buildGpuGroups,
+  GpuGroupProfile,
+  HEAD_INSTANCE_BY_PROFILE,
   TRAIN_INSTANCE_PRESETS,
 } from './config/cluster-config';
+import { DeploymentProfile } from './config/deployment-profile';
 
 export interface HyperPodStackProps extends cdk.StackProps {
   /** 배포 대상 계정 ID (1인 1계정 전제, 리소스 이름·태그 식별자). */
@@ -19,7 +22,11 @@ export interface HyperPodStackProps extends cdk.StackProps {
   vpcCidr: string;
   gpuMaxCountPerType: number;
   gpuUseSpot: boolean;
-  /** 기본 학습 그룹(ml.g6e.12xlarge)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
+  /** GPU 그룹 프로필. core = gpu-g5-12x 만(기본), extended = g6e/g6/p4d/p5 그룹 추가. */
+  gpuGroups: GpuGroupProfile;
+  /** 배포 프로필. workshop-studio 는 head 노드를 ml.g5.2xlarge 로 만든다. */
+  profile: DeploymentProfile;
+  /** 기본 학습 그룹(ml.g5.12xlarge, gpu-g5-12x)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
   gpuCount: number;
   /** debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1). */
   debugCount: number;
@@ -48,8 +55,8 @@ export class HyperPodStack extends cdk.Stack {
     // (노드가 0 인 그룹은 비용이 발생하지 않는다).
     const trainInstanceType = TRAIN_INSTANCE_PRESETS.default;
     const clusterConfig = {
-      head: { ...DEFAULT_CLUSTER_CONFIG.head },
-      gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot).map((g) =>
+      head: { ...DEFAULT_CLUSTER_CONFIG.head, instanceType: HEAD_INSTANCE_BY_PROFILE[props.profile] },
+      gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot, props.gpuGroups).map((g) =>
         g.instanceType === trainInstanceType ? { ...g, instanceCount: props.gpuCount } : g,
       ),
       debug: { ...DEFAULT_CLUSTER_CONFIG.debug, instanceCount: props.debugCount },
@@ -121,5 +128,9 @@ export class HyperPodStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PrivateSubnetId', { value: networking.privateSubnetId, description: 'Private Subnet ID' });
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName, description: 'HyperPod Cluster Name' });
     new cdk.CfnOutput(this, 'LifecycleBucket', { value: cluster.lifecycleBucket.ref, description: 'Lifecycle Scripts S3 Bucket' });
+    new cdk.CfnOutput(this, 'DeploymentProfile', {
+      value: props.profile,
+      description: 'Deployment profile (personal | workshop-studio)',
+    });
   }
 }
