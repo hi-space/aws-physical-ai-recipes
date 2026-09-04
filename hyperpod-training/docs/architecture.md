@@ -647,8 +647,8 @@ HyperPodStack (최상위)
 - FSx 마운트
 
 **setup_nvidia_driver.sh** (GPU 노드 NVIDIA 드라이버):
-- AMI 기본 드라이버(595.x, Open Kernel Module)에서는 Isaac Sim RTX 렌더러가 초기화 중 segfault → 580.173.02(proprietary)로 교체
-- DCGM·헬스 에이전트·DCV를 잠시 멈추고 커널 모듈 재빌드, 실패 시 non-fatal
+- AMI 기본 드라이버(595.x)에서는 Isaac Sim RTX 렌더러가 초기화 중 segfault → 580.173.02(open 커널 모듈 유지)로 교체
+- DCGM·헬스 에이전트·DCV를 잠시 멈추고 커널 모듈 재빌드, gdrdrv/efa-nv-peermem DKMS 재빌드, 실패 시 non-fatal
 
 **setup_fsx.sh** (FSx 마운트):
 - Lustre 커널 모듈 설치
