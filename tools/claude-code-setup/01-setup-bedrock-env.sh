@@ -32,8 +32,8 @@ fi
 
 # AWS 리전 입력받기 (Bedrock API 호출 리전)
 echo
-read -p "AWS 리전을 입력하세요 (기본값: us-east-1): " AWS_REGION_INPUT
-AWS_REGION_VALUE="${AWS_REGION_INPUT:-us-east-1}"
+read -p "AWS 리전을 입력하세요 (기본값: ${REGION:-us-east-1}): " AWS_REGION_INPUT
+AWS_REGION_VALUE="${AWS_REGION_INPUT:-${REGION:-us-east-1}}"
 echo "선택된 리전: $AWS_REGION_VALUE"
 
 # ANTHROPIC_MODEL 선택

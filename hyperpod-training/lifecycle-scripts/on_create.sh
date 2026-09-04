@@ -139,6 +139,10 @@ SAGEMAKER_INSTANCE_GROUP_NAME="${SAGEMAKER_INSTANCE_GROUP_NAME:-}" \
   >> /var/log/provision/post-provision-watcher.log 2>&1 &
 echo "[on_create] post_provision_watcher started (FSx mount retry + Slurm daemon start)."
 
+# NVIDIA driver for Isaac Sim RTX rendering (GPU nodes only). The AMI's 595.x open
+# kernel module crashes the RTX renderer; install the known-good proprietary build.
+bash "${SCRIPT_DIR}/setup_nvidia_driver.sh" || echo "[on_create] NVIDIA driver setup skipped or failed (non-fatal)."
+
 # Setup DCV for remote desktop (GPU nodes only, runs after Slurm is up)
 bash "${SCRIPT_DIR}/setup_dcv.sh" || echo "[on_create] DCV setup skipped or failed (non-fatal)."
 

@@ -44,8 +44,8 @@ apt_install() { retry "apt-get install -yq --no-install-recommends $*" 5 8; }
 # ============================================================
 echo "[setup_dcv] Installing desktop environment..."
 apt_update
-apt_install ubuntu-desktop-minimal gdm3 dbus-x11 xterm || \
-  apt_install xfce4 xfce4-goodies dbus-x11 xterm || \
+apt_install ubuntu-desktop-minimal gdm3 dbus-x11 xterm x11-xserver-utils || \
+  apt_install xfce4 xfce4-goodies dbus-x11 xterm x11-xserver-utils || \
   echo "[setup_dcv] WARNING: Desktop install had issues."
 
 # Disable Wayland for DCV compatibility
@@ -113,7 +113,7 @@ OWNER="ubuntu"
 
 until systemctl is-active --quiet dcvserver; do sleep 3; done
 
-if ! dcv list-sessions | grep -q "^Session: ${SESSION_ID}"; then
+if ! dcv list-sessions | grep -q "Session: '${SESSION_ID}'"; then
   dcv create-session "${SESSION_ID}" --type virtual --owner "${OWNER}" --name "HyperPod Workspace"
 fi
 
@@ -168,56 +168,16 @@ if ! dpkg -l | grep -q nvidia-container-toolkit; then
 fi
 
 # ============================================================
-# 5) Miniforge + Isaac Lab environment
-# ============================================================
-echo "[setup_dcv] Installing Miniforge + Isaac Lab..."
-if [ ! -x /opt/conda/bin/conda ]; then
-  curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
-    -o /tmp/Miniforge3.sh
-  bash /tmp/Miniforge3.sh -b -p /opt/conda
-  ln -sf /opt/conda/bin/conda /usr/local/bin/conda
-  rm -f /tmp/Miniforge3.sh
-fi
-chown -R ubuntu:ubuntu /opt/conda
-
-# Create isaac conda env
-if ! /opt/conda/bin/conda env list | grep -q "^isaac "; then
-  su - ubuntu -c "/opt/conda/bin/conda create -y -n isaac python=3.10"
-fi
-
-# Auto-activate isaac env
-if ! grep -q "conda activate isaac" /home/ubuntu/.bashrc 2>/dev/null; then
-  echo "conda activate isaac" >> /home/ubuntu/.bashrc
-fi
-
-# Install PyTorch + Isaac Sim
-echo "[setup_dcv] Installing PyTorch + Isaac Sim (this takes a while)..."
-su - ubuntu -c "/opt/conda/bin/conda run -n isaac pip install --upgrade pip" || true
-su - ubuntu -c "/opt/conda/bin/conda run -n isaac pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu118" || \
-  echo "[setup_dcv] WARNING: PyTorch install had issues."
-su - ubuntu -c "/opt/conda/bin/conda run -n isaac pip install 'isaacsim[all,extscache]==4.5.0' --extra-index-url https://pypi.nvidia.com" || \
-  echo "[setup_dcv] WARNING: Isaac Sim install had issues."
-
-# Install Isaac Lab
-echo "[setup_dcv] Installing Isaac Lab..."
-if [ ! -d /home/ubuntu/IsaacLab ]; then
-  su - ubuntu -c "git clone https://github.com/isaac-sim/IsaacLab.git /home/ubuntu/IsaacLab"
-fi
-su - ubuntu -c "cd /home/ubuntu/IsaacLab && git fetch --tags && git checkout v2.1.1" || true
-su - ubuntu -c "cd /home/ubuntu/IsaacLab && OMNI_KIT_ACCEPT_EULA=YES /opt/conda/bin/conda run -n isaac ./isaaclab.sh --install" || \
-  echo "[setup_dcv] WARNING: Isaac Lab install had issues."
-
-# ============================================================
-# 6) Set ubuntu password for DCV login
+# 5) Set ubuntu password for DCV login
 # ============================================================
 echo "ubuntu:hyperpod" | chpasswd
 
 # ============================================================
-# 7) Firefox browser
+# 6) Firefox browser
 # ============================================================
 apt_install firefox 2>/dev/null || true
 
-echo "[setup_dcv] DCV + Isaac Lab installation complete."
+echo "[setup_dcv] DCV installation complete."
 echo "[setup_dcv] Access via: https://<node-ip>:8443"
 echo "[setup_dcv] Login: ubuntu / hyperpod"
 echo "[setup_dcv] FSx is already mounted at /fsx (datasets, checkpoints available)"

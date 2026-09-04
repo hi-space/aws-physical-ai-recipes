@@ -5,6 +5,20 @@ echo "[setup_fsx] Checking FSx configuration..."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# HyperPod 호스트 에이전트는 lifecycle 스크립트를 별도 마운트 네임스페이스에서
+# 실행한다. 그 안에서 한 mount 는 호스트(PID 1)·slurmd·SSM 세션에 보이지 않아
+# 노드가 InService 인데 /fsx 가 빈 로컬 디렉터리로 남는다. 마운트와 확인은
+# 항상 PID 1 의 네임스페이스에서 수행한다.
+host() {
+  if [ "$(readlink /proc/1/ns/mnt 2>/dev/null)" != "$(readlink /proc/self/ns/mnt 2>/dev/null)" ] \
+     && command -v nsenter >/dev/null 2>&1; then
+    nsenter -t 1 -m -- "$@"
+  else
+    "$@"
+  fi
+}
+fsx_mounted() { host mountpoint -q /fsx; }
+
 # Get region from instance metadata
 TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || true)
 REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-east-1")
@@ -37,8 +51,8 @@ fi
 
 # If head node already has FSx mounted, save config for compute nodes
 if [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
-  if mount | grep -q "/fsx.*lustre"; then
-    FSX_MOUNT_INFO=$(mount | grep "/fsx" | head -1)
+  if host mount | grep -q "/fsx.*lustre"; then
+    FSX_MOUNT_INFO=$(host mount | grep "/fsx" | head -1)
     FSX_DNS_NAME=$(echo "$FSX_MOUNT_INFO" | awk -F'@' '{print $1}')
     FSX_MOUNT_NAME=$(echo "$FSX_MOUNT_INFO" | awk -F':/' '{print $2}' | awk '{print $1}')
     if [ -n "$LIFECYCLE_BUCKET" ] && [ -n "$FSX_DNS_NAME" ] && [ -n "$FSX_MOUNT_NAME" ]; then
@@ -95,12 +109,12 @@ elif command -v apt-get &>/dev/null; then
     echo "[setup_fsx] WARNING: Could not install lustre client via apt."
 fi
 
-mkdir -p /fsx
+host mkdir -p /fsx
 
-if mount | grep -q "/fsx"; then
+if fsx_mounted; then
   echo "[setup_fsx] /fsx already mounted."
 else
-  mount -t lustre "${FSX_DNS_NAME}@tcp:/${FSX_MOUNT_NAME}" /fsx || {
+  host mount -t lustre "${FSX_DNS_NAME}@tcp:/${FSX_MOUNT_NAME}" /fsx || {
     echo "[setup_fsx] WARNING: Mount failed. Will retry after cluster is ready."
     exit 0
   }
@@ -110,7 +124,7 @@ else
   fi
 fi
 
-mkdir -p /fsx/datasets /fsx/checkpoints /fsx/scratch
-chmod 777 /fsx/datasets /fsx/checkpoints /fsx/scratch
+host mkdir -p /fsx/datasets /fsx/checkpoints /fsx/scratch
+host chmod 777 /fsx/datasets /fsx/checkpoints /fsx/scratch
 
 echo "[setup_fsx] FSx mounted at /fsx successfully."

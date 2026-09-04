@@ -40,8 +40,17 @@ fi
 echo "[watcher] start: group=${GROUP_NAME:-unknown} head=${IS_HEAD} daemon=${SLURM_DAEMON}"
 
 # --- 1) FSx 마운트 재시도 (최대 30분) ---------------------------------------
-# mount|grep 은 오탐할 수 있으므로(실측) mountpoint 로 확인한다.
-_fsx_ok() { mountpoint -q /fsx; }
+# lifecycle 스크립트는 별도 마운트 네임스페이스에서 돌기 때문에 이 셸의
+# mountpoint 는 호스트 상태가 아니다. 반드시 PID 1 의 네임스페이스에서 확인한다
+# (setup_fsx.sh 도 같은 네임스페이스에 마운트한다).
+_fsx_ok() {
+  if [ "$(readlink /proc/1/ns/mnt 2>/dev/null)" != "$(readlink /proc/self/ns/mnt 2>/dev/null)" ] \
+     && command -v nsenter >/dev/null 2>&1; then
+    nsenter -t 1 -m -- mountpoint -q /fsx
+  else
+    mountpoint -q /fsx
+  fi
+}
 for i in $(seq 1 60); do
   if _fsx_ok; then
     echo "[watcher] /fsx mounted."
