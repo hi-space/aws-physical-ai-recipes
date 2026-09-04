@@ -16,7 +16,7 @@ NUM_ACTORS="${NUM_ACTORS:-8}"
 
 export MLFLOW_TRACKING_URI
 
-srun --container-image=nvcr.io/nvidia/isaac-sim:4.5.0 \
+srun --container-image=nvcr.io/nvidia/isaac-lab:2.3.0 \
      --container-mounts=/fsx:/fsx \
      bash -c "
        pip install ray[default] mlflow && \

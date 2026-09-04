@@ -12,7 +12,8 @@
 #
 # Prerequisites:
 #   - Run setup_isaaclab_env.sh first to import container and prepare tasks
-#   - Isaac Lab container at: /fsx/enroot/data/isaaclab+latest.sqsh
+#   - Isaac Lab container (nvcr.io/nvidia/isaac-lab, Isaac Sim 5.x + Isaac Lab 2.3 + rsl_rl)
+#     at: /fsx/enroot/data/isaaclab+latest.sqsh
 #   - Workshop task package at: /fsx/scratch/isaaclab-workshop/src
 #   - mkdir -p /fsx/scratch/logs
 #
@@ -41,7 +42,6 @@ CHECKPOINT="${CHECKPOINT:-}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-/fsx/enroot/data/isaaclab+latest.sqsh}"
 WORKSHOP_PKG="/fsx/scratch/isaaclab-workshop/src"
-ISAACLAB_SRC="/fsx/scratch/IsaacLab/source"
 SCRIPT_DIR="/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl"
 
 echo "=================================================="
@@ -90,18 +90,21 @@ if [ -s /etc/rc.local ]; then . /etc/rc.local; fi
 if [ $# -gt 0 ]; then exec "$@"; else exec /bin/sh -c /isaac-sim/runheadless.sh; fi
 RCEOF
 
-    # Install Isaac Lab packages if not already present (uses chroot to avoid slow entrypoint)
+    # The isaac-lab image ships isaaclab / isaaclab_rl / rsl_rl. Only the MLflow
+    # tracking packages used by train_isaaclab.py may be missing (uses chroot to
+    # avoid the slow entrypoint). numpy is pinned <2: Isaac Sim's compiled extensions
+    # are built against numpy 1.26 and fail to import if pip upgrades it.
     ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
     [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
     if ! sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
-        "LD_LIBRARY_PATH=/isaac-sim/kit/python/lib /isaac-sim/kit/python/bin/python3 -c 'import rsl_rl' 2>/dev/null"; then
-        echo "Installing Isaac Lab packages into container..."
+        "LD_LIBRARY_PATH=/isaac-sim/kit/python/lib /isaac-sim/kit/python/bin/python3 -c 'import importlib.metadata as m; m.version(\"rsl-rl-lib\"); m.version(\"mlflow\"); m.version(\"sagemaker-mlflow\")' 2>/dev/null"; then
+        echo "Installing MLflow packages into container..."
         sudo cp /etc/resolv.conf "${ROOTFS_PATH}/etc/resolv.conf"
         sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
             "export LD_LIBRARY_PATH=/isaac-sim/kit/python/lib:/isaac-sim/kit/libs && \
-             /isaac-sim/kit/python/bin/python3 -m pip install --no-build-isolation \
-             isaaclab rsl-rl-lib gymnasium mlflow sagemaker-mlflow 2>&1 | tail -5"
-        echo "Isaac Lab packages installed."
+             /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \
+             'numpy<2' mlflow sagemaker-mlflow 2>&1 | tail -3"
+        echo "MLflow packages installed."
     fi
 
     sudo enroot start --root \
@@ -109,7 +112,7 @@ RCEOF
         --mount /fsx:/fsx \
         --env ACCEPT_EULA=Y \
         --env PRIVACY_CONSENT=Y \
-        --env PYTHONPATH="${WORKSHOP_PKG}:${ISAACLAB_SRC}/isaaclab_rl:${ISAACLAB_SRC}/isaaclab_tasks" \
+        --env PYTHONPATH="${WORKSHOP_PKG}" \
         --env PYTHONUNBUFFERED=1 \
         --env NVIDIA_VISIBLE_DEVICES=all \
         --env NVIDIA_DRIVER_CAPABILITIES=all \
@@ -132,7 +135,7 @@ else
     if [ ! -d "${ISAACLAB_ENV}" ]; then
         echo "ERROR: Neither container (${CONTAINER_IMAGE}) nor venv (${ISAACLAB_ENV}) found."
         echo "  Option A: Import Isaac Lab container:"
-        echo "    enroot import docker://nvcr.io#nvidia/isaac-sim:4.5.0"
+        echo "    bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/setup_isaaclab_env.sh"
         echo "  Option B: Install Isaac Lab in venv (requires CUDA):"
         echo "    See isaac-lab-workshop/README.md"
         exit 1

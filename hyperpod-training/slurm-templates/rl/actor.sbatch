@@ -13,7 +13,7 @@
 RAY_HEAD_ADDR="${RAY_HEAD_ADDR:?Set RAY_HEAD_ADDR to learner node IP}"
 ENV_NAME="${ENV_NAME:-Isaac-Cartpole-v0}"
 
-srun --container-image=nvcr.io/nvidia/isaac-sim:4.5.0 \
+srun --container-image=nvcr.io/nvidia/isaac-lab:2.3.0 \
      --container-mounts=/fsx:/fsx \
      bash -c "
        pip install ray[default] && \

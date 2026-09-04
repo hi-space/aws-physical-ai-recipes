@@ -354,8 +354,15 @@ SageMaker API Interface Endpoint:
   - 포트 개방 불필요
   
 ```bash
-# 접속
-aws ssm start-session --target <INSTANCE_ID>
+# 접속 — HyperPod 노드의 SSM target 형식: sagemaker-cluster:<CLUSTER_ID>_<INSTANCE_GROUP>-<EC2_INSTANCE_ID>
+aws ssm start-session --region <REGION> \
+  --target sagemaker-cluster:<CLUSTER_ID>_head-<INSTANCE_ID>
+
+# DCV 디버그 노드 포트포워딩 (브라우저에서 https://localhost:8443, 로그인 ubuntu / hyperpod)
+aws ssm start-session --region <REGION> \
+  --target sagemaker-cluster:<CLUSTER_ID>_debug-<INSTANCE_ID> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters portNumber=8443,localPortNumber=8443
 ```
 
 **IAM 역할 (HyperPod Execution Role)**
@@ -638,6 +645,10 @@ HyperPodStack (최상위)
 - SLURM 클라이언트 설정
 - Lustre 클라이언트 설정
 - FSx 마운트
+
+**setup_nvidia_driver.sh** (GPU 노드 NVIDIA 드라이버):
+- AMI 기본 드라이버(595.x, Open Kernel Module)에서는 Isaac Sim RTX 렌더러가 초기화 중 segfault → 580.173.02(proprietary)로 교체
+- DCGM·헬스 에이전트·DCV를 잠시 멈추고 커널 모듈 재빌드, 실패 시 non-fatal
 
 **setup_fsx.sh** (FSx 마운트):
 - Lustre 커널 모듈 설치

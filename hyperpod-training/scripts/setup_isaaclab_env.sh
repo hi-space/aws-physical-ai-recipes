@@ -2,9 +2,10 @@
 # Setup Isaac Lab environment for RL training on HyperPod
 #
 # This script:
-#   1. Imports Isaac Sim container from NGC via Enroot
+#   1. Imports the Isaac Lab container (Isaac Sim 5.x + Isaac Lab 2.3, rsl_rl included) from NGC via Enroot
 #   2. Copies workshop task package (SO-101 Reach/Lift) into accessible location
-#   3. Creates necessary directories for checkpoints and logs
+#   3. Clones LeIsaac (closed-loop evaluation) and installs it into the container
+#   4. Creates necessary directories for checkpoints and logs
 #
 # Prerequisites:
 #   - FSx mounted at /fsx
@@ -20,20 +21,24 @@
 
 set -e
 
-ISAAC_SIM_VERSION="${ISAAC_SIM_VERSION:-4.5.0}"
+# nvcr.io/nvidia/isaac-lab:<tag> — Isaac Lab 2.3.0 bundles Isaac Sim 5.1 and installs
+# isaaclab / isaaclab_rl / isaaclab_tasks / rsl_rl into the Isaac Sim Python (/isaac-sim/kit/python).
+ISAAC_LAB_VERSION="${ISAAC_LAB_VERSION:-2.3.0}"
+CONTAINER_URI="nvcr.io#nvidia/isaac-lab:${ISAAC_LAB_VERSION}"
 CONTAINER_IMAGE="/fsx/enroot/data/isaaclab+latest.sqsh"
+CONTAINER_VERSION_FILE="/fsx/enroot/data/isaaclab.version"
 WORKSHOP_SRC="/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/isaac-lab-workshop"
 WORKSHOP_DST="/fsx/scratch/isaaclab-workshop"
 
 echo "=================================================="
 echo "Isaac Lab Environment Setup for HyperPod"
 echo "=================================================="
-echo "Isaac Sim Version: ${ISAAC_SIM_VERSION}"
+echo "Container:        nvcr.io/nvidia/isaac-lab:${ISAAC_LAB_VERSION}"
 echo "Container Target: ${CONTAINER_IMAGE}"
 
 # Step 1: Check prerequisites
 echo ""
-echo "[1/6] Checking prerequisites..."
+echo "[1/5] Checking prerequisites..."
 
 if ! command -v enroot &>/dev/null; then
     echo "ERROR: enroot not found. This script must run on a HyperPod node."
@@ -55,19 +60,27 @@ fi
 
 echo "  Prerequisites OK"
 
-# Step 2: Import Isaac Sim container via Enroot
+# Step 2: Import Isaac Lab container via Enroot
 echo ""
-echo "[2/6] Setting up Isaac Sim container..."
+echo "[2/5] Setting up Isaac Lab container..."
+
+export ENROOT_CACHE_PATH=/fsx/enroot
+export ENROOT_DATA_PATH=/fsx/enroot/data
+mkdir -p /fsx/enroot/data
+
+# A container left over from a different image version (e.g. the Isaac Sim 4.5 image)
+# is removed so the rootfs and the sqsh always match ${ISAAC_LAB_VERSION}.
+if [ -f "${CONTAINER_IMAGE}" ] && [ "$(cat "${CONTAINER_VERSION_FILE}" 2>/dev/null)" != "${ISAAC_LAB_VERSION}" ]; then
+    echo "  Existing container is not isaac-lab:${ISAAC_LAB_VERSION} (version file: $(cat "${CONTAINER_VERSION_FILE}" 2>/dev/null || echo none)) — removing it."
+    sudo ENROOT_DATA_PATH=/fsx/enroot/data enroot remove -f isaaclab 2>/dev/null || true
+    sudo rm -f "${CONTAINER_IMAGE}" "${CONTAINER_VERSION_FILE}"
+fi
 
 if [ -f "${CONTAINER_IMAGE}" ]; then
     echo "  Container already exists at ${CONTAINER_IMAGE}"
-    echo "  To force re-import, delete it first: rm ${CONTAINER_IMAGE}"
+    echo "  To force re-import, delete it first: rm ${CONTAINER_IMAGE} ${CONTAINER_VERSION_FILE}"
 else
-    echo "  Importing nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION} (~20GB, may take 10-15 min)..."
-
-    mkdir -p /fsx/enroot/data
-    export ENROOT_CACHE_PATH=/fsx/enroot
-    export ENROOT_DATA_PATH=/fsx/enroot/data
+    echo "  Importing nvcr.io/nvidia/isaac-lab:${ISAAC_LAB_VERSION} (~15GB, may take 10-20 min)..."
 
     # Use NVMe for temp (FSx/Lustre doesn't support overlayfs whiteouts)
     NVME_TMP="/opt/dlami/nvme/enroot-tmp"
@@ -76,34 +89,38 @@ else
 
     sudo ENROOT_CACHE_PATH=/fsx/enroot ENROOT_DATA_PATH=/fsx/enroot/data \
         ENROOT_TEMP_PATH="${IMPORT_TMPDIR}" TMPDIR="${IMPORT_TMPDIR}" \
-        enroot import --output "${CONTAINER_IMAGE}" \
-        "docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}" || {
+        enroot import --output "${CONTAINER_IMAGE}" "docker://${CONTAINER_URI}" || {
         echo "  WARNING: Container import failed. Continuing with workspace setup..."
         echo "  Possible causes:"
         echo "    - Network access to nvcr.io blocked"
         echo "    - Insufficient disk space on /fsx (need ~20GB free)"
-        echo "    - NGC authentication required (set NGC_API_KEY)"
+        echo "    - NGC authentication required (write ~/.config/enroot/.credentials)"
         echo ""
         echo "  To import manually later:"
-        echo "    sudo enroot import --output ${CONTAINER_IMAGE} docker://nvcr.io#nvidia/isaac-sim:${ISAAC_SIM_VERSION}"
+        echo "    sudo enroot import --output ${CONTAINER_IMAGE} docker://${CONTAINER_URI}"
         CONTAINER_IMPORT_FAILED=true
     }
 
     if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
+        echo "${ISAAC_LAB_VERSION}" | sudo tee "${CONTAINER_VERSION_FILE}" > /dev/null
         echo "  Container imported successfully: ${CONTAINER_IMAGE}"
+    fi
+fi
 
-        # Pre-create container rootfs (avoids slow first-run extraction during training)
-        if ! enroot list 2>/dev/null | grep -q "^isaaclab$"; then
-            echo "  Creating container rootfs (first time, ~5-10 min on FSx)..."
-            sudo enroot create --name isaaclab "${CONTAINER_IMAGE}" || {
-                echo "  WARNING: Container rootfs creation failed. Will be created on first sbatch run."
-            }
-        else
-            echo "  Container rootfs already exists"
-        fi
+if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
+    # Pre-create container rootfs (avoids slow first-run extraction during training)
+    if ! sudo ENROOT_DATA_PATH=/fsx/enroot/data enroot list 2>/dev/null | grep -q "^isaaclab$"; then
+        echo "  Creating container rootfs (first time, ~5-10 min on FSx)..."
+        sudo ENROOT_DATA_PATH=/fsx/enroot/data enroot create --name isaaclab "${CONTAINER_IMAGE}" || {
+            echo "  WARNING: Container rootfs creation failed. Will be created on first sbatch run."
+        }
+    else
+        echo "  Container rootfs already exists"
+    fi
 
-        # Create pass-through rc script (Isaac Sim default runs runheadless.sh)
-        cat > /fsx/scratch/isaaclab_rc.sh << 'RCEOF'
+    # Pass-through rc script: the image's default entrypoint would start Isaac Sim itself.
+    # Isaac Sim lives at /isaac-sim inside the isaac-lab image; Isaac Lab at /workspace/isaaclab.
+    cat > /fsx/scratch/isaaclab_rc.sh << 'RCEOF'
 #!/bin/bash
 cd /isaac-sim || exit 1
 export PATH=/isaac-sim/kit/python/bin:/isaac-sim:$PATH
@@ -115,27 +132,13 @@ export EXP_PATH=/isaac-sim/apps
 source /isaac-sim/setup_python_env.sh
 exec "$@"
 RCEOF
-        chmod +x /fsx/scratch/isaaclab_rc.sh
-        echo "  Created pass-through rc script at /fsx/scratch/isaaclab_rc.sh"
-
-        # Install packages via enroot start (avoids chroot FSx access issues)
-        echo "  Installing Isaac Lab + LeIsaac packages..."
-        sudo enroot start --root --rw --rc /fsx/scratch/isaaclab_rc.sh \
-            --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
-            isaaclab bash -c "
-                python3 -m pip install setuptools wheel 2>&1 | tail -1
-                python3 -m pip install isaaclab rsl-rl-lib gymnasium pyzmq msgpack mlflow sagemaker-mlflow 2>&1 | tail -3
-                python3 -m pip install -e /fsx/scratch/IsaacLab/source/isaaclab_tasks --no-deps 2>&1 | tail -3
-                python3 -m pip install /fsx/scratch/leisaac/source/leisaac --no-deps 2>&1 | tail -3
-            " || {
-            echo "  WARNING: Package installation failed. Will retry on first sbatch run."
-        }
-    fi
+    chmod +x /fsx/scratch/isaaclab_rc.sh
+    echo "  Created pass-through rc script at /fsx/scratch/isaaclab_rc.sh"
 fi
 
 # Step 3: Prepare workshop task package
 echo ""
-echo "[3/6] Setting up workshop task package (SO-101 Reach/Lift)..."
+echo "[3/5] Setting up workshop task package (SO-101 Reach/Lift)..."
 
 if [ -d "${WORKSHOP_SRC}" ]; then
     mkdir -p "${WORKSHOP_DST}"
@@ -152,24 +155,9 @@ else
     echo "  You can still use built-in Isaac Lab tasks (e.g., Isaac-Cartpole-v0)"
 fi
 
-# Step 4: Clone IsaacLab source (needed for isaaclab_rl.rsl_rl on PYTHONPATH)
+# Step 4: LeIsaac for closed-loop evaluation
 echo ""
-echo "[4/6] Setting up IsaacLab source..."
-
-ISAACLAB_DIR="/fsx/scratch/IsaacLab"
-if [ -d "${ISAACLAB_DIR}/source/isaaclab_rl" ]; then
-    echo "  IsaacLab source already exists at ${ISAACLAB_DIR}"
-else
-    echo "  Cloning IsaacLab source (sparse checkout, source/ only)..."
-    git clone --depth 1 --filter=blob:none --sparse \
-        https://github.com/isaac-sim/IsaacLab.git "${ISAACLAB_DIR}" 2>/dev/null || true
-    cd "${ISAACLAB_DIR}" && git sparse-checkout set source/ 2>/dev/null || true
-    echo "  IsaacLab source ready at ${ISAACLAB_DIR}"
-fi
-
-# Step 5: Install LeIsaac for closed-loop evaluation
-echo ""
-echo "[5/6] Setting up LeIsaac (closed-loop evaluation)..."
+echo "[4/5] Setting up LeIsaac (closed-loop evaluation)..."
 
 LEISAAC_DIR="/fsx/scratch/leisaac"
 
@@ -202,16 +190,33 @@ fi
 
 # Disable monkey_patch if isaaclab >= 2.1 (already has the termination fix)
 if grep -q "^monkey_patch()" "${LEISAAC_DIR}/source/leisaac/leisaac/utils/monkey_patch.py" 2>/dev/null; then
-    sed -i 's/^monkey_patch()$/# monkey_patch()  # disabled: isaaclab 2.1 already has this fix/' \
+    sed -i 's/^monkey_patch()$/# monkey_patch()  # disabled: isaaclab 2.1+ already has this fix/' \
         "${LEISAAC_DIR}/source/leisaac/leisaac/utils/monkey_patch.py"
     echo "  Disabled monkey_patch (not needed with isaaclab 2.1+)"
 fi
 
 echo "  LeIsaac ready at ${LEISAAC_DIR}"
 
-# Step 6: Create directories
+# Extra Python packages inside the container: MLflow tracking (train_isaaclab.py) and
+# LeIsaac + its ZMQ transport (eval_closed_loop.sbatch). isaaclab / rsl_rl / gymnasium
+# already ship in the isaac-lab image. "numpy<2" is pinned in the same resolve: Isaac Sim's
+# compiled extensions are built against numpy 1.26 and fail to import under numpy 2.x.
+if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
+    echo "  Installing MLflow + LeIsaac packages into the container..."
+    sudo ENROOT_DATA_PATH=/fsx/enroot/data enroot start --root --rw --rc /fsx/scratch/isaaclab_rc.sh \
+        --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
+        isaaclab bash -c "
+            python3 -m pip install --no-cache-dir \"numpy<2\" mlflow sagemaker-mlflow pyzmq msgpack 2>&1 | tail -2
+            python3 -m pip install --no-cache-dir --no-deps /fsx/scratch/leisaac/source/leisaac 2>&1 | tail -2
+            python3 -c 'import importlib.metadata as m, numpy; assert numpy.__version__.startswith(\"1.\"), \"numpy must stay <2 for Isaac Sim: \" + numpy.__version__; print(\"  isaaclab\", m.version(\"isaaclab\"), \"rsl-rl-lib\", m.version(\"rsl-rl-lib\"), \"mlflow\", m.version(\"mlflow\"), \"leisaac\", m.version(\"leisaac\"), \"numpy\", numpy.__version__)'
+        " || {
+        echo "  WARNING: Package installation failed. finetune_isaaclab.sbatch retries on first run."
+    }
+fi
+
+# Step 5: Create directories
 echo ""
-echo "[6/6] Creating directories..."
+echo "[5/5] Creating directories..."
 mkdir -p /fsx/checkpoints/rl /fsx/scratch/logs
 chmod 777 /fsx/checkpoints/rl 2>/dev/null || true
 echo "  Directories ready"

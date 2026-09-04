@@ -138,15 +138,17 @@ def main():
             it = _step["iter"]
             if it % log_interval == 0 or it == num_learning_iterations:
                 elapsed = time.time() - _start_time
-                mean_reward = runner.rewbuffer.mean() if hasattr(runner, "rewbuffer") and len(runner.rewbuffer) > 0 else 0.0
-                mean_ep_len = runner.lenbuffer.mean() if hasattr(runner, "lenbuffer") and len(runner.lenbuffer) > 0 else 0.0
                 fps = (it * env.num_envs * agent_cfg.num_steps_per_env) / elapsed if elapsed > 0 else 0
+                # rsl_rl 3.x keeps the reward/episode-length buffers local to learn(),
+                # so they are only reported when the runner still exposes them.
+                extra = ""
+                if hasattr(runner, "rewbuffer") and len(runner.rewbuffer) > 0:
+                    extra += f", reward: {runner.rewbuffer.mean():.2f}"
+                if hasattr(runner, "lenbuffer") and len(runner.lenbuffer) > 0:
+                    extra += f", ep_len: {runner.lenbuffer.mean():.0f}"
                 print(
                     f"[INFO] Iteration {it}/{num_learning_iterations}"
-                    f" — reward: {mean_reward:.2f}"
-                    f", ep_len: {mean_ep_len:.0f}"
-                    f", fps: {fps:.0f}"
-                    f", elapsed: {elapsed:.0f}s",
+                    f" — fps: {fps:.0f}, elapsed: {elapsed:.0f}s{extra}",
                     flush=True,
                 )
             return result
