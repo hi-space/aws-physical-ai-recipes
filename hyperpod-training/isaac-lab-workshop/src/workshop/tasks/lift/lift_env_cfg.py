@@ -92,6 +92,13 @@ class LiftRewardsCfg:
         weight=1.0,
         params={"asset_cfg": SceneEntityCfg("robot", body_names=["gripper_frame_link"]), "command_name": "object_pose"},
     )
+    # Fine-grained term (1 - tanh(d/0.1)): the linear term above pulls the arm toward the target,
+    # this one rewards the last centimetres so the policy converges on the target instead of hovering.
+    reaching_fine = RewTerm(
+        func=mdp_terms.reward_reaching_target_tanh,
+        weight=0.5,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["gripper_frame_link"]), "command_name": "object_pose", "std": 0.1},
+    )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
 

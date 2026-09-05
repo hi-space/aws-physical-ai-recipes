@@ -28,13 +28,41 @@ def reward_reaching_target(
     asset_cfg: SceneEntityCfg,
     command_name: str,
 ) -> torch.Tensor:
-    """Negative L2 distance between end-effector and commanded target pose."""
+    """Negative L2 distance between the end-effector and the commanded target position.
+
+    ``UniformPoseCommand`` expresses the target in the robot's *base* frame, while
+    ``body_pos_w`` is in the *world* frame (it includes each environment's origin offset).
+    The command therefore has to be transformed into the world frame with the robot's root
+    pose before taking the distance — otherwise the distance is dominated by the env origin,
+    is the same constant for every policy, and the task cannot be learned.
+    """
+    from isaaclab.utils.math import combine_frame_transforms
+
+    asset = env.scene[asset_cfg.name]
     body_id = asset_cfg.body_ids[0] if isinstance(asset_cfg.body_ids, (list, tuple)) else asset_cfg.body_ids
-    body_pos = torch.as_tensor(env.scene[asset_cfg.name].data.body_pos_w, device=env.device)
-    ee_pos_w = body_pos[:, body_id, :3]
-    target_pos = env.command_manager.get_command(command_name)[:, :3]
-    distance = torch.norm(ee_pos_w - target_pos, dim=-1)
+    ee_pos_w = torch.as_tensor(asset.data.body_pos_w, device=env.device)[:, body_id, :3]
+    target_pos_b = env.command_manager.get_command(command_name)[:, :3]
+    target_pos_w, _ = combine_frame_transforms(
+        torch.as_tensor(asset.data.root_pos_w, device=env.device),
+        torch.as_tensor(asset.data.root_quat_w, device=env.device),
+        target_pos_b,
+    )
+    distance = torch.norm(ee_pos_w - target_pos_w, dim=-1)
     return -distance
+
+
+def reward_reaching_target_tanh(
+    env: ManagerBasedEnv,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    std: float = 0.1,
+) -> torch.Tensor:
+    """Fine-grained reaching reward ``1 - tanh(distance / std)`` (positive near the target).
+
+    Complements :func:`reward_reaching_target`: the linear term drives the arm toward the
+    target from far away, this term sharpens the last centimetres.
+    """
+    return 1.0 - torch.tanh(-reward_reaching_target(env, asset_cfg, command_name) / std)
 
 
 def object_height_reward(
