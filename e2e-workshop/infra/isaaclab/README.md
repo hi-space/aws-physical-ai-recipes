@@ -30,7 +30,7 @@ graph TB
         subgraph "Constructs"
             AZ["AzSelectorConstruct<br/>Lambda로 AZ 자동 탐색"]
             NET["NetworkingConstruct<br/>VPC · 서브넷 · IGW · NAT"]
-            FSX_C["FsxStorageConstruct<br/>공유 FSx for Lustre"]
+            FSX_C["FsxStorageConstruct<br/>공유 FSx for Lustre (옵션)"]
             DCV["DcvInstanceConstruct<br/>GPU EC2 + NICE DCV"]
             CF["CloudFrontCodeServerConstruct<br/>code-server HTTPS (옵션)"]
         end
@@ -42,7 +42,7 @@ graph TB
         PRI["프라이빗 서브넷<br/>10.0.1.0/24"]
         DCV_I["DCV Instance<br/>GPU + NICE DCV"]
         CF_D["CloudFront Distribution"]
-        FSX_R["FSx for Lustre<br/>/fsx"]
+        FSX_R["FSx for Lustre<br/>/fsx (enableFsx=true)"]
         SM["Secrets Manager"]
     end
 
@@ -50,7 +50,7 @@ graph TB
     STACK --> AZ
     AZ -->|capacity 있는 AZ| NET
     STACK --> NET --> VPC
-    STACK --> FSX_C --> FSX_R
+    STACK -.->|enableFsx| FSX_C --> FSX_R
     STACK --> DCV --> DCV_I
     STACK -.->|enableCodeServer| CF --> CF_D
     CF_D -.->|HTTPS → HTTP:8888| DCV_I
@@ -124,7 +124,7 @@ bash ./scripts/check-quotas.sh -n 20 -r us-west-2 --auto-request || true
 | CloudFront Distributions | 1 | code-server CDN |
 | Secrets Manager Secrets | 1 | DCV 비밀번호 |
 | CloudFormation Stacks | 1 | |
-| Security Groups | 2 | DCV, FSx |
+| Security Groups | 1 | DCV (`enableFsx=true`면 FSx SG 포함 2) |
 
 > GPU vCPU 할당량(`Running On-Demand G and VT instances`)은 Service Quotas 콘솔에서 수동 요청하거나 AWS Support 티켓을 통해 증가해야 한다.
 
@@ -191,6 +191,8 @@ cdk deploy -c profile=workshop-studio   # Workshop Studio 계정 (CPU 워크스�
 | `enableCodeServer` | `true` \| `false` | `true` | code-server (VSCode) 설치 여부. `false` 시 code-server, CloudFront, SG 포트 8888 모두 생략 |
 | `grootWeightsUrl` | `s3://...` \| `https://....tar.gz` | (없음) | GR00T-N1.6-3B 가중치(약 6.1GiB) 사본 위치. 미지정 시 HuggingFace에서 받는다. 같은 리전의 S3 사본을 지정하면 다운로드가 빨라지고 HuggingFace 가용성에 의존하지 않는다 |
 | `modelsDir` | 절대 경로 | `/home/ubuntu/environment/models` | 모델·가중치를 내려받는 인스턴스 로컬 경로. UserData의 `MODELS_DIR` 환경 변수로 전달되어 `models-download.sh`가 사용한다 |
+| `enableFsx` | `true` \| `false` | `false` | 공유 FSx for Lustre(PERSISTENT_2) 생성 여부. 기본 워크플로우는 SageMaker가 S3로 export한 체크포인트를 DCV 인스턴스에서 `aws s3 sync`로 받으므로 필요 없다. HyperPod 스택을 `-c createVpc=false -c fsxFileSystemId=...`로 이 VPC에 합류시켜 스토리지를 하나로 합치려는 경우에만 켠다. 켜면 `/fsx` 마운트, `Fsx*` Outputs, groot 스택의 DRA가 함께 생기고 파일시스템은 존재하는 내내 과금된다. FSx가 있는 기존 스택을 끄려면 groot 스택의 DRA를 먼저 제거해야 한다(`infra/groot/cdk.context.json`의 `fsxFileSystemId` 삭제 후 groot 재배포 → IsaacLab 재배포) |
+| `fsxCapacityGiB` | 1200의 배수 | `1200` | `enableFsx=true`일 때 FSx 용량(GiB) |
 | `isaacSimVersion` | `string` | (프로필 기본값) | Isaac Sim 버전 오버라이드. 지정 시 프로필의 `isaacLabVersion` 고정이 해제되어 IsaacLab `main`을 클론한다. 검증된 조합은 `versionProfile` 사용 |
 
 Props는 CDK Context로 전달한다:
@@ -405,9 +407,9 @@ Ubuntu 24.04 고유 처리 사항 (`common.sh`, `isaac-lab.sh`에서 자동 적�
 | `VersionProfile` | 선택된 버전 프로필 | 배포된 프로필 확인 |
 | `DeploymentProfile` | 배포 프로필 (`personal` \| `workshop-studio`) | CPU/GPU 워크스테이션 여부 확인 |
 | `PrivateSubnetId` | 프라이빗 서브넷 ID | groot·HyperPod 스택에서 참조 |
-| `FsxFileSystemId` | 공유 FSx for Lustre ID | groot SageMaker DRA·HyperPod에서 참조 |
-| `FsxMountName` | FSx Lustre mount name | 수동 마운트 시 참조 |
-| `FsxSecurityGroupId` | FSx 보안 그룹 ID | Lustre 접근 허용 시 참조 |
+| `FsxFileSystemId` | 공유 FSx for Lustre ID (`enableFsx=true` 시) | groot SageMaker DRA·HyperPod에서 참조 |
+| `FsxMountName` | FSx Lustre mount name (`enableFsx=true` 시) | 수동 마운트 시 참조 |
+| `FsxSecurityGroupId` | FSx 보안 그룹 ID (`enableFsx=true` 시) | Lustre 접근 허용 시 참조 |
 
 DCV 비밀번호 조회:
 
@@ -649,7 +651,7 @@ sudo tail -f /var/log/user-data.log
 ===== [날짜] END: nvidia-driver.sh =====
 ===== [날짜] STAGE: isaac-lab.sh (background) =====      ← Isaac Lab Docker 빌드 (백그라운드, 가장 오래 걸림)
 ===== [날짜] STAGE: models-download.sh (background) ===== ← 모델 가중치 다운로드 (백그라운드)
-===== [날짜] STAGE: fsx-mount.sh =====      ← 공유 FSx for Lustre 마운트 (/fsx)
+===== [날짜] STAGE: fsx-mount.sh =====      ← 공유 FSx 마운트 (/fsx). enableFsx=false(기본)면 SKIPPED
 ===== [날짜] STAGE: waiting for background jobs ... ===== ← 백그라운드 작업 완료 대기
 ```
 
@@ -674,9 +676,9 @@ UserData 실행 중 에러가 발생하면 `trap ERR`에 의해 자동 감지되
 # 여기서 멈추면 nvidia-driver.sh에서 실패
 ```
 
-### FSx 마운트
+### FSx 마운트 (`enableFsx=true`인 경우)
 
-공유 FSx for Lustre는 UserData에서 `/fsx`에 마운트되며, `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트된다. Lustre 커널 모듈 설치가 실패하면 배포는 계속 진행되고 `[WARN]` 마커만 남으므로, 이 경우 수동 마운트한다:
+기본 배포(`enableFsx=false`)에는 FSx가 없고 `fsx-mount.sh`는 `SKIPPED`로 끝난다 — 체크포인트는 `aws s3 sync`로 받는다. `enableFsx=true`로 배포하면 공유 FSx for Lustre가 UserData에서 `/fsx`에 마운트되며, `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트된다. Lustre 커널 모듈 설치가 실패하면 배포는 계속 진행되고 `[WARN]` 마커만 남으므로, 이 경우 수동 마운트한다:
 
 ```bash
 sudo mount -t lustre -o relatime,flock \
@@ -701,8 +703,8 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - NVIDIA 드라이버: nvidia-driver.sh가 DLAMI에 사전 설치된 드라이버 버전을 자동 감지하여 프로필 지정 버전(570)으로 교체. stable(DLAMI 550→570 업그레이드), latest(DLAMI 580→570 교체) 모두 자동 처리. xorg.conf는 lspci 기반으로 생성하여 커널 모듈 상태에 무관
 - DCV GL: DLAMI에 DCV GL(`nice-dcv-gl`)이 포함되지 않음. `common.sh`에서 DCV 설치 시 DCV GL도 함께 설치하고 `dcvgladmin enable` 실행 필요
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
-- FSx 마운트: `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨
-- 단일 AZ 구조: AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷과 FSx 파일시스템이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없다. 여러 AZ에 걸치도록 만들 수도 있으나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다.
+- FSx(옵션, `enableFsx=true`): `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨. 기본은 FSx 없이 S3 → `aws s3 sync`
+- 단일 AZ 구조: AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷(과 `enableFsx=true`면 FSx 파일시스템)이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없다. 여러 AZ에 걸치도록 만들 수도 있으나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다.
 - CreationPolicy 타임아웃: 120분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
 - Ubuntu 24.04 (latest) 고유 제한:
@@ -722,7 +724,7 @@ isaac-lab-golden-template/
 │   ├── constructs/
 │   │   ├── az-selector.ts          # AZ 자동 탐색 (Custom Resource Lambda)
 │   │   ├── networking.ts           # VPC, 서브넷, IGW, NAT, S3 Endpoint, Flow Log
-│   │   ├── fsx-storage.ts          # 공유 FSx for Lustre + 보안 그룹
+│   │   ├── fsx-storage.ts          # 공유 FSx for Lustre + 보안 그룹 (옵션, enableFsx=true 시)
 │   │   ├── dcv-instance.ts         # DCV EC2 인스턴스 + IAM + Secrets Manager
 │   │   ├── cloudfront-code-server.ts # CloudFront → code-server HTTPS (옵션)
 │   └── config/
@@ -735,7 +737,7 @@ isaac-lab-golden-template/
 │   │   ├── cloudwatch-agent.sh    # CloudWatch Agent 설치 (옵션, enableCloudWatch=true 시)
 │   │   ├── isaac-lab.sh           # Isaac Lab Docker 빌드
 │   │   ├── models-download.sh     # 모델 가중치 로컬 디스크 다운로드
-│   │   ├── fsx-mount.sh           # 공유 FSx for Lustre 마운트 (/fsx)
+│   │   ├── fsx-mount.sh           # 공유 FSx for Lustre 마운트 (/fsx, enableFsx=true 시)
 │   │   └── code-server.sh         # code-server + Claude Code 설치 (옵션)
 │   └── workshop/
 │       ├── Dockerfile             # Isaac Lab Docker 이미지 빌드용

@@ -18,6 +18,33 @@ echo "===== [$(date)] START: common.sh ====="
 # apt 대화형 프롬프트 방지 (독립 실행 대비 - 부트스트랩에서도 export하지만 이중 방어)
 # keyboard-configuration 등 debconf 다이얼로그가 입력을 기다리면 스크립트가 영구 정지한다.
 export DEBIAN_FRONTEND=noninteractive
+
+# apt 네트워크 타임아웃/재시도. 리전 미러(<region>.ec2.archive.ubuntu.com)는 여러 IP로
+# 구성되는데 일부가 응답하지 않으면 apt 기본값(타임아웃 120초, 재시도 없음)으로는
+# 패키지마다 2분씩 멈춰 ubuntu-desktop(수백 패키지) 설치가 CreationPolicy 시한을 넘긴다.
+# 짧은 타임아웃 + 재시도로 죽은 미러 IP를 빨리 건너뛰게 한다.
+cat > /etc/apt/apt.conf.d/99-workshop-network <<'APTCONF'
+Acquire::http::Timeout "15";
+Acquire::https::Timeout "15";
+Acquire::Retries "5";
+Acquire::ForceIPv4 "true";
+APTCONF
+
+# 리전 미러 헬스체크. 리전 미러 풀 전체가 응답하지 않는 날에는 위 타임아웃/재시도로도
+# 패키지마다 75초씩 걸려 시한을 넘기므로, 3회 프로브 중 한 번이라도 실패하면
+# 전역 미러(archive.ubuntu.com)로 전환한다. 전송 속도는 조금 느리지만 항상 응답한다.
+_mirror_ok() { curl -4 -sf --max-time 10 -o /dev/null "http://${1}/ubuntu/dists/$(lsb_release -cs)/Release"; }
+REGIONAL_MIRROR="$(grep -h -oE '[a-z0-9-]+\.ec2\.archive\.ubuntu\.com' /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null | head -1 || true)"
+if [ -n "${REGIONAL_MIRROR}" ]; then
+  MIRROR_FAILS=0
+  for _i in 1 2 3; do _mirror_ok "${REGIONAL_MIRROR}" || MIRROR_FAILS=$((MIRROR_FAILS+1)); done
+  if [ "${MIRROR_FAILS}" -gt 0 ]; then
+    echo "[WARN] Ubuntu regional mirror ${REGIONAL_MIRROR} unhealthy (${MIRROR_FAILS}/3 probes failed) - switching to archive.ubuntu.com"
+    sed -i "s#${REGIONAL_MIRROR}#archive.ubuntu.com#g" /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+  else
+    echo "Ubuntu regional mirror ${REGIONAL_MIRROR} healthy"
+  fi
+fi
 export NEEDRESTART_MODE=a
 
 # -----------------------------------------------------------------------------

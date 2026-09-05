@@ -35,7 +35,9 @@ else
 #    다시 5.1.0 타깃 상태로 되돌아가 있었다. 이렇게 하루 단위로 달라지므로
 #    프로필이 선언한 태그로 반드시 고정해야 재현 가능한 빌드가 된다.
 # -----------------------------------------------------------------------------
-mkdir -p /home/ubuntu/environment
+# /home/ubuntu/environment 는 참가자가 체크포인트 등을 직접 내려받는 작업 디렉터리이므로
+# 소유자를 ubuntu 로 둔다 (root 로 만들면 ubuntu 가 하위 디렉터리를 만들 수 없다).
+install -d -o ubuntu -g ubuntu /home/ubuntu/environment
 cd /home/ubuntu/environment
 if [ -n "${ISAAC_LAB_VERSION}" ]; then
   echo "IsaacLab 태그 v${ISAAC_LAB_VERSION} 고정 클론"

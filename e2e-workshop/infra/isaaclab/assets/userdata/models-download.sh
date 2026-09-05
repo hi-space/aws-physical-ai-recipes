@@ -6,7 +6,7 @@
 # 인스턴스 루트 볼륨(MODELS_DIR)에 내려받는다.
 #
 # 계정당 1명이 자기 DCV 인스턴스만 쓰는 구조여서 인스턴스 간 공유 스토리지가
-# 필요하지 않다. 학습 결과 공유는 /fsx(공유 FSx for Lustre)가 담당한다.
+# 필요하지 않다. 학습 결과(SageMaker export)는 S3에서 aws s3 sync 로 받는다.
 #
 # 입력 환경 변수:
 #   MODELS_DIR        - 모델·가중치를 받을 로컬 경로.
@@ -22,6 +22,9 @@ echo "===== [$(date)] START: models-download.sh ====="
 
 MODELS_DIR="${MODELS_DIR:-/home/ubuntu/environment/models}"
 echo "모델 디렉터리: ${MODELS_DIR}"
+# 상위 디렉터리(/home/ubuntu/environment)도 ubuntu 소유여야 참가자가 그 아래에
+# checkpoints 등을 만들 수 있다 (isaac-lab.sh 와 병렬 실행되므로 양쪽에서 보장).
+install -d -o ubuntu -g ubuntu "$(dirname "${MODELS_DIR}")"
 mkdir -p "${MODELS_DIR}"
 chown -R ubuntu:ubuntu "${MODELS_DIR}"
 
@@ -88,8 +91,24 @@ else
   # "Cannot uninstall typing_extensions, RECORD file not found" 로 실패하는 것을 피한다.
   # /usr/local 에 설치된 사본이 sys.path 에서 우선하므로 시스템 패키지는 건드리지 않는다.
   pip3 install --break-system-packages --ignore-installed -q huggingface_hub
-  python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='${GROOT_DIR}')" \
-    || echo "[WARN] GR00T-N1.6-3B 모델 다운로드 실패 — 수동 다운로드 필요"
+  # HuggingFace는 익명 요청이 몰리면 429(Too Many Requests, "maximum queue size reached")를
+  # 돌려준다 — 워크숍처럼 여러 계정이 동시에 배포하면 흔히 걸린다. 임시 경로에 받되
+  # (snapshot_download는 이어받기 지원) 최대 5회, 60·120·180·240초 간격으로 재시도한다.
+  rm -rf "${GROOT_DIR}.partial"
+  GROOT_OK=0
+  for attempt in 1 2 3 4 5; do
+    if python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/GR00T-N1.6-3B', local_dir='${GROOT_DIR}.partial')"; then
+      GROOT_OK=1; break
+    fi
+    echo "[WARN] GR00T-N1.6-3B HuggingFace 다운로드 실패 (시도 ${attempt}/5) — $((attempt*60))초 후 재시도"
+    sleep $((attempt*60))
+  done
+  if [ "${GROOT_OK}" = "1" ] && [ -f "${GROOT_DIR}.partial/model.safetensors.index.json" ]; then
+    mv "${GROOT_DIR}.partial" "${GROOT_DIR}"
+  else
+    rm -rf "${GROOT_DIR}.partial"
+    echo "[WARN] GR00T-N1.6-3B 모델 다운로드 실패 — 수동 다운로드 필요 (또는 -c grootWeightsUrl=s3://... 사본 사용)"
+  fi
 fi
 chown -R ubuntu:ubuntu "${MODELS_DIR}"
 echo "----- [$(date)] END: models-download (GR00T weights) -----"

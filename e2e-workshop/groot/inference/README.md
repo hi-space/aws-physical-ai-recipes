@@ -17,7 +17,7 @@ inference/
 | DCV 인스턴스에서 GR00T Policy Server가 살아있는지 빠르게 확인하고 싶다 | [`batch-zmq/`](./batch-zmq/) |
 | Fine-tune한 모델로 시뮬레이터 안에서 로봇이 실제 태스크를 수행하는지 평가하고 싶다 | `run-isaaclab.sh` |
 
-> 학습된 모델 아티팩트는 SageMaker Pipeline의 학습 잡이 끝에 source에서 압축 해제된 채로 직접 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`에 업로드합니다(단일 스텝 파이프라인). 이 prefix를 FSx for Lustre로 마운트해 IsaacSim에서 로드합니다. 자세한 내용은 [`../pipeline/README.md`](../pipeline/README.md).
+> 학습된 모델 아티팩트는 SageMaker Pipeline의 학습 잡이 끝에 source에서 압축 해제된 채로 직접 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`에 업로드합니다(단일 스텝 파이프라인). DCV 인스턴스에서 이 prefix를 `aws s3 sync`로 받아 IsaacSim에서 로드합니다. 자세한 내용은 [`../pipeline/README.md`](../pipeline/README.md).
 
 ## Batch ZMQ Client
 

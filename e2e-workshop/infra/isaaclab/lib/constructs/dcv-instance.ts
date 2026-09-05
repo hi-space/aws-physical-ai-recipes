@@ -27,8 +27,8 @@ export interface DcvInstanceProps {
   publicSubnet: ec2.CfnSubnet;
   /** DCV용 보안 그룹 참조 */
   dcvSecurityGroup: ec2.CfnSecurityGroup;
-  /** 공유 FSx for Lustre 파일시스템 참조 (/fsx 마운트) */
-  fsxFileSystem: fsx.CfnFileSystem;
+  /** 공유 FSx for Lustre 파일시스템 참조 (옵션). 지정되면 UserData가 /fsx 에 마운트한다 */
+  fsxFileSystem?: fsx.CfnFileSystem;
   /** EC2 인스턴스 타입 (예: 'g6.12xlarge') */
   instanceType: string;
   /** 버전 프로필 설정 객체 */
@@ -334,9 +334,14 @@ export class DcvInstanceConstruct extends Construct {
       `export ROS2_DISTRO="${props.versionProfile.ros2Distro}"`,
       `export VERSION_PROFILE="${props.versionProfileName}"`,
       `export WORKSTATION_MODE="${workstationMode}"`,
-      'export FSX_ID="${FsxFileSystemId}"',
-      'export FSX_DNS_NAME="${FsxDnsName}"',
-      'export FSX_MOUNT_NAME="${FsxMountName}"',
+      // FSx는 옵션(enableFsx). 없으면 변수 자체를 내보내지 않아 fsx-mount.sh가 건너뛴다.
+      ...(props.fsxFileSystem
+        ? [
+            'export FSX_ID="${FsxFileSystemId}"',
+            'export FSX_DNS_NAME="${FsxDnsName}"',
+            'export FSX_MOUNT_NAME="${FsxMountName}"',
+          ]
+        : []),
       'export REGION="${AWS::Region}"',
       'export ACCOUNT="${AWS::AccountId}"',
       'export SECRET_ID="${SecretId}"',
@@ -401,7 +406,7 @@ export class DcvInstanceConstruct extends Construct {
       'bash /tmp/userdata-scripts/models-download.sh > /var/log/models-download.log 2>&1 & MODELS_PID=$!',
       '',
       'echo "===== [$(date)] STAGE: fsx-mount.sh ====="',
-      '# FSx 마운트 실패는 스크립트 내부에서 [WARN] 처리한다 (모듈 5에 s3 sync 폴백 존재)',
+      '# FSx는 옵션(enableFsx). FSX_* 가 비어 있으면 스크립트가 건너뛰고, 마운트 실패도 [WARN]으로만 남긴다.',
       'source /tmp/userdata-scripts/fsx-mount.sh || echo "[WARN] fsx-mount.sh failed"',
       ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }'] : []),
       '',
@@ -428,6 +433,20 @@ export class DcvInstanceConstruct extends Construct {
     ].join('\n');
 
     // --- EC2 Instance ---
+    // Fn.sub 치환 변수. FSx 관련 키는 파일시스템이 있을 때만 넣는다(UserData에도 그때만 참조가 있다).
+    const userDataSubVars: Record<string, string> = {
+      ...(props.fsxFileSystem
+        ? {
+            FsxFileSystemId: props.fsxFileSystem.ref,
+            FsxDnsName: props.fsxFileSystem.attrDnsName,
+            FsxMountName: props.fsxFileSystem.attrLustreMountName,
+          }
+        : {}),
+      SecretId: secret.ref,
+      UserdataScriptsUrl: userdataAsset.s3ObjectUrl,
+      WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,
+    };
+
     const cfnInstance = new ec2.CfnInstance(this, 'DcvInstance', {
       imageId: props.amiId,
       instanceType: props.instanceType,
@@ -450,16 +469,7 @@ export class DcvInstanceConstruct extends Construct {
         },
       ],
       // Fn.sub로 CloudFormation 의사 참조 및 리소스 참조를 치환한 후 Base64 인코딩
-      userData: cdk.Fn.base64(
-        cdk.Fn.sub(userDataScript, {
-          FsxFileSystemId: props.fsxFileSystem.ref,
-          FsxDnsName: props.fsxFileSystem.attrDnsName,
-          FsxMountName: props.fsxFileSystem.attrLustreMountName,
-          SecretId: secret.ref,
-          UserdataScriptsUrl: userdataAsset.s3ObjectUrl,
-          WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,
-        }),
-      ),
+      userData: cdk.Fn.base64(cdk.Fn.sub(userDataScript, userDataSubVars)),
       tags: [{ key: 'Name', value: `${p}-Instance` }],
     });
 
@@ -472,16 +482,7 @@ export class DcvInstanceConstruct extends Construct {
     );
 
     // UserData를 논리적 ID가 포함된 버전으로 업데이트
-    cfnInstance.userData = cdk.Fn.base64(
-      cdk.Fn.sub(userDataWithLogicalId, {
-        FsxFileSystemId: props.fsxFileSystem.ref,
-        FsxDnsName: props.fsxFileSystem.attrDnsName,
-        FsxMountName: props.fsxFileSystem.attrLustreMountName,
-        SecretId: secret.ref,
-        UserdataScriptsUrl: userdataAsset.s3ObjectUrl,
-        WorkshopAssetsUrl: workshopAsset.s3ObjectUrl,
-      }),
-    );
+    cfnInstance.userData = cdk.Fn.base64(cdk.Fn.sub(userDataWithLogicalId, userDataSubVars));
 
     // --- CreationPolicy ---
     // UserData 완료 시 cfn-signal을 수신하며, 타임아웃은 120분

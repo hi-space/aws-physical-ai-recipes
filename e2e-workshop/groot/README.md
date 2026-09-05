@@ -4,14 +4,14 @@ NVIDIA GR00T Vision-Language-Action 모델을 AWS SageMaker로 fine-tuning하고
 
 ## Overview
 
-GR00T는 카메라 영상과 자연어 명령("오렌지를 집어라")을 입력으로 받아 로봇 관절을 직접 제어하는 3B 파라미터 Foundation Model입니다. 이 디렉토리의 코드는 GR00T 베이스 모델을 가져와 **자기 로봇 데이터셋에 맞게 파인튜닝하고**, 결과 모델을 **FSx for Lustre로 마운트해 IsaacSim에서 로드**할 수 있도록 S3에 정리합니다.
+GR00T는 카메라 영상과 자연어 명령("오렌지를 집어라")을 입력으로 받아 로봇 관절을 직접 제어하는 3B 파라미터 Foundation Model입니다. 이 디렉토리의 코드는 GR00T 베이스 모델을 가져와 **자기 로봇 데이터셋에 맞게 파인튜닝하고**, 결과 모델을 **압축 해제 상태로 S3에 정리해 DCV 인스턴스에서 `aws s3 sync` 한 번으로 IsaacSim에 로드**할 수 있게 합니다.
 
 세 디렉토리는 다음 흐름으로 연결됩니다.
 
 ```
 HF 데이터셋 ID → pipeline/ (TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel)
                    ├─→ s3://<bucket>/<model.s3_prefix>/<execution-id>/  (train.py가 source에서 직접 export)
-                   │       └─→ FSx for Lustre 마운트 → IsaacSim에서 로드
+                   │       └─→ DCV 인스턴스에서 aws s3 sync → IsaacSim에서 로드
                    └─→ Model Registry (SmokeGate 통과 시 Approved 등록)
 ```
 
@@ -86,7 +86,7 @@ python training/scripts/run_training.py \
 
 code-server에서 [`notebooks/02_sagemaker_pipeline.ipynb`](./notebooks/02_sagemaker_pipeline.ipynb)를 열어 순서대로 셀을 실행합니다.
 
-학습 스텝은 끝에 압축 해제된 모델을 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`로 직접 업로드합니다 (SmokeGate 결과와 무관하게 항상 수행 — `pipeline/README.md` 참고). 이 prefix를 FSx for Lustre로 마운트하면 IsaacSim에서 바로 로드할 수 있습니다. 자세한 내용은 [`pipeline/README.md`](./pipeline/README.md), [`notebooks/README.md`](./notebooks/README.md).
+학습 스텝은 끝에 압축 해제된 모델을 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`로 직접 업로드합니다 (SmokeGate 결과와 무관하게 항상 수행 — `pipeline/README.md` 참고). DCV 인스턴스에서 이 prefix를 `aws s3 sync`로 받으면 IsaacSim에서 바로 로드할 수 있습니다. 자세한 내용은 [`pipeline/README.md`](./pipeline/README.md), [`notebooks/README.md`](./notebooks/README.md).
 
 ### 6) 시뮬레이션에서 검증 (선택)
 
@@ -110,7 +110,7 @@ groot/
 
 | 경로 | 언제 쓰나 |
 |--------|-----------|
-| FSx for Lustre 마운트 → IsaacSim | 학습 잡이 source에서 직접 업로드한 압축되지 않은 S3 prefix를 FSx로 마운트해 IsaacSim에서 모델을 바로 로드 (기본 경로) |
+| `aws s3 sync` → IsaacSim | 학습 잡이 source에서 직접 업로드한 압축되지 않은 S3 prefix를 DCV 인스턴스 로컬 디스크로 받아 IsaacSim에서 모델을 바로 로드 (기본 경로) |
 | [`inference/batch-zmq/`](./inference/batch-zmq/) | DCV 인스턴스에서 GR00T Policy Server를 빠르게 ping해 서버가 살아있는지 확인. Isaac Sim과 closed-loop 연결 가능 |
 
 ## Custom Robot
@@ -127,6 +127,6 @@ GR00T 내장 임베디먼트(`LIBERO_PANDA`, `OXE_DROID` 등)를 쓸 때는 `--e
 
 - [`notebooks/README.md`](./notebooks/README.md) — 워크숍 노트북 실행 가이드
 - [`training/README.md`](./training/README.md) — 학습 컨테이너와 옵션
-- [`pipeline/README.md`](./pipeline/README.md) — SageMaker Pipeline + FSx용 export
+- [`pipeline/README.md`](./pipeline/README.md) — SageMaker Pipeline + 비압축 export
 - [`inference/README.md`](./inference/README.md) — 시뮬레이션 closed-loop 평가
 - [`../infra/groot/`](../infra/groot/) — 이 코드를 받쳐주는 CDK 인프라

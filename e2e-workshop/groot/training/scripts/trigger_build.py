@@ -325,7 +325,7 @@ def main() -> None:
         if not args.no_update_config:
             update_config_with_ecr_uris(config, args.region)
         print("\n다음 단계:")
-        print("  code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 학습 + FSx용 export를 실행하세요.")
+        print("  code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 학습 파이프라인을 실행하세요.")
     else:
         print("\n일부 빌드 실패. CloudWatch 로그를 확인하세요.")
         sys.exit(1)

@@ -4,7 +4,7 @@ NVIDIA GR00T VLA 모델을 AWS에서 fine-tuning하기 위한 인프라를 한 �
 
 ## Overview
 
-상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC와 공유 FSx for Lustre를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. SageMaker 학습 잡이 S3로 export한 체크포인트가 FSx 자동 동기화(DRA)를 통해 IsaacLab DCV 인스턴스의 `/fsx/groot/...`에 나타나므로, 학습이 끝나자마자 시뮬레이션에서 바로 검증할 수 있습니다.
+상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. SageMaker 학습 잡이 압축 해제된 체크포인트를 S3 아티팩트 버킷으로 export하고, IsaacLab DCV 인스턴스에서 `aws s3 sync` 한 번으로 받아 시뮬레이션에서 바로 검증합니다. 부모 스택이 `-c enableFsx=true`로 배포된 경우에는 그 FSx에 DRA를 걸어 `/fsx/groot/...`에 자동으로 나타나게 합니다.
 
 1인 1계정 전제의 **단일 스택**입니다.
 
@@ -48,7 +48,7 @@ npx ts-node bin/update-config.ts --region us-east-1
 | `mlflowSize` | `Small` | MLflow tracking server 사이즈 |
 | `vpcId` / `privateSubnetId` / `availabilityZone` / `fsxFileSystemId` | (자동 탐색) | 부모 스택 자동 탐색을 건너뛰는 수동 오버라이드 |
 
-`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<ACCOUNT_ID>` 스택의 outputs에서 VPC ID, Private Subnet, 공유 FSx 정보를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다. 부모 IsaacLab 스택이 없으면 배포가 실패하므로, 반드시 IsaacLab 스택을 먼저 배포하세요.
+`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<ACCOUNT_ID>` 스택의 outputs에서 VPC ID, Private Subnet, (있으면) 공유 FSx ID를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다 — 부모 스택의 FSx를 없앤 뒤 재배포할 때는 `cdk.context.json`의 `fsxFileSystemId`를 지워야 DRA가 생성되지 않습니다. 부모 IsaacLab 스택이 없으면 배포가 실패하므로, 반드시 IsaacLab 스택을 먼저 배포하세요.
 
 ## Project Structure
 

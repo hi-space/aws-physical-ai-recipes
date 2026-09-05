@@ -31,9 +31,10 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
   /** SageMaker MLflow tracking server 사이즈 (Small/Medium/Large). */
   mlflowSize?: string;
   /**
-   * 부모 IsaacLab 스택의 공유 FSx for Lustre ID. 지정되면 아티팩트 버킷과
-   * DRA(자동 import/export)를 연결해, SageMaker 학습 잡이 S3로 export한
-   * checkpoint가 DCV·HyperPod의 /fsx/groot/... 에 자동으로 나타난다.
+   * 부모 IsaacLab 스택의 공유 FSx for Lustre ID (부모가 -c enableFsx=true 로 배포된 경우에만
+   * 존재). 지정되면 아티팩트 버킷과 DRA(자동 import/export)를 연결해, SageMaker 학습 잡이
+   * S3로 export한 checkpoint가 DCV·HyperPod의 /fsx/groot/... 에 자동으로 나타난다.
+   * 기본 흐름은 DCV 인스턴스에서 aws s3 sync 로 받는 것이라 없어도 된다.
    */
   fsxFileSystemId?: string;
   useStableGroot?: boolean;
@@ -53,7 +54,7 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
  *   - GR00T 런타임 ECR + CodeBuild (배포 시 자동 트리거; 모듈 2/3/5 Policy Server 이미지)
  *   - SageMaker training ECR + CodeBuild (trigger_build.py가 소스 zip 업로드 후 빌드)
  *   - SageMaker Studio Domain + UserProfile (실행 역할은 단일 Notebook role)
- *   - S3 아티팩트 버킷 + 부모 FSx DRA (/groot ↔ s3://<bucket>)
+ *   - S3 아티팩트 버킷 (+ 부모 FSx가 있을 때만 DRA /groot ↔ s3://<bucket>)
  *   - SageMaker 실행 역할, CloudWatch Log Group, MLflow tracking server
  *   - SSM Parameter `/groot-finetune/studio-domain-id` (스크립트/노트북이 lookup)
  */
@@ -104,10 +105,10 @@ export class GrootFinetuneStack extends cdk.Stack {
       bucketName: props.bucketName,
     });
 
-    // ---------- [3.5] 공유 FSx ↔ 아티팩트 버킷 DRA ----------
-    // S3에 쓰는 순간 FSx의 /groot 아래에 자동 반영(import)되고, FSx의 /groot 에
-    // 쓴 파일도 S3로 자동 export된다. 학습(S3) → 실험(DCV /fsx) → 클러스터
-    // (HyperPod /fsx)가 파일 복사 없이 같은 데이터를 본다.
+    // ---------- [3.5] 공유 FSx ↔ 아티팩트 버킷 DRA (옵션) ----------
+    // 부모 IsaacLab 스택이 FSx를 만든 경우(enableFsx=true)에만. S3에 쓰는 순간 FSx의
+    // /groot 아래에 자동 반영(import)되고, FSx의 /groot 에 쓴 파일도 S3로 자동 export된다.
+    // 없으면 DCV 인스턴스가 aws s3 sync 로 체크포인트를 받는다(워크숍 기본 경로).
     if (props.fsxFileSystemId) {
       const dra = new fsx.CfnDataRepositoryAssociation(this, 'GrootFsxDra', {
         fileSystemId: props.fsxFileSystemId,

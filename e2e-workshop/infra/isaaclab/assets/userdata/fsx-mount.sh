@@ -1,16 +1,17 @@
 #!/bin/bash
 # =============================================================================
-# fsx-mount.sh - 공유 FSx for Lustre 마운트 스크립트
+# fsx-mount.sh - 공유 FSx for Lustre 마운트 스크립트 (옵션)
 # =============================================================================
-# 워크숍 공유 FSx for Lustre 파일시스템을 /fsx 에 마운트한다.
+# 스택을 -c enableFsx=true 로 배포한 경우에만 FSX_* 변수가 채워지며, 그때 공유
+# FSx for Lustre 파일시스템을 /fsx 에 마운트한다. 기본 배포(enableFsx=false)에서는
+# 변수가 비어 있어 바로 건너뛴다 — 체크포인트는 S3에서 aws s3 sync 로 받는다.
 #
-# 같은 파일시스템을 SageMaker Training(groot 스택의 DRA로 S3와 자동 동기화)과
-# HyperPod 클러스터(-c fsxFileSystemId 로 import)가 공유하므로, 학습 결과가
-# 이 인스턴스의 /fsx 에서 바로 보인다.
+# FSx를 켠 경우 같은 파일시스템을 SageMaker Training(groot 스택의 DRA로 S3와 자동
+# 동기화)과 HyperPod 클러스터(-c fsxFileSystemId 로 import)가 공유할 수 있다.
 #
 # Lustre 커널 모듈은 실행 중인 커널 버전에 정확히 맞아야 한다. DLAMI의 커널이
 # FSx 저장소에 아직 없는 버전이면 설치가 실패할 수 있는데, 이 경우 배포 전체를
-# 실패시키지 않고 [WARN] 마커만 남긴다 — 모듈 5는 aws s3 sync 폴백 경로를 안내한다.
+# 실패시키지 않고 [WARN] 마커만 남긴다 — aws s3 sync 경로는 그대로 쓸 수 있다.
 #
 # 입력 환경 변수:
 #   FSX_ID         - FSx 파일시스템 ID (예: fs-xxxxxxxx)
@@ -21,7 +22,7 @@
 echo "===== [$(date)] START: fsx-mount.sh ====="
 
 if [ -z "$FSX_ID" ] || [ -z "$FSX_DNS_NAME" ] || [ -z "$FSX_MOUNT_NAME" ]; then
-  echo "[WARN] FSX_ID/FSX_DNS_NAME/FSX_MOUNT_NAME 미설정 — FSx 마운트를 건너뜁니다."
+  echo "[INFO] FSX_ID/FSX_DNS_NAME/FSX_MOUNT_NAME 미설정 (enableFsx=false) — FSx 마운트를 건너뜁니다."
   echo "===== [$(date)] END: fsx-mount.sh (SKIPPED) ====="
   return 0 2>/dev/null || exit 0
 fi
@@ -69,7 +70,7 @@ fi
 if [ "$FSX_MOUNT_OK" != "1" ]; then
   echo "[WARN] FSx 마운트 실패 — 배포는 계속 진행합니다. 수동 마운트:"
   echo "  sudo mount -t lustre -o relatime,flock ${FSX_DNS_NAME}@tcp:/${FSX_MOUNT_NAME} /fsx"
-  echo "  (모듈 5의 checkpoint는 aws s3 sync 폴백 경로로도 사용할 수 있습니다)"
+  echo "  (checkpoint는 aws s3 sync 로 로컬 디스크에 받아도 됩니다)"
 fi
 
 echo "===== [$(date)] END: fsx-mount.sh ====="

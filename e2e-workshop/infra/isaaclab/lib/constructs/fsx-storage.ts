@@ -1,9 +1,10 @@
 /**
  * FsxStorageConstruct
  *
- * 워크숍 공유 FSx for Lustre 파일시스템.
+ * 워크숍 공유 FSx for Lustre 파일시스템 (옵션, -c enableFsx=true).
  *
- * 이 파일시스템 하나를 세 곳이 공유한다:
+ * 기본 워크플로우(SageMaker export → DCV 인스턴스 aws s3 sync)에는 필요 없다.
+ * 켜면 이 파일시스템 하나를 세 곳이 공유할 수 있다:
  *   - DCV 인스턴스: fsx-mount.sh가 /fsx 에 마운트 (체크포인트를 바로 실험)
  *   - SageMaker Training: groot per-user 스택이 아티팩트 버킷과 DRA를 걸어
  *     학습 잡의 S3 export가 /fsx/groot/... 에 자동 반영

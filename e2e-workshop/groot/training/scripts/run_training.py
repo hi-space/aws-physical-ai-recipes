@@ -171,8 +171,8 @@ def build_training_job(
     job_name = sagemaker.utils.name_from_base("groot-finetune")
     checkpoint_s3_uri = f"s3://{bucket}/checkpoints/{job_name}"
 
-    # FSx용 비압축 export: 학습 종료 후 train.py가 SM_MODEL_DIR을 이 prefix로 sync한다.
-    # (별도 ProcessingStep 없이 소스에서 직접 업로드 → IsaacSim이 FSx로 바로 로드)
+    # 비압축 export: 학습 종료 후 train.py가 SM_MODEL_DIR을 이 prefix로 sync한다.
+    # (별도 ProcessingStep 없이 소스에서 직접 업로드 → DCV 인스턴스가 aws s3 sync 로 바로 로드)
     model_prefix = (config.get("model", {}).get("s3_prefix", "models/groot-sm") or "models/groot-sm").strip("/")
     hyperparameters["export_s3_uri"] = f"s3://{bucket}/{model_prefix}/{job_name}"
 
@@ -249,8 +249,8 @@ def launch_training_job(args: argparse.Namespace, config: dict) -> str:
         model_artifacts = estimator.model_data
         print(f"  모델 아티팩트:   {model_artifacts}")
         print(f"\n다음 단계:")
-        print(f"  · 압축된 model.tar.gz입니다. FSx용 압축 해제 export는 notebooks/02_sagemaker_pipeline.ipynb")
-        print(f"    (ExportModelForFsx 스텝)에서 자동 수행됩니다.")
+        print(f"  · 압축된 model.tar.gz입니다. 압축 해제 export(export_s3_uri)는 notebooks/02_sagemaker_pipeline.ipynb")
+        print(f"    파이프라인의 학습 스텝이 자동 수행합니다.")
     else:
         print(f"  학습 중... 완료 후 model.tar.gz는 s3://<bucket>/output/{job_name}/output/ 에 생성됩니다.")
 

@@ -18,7 +18,7 @@ export interface ParentStackParams {
   vpcId: string;
   privateSubnetId: string;
   availabilityZone: string;
-  /** 공유 FSx for Lustre ID. 구버전 부모 스택(FSx 도입 전)에는 없을 수 있다. */
+  /** 공유 FSx for Lustre ID. 부모 스택이 -c enableFsx=true 로 배포된 경우에만 존재한다. */
   fsxFileSystemId?: string;
 }
 
@@ -97,7 +97,7 @@ if (require.main === module) {
       console.log(`  vpcId:              ${params.vpcId}`);
       console.log(`  privateSubnetId:    ${params.privateSubnetId}`);
       console.log(`  availabilityZone:   ${params.availabilityZone}`);
-      console.log(`  fsxFileSystemId:    ${params.fsxFileSystemId ?? '(없음 — 부모 스택에 FSx 미배포)'}`);
+      console.log(`  fsxFileSystemId:    ${params.fsxFileSystemId ?? '(없음 — 부모 스택 enableFsx=false, DRA 생략)'}`);
     })
     .catch((err) => {
       console.error('Error:', err.message);

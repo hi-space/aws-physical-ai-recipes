@@ -2,7 +2,7 @@
  * IsaacLabStack 메인 스택
  *
  * Construct를 조합하여 Isaac Lab 환경 전체 인프라를 구성한다.
- * 조합 순서: Networking → FSx → AzSelector(조건부) → DCV → CloudFront(조건부)
+ * 조합 순서: Networking → FSx(옵션) → AzSelector(조건부) → DCV → CloudFront(조건부)
  * 배포 프로필(-c profile): personal(GPU 워크스테이션) | workshop-studio(CPU 워크스테이션)
  *
  * 식별자 규칙 (1인 1계정 전제):
@@ -46,7 +46,14 @@ export interface IsaacLabStackProps extends cdk.StackProps {
   grootWeightsUrl?: string;
   /** 모델·가중치를 내려받는 인스턴스 로컬 경로 (기본값: '/home/ubuntu/environment/models') */
   modelsDir?: string;
-  /** 공유 FSx for Lustre 용량 GiB (PERSISTENT_2, 기본값: 1200) */
+  /**
+   * 공유 FSx for Lustre 생성 여부 (기본값: false).
+   * 워크숍 기본 흐름은 S3 → `aws s3 sync` 로 체크포인트를 가져오므로 FSx가 필요 없다.
+   * HyperPod 스택을 `-c createVpc=false -c fsxFileSystemId=...` 로 이 VPC에 합류시켜
+   * 스토리지를 하나로 합치려는 경우에만 켠다.
+   */
+  enableFsx?: boolean;
+  /** 공유 FSx for Lustre 용량 GiB (PERSISTENT_2, 기본값: 1200, enableFsx=true 일 때만 사용) */
   fsxCapacityGiB?: number;
   /** Isaac Sim 버전 오버라이드 (프로필 기본값 대신 사용, 예: '5.1.0') */
   isaacSimVersion?: string;
@@ -57,7 +64,7 @@ export interface IsaacLabStackProps extends cdk.StackProps {
 /**
  * Isaac Lab 환경 메인 스택
  *
- * Networking, FSx, DCV Instance를 조합하여
+ * Networking, DCV Instance, (옵션) FSx를 조합하여
  * 원클릭 배포 가능한 Isaac Lab 환경을 구성한다.
  */
 export class IsaacLabStack extends cdk.Stack {
@@ -151,25 +158,28 @@ export class IsaacLabStack extends cdk.Stack {
       enableCodeServer,
     });
 
-    // --- [2/3] FsxStorageConstruct ---
+    // --- [2/3] FsxStorageConstruct (옵션, -c enableFsx=true) ---
     // 공유 FSx for Lustre — DCV(/fsx 마운트), SageMaker Training(groot 스택 DRA),
-    // HyperPod(-c fsxFileSystemId import)이 모두 이 파일시스템을 공유한다.
-    const fsxStorage = new FsxStorageConstruct(this, 'FsxStorage', {
-      namePrefix,
-      vpc: networking.vpc,
-      privateSubnet: networking.privateSubnet,
-      vpcCidr: props.vpcCidr,
-      capacityGiB: props.fsxCapacityGiB,
-    });
+    // HyperPod(-c fsxFileSystemId import)이 한 파일시스템을 공유하고 싶을 때만 만든다.
+    // 기본 흐름(S3 export → aws s3 sync)에는 필요 없고, 존재하는 내내 과금된다.
+    const fsxStorage = props.enableFsx
+      ? new FsxStorageConstruct(this, 'FsxStorage', {
+          namePrefix,
+          vpc: networking.vpc,
+          privateSubnet: networking.privateSubnet,
+          vpcCidr: props.vpcCidr,
+          capacityGiB: props.fsxCapacityGiB,
+        })
+      : undefined;
 
     // --- [3/3] DcvInstanceConstruct ---
-    // DCV EC2 인스턴스 (Networking, FSx 의존)
+    // DCV EC2 인스턴스 (Networking 의존, FSx는 있을 때만 마운트)
     const dcvInstance = new DcvInstanceConstruct(this, 'DcvInstance', {
       namePrefix,
       vpc: networking.vpc,
       publicSubnet: networking.publicSubnet,
       dcvSecurityGroup: networking.dcvSecurityGroup,
-      fsxFileSystem: fsxStorage.fileSystem,
+      fsxFileSystem: fsxStorage?.fileSystem,
       instanceType: resolvedInstanceType,
       versionProfile: versionProfileConfig,
       versionProfileName: props.versionProfile,
@@ -243,20 +253,24 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'Private Subnet ID',
     });
 
-    new cdk.CfnOutput(this, 'FsxFileSystemId', {
-      value: fsxStorage.fileSystem.ref,
-      description: 'Shared FSx for Lustre File System ID',
-    });
+    // FSx Outputs는 enableFsx=true 일 때만 존재한다. groot 스택(resolve-parent-stack.ts)은
+    // FsxFileSystemId Output이 없으면 DRA를 만들지 않는다.
+    if (fsxStorage) {
+      new cdk.CfnOutput(this, 'FsxFileSystemId', {
+        value: fsxStorage.fileSystem.ref,
+        description: 'Shared FSx for Lustre File System ID',
+      });
 
-    new cdk.CfnOutput(this, 'FsxMountName', {
-      value: fsxStorage.fileSystem.attrLustreMountName,
-      description: 'Shared FSx for Lustre mount name',
-    });
+      new cdk.CfnOutput(this, 'FsxMountName', {
+        value: fsxStorage.fileSystem.attrLustreMountName,
+        description: 'Shared FSx for Lustre mount name',
+      });
 
-    new cdk.CfnOutput(this, 'FsxSecurityGroupId', {
-      value: fsxStorage.securityGroup.ref,
-      description: 'FSx Security Group ID (Lustre access)',
-    });
+      new cdk.CfnOutput(this, 'FsxSecurityGroupId', {
+        value: fsxStorage.securityGroup.ref,
+        description: 'FSx Security Group ID (Lustre access)',
+      });
+    }
 
     if (accountId) {
       new cdk.CfnOutput(this, 'UserId', {

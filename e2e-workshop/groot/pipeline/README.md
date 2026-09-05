@@ -18,7 +18,7 @@ TransformDataset → GR00TFinetune → SmokeEval → SmokeGate ─┬─(pass)�
 
   > 참고: **첫 실전 파이프라인 실행**에서 SmokeGate가 실패하면 모델 품질보다는 `smoke_eval.py`의 UNVERIFIED 가정(정책 import 경로, observation/action 스키마 등)이 틀렸을 가능성이 더 높습니다. `evaluation.json`의 `smoke.error`를 확인하세요 — `LOAD_OR_INFER_FAILURE:` 접두사면 스파이크 가정 문제이고, 접두사 없이 `action_shape`가 채워져 있으면 실제 shape 불일치입니다.
 
-한편, 학습 잡이 끝에 `train.py`가 `export_s3_uri` hyperparameter로 받은 위치로 압축 해제된 체크포인트를 S3에 직접 내보내는 동작(아래 FSx 연동 섹션)은 **SmokeGate와 독립적으로** 항상 수행됩니다 — 즉 게이트를 통과하지 못해 Model Registry에 등록되지 않아도 S3/FSx 쪽 export 자체는 이미 끝나 있을 수 있습니다. 소비 파이프라인(IsaacSim 등)에서 "게이트를 통과한 모델만 쓴다"는 보장이 필요하면 Model Registry의 Approved 상태를 기준으로 판단해야 합니다.
+한편, 학습 잡이 끝에 `train.py`가 `export_s3_uri` hyperparameter로 받은 위치로 압축 해제된 체크포인트를 S3에 직접 내보내는 동작(아래 비압축 export 섹션)은 **SmokeGate와 독립적으로** 항상 수행됩니다 — 즉 게이트를 통과하지 못해 Model Registry에 등록되지 않아도 S3 export 자체는 이미 끝나 있을 수 있습니다. 소비 파이프라인(IsaacSim 등)에서 "게이트를 통과한 모델만 쓴다"는 보장이 필요하면 Model Registry의 Approved 상태를 기준으로 판단해야 합니다.
 
 모델 버전·지표 추적은 학습 step에 붙은 **MLflow**(config.yaml의 `mlflow.*`)로 일원화합니다.
 
@@ -62,14 +62,14 @@ export 대상 prefix는 `config.yaml`의 `model.s3_prefix`(기본 `models/groot-
 - SageMaker 콘솔의 **Model Registry** 탭에서 등록된 버전과 승인 상태를 확인할 수 있습니다.
 - 실패한 실행은 `FailStep`으로 파이프라인 자체가 실패 처리되며, Model Registry에는 아무것도 등록되지 않습니다.
 
-## FSx for Lustre 연동 (IsaacSim 소비)
+## 비압축 export (IsaacSim 소비)
 
-FSx export는 학습 스텝(`GR00TFinetune`)이 매 실행마다 SmokeGate 결과와 무관하게 수행합니다.
+비압축 export는 학습 스텝(`GR00TFinetune`)이 매 실행마다 SmokeGate 결과와 무관하게 수행합니다.
 
 1. 파이프라인 실행 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/`에 압축되지 않은 모델 디렉토리가 생성됩니다.
-2. 이 prefix를 import 소스로 하는 FSx for Lustre 파일시스템(또는 DRA)을 생성합니다.
-3. IsaacSim EC2에서 해당 FSx를 마운트하면 마운트 경로에서 모델을 바로 로드할 수 있습니다.
-4. "게이트를 통과한 모델만" 마운트하려면 위 Model Registry의 Approved 상태를 execution-id와 대조해 확인하세요.
+2. DCV 인스턴스에서 `aws s3 sync s3://<bucket>/<model.s3_prefix>/<execution-id>/ <로컬 경로>`로 받으면 tar 해제 없이 IsaacSim/Policy Server에서 바로 로드할 수 있습니다.
+3. IsaacLab 스택을 `-c enableFsx=true`로 배포했다면 groot 스택이 이 버킷에 DRA를 걸어 같은 내용이 `/fsx/groot/<model.s3_prefix>/<execution-id>/`에 자동으로 나타납니다.
+4. "게이트를 통과한 모델만" 쓰려면 위 Model Registry의 Approved 상태를 execution-id와 대조해 확인하세요.
 
 ## See Also
 

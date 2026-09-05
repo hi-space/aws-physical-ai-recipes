@@ -44,6 +44,9 @@ const enableCodeServer = (app.node.tryGetContext('enableCodeServer') ?? 'true') 
 const grootWeightsUrl = app.node.tryGetContext('grootWeightsUrl') ?? '';
 const modelsDir = app.node.tryGetContext('modelsDir') ?? '/home/ubuntu/environment/models';
 const isaacSimVersion = app.node.tryGetContext('isaacSimVersion') ?? '';
+// 공유 FSx for Lustre (옵트인). 기본 워크플로우는 S3 → aws s3 sync 로 체크포인트를
+// 가져오므로 FSx가 필요 없다. HyperPod와 스토리지를 합치려는 경우에만 켠다.
+const enableFsx = (app.node.tryGetContext('enableFsx') ?? 'false') === 'true';
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 // 배포 프로필. workshop-studio = Workshop Studio 이벤트 계정(EC2 GPU 불가 → CPU 워크스테이션).
 const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
@@ -77,6 +80,7 @@ new IsaacLabStack(app, stackName, {
   grootWeightsUrl,
   modelsDir,
   isaacSimVersion: isaacSimVersion || undefined,
+  enableFsx,
   fsxCapacityGiB,
   profile,
 });

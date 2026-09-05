@@ -15,7 +15,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| 부모 스택 | `IsaacLab-Latest-<ACCOUNT_ID>` (또는 `-Stable-`)가 배포 완료 상태여야 한다. 이 스택의 VPC/Subnet/FSx를 자동 탐색해 사용한다. |
+| 부모 스택 | `IsaacLab-Latest-<ACCOUNT_ID>` (또는 `-Stable-`)가 배포 완료 상태여야 한다. 이 스택의 VPC/Subnet(과 `enableFsx=true`로 배포된 경우 FSx)을 자동 탐색해 사용한다. |
 | Node.js | 18 이상 (`node --version`) |
 | CDK Bootstrap | 배포 리전에 최초 1회: `npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1` |
 | IAM (DCV 인스턴스에서 배포 시) | DCV 인스턴스 롤에 `sts:AssumeRole` on `arn:aws:iam::*:role/cdk-*` 권한이 포함되어 있다(IsaacLab 스택이 부여). CDK v2는 배포 시 부트스트랩 롤(`cdk-hnb659fds-deploy-role-...` 등)을 AssumeRole 하는 방식이라 이 권한만 있으면 된다. |

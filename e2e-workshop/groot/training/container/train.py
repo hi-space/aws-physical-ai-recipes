@@ -108,8 +108,8 @@ def parse_sagemaker_env() -> dict:
         "global_batch_size": _get_hyperparameter("global_batch_size", "32"),
         "save_steps": _get_hyperparameter("save_steps", "2000"),
         "dataloader_num_workers": _get_hyperparameter("dataloader_num_workers", "4"),
-        # FSx용 export: 설정 시 학습 종료 후 SM_MODEL_DIR(비압축 슬림 체크포인트)을
-        # 이 S3 prefix로 그대로 sync. IsaacSim이 FSx Lustre로 마운트해 tar 해제 없이 로드.
+        # 비압축 export: 설정 시 학습 종료 후 SM_MODEL_DIR(비압축 슬림 체크포인트)을
+        # 이 S3 prefix로 그대로 sync. DCV 인스턴스가 aws s3 sync 한 번으로 tar 해제 없이 로드.
         "export_s3_uri": _get_hyperparameter("export_s3_uri", ""),
         "num_gpus": num_gpus,
         "video_key": _get_hyperparameter("video_key", "video.webcam"),
@@ -510,7 +510,7 @@ def copy_artifacts(env: dict) -> None:
 
 
 # -------------------------------------------------------------------------------
-# FSx용 비압축 export
+# 비압축 export (DCV 인스턴스 s3 sync 소비용)
 # -------------------------------------------------------------------------------
 
 def export_uncompressed_to_s3(env: dict) -> None:
@@ -519,7 +519,7 @@ def export_uncompressed_to_s3(env: dict) -> None:
     SageMaker가 SM_MODEL_DIR을 model.tar.gz로 압축해 output_path에 올리는 것과 별개로,
     이 함수는 동일 내용을 **압축하지 않고** 지정 S3 prefix에 sync한다. 파일이 이미 컨테이너
     로컬 디스크에 있으므로 재다운로드/재압축 없이 업로드만 수행한다(별도 ProcessingStep 불필요).
-    이 prefix를 FSx for Lustre DRA(import 소스)로 걸면 IsaacSim EC2가 tar 해제 없이 바로 로드한다.
+    DCV 인스턴스는 이 prefix를 aws s3 sync 로 받아 tar 해제 없이 바로 로드한다(FSx DRA import 소스로도 사용 가능).
     """
     export_uri = (env.get("export_s3_uri") or "").strip()
     if not export_uri:
@@ -546,7 +546,7 @@ def export_uncompressed_to_s3(env: dict) -> None:
             key = f"{key_prefix}/{rel}" if key_prefix else rel
             s3.upload_file(local_path, bucket, key)
             n += 1
-    print(f"비압축 export 완료: {n}개 파일 → {export_uri}/ (FSx import 소스)")
+    print(f"비압축 export 완료: {n}개 파일 → {export_uri}/")
 
 
 # -------------------------------------------------------------------------------
