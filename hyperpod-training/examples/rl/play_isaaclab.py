@@ -93,11 +93,18 @@ def main():
     env_cfg.scene.num_envs = args.num_envs
 
     if args.video:
-        # Offscreen render camera: look at env 0's arm from the front-right.
-        env_cfg.viewer.eye = (1.1, 1.1, 0.8)
-        env_cfg.viewer.lookat = (0.25, 0.0, 0.15)
         env_cfg.viewer.resolution = (1280, 720)
+        # Draw the commanded target pose (goal frame marker) so the recording shows what the
+        # arm is tracking — the red sphere in the scene is a fixed decoration, not the target.
+        for term_name in getattr(env_cfg.commands, "__dataclass_fields__", {}) or vars(env_cfg.commands):
+            term = getattr(env_cfg.commands, term_name, None)
+            if hasattr(term, "debug_vis"):
+                term.debug_vis = True
         env = gym.make(args.task, cfg=env_cfg, render_mode="rgb_array")
+        # Frame env 0's arm from the front-right (env origins are spread on a grid).
+        origin = env.unwrapped.scene.env_origins[0].cpu().numpy()
+        env.unwrapped.sim.set_camera_view(
+            eye=tuple(origin + (1.0, 0.9, 0.65)), target=tuple(origin + (0.25, 0.0, 0.15)))
         ckpt_stem = os.path.splitext(os.path.basename(args.checkpoint))[0]
         video_dir = args.video_dir or os.path.join(os.path.dirname(os.path.abspath(args.checkpoint)), "videos")
         env = gym.wrappers.RecordVideo(
