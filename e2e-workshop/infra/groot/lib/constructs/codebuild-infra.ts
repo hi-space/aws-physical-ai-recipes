@@ -57,7 +57,32 @@ export class CodeBuildInfra extends Construct {
       resources: ['*'],
     }));
 
-    // Auto-trigger build on deploy
+    // Auto-trigger build on deploy.
+    //
+    // 커스텀 리소스 Lambda의 권한은 별도 AWS::IAM::Policy가 아니라 Role 자체의
+    // inlinePolicies로 넣는다. `policy` prop을 쓰면 Policy 리소스가 붙는 즉시 Lambda가
+    // 호출되어 IAM 전파가 끝나기 전에 AccessDenied가 날 수 있다. Role → Lambda 함수 생성
+    // → 호출 순서로 두면 함수 생성 시간이 전파 시간을 덮는다.
+    //
+    // AwsCustomResource 는 스택당 Lambda 하나를 공유(singleton)하므로, 이 스택에 다른
+    // AwsCustomResource 를 추가할 때는 필요한 권한을 이 Role 의 inlinePolicies 에 함께 넣는다.
+    const triggerRole = new iam.Role(this, 'TriggerBuildRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+      inlinePolicies: {
+        StartBuild: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['codebuild:StartBuild'],
+              resources: [this.project.projectArn],
+            }),
+          ],
+        }),
+      },
+    });
+
     new cr.AwsCustomResource(this, 'TriggerBuild', {
       onCreate: {
         service: 'CodeBuild',
@@ -71,12 +96,8 @@ export class CodeBuildInfra extends Construct {
         parameters: { projectName: this.project.projectName },
         physicalResourceId: cr.PhysicalResourceId.of(`${this.project.projectName}-${sourceAsset.assetHash}`),
       },
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ['codebuild:StartBuild'],
-          resources: [this.project.projectArn],
-        }),
-      ]),
+      role: triggerRole,
+      installLatestAwsSdk: false,
     });
   }
 }
