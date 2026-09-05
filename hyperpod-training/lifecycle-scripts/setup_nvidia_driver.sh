@@ -14,10 +14,18 @@
 # 동작:
 #   - GPU 가 없는 노드(head)는 건너뛴다.
 #   - 이미 목표 버전이면 건너뛴다.
-#   - GPU 를 잡고 있는 서비스(DCGM, 헬스 모니터링 에이전트, persistenced, DCV)를 잠시 멈추고
-#     커널 모듈을 내린 뒤 NVIDIA .run 설치기로 사용자공간+커널 모듈을 빌드/설치하고(약 2~4분),
-#     nvidia 에 의존하는 DKMS 모듈(gdrdrv, efa-nv-peermem)을 새 드라이버에 맞춰 재빌드한 뒤
-#     모듈을 다시 올리고 서비스를 재시작한다.
+#   - GPU 를 잡고 있는 서비스(DCGM, 헬스 모니터링 에이전트, persistenced(nvidia_gpu_settings_service),
+#     DCV, nvidia-cdi-refresh)를 잠시 멈추고 커널 모듈을 내린 뒤 NVIDIA .run 설치기로
+#     사용자공간+커널 모듈을 빌드/설치하고(약 2~4분), nvidia 에 의존하는 DKMS 모듈
+#     (gdrdrv, efa-nv-peermem)을 새 드라이버에 맞춰 재빌드한 뒤 모듈을 다시 올리고 서비스를 재시작한다.
+#   - 설치 중에는 modprobe.d 에 `install nvidia /bin/false` 를 두어 커널 모듈 자동 로드를 막는다.
+#     NVML 클라이언트(DCGM, 헬스 에이전트, nvidia-ctk cdi, DCV)가 재시작되며 /dev/nvidia* 를 열면
+#     setuid nvidia-modprobe 가 아직 남아 있는 *구* 커널 모듈(595)을 다시 올려 버리고, 설치기의 마지막
+#     모듈 로드가 "Unable to load the 'nvidia-drm' kernel module" 로 실패해 사용자공간 580 + 커널 595
+#     (Driver/library version mismatch) 상태로 남는다. 설치기는 --skip-module-load 로 돌리고 로드는
+#     이 스크립트가 직접 한다.
+#   - 디스크에는 목표 버전이 있는데 로드된 모듈만 다른 경우(위 실패 상태, 또는 재실행)에는 다운로드/
+#     설치 없이 모듈만 다시 올린다.
 #   - 실패해도 non-fatal: 기존 드라이버로 되돌아가 노드 프로비저닝은 계속된다.
 #
 # 환경 변수:
@@ -37,16 +45,27 @@ log() { echo "[setup_nvidia_driver] $*"; }
 if [ "${NVIDIA_DRIVER_SKIP:-0}" = "1" ]; then
   log "NVIDIA_DRIVER_SKIP=1 — skipping."; exit 0
 fi
-if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi -L &>/dev/null; then
+# GPU 유무는 PCI/디바이스 노드로 본다. nvidia-smi 는 사용자공간/커널 모듈 버전이 어긋난 상태
+# (아래 RELOAD_ONLY 복구 대상)에서는 실패하므로 판별 기준으로 쓰면 복구 자체를 건너뛰게 된다.
+if ! { lspci 2>/dev/null | grep -qi nvidia || [ -e /dev/nvidia0 ] || nvidia-smi -L &>/dev/null; }; then
   log "No NVIDIA GPU detected, skipping."; exit 0
 fi
 
-CURRENT="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)"
+CURRENT="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
+LOADED="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /proc/driver/nvidia/version 2>/dev/null | head -1)"
 MODULE_TYPE="$(grep -q 'Open Kernel Module' /proc/driver/nvidia/version 2>/dev/null && echo open || echo proprietary)"
 if [ "${CURRENT}" = "${NVIDIA_DRIVER_VERSION}" ] && [ "${MODULE_TYPE}" = "${NVIDIA_KERNEL_MODULE_TYPE}" ]; then
   log "Driver ${CURRENT} (${MODULE_TYPE}) already installed."; exit 0
 fi
-log "Current driver: ${CURRENT} (${MODULE_TYPE}) → target ${NVIDIA_DRIVER_VERSION} (${NVIDIA_KERNEL_MODULE_TYPE})"
+# 디스크(사용자공간 라이브러리 + DKMS 커널 모듈)는 이미 목표 버전인데 로드된 모듈만 다른 상태
+# (예: 이전 설치의 마지막 모듈 로드 단계 실패) → 모듈만 다시 올리면 된다.
+ON_DISK_LIB="$(ls /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.[0-9]* 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+ON_DISK_KMOD="$(modinfo -F version nvidia 2>/dev/null | head -1)"
+RELOAD_ONLY=0
+if [ "${ON_DISK_LIB}" = "${NVIDIA_DRIVER_VERSION}" ] && [ "${ON_DISK_KMOD}" = "${NVIDIA_DRIVER_VERSION}" ]; then
+  RELOAD_ONLY=1
+fi
+log "Current driver: loaded=${LOADED:-none} (${MODULE_TYPE}), nvidia-smi='${CURRENT}', on-disk lib=${ON_DISK_LIB:-none} kmod=${ON_DISK_KMOD:-none} → target ${NVIDIA_DRIVER_VERSION} (${NVIDIA_KERNEL_MODULE_TYPE})"
 
 exec > >(tee -a "$LOG") 2>&1
 
@@ -64,17 +83,24 @@ command -v gcc >/dev/null && command -v make >/dev/null || apt-get install -yq b
 # Vulkan 로더: NVIDIA Vulkan ICD 가 동작하려면 호스트에 libvulkan1 이 필요하다.
 apt-get install -yq libvulkan1 >/dev/null 2>&1 || true
 
-if [ ! -f "${RUNFILE}" ]; then
-  log "Downloading ${RUNFILE_URL} ..."
-  curl -fsSL -o "${RUNFILE}" "${RUNFILE_URL}" || { log "WARNING: download failed; keeping current driver."; exit 0; }
+if [ "${RELOAD_ONLY}" = "1" ]; then
+  log "Target ${NVIDIA_DRIVER_VERSION} already on disk — only reloading kernel modules."
+else
+  if [ ! -f "${RUNFILE}" ]; then
+    log "Downloading ${RUNFILE_URL} ..."
+    curl -fsSL -o "${RUNFILE}" "${RUNFILE_URL}" || { log "WARNING: download failed; keeping current driver."; exit 0; }
+  fi
+  rm -rf extracted; sh "${RUNFILE}" --extract-only --target extracted >/dev/null || { log "WARNING: extract failed; keeping current driver."; exit 0; }
+  KDIR=kernel; [ "${NVIDIA_KERNEL_MODULE_TYPE}" = "open" ] && KDIR=kernel-open
+  [ -d "extracted/${KDIR}" ] || { log "WARNING: runfile has no ${NVIDIA_KERNEL_MODULE_TYPE} kernel module; keeping current driver."; exit 0; }
 fi
-rm -rf extracted; sh "${RUNFILE}" --extract-only --target extracted >/dev/null || { log "WARNING: extract failed; keeping current driver."; exit 0; }
-KDIR=kernel; [ "${NVIDIA_KERNEL_MODULE_TYPE}" = "open" ] && KDIR=kernel-open
-[ -d "extracted/${KDIR}" ] || { log "WARNING: runfile has no ${NVIDIA_KERNEL_MODULE_TYPE} kernel module; keeping current driver."; exit 0; }
 
 # --- GPU 를 잡고 있는 프로세스/서비스 정리 -------------------------------------
+# nvidia-cdi-refresh.path 는 드라이버 파일 변경을 감지해 nvidia-ctk(NVML 클라이언트)를 돌리고,
+# 나머지는 NVML 을 초기화하는 데몬이다 — 모두 nvidia-modprobe 를 통해 커널 모듈을 다시 올릴 수 있다.
 STOPPED_UNITS=""
-for u in nvidia-dcgm sagemaker-health-monitoring-agent dcvserver nvidia-fabricmanager; do
+for u in nvidia-cdi-refresh.path nvidia-cdi-refresh.service nvidia-dcgm sagemaker-health-monitoring-agent \
+         dcvsessionlauncher dcvserver nvidia-fabricmanager nvidia_gpu_settings_service; do
   if systemctl is-active --quiet "$u" 2>/dev/null; then systemctl stop "$u" && STOPPED_UNITS="${STOPPED_UNITS} $u"; fi
 done
 PERSIST_PID="$(pgrep -x nvidia-persiste | head -1 || true)"
@@ -85,7 +111,9 @@ if [ -n "${PERSIST_PID}" ]; then
 fi
 sleep 2
 
+BLOCK_CONF=/etc/modprobe.d/zz-nvidia-driver-swap-block.conf
 restore_services() {
+  rm -f "${BLOCK_CONF}"
   modprobe nvidia 2>/dev/null; modprobe nvidia_uvm 2>/dev/null; modprobe nvidia_modeset 2>/dev/null
   modprobe nvidia_drm 2>/dev/null; modprobe gdrdrv 2>/dev/null; modprobe efa_nv_peermem 2>/dev/null; modprobe nvidia_fs 2>/dev/null
   for u in ${STOPPED_UNITS}; do systemctl start "$u" 2>/dev/null || true; done
@@ -107,10 +135,16 @@ if lsmod | grep -qE "^nvidia "; then
 fi
 
 # --- 설치 ----------------------------------------------------------------------
-log "Installing NVIDIA ${NVIDIA_DRIVER_VERSION} (${NVIDIA_KERNEL_MODULE_TYPE} kernel module)..."
-( cd extracted && ./nvidia-installer -s --ui=none --no-questions --kernel-module-type="${NVIDIA_KERNEL_MODULE_TYPE}" \
-    --no-x-check --no-nouveau-check --no-backup --install-libglvnd --tmpdir="${WORK}/tmp" ) 2>&1 | tail -5
-RC=${PIPESTATUS[0]}
+# 설치 중 어떤 클라이언트도 (구) 커널 모듈을 자동 로드하지 못하게 막는다. 로드는 restore_services 가 한다.
+printf 'install nvidia /bin/false\ninstall nvidia_uvm /bin/false\ninstall nvidia_modeset /bin/false\ninstall nvidia_drm /bin/false\n' > "${BLOCK_CONF}"
+RC=0
+if [ "${RELOAD_ONLY}" != "1" ]; then
+  log "Installing NVIDIA ${NVIDIA_DRIVER_VERSION} (${NVIDIA_KERNEL_MODULE_TYPE} kernel module)..."
+  ( cd extracted && ./nvidia-installer -s --ui=none --no-questions --kernel-module-type="${NVIDIA_KERNEL_MODULE_TYPE}" \
+      --no-x-check --no-nouveau-check --no-backup --install-libglvnd --skip-module-load --tmpdir="${WORK}/tmp" ) 2>&1 | tail -5
+  RC=${PIPESTATUS[0]}
+  depmod -a
+fi
 
 # nvidia 심볼에 의존하는 DKMS 모듈(gdrdrv, efa-nv-peermem)을 새 드라이버 헤더로 재빌드한다.
 if [ "${RC}" -eq 0 ]; then
