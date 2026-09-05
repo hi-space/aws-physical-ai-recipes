@@ -263,7 +263,7 @@ bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/container/import_con
 
 ```bash
 aws sagemaker update-cluster --cluster-name <CLUSTER_NAME> --region <REGION> \
-  --instance-groups '[{"InstanceGroupName":"gpu-g5-12x","InstanceType":"ml.g5.12xlarge","InstanceCount":1,
+  --instance-groups '[{"InstanceGroupName":"gpu-g5-8x","InstanceType":"ml.g5.8xlarge","InstanceCount":1,
     "LifeCycleConfig":{"SourceS3Uri":"s3://<lifecycle-bucket>/lifecycle-scripts/","OnCreate":"on_create.sh"},
     "ExecutionRole":"<cluster-execution-role-arn>"}]'
 ```
@@ -303,7 +303,7 @@ HyperPod는 `ml.*` 접두사 인스턴스만 사용 가능합니다 (일반 EC2 
 
 | 프리셋 | 인스턴스 | GPU | 용도 |
 |--------|----------|-----|------|
-| default | ml.g5.12xlarge | 4× A10G (24GB) | GR00T-3B fine-tuning |
+| default | ml.g5.8xlarge | 1× A10G (24GB) | RL 학습 (GPU 1장) |
 | light | ml.g5.8xlarge | 1× A10G (24GB) | 소규모 테스트 (debug 그룹과 동일 타입) |
 | perf | ml.g6e.12xlarge | 4× L40S (48GB) | 큰 배치, 빠른 학습 (`-c gpuGroups=extended`) |
 | heavy | ml.p4d.24xlarge | 8× A100 (40GB) | 대규모 분산 학습 |

@@ -11,7 +11,7 @@ AWS SageMaker HyperPod + NVIDIA Isaac GR00T N1.7을 활용한 Vision-Language-Ac
 │  ┌──────────────┐     ┌──────────────────────────────────┐  │
 │  │  Head Node   │     │  Compute Node (GPU)              │  │
 │  │  ml.m5.xlarge│────▶│  ml.g5.4xlarge (1x A10G 24GB)   │  │
-│  │  SLURM ctrl  │     │  or ml.g5.12xlarge (4x A10G)    │  │
+│  │  SLURM ctrl  │     │  or ml.g5.8xlarge (1x A10G)    │  │
 │  └──────┬───────┘     └──────────────┬───────────────────┘  │
 │         │                            │                      │
 │  ┌──────┴────────────────────────────┴───────────────────┐  │
@@ -430,7 +430,7 @@ aws sagemaker describe-cluster --cluster-name <CLUSTER_NAME> --region <REGION> \
 aws sagemaker update-cluster --cluster-name <CLUSTER_NAME> --region <REGION> \
   --instance-groups '[
     {"InstanceGroupName":"head","InstanceType":"ml.m5.xlarge","InstanceCount":1,...},
-    {"InstanceGroupName":"train","InstanceType":"ml.g5.12xlarge","InstanceCount":1,...}
+    {"InstanceGroupName":"train","InstanceType":"ml.g5.8xlarge","InstanceCount":1,...}
   ]'
 ```
 

@@ -22,11 +22,11 @@ export interface HyperPodStackProps extends cdk.StackProps {
   vpcCidr: string;
   gpuMaxCountPerType: number;
   gpuUseSpot: boolean;
-  /** GPU 그룹 프로필. core = gpu-g5-12x 만(기본), extended = g6e/g6/p4d/p5 그룹 추가. */
+  /** GPU 그룹 프로필. core = gpu-g5-8x 만(기본), extended = g6e/g6/p4d/p5 그룹 추가. */
   gpuGroups: GpuGroupProfile;
   /** 배포 프로필. workshop-studio 는 head 노드를 ml.g5.2xlarge 로 만든다. */
   profile: DeploymentProfile;
-  /** 기본 학습 그룹(ml.g5.12xlarge, gpu-g5-12x)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
+  /** 기본 학습 그룹(ml.g5.8xlarge, gpu-g5-8x)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
   gpuCount: number;
   /** debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1). */
   debugCount: number;
@@ -80,12 +80,17 @@ export class HyperPodStack extends cdk.Stack {
       importedFsxMountName: props.importedFsxMountName,
     });
 
-    // AMI 보안 패치 스케줄. 기본은 켜진 상태이며, 끄려면 -c amiUpdateSchedule=off 로 배포한다.
+    // AMI 보안 패치 스케줄. 기본은 꺼짐: HyperPod는 ScheduledUpdateConfig가 한 번 설정된
+    // 인스턴스 그룹의 UpdateCluster를 "You can't modify the existing ScheduledUpdateConfig"로
+    // 거부하므로, 스케줄이 들어간 스택은 이후 어떤 `cdk deploy`도 실패한다. 필요하면
+    // -c amiUpdateSchedule=default (DEFAULT_AMI_UPDATE_SCHEDULE) 또는 cron 식으로 켠다.
     const scheduleContext = this.node.tryGetContext('amiUpdateSchedule');
     const amiUpdateSchedule =
-      scheduleContext === 'off' || scheduleContext === 'none'
+      scheduleContext === undefined || scheduleContext === 'off' || scheduleContext === 'none'
         ? undefined
-        : (scheduleContext ?? DEFAULT_AMI_UPDATE_SCHEDULE);
+        : scheduleContext === 'default'
+          ? DEFAULT_AMI_UPDATE_SCHEDULE
+          : scheduleContext;
 
     // 3. HyperPod Cluster
     const cluster = new HyperPodClusterConstruct(this, 'HyperPod', {

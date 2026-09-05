@@ -27,7 +27,7 @@
 | 그룹 | 인스턴스 유형 | GPU | 초기/최대 노드 | 상시 운영 |
 |--------|---------------|-----|---------|---------|
 | **head** | ml.m5.xlarge | - | 1 / 1 | Yes |
-| **gpu-g5-12x** | ml.g5.12xlarge | 4× A10G (24GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g5-8x** | ml.g5.8xlarge | 1× A10G (24GB) | 0 / `gpuMaxCount` | No |
 | **debug** | ml.g5.8xlarge | 1× A10G (24GB) | 0 / 1 | No |
 
 `-c gpuGroups=extended`로 배포하면 다음 그룹이 추가됩니다 (해당 타입의 cluster usage 쿼터가 있는 계정용):
@@ -78,7 +78,7 @@ SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지
 ```json
 {
   "InstanceGroupName": "sim",
-  "InstanceType": "ml.g5.12xlarge",
+  "InstanceType": "ml.g5.8xlarge",
   "InstanceCount": 0,
   "MaxCount": 16,
   "UseSpot": true
@@ -98,8 +98,8 @@ SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지
 
 ```json
 {
-  "InstanceGroupName": "gpu-g5-12x",
-  "InstanceType": "ml.g5.12xlarge",
+  "InstanceGroupName": "gpu-g5-8x",
+  "InstanceType": "ml.g5.8xlarge",
   "InstanceCount": 0,
   "MaxCount": 4,
   "UseSpot": false
@@ -136,7 +136,7 @@ SLURM 파티션은 HyperPod가 관리하며, 인스턴스 그룹별로 나뉘지
 
 | 프리셋 | 인스턴스 | GPU | 메모리/GPU | 적합한 작업 | 예상 비용 (시간당) |
 |--------|---------|-----|-----------|-----------|-----------------|
-| **default** | ml.g5.12xlarge | 4× A10G (24GB) | 6GB | GR00T-3B Full FT(DeepSpeed 분산), 기본 VLA/RL | ~$7.00 |
+| **default** | ml.g5.8xlarge | 1× A10G (24GB) | 24GB | 기본 RL 학습 (GPU 1장) | ~$3.00 |
 | **perf** | ml.g6e.12xlarge | 4× L40S (48GB) | 12GB | 더 빠른 학습 (extended 프로필, g6e 쿼터 필요) | ~$10.50 |
 | **heavy** | ml.p4d.24xlarge | 8× A100 (40GB) | 5GB | 대규모 VLA, 멀티노드 학습 | ~$32.00 |
 | **max** | ml.p5.48xlarge | 8× H100 (80GB) | 10GB | 큰 모델 full fine-tuning, 장시간 학습 | ~$98.00 |

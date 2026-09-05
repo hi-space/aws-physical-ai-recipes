@@ -43,7 +43,8 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
 /**
  * GPU 인스턴스 그룹 프로필
  *
- * - core     : 워크숍 기본. 학습 그룹 gpu-g5-12x 하나만 만든다. Workshop Studio의
+ * - core     : 워크숍 기본. 학습 그룹 gpu-g5-8x 하나만 만든다(debug 그룹과 같은 ml.g5.8xlarge —
+ *              학습 job은 GPU 1장만 쓰고, 단일 GPU 타입이 용량을 구하기 쉽다). Workshop Studio의
  *              SageMaker 허용 목록(cluster: ml.g5.2xlarge/8xlarge/12xlarge, ml.trn1.32xlarge)
  *              안에 있는 타입만 쓰므로 CreateCluster 스펙에 비허용 타입이 섞이지 않는다.
  * - extended : core + g6e/g6/p4d/p5 그룹. 쿼터가 있는 개인 계정에서 더 큰 모델·
@@ -52,7 +53,8 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
  *
  * | 인스턴스           | GPU              | VRAM  | 프로필    | 용도                    |
  * |-------------------|-----------------|-------|----------|------------------------|
- * | ml.g5.12xlarge    | 4× A10G (24GB)  | 96GB  | core     | 기본 학습                |
+ * | ml.g5.8xlarge     | 1× A10G (24GB)  | 24GB  | core     | 기본 학습 (debug 와 동일)  |
+ * | ml.g5.12xlarge    | 4× A10G (24GB)  | 96GB  | extended | 멀티 GPU 학습            |
  * | ml.g6e.12xlarge   | 4× L40S (48GB)  | 192GB | extended | 더 빠른 학습 (g6e 쿼터 필요) |
  * | ml.g6e.24xlarge   | 4× L40S (48GB)  | 192GB | extended | 더 많은 CPU/RAM          |
  * | ml.g6e.48xlarge   | 8× L40S (48GB)  | 384GB | extended | 대규모 학습              |
@@ -65,11 +67,12 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
 export type GpuGroupProfile = 'core' | 'extended';
 
 export const CORE_GPU_INSTANCES: { type: string; shortName: string }[] = [
-  { type: 'ml.g5.12xlarge', shortName: 'g5-12x' },
+  { type: 'ml.g5.8xlarge', shortName: 'g5-8x' },
 ];
 
 export const EXTENDED_GPU_INSTANCES: { type: string; shortName: string }[] = [
   ...CORE_GPU_INSTANCES,
+  { type: 'ml.g5.12xlarge', shortName: 'g5-12x' },
   { type: 'ml.g6e.12xlarge', shortName: 'g6e-12x' },
   { type: 'ml.g6e.24xlarge', shortName: 'g6e-24x' },
   { type: 'ml.g6e.48xlarge', shortName: 'g6e-48x' },
@@ -84,11 +87,11 @@ export const EXTENDED_GPU_INSTANCES: { type: string; shortName: string }[] = [
 export const GPU_INSTANCES = CORE_GPU_INSTANCES;
 
 /**
- * Train 인스턴스 타입 프리셋 (default/light 는 core, 나머지는 extended 프로필에서만 그룹이 존재)
+ * Train 인스턴스 타입 프리셋 (default 는 core, 나머지는 extended 프로필에서만 그룹이 존재)
  */
 export const TRAIN_INSTANCE_PRESETS: Record<string, string> = {
-  default: 'ml.g5.12xlarge',
-  light: 'ml.g5.8xlarge',
+  default: 'ml.g5.8xlarge',
+  multi: 'ml.g5.12xlarge',
   perf: 'ml.g6e.12xlarge',
   heavy: 'ml.p4d.24xlarge',
   max: 'ml.p5.48xlarge',

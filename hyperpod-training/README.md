@@ -8,7 +8,7 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 ┌─────────────────────────────────────────────────────────┐
 │ HyperPod Cluster (SLURM Managed)                        │
 │  ├─ head   (ml.m5.xlarge; workshop-studio 프로필은 ml.g5.2xlarge) — 컨트롤러, 상시 운영 │
-│  ├─ gpu-g5-12x (ml.g5.12xlarge) — VLA/RL 학습 (0에서)    │
+│  ├─ gpu-g5-8x (ml.g5.8xlarge) — RL 학습 (0에서, debug 와 같은 타입)    │
 │  │     -c gpuGroups=extended: g6e/g6/p4d/p5 그룹 추가    │
 │  │     (전부 노드 0에서 시작)                            │
 │  └─ debug  (ml.g5.8xlarge)    — 디버깅/시각화 (0에서)    │
@@ -61,14 +61,14 @@ npx cdk deploy -c region=us-east-1 --require-approval never
 | `createVpc` | true | VPC를 새로 생성 (false면 기존 VPC 사용) |
 | `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
-| `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-12x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
+| `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-8x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
 | `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(head 노드 `ml.g5.2xlarge` — cluster 허용 타입 중 최소; SageMaker 증량 리전 us-east-1/us-west-2에서만) |
-| `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-12x, ml.g5.12xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
+| `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-8x, ml.g5.8xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
 | `debugCount` | 0 | debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1) |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
 | `enableMlflow` | false | (옵션) 관리형 MLflow 실험 추적 서버 생성 여부 |
-| `amiUpdateSchedule` | `cron(00 18 ? * 1#2 *)` | AMI 보안 패치 스케줄 (`off`로 비활성화) |
+| `amiUpdateSchedule` | (꺼짐) | AMI 보안 패치 스케줄. `default`(`cron(00 18 ? * 1#2 *)`) 또는 cron 식으로 켠다. 켜면 이후 `cdk deploy`가 HyperPod의 ScheduledUpdateConfig 수정 거부로 실패하므로 기본은 꺼짐 |
 
 예시 — 소규모 테스트:
 ```bash
@@ -80,7 +80,7 @@ npx cdk deploy \
 ```
 
 > **GPU 쿼터 확인 필수.** GPU 인스턴스 그룹은 `lib/config/cluster-config.ts`의
-> 프로필(`core`: g5-12x / `extended`: + g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
+> 프로필(`core`: g5-8x / `extended`: + g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
 > 모두 0입니다. 쿼터가 0인 타입은 job이 영구히 `PENDING`에 머무르므로 배포 전에 확인하세요.
 >
 > ```bash
@@ -112,10 +112,10 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 
 ```bash
 # 학습용 GPU 노드 1대 기동 (InService까지 대기, 10~20분)
-./scripts/scale-cluster.sh gpu-g5-12x 1 --wait
+./scripts/scale-cluster.sh gpu-g5-8x 1 --wait
 
 # 학습 종료 후 0으로 축소
-./scripts/scale-cluster.sh gpu-g5-12x 0
+./scripts/scale-cluster.sh gpu-g5-8x 0
 
 # DCV 디버그 노드 (시각화 검증)
 ./scripts/scale-cluster.sh debug 1 --wait
@@ -150,7 +150,7 @@ aws sagemaker list-cluster-nodes \
   "Status": "InService",
   "Groups": [
     { "Name": "head",        "Count": 1, "Status": "InService" },
-    { "Name": "gpu-g5-12x",  "Count": 0, "Status": "InService" },
+    { "Name": "gpu-g5-8x",  "Count": 0, "Status": "InService" },
     { "Name": "debug",       "Count": 0, "Status": "InService" }
   ]
 }
@@ -160,7 +160,7 @@ aws sagemaker list-cluster-nodes \
 
 HyperPod AMI에는 커널·NVIDIA 드라이버·OpenSSL 등이 포함되고, AWS가 주기적으로 보안 패치 AMI를 릴리스합니다. 패치하지 않으면 노드는 생성 당시 AMI에 그대로 머무릅니다.
 
-**CDK에 이미 예약 스케줄이 켜져 있습니다.** `DEFAULT_AMI_UPDATE_SCHEDULE`(`lib/config/cluster-config.ts`)이 모든 인스턴스 그룹의 `ScheduledUpdateConfig`에 적용되어, 매월 둘째 일요일 18:00 UTC(한국시간 월요일 오전 3시)에 자동 패치됩니다. 새 클러스터를 만들 때 별도 조치가 필요 없습니다.
+**예약 스케줄은 기본으로 꺼져 있습니다.** `-c amiUpdateSchedule=default`로 배포하면 `DEFAULT_AMI_UPDATE_SCHEDULE`(`lib/config/cluster-config.ts`, 매월 둘째 일요일 18:00 UTC)이 모든 인스턴스 그룹의 `ScheduledUpdateConfig`에 적용됩니다. 단, HyperPod는 한 번 설정된 `ScheduledUpdateConfig`의 수정을 거부하므로 스케줄이 켜진 스택은 이후 `cdk deploy`(노드 수·그룹 변경)가 실패합니다. 워크숍처럼 클러스터를 계속 갱신하는 경우에는 꺼 두고 아래처럼 수동 패치를 쓰세요.
 
 ```bash
 # 스케줄 확인
@@ -175,7 +175,7 @@ aws sagemaker list-cluster-nodes --cluster-name ${CLUSTER_NAME} --region us-east
 aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us-east-1
 ```
 
-스케줄을 끄고 배포하려면 `-c amiUpdateSchedule=off`, 주기를 바꾸려면 `-c amiUpdateSchedule='cron(00 18 1 * ? *)'`를 씁니다.
+스케줄을 켜려면 `-c amiUpdateSchedule=default`, 주기를 직접 주려면 `-c amiUpdateSchedule='cron(00 18 1 * ? *)'`를 씁니다.
 
 ### 패치 전 반드시 확인할 것
 
@@ -194,7 +194,7 @@ aws sagemaker update-cluster-software --cluster-name ${CLUSTER_NAME} --region us
 
 | 기능 | Slurm | 비고 |
 |---|---|---|
-| `ScheduledUpdateConfig` (cron 예약) | ✅ | 이 프로젝트에서 사용 |
+| `ScheduledUpdateConfig` (cron 예약) | ✅ | 옵션(`-c amiUpdateSchedule`); 기본 꺼짐 |
 | `AutoPatchConfig` (유휴 노드 자동 패치, 워크로드 무중단) | ❌ | **EKS 전용** |
 | `DeploymentConfig` (배치 롤링 교체 + CloudWatch 자동 롤백) | ❌ | **EKS 전용** |
 | 콘솔에서 Update AMI | ❌ | **EKS 전용**, API/CLI만 가능 |
@@ -506,7 +506,7 @@ aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID
 |---------|------------|------|
 | Head Node (ml.m5.xlarge) | ~$0.20 | 상시 운영 |
 | Head Node (workshop-studio 프로필, ml.g5.2xlarge) | ~$1.21 | 위 행을 대체 |
-| Train (gpu-g5-12x, ml.g5.12xlarge) | ~$7.00 | 학습 시에만 |
+| Train (gpu-g5-8x, ml.g5.8xlarge) | ~$3.00 | 학습 시에만 |
 | Debug (ml.g5.8xlarge) | ~$3.00 | 시각 검증 시에만 |
 | FSx (1.2TB) | ~$0.55 | 상시 |
 | MLflow | ~$0.10 | 상시 |

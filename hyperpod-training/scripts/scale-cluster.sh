@@ -11,11 +11,11 @@
 #   ./scale-cluster.sh <instance-group> <count> [--wait] [--cluster <name>] [--region <region>]
 #
 # 예시:
-#   ./scale-cluster.sh gpu-g5-12x 1 --wait    # 학습용 GPU 노드 1대 기동 (InService까지 대기)
-#   ./scale-cluster.sh gpu-g5-12x 0           # 학습 종료 후 0으로 축소 (비용 절감)
+#   ./scale-cluster.sh gpu-g5-8x 1 --wait    # 학습용 GPU 노드 1대 기동 (InService까지 대기)
+#   ./scale-cluster.sh gpu-g5-8x 0           # 학습 종료 후 0으로 축소 (비용 절감)
 #   ./scale-cluster.sh debug 1 --wait         # DCV 디버그 노드 기동 (모듈 9)
 #
-# 그룹 이름 (기본 core 프로필): gpu-g5-12x | debug
+# 그룹 이름 (기본 core 프로필): gpu-g5-8x | debug
 #   -c gpuGroups=extended 로 배포했다면 추가로: gpu-g6e-12x | gpu-g6e-24x | gpu-g6e-48x
 #            | gpu-g6-12x | gpu-g6-24x | gpu-g6-48x | gpu-p4d | gpu-p5
 #
@@ -50,7 +50,7 @@ done
 
 if [[ -z "$GROUP" || -z "$COUNT" ]] || ! [[ "$COUNT" =~ ^[0-9]+$ ]]; then
   echo "사용법: $0 <instance-group> <count> [--wait] [--cluster <name>] [--region <region>]"
-  echo "예시:   $0 gpu-g5-12x 1 --wait"
+  echo "예시:   $0 gpu-g5-8x 1 --wait"
   exit 1
 fi
 
