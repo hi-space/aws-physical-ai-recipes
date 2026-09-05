@@ -218,6 +218,8 @@ __marimo__/
 !training/*/cdk/lib/**
 !training/*/infra/lib/
 !training/*/infra/lib/**
+!e2e-workshop/infra/*/lib/
+!e2e-workshop/infra/*/lib/**
 
 # Docs artifacts
 VERIFICATION_NOTES.md
