@@ -114,10 +114,13 @@ class LiftCommandsCfg:
         asset_name="robot",
         body_name="gripper_frame_link",
         resampling_time_range=(6.0, 6.0),
+        # Targets sit above the table top (z = 0.2) but inside the SO-101's reachable envelope
+        # (the Reach task learns x 0.15–0.45 / z 0.1–0.4 to ~2 cm). Targets up to z = 0.5 at
+        # x = 0.3 were beyond the arm's reach, so the mean position error plateaued at ~0.14 m.
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.25, 0.35),
+            pos_x=(0.2, 0.35),
             pos_y=(-0.1, 0.1),
-            pos_z=(0.35, 0.5),
+            pos_z=(0.25, 0.38),
             roll=(0.0, 0.0),
             pitch=(0.0, 0.0),
             yaw=(0.0, 0.0),
