@@ -72,9 +72,10 @@ if [ -f "${CONTAINER_IMAGE}" ]; then
         sudo enroot create --name "${CONTAINER_NAME}" "${CONTAINER_IMAGE}"
     fi
 
-    # Patch entrypoint to pass through commands (default runs runheadless.sh)
-    ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
-    [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
+    # Patch entrypoint to pass through commands (default runs runheadless.sh).
+    # The rootfs lives under ENROOT_DATA_PATH; `enroot list -f` prints NAME/PID/COMM of running
+    # instances (not a path), so it must not be parsed for this.
+    ROOTFS_PATH="${ENROOT_DATA_PATH:-/fsx/enroot/data}/${CONTAINER_NAME}"
     sudo tee "${ROOTFS_PATH}/etc/rc" > /dev/null << 'RCEOF'
 mkdir -p "/isaac-sim" 2> /dev/null
 cd "/isaac-sim" && unset OLDPWD || exit 1
@@ -94,8 +95,6 @@ RCEOF
     # tracking packages used by train_isaaclab.py may be missing (uses chroot to
     # avoid the slow entrypoint). numpy is pinned <2: Isaac Sim's compiled extensions
     # are built against numpy 1.26 and fail to import if pip upgrades it.
-    ROOTFS_PATH="$(enroot list -f | grep "^${CONTAINER_NAME}" | awk '{print $2}' 2>/dev/null)"
-    [ -z "${ROOTFS_PATH}" ] && ROOTFS_PATH="/fsx/enroot/data/${CONTAINER_NAME}"
     if ! sudo chroot "${ROOTFS_PATH}" /bin/bash -c \
         "LD_LIBRARY_PATH=/isaac-sim/kit/python/lib /isaac-sim/kit/python/bin/python3 -c 'import importlib.metadata as m; m.version(\"rsl-rl-lib\"); m.version(\"mlflow\"); m.version(\"sagemaker-mlflow\")' 2>/dev/null"; then
         echo "Installing MLflow packages into container..."
@@ -107,6 +106,18 @@ RCEOF
         echo "MLflow packages installed."
     fi
 
+    # The trainer runs as root inside the enroot container (sudo), outside the cgroup Slurm
+    # tracks for this job, so `scancel` alone leaves it running on the GPU. Run it in the
+    # background and forward SIGTERM/SIGINT ourselves; `wait` is interruptible so the trap fires.
+    TRAIN_MATCH="train_isaaclab.py --task ${TASK} --num_envs ${NUM_ENVS} --max_iterations ${MAX_ITERATIONS} --log_dir ${LOG_DIR}"
+    _stop_container() {
+        echo "[finetune_isaaclab] job signalled — stopping the container process"
+        sudo pkill -TERM -f "${TRAIN_MATCH}" 2>/dev/null || true
+        sleep 15
+        sudo pkill -KILL -f "${TRAIN_MATCH}" 2>/dev/null || true
+        exit 143
+    }
+    trap _stop_container TERM INT
     sudo enroot start --root \
         --rw \
         --mount /fsx:/fsx \
@@ -126,7 +137,10 @@ RCEOF
             --max_iterations "${MAX_ITERATIONS}" \
             --log_dir "${LOG_DIR}" \
             ${CHECKPOINT_ARG} \
-            --headless
+            --headless &
+    EXIT_CODE=0
+    wait $! || EXIT_CODE=$?   # `|| ...` keeps `set -e` from exiting before the status is recorded
+    trap - TERM INT
 else
     # Fallback: use venv if Isaac Lab is installed
     echo "Container not found. Attempting venv mode..."
@@ -154,9 +168,8 @@ else
         --log_dir "${LOG_DIR}" \
         ${CHECKPOINT_ARG} \
         --headless
+    EXIT_CODE=$?
 fi
-
-EXIT_CODE=$?
 
 echo ""
 echo "=================================================="
