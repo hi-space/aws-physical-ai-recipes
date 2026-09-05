@@ -24,7 +24,7 @@ export interface HyperPodStackProps extends cdk.StackProps {
   gpuUseSpot: boolean;
   /** GPU 그룹 프로필. core = gpu-g5-8x 만(기본), extended = g6e/g6/p4d/p5 그룹 추가. */
   gpuGroups: GpuGroupProfile;
-  /** 배포 프로필. workshop-studio 는 head 노드를 ml.g5.2xlarge 로 만든다. */
+  /** 배포 프로필. head 노드 타입은 HEAD_INSTANCE_BY_PROFILE 로 결정한다(현재 두 프로필 모두 ml.m5.xlarge). */
   profile: DeploymentProfile;
   /** 기본 학습 그룹(ml.g5.8xlarge, gpu-g5-8x)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
   gpuCount: number;

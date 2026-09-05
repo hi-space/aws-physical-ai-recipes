@@ -15,7 +15,7 @@ const gpuUseSpot = (app.node.tryGetContext('gpuUseSpot') ?? 'false') === 'true';
 // GPU 그룹 프로필. 기본 core 는 gpu-g5-8x 하나만 만든다(Workshop Studio SageMaker 허용 목록 호환).
 // g6e/g6/p4d/p5 그룹까지 만들려면 -c gpuGroups=extended (해당 타입 cluster 쿼터가 있는 계정용).
 const gpuGroups = (app.node.tryGetContext('gpuGroups') ?? 'core') as 'core' | 'extended';
-// 배포 프로필. workshop-studio 는 Workshop Studio 이벤트 계정(head 노드 ml.g5.2xlarge).
+// 배포 프로필. workshop-studio 는 Workshop Studio 이벤트 계정(us-east-1/us-west-2만; head 노드는 personal과 같은 ml.m5.xlarge).
 const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
 // 기동할 노드 수. HyperPod Slurm 은 job 제출 시 자동 스케일업하지 않으므로, 학습 전에
 // 이 값을 올려 재배포하고 끝나면 0 으로 되돌리는 방식으로 비용을 통제한다.

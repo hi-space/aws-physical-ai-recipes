@@ -11,7 +11,7 @@
  * 사용 예시:
  *   npm run deploy                        # GrootFinetune-<ACCOUNT_ID> 배포
  *   npx cdk deploy -c grootVersion=n1.7   # GR00T N1.7 런타임 이미지
- *   npx cdk deploy -c profile=workshop-studio   # Workshop Studio 계정 (TransformDataset ml.g5.2xlarge)
+ *   npx cdk deploy -c profile=workshop-studio   # Workshop Studio 계정
  */
 import * as cdk from 'aws-cdk-lib';
 import { GrootFinetuneStack } from '../lib/groot-finetune-stack';

@@ -52,7 +52,7 @@ cdk deploy -c region=us-east-1
 cdk deploy -c region=us-east-1 -c profile=workshop-studio
 ```
 
-배포 프로필은 `personal`(기본, GPU 워크스테이션)과 `workshop-studio`(CPU 워크스테이션, TransformDataset·HyperPod head `ml.g5.2xlarge`, us-east-1/us-west-2)입니다. 세 스택(IsaacLab·GrootFinetune·HyperPod)에 같은 값을 지정합니다.
+배포 프로필은 `personal`(기본, GPU 워크스테이션)과 `workshop-studio`(CPU 워크스테이션, us-east-1/us-west-2)입니다. 세 스택(IsaacLab·GrootFinetune·HyperPod)에 같은 값을 지정합니다.
 
 스택 이름은 배포 대상 계정 ID가 붙은 `IsaacLab-Latest-<ACCOUNT_ID>`가 됩니다(1인 1계정 전제).
 

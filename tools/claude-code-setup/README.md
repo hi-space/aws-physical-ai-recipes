@@ -77,12 +77,12 @@ Bedrock 연동 설정을 세 곳에 적용합니다: 셸 RC 파일, Codex `confi
 
 **설정되는 환경변수 (~/.bashrc):**
 ```bash
-AWS_BEARER_TOKEN_BEDROCK           # 공통 (Claude Code + Codex)
+AWS_BEARER_TOKEN_BEDROCK           # 공통 (Claude Code + Codex). 선택 — 비우면 AWS 자격 증명(SigV4)으로 호출
 AWS_REGION                         # 공통, 입력한 리전
 CLAUDE_CODE_USE_BEDROCK=1
 ANTHROPIC_MODEL                    # 선택한 모델
-ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-5[1m]  ([1m] = 1M 컨텍스트, Claude Code가 전송 전 제거)
-ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-5[1m]
+ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-4-6-v1
+ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-4-6
 ANTHROPIC_DEFAULT_HAIKU_MODEL      # global.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_SMALL_FAST_MODEL         # us.anthropic.claude-haiku-4-5-20251001-v1:0
 CLAUDE_CODE_MAX_OUTPUT_TOKENS      # 선택한 값

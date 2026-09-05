@@ -234,6 +234,14 @@ export class DcvInstanceConstruct extends Construct {
                 Resource: '*',
               },
               {
+                // 모듈 1 §1.7: code-server에서 Claude Code → Bedrock 호출 (인스턴스 역할 SigV4).
+                // Workshop Studio 계정은 Bedrock API Key(bearer) 경로에서 Claude 5 계열이 403이므로
+                // AWS_BEARER_TOKEN_BEDROCK 없이 인스턴스 역할로 호출하는 것이 기본 경로다.
+                Effect: 'Allow',
+                Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+                Resource: '*',
+              },
+              {
                 // 모듈 10 §10.10: 잔여 리소스 감사(NAT GW/EIP/SG) + 수동 정리 폴백
                 Effect: 'Allow',
                 Action: [

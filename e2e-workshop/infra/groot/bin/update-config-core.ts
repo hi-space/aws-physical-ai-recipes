@@ -31,12 +31,13 @@ export function applyOutputsToConfig(
     out.MlflowTrackingServerName ?? `groot-mlflow-${accountId}`;
   config.mlflow.experiment_name ??= 'groot-sm-finetune';
 
-  // workshop-studio 프로필: Workshop Studio 계정은 processing-job 허용 타입이 ml.g5.2xlarge
-  // 하나뿐이라(ml.m5.2xlarge 기본 한도 0) TransformDataset 스텝을 그 타입으로 돌린다.
-  if (out.DeploymentProfile === 'workshop-studio') {
-    config.transform ??= {};
-    config.transform.instance_type = 'ml.g5.2xlarge';
-  }
+  // workshop-studio 프로필 — 인스턴스 타입 override 없음. Workshop Studio 이벤트 계정 SageMaker
+  // 쿼터를 CreateJob 으로 직접 확인한 결과(2026-09, us-west-2):
+  //   - processing: ml.m5.2xlarge 허용 → TransformDataset 기본값(ml.m5.2xlarge, CPU) 그대로.
+  //   - processing: GPU 는 g5/g6/g4dn 전부 0 (Service Quotas 콘솔이 2 로 보여도 SageMaker 는 거부)
+  //     → SmokeEval 은 Processing 이 아니라 Training Job 으로 돈다 (pipeline/build_pipeline.py).
+  //   - training : g5/g6/g6e 각 1 → 학습 ml.g5.12xlarge, SmokeEval ml.g5.2xlarge 기본값 그대로.
+  //   WS 계정 쿼터는 저자가 올릴 수 없으므로 파이프라인이 열려 있는 축(training)만 쓰도록 설계했다.
 
   return config;
 }

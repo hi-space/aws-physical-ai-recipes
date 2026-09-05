@@ -7,7 +7,7 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ HyperPod Cluster (SLURM Managed)                        │
-│  ├─ head   (ml.m5.xlarge; workshop-studio 프로필은 ml.g5.2xlarge) — 컨트롤러, 상시 운영 │
+│  ├─ head   (ml.m5.xlarge) — 컨트롤러, 상시 운영                       │
 │  ├─ gpu-g5-8x (ml.g5.8xlarge) — RL 학습 (0에서, debug 와 같은 타입)    │
 │  │     -c gpuGroups=extended: g6e/g6/p4d/p5 그룹 추가    │
 │  │     (전부 노드 0에서 시작)                            │
@@ -62,7 +62,7 @@ npx cdk deploy -c region=us-east-1 --require-approval never
 | `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
 | `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-8x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
-| `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(head 노드 `ml.g5.2xlarge` — cluster 허용 타입 중 최소; SageMaker 증량 리전 us-east-1/us-west-2에서만) |
+| `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(us-east-1/us-west-2에서만). head 노드는 두 프로필 모두 `ml.m5.xlarge` — 실측한 WS 계정 cluster usage 쿼터가 m5.xlarge 10, g5.* 0이었다 |
 | `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-8x, ml.g5.8xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
 | `debugCount` | 0 | debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1) |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
@@ -505,7 +505,6 @@ aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID
 | 컴포넌트 | 시간당 비용 | 비고 |
 |---------|------------|------|
 | Head Node (ml.m5.xlarge) | ~$0.20 | 상시 운영 |
-| Head Node (workshop-studio 프로필, ml.g5.2xlarge) | ~$1.21 | 위 행을 대체 |
 | Train (gpu-g5-8x, ml.g5.8xlarge) | ~$3.00 | 학습 시에만 |
 | Debug (ml.g5.8xlarge) | ~$3.00 | 시각 검증 시에만 |
 | FSx (1.2TB) | ~$0.55 | 상시 |

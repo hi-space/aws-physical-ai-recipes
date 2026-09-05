@@ -22,36 +22,55 @@ echo "  대상 OS: $OS_TYPE"
 echo "  설정 파일: $SHELL_RC"
 echo
 
-# AWS_BEARER_TOKEN_BEDROCK 값 입력받기
-read -p "AWS_BEARER_TOKEN_BEDROCK 값을 입력하세요: " AWS_TOKEN
+# Bedrock 인증 방식 선택
+#  - Enter(빈 값): AWS 자격 증명(SigV4) 사용 — EC2 인스턴스 역할, AWS_PROFILE, 환경변수 등.
+#                 워크숍 DCV 인스턴스(code-server)에서는 이 방식을 사용한다.
+#  - 값 입력:     Bedrock API Key(bearer) 사용. 발급한 리전과 AWS_REGION이 같아야 하며,
+#                 Workshop Studio 계정에서는 Claude 5 계열 모델이 API Key 경로에서 403이 나므로 비권장.
+echo "[인증] Bedrock API Key(AWS_BEARER_TOKEN_BEDROCK)를 쓰려면 값을 입력하고,"
+echo "       AWS 자격 증명(인스턴스 역할/프로파일, SigV4)을 쓰려면 그냥 Enter를 누르세요."
+read -p "AWS_BEARER_TOKEN_BEDROCK 값 (기본값: 사용 안 함): " AWS_TOKEN
 
 if [ -z "$AWS_TOKEN" ]; then
-    echo "오류: AWS_BEARER_TOKEN_BEDROCK 값이 비어있습니다."
-    exit 1
+    AUTH_MODE="AWS 자격 증명 (SigV4)"
+else
+    AUTH_MODE="Bedrock API Key (bearer)"
 fi
+echo "선택된 인증 방식: $AUTH_MODE"
 
 # AWS 리전 입력받기 (Bedrock API 호출 리전)
+# 기본값 우선순위: AWS_REGION > REGION > EC2 인스턴스 메타데이터(IMDSv2) > us-east-1
+detect_ec2_region() {
+    local token
+    token=$(curl -s -m 1 -X PUT "http://169.254.169.254/latest/api/token" \
+        -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null) || return 1
+    [ -n "$token" ] || return 1
+    curl -s -m 1 -H "X-aws-ec2-metadata-token: $token" \
+        "http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null
+}
+DEFAULT_REGION="${AWS_REGION:-${REGION:-$(detect_ec2_region)}}"
+DEFAULT_REGION="${DEFAULT_REGION:-us-east-1}"
 echo
-read -p "AWS 리전을 입력하세요 (기본값: ${REGION:-us-east-1}): " AWS_REGION_INPUT
-AWS_REGION_VALUE="${AWS_REGION_INPUT:-${REGION:-us-east-1}}"
+read -p "AWS 리전을 입력하세요 (기본값: ${DEFAULT_REGION}): " AWS_REGION_INPUT
+AWS_REGION_VALUE="${AWS_REGION_INPUT:-${DEFAULT_REGION}}"
 echo "선택된 리전: $AWS_REGION_VALUE"
 
 # ANTHROPIC_MODEL 선택
 echo
 echo "[Claude Code] 사용할 모델을 선택하세요:"
-echo "  1) sonnet5 (global.anthropic.claude-sonnet-5[1m])  - 1M 컨텍스트"
-echo "  2) opus5   (global.anthropic.claude-opus-5[1m])    - 1M 컨텍스트"
+echo "  1) sonnet4.6 (global.anthropic.claude-sonnet-4-6)   - 워크숍 기본값"
+echo "  2) opus4.6   (global.anthropic.claude-opus-4-6-v1)"
 echo
 read -p "선택 (1 또는 2, 기본값: 1): " MODEL_CHOICE
 
 case "$MODEL_CHOICE" in
     2)
-        SELECTED_MODEL="global.anthropic.claude-opus-5[1m]"
-        echo "선택된 모델: opus5 (1M 컨텍스트)"
+        SELECTED_MODEL="global.anthropic.claude-opus-4-6-v1"
+        echo "선택된 모델: opus4.6"
         ;;
     *)
-        SELECTED_MODEL="global.anthropic.claude-sonnet-5[1m]"
-        echo "선택된 모델: sonnet5 (1M 컨텍스트)"
+        SELECTED_MODEL="global.anthropic.claude-sonnet-4-6"
+        echo "선택된 모델: sonnet4.6"
         ;;
 esac
 
@@ -130,18 +149,24 @@ if grep -q "Claude Code + Amazon Bedrock 설정\|$BEGIN_MARKER" "$SHELL_RC" 2>/d
 fi
 
 # 셸 RC 파일에 설정 추가
+if [ -n "$AWS_TOKEN" ]; then
+    BEARER_EXPORT="export AWS_BEARER_TOKEN_BEDROCK='${AWS_TOKEN}'"
+else
+    BEARER_EXPORT="# AWS_BEARER_TOKEN_BEDROCK 미설정 → AWS 자격 증명(인스턴스 역할/프로파일, SigV4)으로 호출"
+fi
+
 cat >> "$SHELL_RC" << EOF
 
 $BEGIN_MARKER
-# --- 공통 (Bedrock 인증) ---
-export AWS_BEARER_TOKEN_BEDROCK='${AWS_TOKEN}'
+# --- 공통 (Bedrock 인증: ${AUTH_MODE}) ---
+${BEARER_EXPORT}
 export AWS_REGION='${AWS_REGION_VALUE}'
 
 # --- Claude Code ---
 export CLAUDE_CODE_USE_BEDROCK=1
 export ANTHROPIC_MODEL='${SELECTED_MODEL}'
-export ANTHROPIC_DEFAULT_OPUS_MODEL='global.anthropic.claude-opus-5[1m]'
-export ANTHROPIC_DEFAULT_SONNET_MODEL='global.anthropic.claude-sonnet-5[1m]'
+export ANTHROPIC_DEFAULT_OPUS_MODEL='global.anthropic.claude-opus-4-6-v1'
+export ANTHROPIC_DEFAULT_SONNET_MODEL='global.anthropic.claude-sonnet-4-6'
 export ANTHROPIC_DEFAULT_HAIKU_MODEL='global.anthropic.claude-haiku-4-5-20251001-v1:0'
 export ANTHROPIC_SMALL_FAST_MODEL='us.anthropic.claude-haiku-4-5-20251001-v1:0'
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${SELECTED_TOKENS}
@@ -194,7 +219,7 @@ CODEX_TMP=$(mktemp)
 cat > "$CODEX_TMP" << EOF
 $CODEX_BEGIN
 # Codex는 Bedrock의 Responses API(bedrock-mantle 엔드포인트)를 사용합니다.
-# 인증은 AWS_BEARER_TOKEN_BEDROCK 환경변수를 그대로 사용합니다.
+# 인증: AWS_BEARER_TOKEN_BEDROCK 이 있으면 bearer, 없으면 AWS 자격 증명(SigV4)을 사용합니다.
 model_provider = "amazon-bedrock"
 model = "${CODEX_MODEL}"
 model_reasoning_effort = "medium"
@@ -254,6 +279,16 @@ SMALL_FAST_MODEL="us.anthropic.claude-haiku-4-5-20251001-v1:0"
 TEMP_FILE=$(mktemp)
 TEMP_EXISTING=$(mktemp)
 
+# bearer 토큰이 있을 때만 settings.json 에 포함
+if [ -n "$AWS_TOKEN" ]; then
+    BEARER_JSON_ENTRY="    {
+        \"name\": \"AWS_BEARER_TOKEN_BEDROCK\",
+        \"value\": \"${AWS_TOKEN}\"
+    },"
+else
+    BEARER_JSON_ENTRY=""
+fi
+
 cat > "$TEMP_FILE" << EOF
 {
     "claudeCode.environmentVariables": [
@@ -265,10 +300,7 @@ cat > "$TEMP_FILE" << EOF
       "name": "CLAUDE_CODE_SKIP_AUTH_LOGIN",
       "value": "true"
     },
-    {
-        "name": "AWS_BEARER_TOKEN_BEDROCK",
-        "value": "${AWS_TOKEN}"
-    },
+${BEARER_JSON_ENTRY}
     {
       "name": "AWS_REGION",
       "value": "${AWS_REGION_VALUE}"
@@ -332,6 +364,7 @@ echo -e "${GREEN}==========================================${NC}"
 echo -e "${GREEN} 설정이 완료되었습니다!${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
+echo "  인증         : ${AUTH_MODE}"
 echo "  Claude Code : ${SELECTED_MODEL}"
 echo "  Codex       : ${CODEX_MODEL}  (bedrock-mantle / Responses API)"
 echo "  리전         : ${AWS_REGION_VALUE}"

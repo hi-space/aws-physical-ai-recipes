@@ -44,9 +44,11 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
  * GPU 인스턴스 그룹 프로필
  *
  * - core     : 워크숍 기본. 학습 그룹 gpu-g5-8x 하나만 만든다(debug 그룹과 같은 ml.g5.8xlarge —
- *              학습 job은 GPU 1장만 쓰고, 단일 GPU 타입이 용량을 구하기 쉽다). Workshop Studio의
- *              SageMaker 허용 목록(cluster: ml.g5.2xlarge/8xlarge/12xlarge, ml.trn1.32xlarge)
- *              안에 있는 타입만 쓰므로 CreateCluster 스펙에 비허용 타입이 섞이지 않는다.
+ *              학습 job은 GPU 1장만 쓰고, 단일 GPU 타입이 용량을 구하기 쉽다). Workshop Studio
+ *              지원 서비스 문서의 cluster 허용 목록(ml.g5.2xlarge/8xlarge/12xlarge, ml.trn1.32xlarge)
+ *              안의 타입만 쓴다. 단, 2026-09-05 실측한 이벤트 계정에서는 이 타입들의
+ *              "for cluster usage" 적용 쿼터가 0이었다(HEAD_INSTANCE_BY_PROFILE 주석 참고) —
+ *              WS 계정에서 GPU 그룹 scale-up이 되는지는 이벤트마다 확인이 필요하다.
  * - extended : core + g6e/g6/p4d/p5 그룹. 쿼터가 있는 개인 계정에서 더 큰 모델·
  *              더 빠른 GPU로 옮겨갈 때 `-c gpuGroups=extended`로 배포한다.
  *              (모든 그룹은 노드 0으로 생성되므로 정의만으로는 비용이 없다.)
@@ -115,13 +117,20 @@ export function buildGpuGroups(
 }
 
 /**
- * 프로필별 head(컨트롤러) 노드 타입.
- * Workshop Studio 계정은 cluster usage 허용 타입이 ml.g5.2xlarge/8xlarge/12xlarge, ml.trn1.32xlarge
- * 뿐이고 ml.m5.xlarge 기본 한도가 0이라 CreateCluster가 거부된다 → 허용 타입 중 최소인 g5.2xlarge.
+ * 프로필별 head(컨트롤러) 노드 타입. 두 프로필 모두 ml.m5.xlarge.
+ *
+ * 이전에는 Workshop Studio 지원 서비스 문서("cluster/ml.g5.2xlarge·8xlarge·12xlarge 2대 부여,
+ * ml.m5.xlarge 기본 0")를 근거로 workshop-studio head를 ml.g5.2xlarge로 두었지만, 실제 이벤트
+ * 계정(2026-09-05, us-east-1/us-west-2)의 적용 쿼터는 정반대였다:
+ *   ml.m5.xlarge for cluster usage = 10, c5·m5 CPU 계열 > 0,
+ *   g5·g6·g6e GPU 계열 for cluster usage = 0  → g5.2xlarge head는 CreateCluster에서
+ *   ResourceLimitExceeded로 거부됨.
+ * head는 Slurm 컨트롤러라 GPU가 필요 없으므로 CPU 타입이 맞다. Service Quotas 값은 WS 계정에서
+ * 신뢰도가 낮으니 CreateCluster 결과를 기준으로 판단한다.
  */
 export const HEAD_INSTANCE_BY_PROFILE: Record<DeploymentProfile, string> = {
   personal: 'ml.m5.xlarge',
-  'workshop-studio': 'ml.g5.2xlarge',
+  'workshop-studio': 'ml.m5.xlarge',
 };
 
 export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {

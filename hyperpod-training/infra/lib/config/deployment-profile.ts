@@ -2,8 +2,9 @@
  * 배포 프로필
  *
  * - personal        : 개인 계정(기본). GPU 워크스테이션(g6e/g6), 전 모듈 진행.
- * - workshop-studio : Workshop Studio 이벤트 계정. cluster 허용 타입이
- *                     ml.g5.2xlarge/8xlarge/12xlarge라 head 노드를 ml.g5.2xlarge로 만든다.
+ * - workshop-studio : Workshop Studio 이벤트 계정. us-east-1/us-west-2만 허용. head 노드는
+ *                     personal과 같은 ml.m5.xlarge (실측 cluster usage 쿼터: m5.xlarge 10, g5.* 0 —
+ *                     cluster-config.ts HEAD_INSTANCE_BY_PROFILE 주석 참고).
  */
 export type DeploymentProfile = 'personal' | 'workshop-studio';
 

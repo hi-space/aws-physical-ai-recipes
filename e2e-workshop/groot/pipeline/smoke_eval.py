@@ -46,8 +46,11 @@ import sys
 import tarfile
 from pathlib import Path
 
-INPUT_DIR = "/opt/ml/processing/input"
-OUTPUT_DIR = "/opt/ml/processing/output"
+# 실행 모드 자동 감지 — Training Job(기본, build_pipeline.py) 이면 SageMaker 가 SM_CHANNEL_MODEL 을
+# 설정하고 출력은 /opt/ml/output/data 로 간다. Processing Job 으로 돌릴 때(레거시)는 processing 경로.
+_IS_TRAINING_JOB = bool(os.environ.get("SM_CHANNEL_MODEL") or os.environ.get("SM_TRAINING_ENV"))
+INPUT_DIR = os.environ.get("SM_CHANNEL_MODEL") or "/opt/ml/processing/input"
+OUTPUT_DIR = "/opt/ml/output/data" if _IS_TRAINING_JOB else "/opt/ml/processing/output"
 
 # so101/NEW_EMBODIMENT modality config (training/container/configs/so101_modality_config.py,
 # so101_modality.json과 동일) 에서 확인한 실제 키·차원. 다른 embodiment_tag로 학습된 체크포인트라면
@@ -116,9 +119,21 @@ def check_action(action, action_dim: int) -> dict:
         return {"passed": 0, "action_shape": [], "all_finite": 0, "error": repr(e)}
 
 
-def write_report(out_dir: str, report: dict) -> None:
+def write_report(out_dir: str, report: dict, report_s3_uri: str = "") -> None:
+    """evaluation.json 을 로컬 출력 디렉토리에 쓰고, report_s3_uri 가 있으면 S3 에도 올린다.
+
+    Training Job 모드에서는 /opt/ml/output/data 가 output.tar.gz 로 압축되어 SmokeGate 의
+    JsonGet(s3_uri) 가 읽을 수 없으므로, 게이트가 읽는 사본은 S3 직접 업로드 쪽이다.
+    """
     os.makedirs(out_dir, exist_ok=True)
-    Path(out_dir, "evaluation.json").write_text(json.dumps({"smoke": report}))
+    body = json.dumps({"smoke": report})
+    Path(out_dir, "evaluation.json").write_text(body)
+    if report_s3_uri:
+        import boto3
+        bucket, key = report_s3_uri.replace("s3://", "", 1).split("/", 1)
+        boto3.client("s3").put_object(Bucket=bucket, Key=key, Body=body.encode(),
+                                      ContentType="application/json")
+        print(f"리포트 업로드: {report_s3_uri}")
 
 
 def build_dummy_observation(meta: dict):
@@ -203,9 +218,8 @@ def run_policy(ckpt_dir: str, meta: dict):
     # GPU가 없으면 CPU로 시도는 한다(크래시 대신 리포트로 실패하도록).
     # 단, GR00T N1.6 의 Eagle 백본은 코드에서 flash attention 을 assert 하므로
     # (eagle_backbone.py: "requires flash attention by default" — 실측)
-    # 실제 CPU 완주는 그 assert 가 없는 모델에서만 가능하다. GPU processing
-    # 쿼터가 0인 계정은 쿼터 증설이 정답이다 (EvalInstanceType 파라미터로
-    # 쿼터가 있는 다른 GPU 타입을 고르는 것도 방법).
+    # 실제 CPU 완주는 그 assert 가 없는 모델에서만 가능하다. 반드시 GPU 타입
+    # (EvalInstanceType 파라미터 — training job 쿼터 축) 으로 실행해야 한다.
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
@@ -228,7 +242,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default=INPUT_DIR)
     parser.add_argument("--output-dir", default=OUTPUT_DIR)
-    args = parser.parse_args()
+    # Training Job 모드: sagemaker-training 툴킷이 hyperparameter 를 --report_s3_uri <값> 으로 넘긴다
+    # (SM_HP_REPORT_S3_URI 환경변수로도 노출). 값은 JSON 문자열이라 따옴표가 남을 수 있어 벗긴다.
+    parser.add_argument("--report-s3-uri", "--report_s3_uri", dest="report_s3_uri",
+                        default=os.environ.get("SM_HP_REPORT_S3_URI", ""))
+    args, _unknown = parser.parse_known_args()
+    args.report_s3_uri = (args.report_s3_uri or "").strip().strip('"')
 
     try:
         ckpt = extract_checkpoint(args.input_dir)
@@ -244,7 +263,7 @@ def main() -> None:
         # 이 접두사가 보이면 모델 품질 문제가 아니라 위 UNVERIFIED 스파이크 가정이 틀렸다는 뜻이다.
         report = {"passed": 0, "action_shape": [], "all_finite": 0,
                   "error": f"LOAD_OR_INFER_FAILURE: {e!r}"}
-    write_report(args.output_dir, report)
+    write_report(args.output_dir, report, args.report_s3_uri)
     print("SMOKE EVAL REPORT:", json.dumps(report))
     sys.exit(0)  # 항상 0 — 게이트가 판정
 
