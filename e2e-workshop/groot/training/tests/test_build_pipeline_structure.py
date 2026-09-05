@@ -31,7 +31,7 @@ def test_top_level_steps_in_order(pipeline):
 def test_parameters(pipeline):
     names = {p.name for p in pipeline.parameters}
     assert {"EmbodimentTag", "HfDatasetId", "InstanceType",
-            "MaxSteps", "GlobalBatchSize", "NumGpus"} <= names
+            "MaxSteps", "GlobalBatchSize", "NumGpus", "SaveSteps"} <= names
 
 
 def test_gate_branches(pipeline):

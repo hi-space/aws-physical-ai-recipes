@@ -66,6 +66,10 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     p_max_steps = ParameterInteger(name="MaxSteps", default_value=int(max_steps))
     p_global_batch = ParameterInteger(name="GlobalBatchSize", default_value=int(global_batch_size))
     p_num_gpus = ParameterInteger(name="NumGpus", default_value=int(num_gpus))
+    # 체크포인트 저장 간격도 런타임 파라미터. 3B 모델 체크포인트 한 번에 학습이 2~3분 멈추고
+    # (/opt/ml/checkpoints → S3 동기화 포함) 저장마다 수십 GB 가 S3 에 쌓이므로, 100 스텝 Quick
+    # validation 은 기본 50 이 맞지만 6000 스텝 본격 학습은 500~1000 으로 올려 실행해야 한다.
+    p_save_steps = ParameterInteger(name="SaveSteps", default_value=int(save_steps))
 
     # 1) TransformDataset — FrameworkProcessor(SKLearn|PyTorch) + source_dir(requirements.txt 자동설치)
     transform_processor = _transform_processor(
@@ -95,7 +99,7 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
         metric_definitions=[{"Name": "train:loss", "Regex": r"'loss':\s*([0-9.eE+-]+)"},
                             {"Name": "eval:loss", "Regex": r"'eval_loss':\s*([0-9.eE+-]+)"}],
         hyperparameters={"embodiment_tag": p_embodiment, "max_steps": p_max_steps,
-                         "global_batch_size": p_global_batch, "save_steps": str(save_steps),
+                         "global_batch_size": p_global_batch, "save_steps": p_save_steps,
                          "num_gpus": p_num_gpus, "export_s3_uri": export_s3_uri},
         sagemaker_session=session, environment=env or {})
     train_args = estimator.fit(inputs={"dataset": TrainingInput(s3_data=dataset_uri)})
@@ -172,6 +176,6 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     return Pipeline(
         name=f"groot-sm-finetuning{('-' + alias) if alias else ''}",
         parameters=[p_embodiment, p_hf_dataset, p_train_inst, p_eval_inst,
-                    p_max_steps, p_global_batch, p_num_gpus],
+                    p_max_steps, p_global_batch, p_num_gpus, p_save_steps],
         steps=[transform_step, training_step, eval_step, gate],
         sagemaker_session=session)

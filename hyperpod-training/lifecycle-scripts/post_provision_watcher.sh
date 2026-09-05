@@ -17,27 +17,39 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# head/compute 판별. SAGEMAKER_INSTANCE_GROUP_NAME 은 watcher 시점에 비어
-# 있을 수 있다(실측: compute 노드에서 group=unknown). 그 경우 HyperPod 가
-# 노드마다 심어주는 /opt/ml/config/resource_config.json 의 Slurm controller
-# IP 를 로컬 IP 들과 비교해 판별한다.
+# head/compute 판별 (1차 추정). SAGEMAKER_INSTANCE_GROUP_NAME 은 watcher 시점에 비어
+# 있을 수 있고(실측: head/compute 모두 group=unknown), resource_config.json 의
+# SlurmConfig.PrimaryControllerIp 는 SageMaker 쪽 네트워크 주소(172.16.x.x)라 로컬 IP 와
+# 일치하지 않으며 InstanceGroups[].Instances 도 null 이다. 그래서 여기서는 그룹 env 만 보고,
+# 최종 판별은 아래 Slurm 루프에서 HyperPod 가 써 준 slurm.conf 의 SlurmctldHost 로 한다
+# (_detect_daemon). 이 판별이 틀리면 head 에서 slurmd 만 기다리다 slurmctld 를 아무도
+# 시작하지 않아 클러스터는 InService 인데 sinfo 가 "Unable to contact slurm controller" 가 된다.
 GROUP_NAME="${SAGEMAKER_INSTANCE_GROUP_NAME:-}"
 IS_HEAD=false
-if [ "$GROUP_NAME" = "head" ]; then
-  IS_HEAD=true
-elif [ -z "$GROUP_NAME" ] && [ -f /opt/ml/config/resource_config.json ]; then
-  CTRL_IP=$(python3 -c "import json;print((json.load(open('/opt/ml/config/resource_config.json')).get('ClusterConfig') or {}).get('SlurmConfig',{}).get('PrimaryControllerIp') or '')" 2>/dev/null || true)
-  if [ -n "$CTRL_IP" ] && hostname -I | tr ' ' '\n' | grep -qx "$CTRL_IP"; then
-    IS_HEAD=true
-  fi
-fi
+[ "$GROUP_NAME" = "head" ] && IS_HEAD=true
 if [ "$IS_HEAD" = true ]; then
   SLURM_DAEMON=slurmctld
 else
   SLURM_DAEMON=slurmd
 fi
 
-echo "[watcher] start: group=${GROUP_NAME:-unknown} head=${IS_HEAD} daemon=${SLURM_DAEMON}"
+# slurm.conf 의 SlurmctldHost=<host>(<ip>) 가 이 노드의 호스트명/IP 와 같으면 head.
+_detect_daemon() {
+  local conf=/opt/slurm/etc/slurm.conf ctl_host ctl_ip
+  [ -f "$conf" ] || return 1
+  ctl_host=$(grep -oP '^SlurmctldHost=\K[^(\s]+' "$conf" 2>/dev/null | head -1 || true)
+  ctl_ip=$(grep -oP '^SlurmctldHost=\S+\(\K[^)]+' "$conf" 2>/dev/null | head -1 || true)
+  [ -n "$ctl_host$ctl_ip" ] || return 1
+  if { [ -n "$ctl_ip" ] && hostname -I | tr ' ' '\n' | grep -qx "$ctl_ip"; } \
+     || { [ -n "$ctl_host" ] && [ "$ctl_host" = "$(hostname -s)" ]; }; then
+    SLURM_DAEMON=slurmctld
+  else
+    SLURM_DAEMON=slurmd
+  fi
+  return 0
+}
+
+echo "[watcher] start: group=${GROUP_NAME:-unknown} head=${IS_HEAD} daemon(initial)=${SLURM_DAEMON}"
 
 # --- 1) FSx 마운트 재시도 (최대 30분) ---------------------------------------
 # lifecycle 스크립트는 별도 마운트 네임스페이스에서 돌기 때문에 이 셸의
@@ -64,7 +76,8 @@ _fsx_ok || echo "[watcher] WARNING: /fsx still not mounted after retries."
 
 # --- 2) Slurm 데몬 기동 (설치 완료 대기, 최대 30분) --------------------------
 for i in $(seq 1 180); do
-  if [ -f "/opt/slurm/sbin/${SLURM_DAEMON}" ] && [ -f /opt/slurm/etc/slurm.conf ]; then
+  if [ -f /opt/slurm/etc/slurm.conf ] && _detect_daemon && [ -f "/opt/slurm/sbin/${SLURM_DAEMON}" ]; then
+    echo "[watcher] slurm.conf present → daemon=${SLURM_DAEMON}"
     # 설치가 끝난 뒤에야 의미가 있는 노드별 구성(gres.conf, conf-server)을 재적용
     bash "${SCRIPT_DIR}/setup_slurm.sh" || true
     systemctl enable "${SLURM_DAEMON}" 2>/dev/null || true

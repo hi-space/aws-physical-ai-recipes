@@ -48,7 +48,7 @@ code-server에서 [`../notebooks/02_sagemaker_pipeline.ipynb`](../notebooks/02_s
 |------|------|
 | `dataset.hf_dataset_id` | TransformDataset이 다운로드할 HF 데이터셋 ID |
 | `transform.instance_type` | TransformDataset 스텝 인스턴스 타입 |
-| `training.max_steps`, `save_steps`, `instance_type`, `num_gpus` | 학습 옵션 (`run_training.py`와 동일) |
+| `training.max_steps`, `save_steps`, `instance_type`, `num_gpus` | 학습 옵션 (`run_training.py`와 동일). 네 값 모두 파이프라인 파라미터(`MaxSteps`/`SaveSteps`/`InstanceType`/`NumGpus`)의 기본값이 되어 실행 시 덮어쓸 수 있다 |
 | `eval.instance_type` | SmokeEval 스텝 인스턴스 타입 |
 | `model.package_group_name` | RegisterModel이 등록할 Model Package Group 이름 |
 | `use_spot` | Spot 사용 여부 |
