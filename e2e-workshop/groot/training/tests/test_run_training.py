@@ -44,6 +44,24 @@ def test_build_training_job_applies_instance_type_and_forces_on_demand():
     assert "dataset" in inputs
 
 
+def test_build_training_job_metric_definitions_and_mlflow_env_match_pipeline():
+    """직접 실행 경로(run_training.py)도 파이프라인과 같은 metric 정의·MLflow env를 쓴다."""
+    import run_training  # pipeline/ 을 sys.path 에 넣어 build_pipeline 을 공유한다
+    import build_pipeline
+
+    config = dict(CONFIG, mlflow={
+        "tracking_server_arn": "arn:aws:sagemaker:us-east-1:913524902871:mlflow-tracking-server/groot-mlflow-913524902871",
+        "experiment_name": "groot-sm-finetune",
+    })
+    args = run_training.build_arg_parser(config).parse_args(["--dataset-s3-uri", "s3://b/ds"])
+    estimator, _, _, _ = run_training.build_training_job(args, config)
+    assert estimator.metric_definitions == build_pipeline.GR00T_METRIC_DEFINITIONS
+    env = estimator.environment
+    assert env["MLFLOW_TRACKING_URI"] == config["mlflow"]["tracking_server_arn"]
+    assert env["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] == "true"
+    assert "HF_MLFLOW_LOG_ARTIFACTS" not in env
+
+
 def test_image_uri_with_groot_version_substitutes_tag():
     """ecr.training_uri가 :latest이고 --groot-version n1.7이면 :n1.7로 교체."""
     base = "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest"

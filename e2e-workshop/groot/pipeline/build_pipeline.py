@@ -22,6 +22,38 @@ from sagemaker.workflow.retry import (
 from sagemaker.workflow.steps import CacheConfig, ProcessingStep, TrainingStep
 
 
+# GR00T(Gr00tTrainer, HF Trainer 기반)가 logging_steps 마다 stdout 에 찍는 dict 의 키 전부:
+#   {'loss': 1.08, 'grad_norm': 2.28, 'learning_rate': 3e-06}
+# epoch 는 Gr00tTrainer.log() 가 숨기고(IterableDataset), eval 은 eval_strategy=no 라 찍히지 않는다.
+# SageMaker 는 이 정규식으로 CloudWatch(/aws/sagemaker/TrainingJobs) 시계열을 만들고,
+# Studio 의 Training Job → Performance 탭은 각 metric 의 **마지막 값**만 표로 보여준다.
+GR00T_METRIC_DEFINITIONS = [
+    {"Name": "train:loss",          "Regex": r"'loss':\s*([0-9.eE+-]+)"},
+    {"Name": "train:grad_norm",     "Regex": r"'grad_norm':\s*([0-9.eE+-]+)"},
+    {"Name": "train:learning_rate", "Regex": r"'learning_rate':\s*([0-9.eE+-]+)"},
+]
+
+
+def mlflow_container_env(tracking_server_arn: str, experiment_name: str = "groot-sm-finetune") -> dict:
+    """학습 컨테이너에 주입할 MLflow 환경변수 (노트북 02 / run_training.py 공용).
+
+    - MLFLOW_TRACKING_URI 가 있으면 HF Trainer 의 MLflowCallback 이 loss/grad_norm/learning_rate 와
+      TrainingArguments 를 자동 로깅한다 (sitecustomize.py 가 report_to 에 mlflow 를 추가).
+    - MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: MLflow 가 run 동안 GPU 사용률/메모리·CPU·RAM·디스크·
+      네트워크를 `system/` 접두사 시계열로 기록한다 (GPU 는 nvidia-ml-py, container/requirements.txt).
+    - HF_MLFLOW_LOG_ARTIFACTS 는 켜지 않는다: 켜면 save_steps 마다 checkpoint 전체(옵티마이저 상태
+      포함, 수십 GB)를 MLflow 아티팩트 스토어(S3)에 복사한다. checkpoint 는 이미 checkpoint_s3_uri 와
+      export_s3_uri 에 있고, train.py 가 그 경로를 run 태그(sagemaker.*)로 남긴다.
+    """
+    if not tracking_server_arn:
+        return {}
+    return {
+        "MLFLOW_TRACKING_URI": tracking_server_arn,
+        "MLFLOW_EXPERIMENT_NAME": experiment_name or "groot-sm-finetune",
+        "MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING": "true",
+    }
+
+
 def _is_gpu_instance(instance_type: str) -> bool:
     """ml.g*/ml.p* 계열이면 True (예: ml.g5.2xlarge)."""
     parts = str(instance_type).split(".")
@@ -96,11 +128,12 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
         source_dir=str(root / "training" / "container"),
         instance_type=p_train_inst, instance_count=1,
         output_path=f"s3://{bucket}/output", checkpoint_s3_uri=checkpoint_s3,
-        metric_definitions=[{"Name": "train:loss", "Regex": r"'loss':\s*([0-9.eE+-]+)"},
-                            {"Name": "eval:loss", "Regex": r"'eval_loss':\s*([0-9.eE+-]+)"}],
+        metric_definitions=GR00T_METRIC_DEFINITIONS,
         hyperparameters={"embodiment_tag": p_embodiment, "max_steps": p_max_steps,
                          "global_batch_size": p_global_batch, "save_steps": p_save_steps,
-                         "num_gpus": p_num_gpus, "export_s3_uri": export_s3_uri},
+                         "num_gpus": p_num_gpus, "export_s3_uri": export_s3_uri,
+                         # train.py 가 MLflow run 태그(sagemaker.checkpoint_s3_uri)로 기록
+                         "checkpoint_s3_uri": checkpoint_s3},
         sagemaker_session=session, environment=env or {})
     train_args = estimator.fit(inputs={"dataset": TrainingInput(s3_data=dataset_uri)})
     training_step = TrainingStep(

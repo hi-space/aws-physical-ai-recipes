@@ -101,14 +101,15 @@ python training/scripts/run_training.py \
 | `Dockerfile` | 학습 이미지 정의. `nvcr.io/nvidia/pytorch` 베이스에 Python 3.10, Isaac-GR00T, transformers, MLflow 설치 |
 | `buildspec.yml` | CodeBuild가 위 Dockerfile을 빌드해 ECR로 push하는 절차 |
 | `train.py` | SageMaker가 호출하는 학습 entrypoint. SageMaker 환경변수를 파싱해 Isaac-GR00T의 `launch_finetune.py`를 실행하고, 결과 모델을 `SM_MODEL_DIR`에 저장 |
-| `sitecustomize.py` | MLflow 로깅을 강제 활성화하는 monkey-patch. GR00T 본체가 `report_to`를 하드코딩해서 HF Trainer의 MLflow callback이 자동 등록되지 않는 문제를 우회 |
+| `sitecustomize.py` | MLflow 로깅을 강제 활성화하는 monkey-patch. GR00T 본체가 `report_to`를 하드코딩해서 HF Trainer의 MLflow callback이 자동 등록되지 않는 문제를 우회하고, run 이름을 `MLFLOW_RUN_NAME`(= Training Job 이름)으로 바꿈 |
+| `requirements.txt` | sagemaker-training 툴킷이 컨테이너 시작 시 pip install (이미지 재빌드 없음). MLflow GPU system metrics용 `nvidia-ml-py` |
 
 ## Monitoring
 
-`run_training.py`는 Estimator에 다음을 자동 주입합니다.
+`run_training.py`와 `pipeline/build_pipeline.py`는 같은 정의(`GR00T_METRIC_DEFINITIONS`, `mlflow_container_env`)를 Estimator에 주입합니다.
 
-- **CloudWatch metric** — HF Trainer가 stdout으로 출력하는 dict 로그(`{'loss': ..., 'grad_norm': ..., 'learning_rate': ...}`)를 정규식으로 파싱해 `train:loss`, `train:grad_norm`, `train:learning_rate`, `train:epoch`로 발행. SageMaker 콘솔의 Training Job *Performance* 탭에서 곡선으로 볼 수 있음
-- **MLflow** — `MLFLOW_TRACKING_URI` 환경변수가 컨테이너에 자동 설정. run/metric/param/artifact가 모두 추적됨
+- **CloudWatch metric** — HF Trainer가 stdout으로 출력하는 dict 로그(`{'loss': ..., 'grad_norm': ..., 'learning_rate': ...}`)를 정규식으로 파싱해 `train:loss`, `train:grad_norm`, `train:learning_rate`로 발행 (GR00T의 `Gr00tTrainer`가 찍는 키는 이 셋이 전부 — `epoch`는 숨기고 평가 단계 없음). Studio의 Training Job *Performance* 탭은 마지막 값만 표로 보여주고, 시계열 그래프는 CloudWatch(`/aws/sagemaker/TrainingJobs`, `TrainingJobName` 차원)에서 봄
+- **MLflow** — `MLFLOW_TRACKING_URI`/`MLFLOW_EXPERIMENT_NAME`/`MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING`이 컨테이너에 자동 설정. run 이름 = Training Job 이름, step 단위 loss/grad_norm/learning_rate + `system/` GPU·CPU·메모리·디스크·네트워크 시계열, TrainingArguments 전체를 param으로, `sagemaker.checkpoint_s3_uri`/`sagemaker.export_s3_uri` 등을 tag로 기록. checkpoint 파일은 MLflow 아티팩트로 복사하지 않음(S3 경로 태그만) — `HF_MLFLOW_LOG_ARTIFACTS=true`를 넣으면 save_steps마다 옵티마이저 상태 포함 수십 GB가 아티팩트 스토어에 중복 저장됨
 
 MLflow UI는 다음 명령으로 발급한 URL로 접속합니다:
 

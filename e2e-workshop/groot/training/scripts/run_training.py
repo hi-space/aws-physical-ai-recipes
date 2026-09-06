@@ -32,6 +32,10 @@ DOMAIN_ROOT = Path(__file__).resolve().parents[2]      # groot/
 TRAINING_ROOT = Path(__file__).resolve().parents[1]    # groot/training/
 CONFIG_PATH = DOMAIN_ROOT / "config.yaml"
 
+# metric 정의·MLflow env 는 파이프라인(notebooks/02)과 한 곳(pipeline/build_pipeline.py)에서 공유
+sys.path.insert(0, str(DOMAIN_ROOT / "pipeline"))
+from build_pipeline import GR00T_METRIC_DEFINITIONS, mlflow_container_env  # noqa: E402
+
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
@@ -141,29 +145,14 @@ def build_training_job(
     # Script Mode: train.py를 컨테이너에 런타임에 주입 (Docker 재빌드 없이 수정 반영)
     train_source_dir = str(TRAINING_ROOT / "container")
 
-    # HF Trainer가 stdout으로 출력하는 dict 로그를 SageMaker CloudWatch metric으로 발행
-    # 예: {'loss': 0.63, 'grad_norm': 1.2, 'learning_rate': 5e-5, 'epoch': 0.01}
-    # 평가 단계: {'eval_loss': 0.55, 'eval_runtime': 1.2, ...}
-    metric_definitions = [
-        {"Name": "train:loss",          "Regex": r"'loss':\s*([0-9.eE+-]+)"},
-        {"Name": "train:grad_norm",     "Regex": r"'grad_norm':\s*([0-9.eE+-]+)"},
-        {"Name": "train:learning_rate", "Regex": r"'learning_rate':\s*([0-9.eE+-]+)"},
-        {"Name": "train:epoch",         "Regex": r"'epoch':\s*([0-9.eE+-]+)"},
-        {"Name": "eval:loss",           "Regex": r"'eval_loss':\s*([0-9.eE+-]+)"},
-        {"Name": "eval:runtime",        "Regex": r"'eval_runtime':\s*([0-9.eE+-]+)"},
-    ]
+    # HF Trainer stdout dict 로그 → CloudWatch metric (파이프라인과 동일 정의: build_pipeline.py 참고)
+    metric_definitions = GR00T_METRIC_DEFINITIONS
 
-    # MLflow 환경변수: tracking server ARN이 config.yaml에 있으면 자동 주입.
-    # HF Trainer는 mlflow 패키지 + MLFLOW_TRACKING_URI를 감지하면
-    # MLflowCallback을 활성화하여 metric/param/artifact를 자동 로깅.
-    container_env = {}
+    # MLflow 환경변수: tracking server ARN이 config.yaml에 있으면 자동 주입 (build_pipeline.py 참고)
     mlflow_arn = args.mlflow_arn or mlflow_cfg.get("tracking_server_arn", "")
-    if mlflow_arn:
-        container_env["MLFLOW_TRACKING_URI"] = mlflow_arn
-        container_env["MLFLOW_EXPERIMENT_NAME"] = (
-            args.mlflow_experiment or mlflow_cfg.get("experiment_name", "groot-sm-finetune")
-        )
-        container_env["HF_MLFLOW_LOG_ARTIFACTS"] = "true"
+    container_env = mlflow_container_env(
+        mlflow_arn, args.mlflow_experiment or mlflow_cfg.get("experiment_name", "groot-sm-finetune"))
+    if container_env:
         print(f"MLflow 활성화: {mlflow_arn}")
 
     # Job name 을 미리 생성해 checkpoint_s3_uri 와 동일한 식별자를 공유시킨다.
@@ -175,6 +164,8 @@ def build_training_job(
     # (별도 ProcessingStep 없이 소스에서 직접 업로드 → DCV 인스턴스가 aws s3 sync 로 바로 로드)
     model_prefix = (config.get("model", {}).get("s3_prefix", "models/groot-sm") or "models/groot-sm").strip("/")
     hyperparameters["export_s3_uri"] = f"s3://{bucket}/{model_prefix}/{job_name}"
+    # train.py 가 MLflow run 태그(sagemaker.checkpoint_s3_uri)로 기록
+    hyperparameters["checkpoint_s3_uri"] = checkpoint_s3_uri
 
     estimator_kwargs = dict(
         image_uri=training_image_uri,

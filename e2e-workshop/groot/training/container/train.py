@@ -111,6 +111,9 @@ def parse_sagemaker_env() -> dict:
         # 비압축 export: 설정 시 학습 종료 후 SM_MODEL_DIR(비압축 슬림 체크포인트)을
         # 이 S3 prefix로 그대로 sync. DCV 인스턴스가 aws s3 sync 한 번으로 tar 해제 없이 로드.
         "export_s3_uri": _get_hyperparameter("export_s3_uri", ""),
+        # CheckpointConfig 의 S3 경로. SageMaker 는 이를 컨테이너에 노출하지 않으므로
+        # 호출자(build_pipeline.py / run_training.py)가 같은 값을 hyperparameter 로도 넘긴다 (MLflow 태그용).
+        "checkpoint_s3_uri": _get_hyperparameter("checkpoint_s3_uri", ""),
         "num_gpus": num_gpus,
         "video_key": _get_hyperparameter("video_key", "video.webcam"),
         "state_key": _get_hyperparameter("state_key", "state.single_arm"),
@@ -261,6 +264,68 @@ def maybe_download_hf_dataset(env: dict) -> None:
 
 
 # -------------------------------------------------------------------------------
+# MLflow run ↔ SageMaker Job 연결
+# -------------------------------------------------------------------------------
+
+def _training_job_name(environ) -> str:
+    """SageMaker Training Job 이름. 툴킷이 SM_TRAINING_ENV(JSON) 의 job_name 으로 제공한다."""
+    if environ.get("TRAINING_JOB_NAME"):
+        return environ["TRAINING_JOB_NAME"]
+    try:
+        return json.loads(environ.get("SM_TRAINING_ENV", "{}")).get("job_name", "") or ""
+    except json.JSONDecodeError:
+        return ""
+
+
+def build_mlflow_env(env: dict, environ=None) -> dict:
+    """GR00T 자식 프로세스에 추가로 넘길 MLflow 환경변수를 만듭니다 (MLFLOW_TRACKING_URI 없으면 {}).
+
+    HF Trainer 의 MLflowCallback 은 run 이름을 TrainingArguments.run_name(기본 output_dir =
+    /opt/ml/checkpoints)으로 짓고, MLFLOW_TAGS(JSON) 를 run 태그로 붙인다. 여기서
+    - MLFLOW_RUN_NAME = Training Job 이름 (sitecustomize.py 가 run_name 에 반영)
+    - MLFLOW_TAGS = Job 이름·인스턴스 타입·checkpoint/export S3 경로·GR00T 버전/embodiment
+    를 넣어 MLflow UI 에서 run 하나가 어느 Job/어느 S3 checkpoint 인지 바로 알 수 있게 한다.
+    (checkpoint 전체를 MLflow 아티팩트로 복사하는 대신 S3 경로만 태그로 남긴다.)
+    이미 설정된 MLFLOW_RUN_NAME / MLFLOW_TAGS 는 유지·병합한다.
+    """
+    environ = os.environ if environ is None else environ
+    if not environ.get("MLFLOW_TRACKING_URI"):
+        return {}
+
+    sm_env = {}
+    try:
+        sm_env = json.loads(environ.get("SM_TRAINING_ENV", "{}")) or {}
+    except json.JSONDecodeError:
+        pass
+    job_name = _training_job_name(environ)
+
+    tags = {}
+    if environ.get("MLFLOW_TAGS"):
+        try:
+            tags.update(json.loads(environ["MLFLOW_TAGS"]))
+        except json.JSONDecodeError:
+            print(f"경고: MLFLOW_TAGS 가 JSON 이 아니어서 무시합니다: {environ['MLFLOW_TAGS']!r}")
+    if job_name:
+        tags["sagemaker.training_job_name"] = job_name
+    if sm_env.get("current_instance_type"):
+        tags["sagemaker.instance_type"] = sm_env["current_instance_type"]
+    if env.get("checkpoint_s3_uri"):
+        tags["sagemaker.checkpoint_s3_uri"] = env["checkpoint_s3_uri"]
+    if env.get("export_s3_uri"):
+        tags["sagemaker.export_s3_uri"] = env["export_s3_uri"]
+    if env.get("groot_version"):
+        tags["gr00t.version"] = env["groot_version"]
+    if env.get("embodiment_tag"):
+        tags["gr00t.embodiment_tag"] = env["embodiment_tag"]
+
+    out = {"MLFLOW_TAGS": json.dumps(tags, ensure_ascii=False)}
+    run_name = environ.get("MLFLOW_RUN_NAME") or job_name
+    if run_name:
+        out["MLFLOW_RUN_NAME"] = run_name
+    return out
+
+
+# -------------------------------------------------------------------------------
 # GR00T 학습 실행
 # -------------------------------------------------------------------------------
 
@@ -343,8 +408,13 @@ def run_gr00t_training(env: dict) -> None:
     if env.get("wandb_api_key") and not os.environ.get("WANDB_DISABLED"):
         finetune_args.append("--use_wandb")
 
-    # subprocess에 전달할 환경변수 (현재 환경 복사)
+    # subprocess에 전달할 환경변수 (현재 환경 복사) + MLflow run 이름/태그 (Job 연결)
     run_env = os.environ.copy()
+    mlflow_env = build_mlflow_env(env)
+    if mlflow_env:
+        run_env.update(mlflow_env)
+        print(f"MLflow run 이름: {mlflow_env.get('MLFLOW_RUN_NAME', '(HF 기본값)')}")
+        print(f"MLflow run 태그: {mlflow_env['MLFLOW_TAGS']}")
 
     if num_gpus > 1:
         # Multi-GPU: torchrun(DDP + DeepSpeed)

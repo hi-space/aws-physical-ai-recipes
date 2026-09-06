@@ -51,7 +51,8 @@ export interface DcvInstanceProps {
    * 워크스테이션 모드 (기본 gpu).
    * cpu: GPU가 없는 인스턴스. UserData에서 nvidia-driver.sh 단계만 생략한다.
    *      common.sh(데스크톱·DCV·ROS2), isaac-lab.sh(Docker 이미지 빌드),
-   *      models-download.sh, fsx-mount.sh, code-server.sh는 GPU 모드와 동일하게 실행되어
+   *      models-download.sh, fsx-mount.sh, code-server.sh, dcv-proxy-bridge.sh는
+   *      GPU 모드와 동일하게 실행되어
    *      파일·이미지·경로가 같아진다.
    */
   workstationMode?: 'gpu' | 'cpu';
@@ -416,7 +417,16 @@ export class DcvInstanceConstruct extends Construct {
       'echo "===== [$(date)] STAGE: fsx-mount.sh ====="',
       '# FSx는 옵션(enableFsx). FSX_* 가 비어 있으면 스크립트가 건너뛰고, 마운트 실패도 [WARN]으로만 남긴다.',
       'source /tmp/userdata-scripts/fsx-mount.sh || echo "[WARN] fsx-mount.sh failed"',
-      ...((props.enableCodeServer ?? true) ? ['source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }'] : []),
+      ...((props.enableCodeServer ?? true)
+        ? [
+            'source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }',
+            '# 모듈 10 방법 C: HyperPod 노드의 DCV를 code-server 프록시(/proxy/8445/)로 열기 위한',
+            '# loopback TLS 브리지. 프록시는 평문 HTTP로 업스트림에 붙지만 DCV는 TLS 전용이라 중계가 필요하다.',
+            '# 편의 기능이므로 실패해도 스택 전체를 실패시키지 않는다(USERDATA_EXIT 건드리지 않음).',
+            'echo "===== [$(date)] STAGE: dcv-proxy-bridge.sh ====="',
+            'source /tmp/userdata-scripts/dcv-proxy-bridge.sh || echo "[WARN] dcv-proxy-bridge.sh failed"',
+          ]
+        : []),
       '',
       'echo "===== [$(date)] STAGE: waiting for background jobs (isaac-lab, models-download) ====="',
       'wait $ISAACLAB_PID || { echo "[FAIL] isaac-lab.sh failed"; USERDATA_EXIT=1; }',

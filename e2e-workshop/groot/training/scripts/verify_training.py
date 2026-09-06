@@ -101,7 +101,14 @@ def _mlflow_summary(config: dict, region: str, job_name: str) -> dict:
         experiment = mlflow.get_experiment_by_name(experiment_name)
         if experiment is None:
             return {"mlflow": f"experiment_not_found:{experiment_name}"}
-        runs = mlflow.search_runs([experiment.experiment_id])
+        # train.py 가 run 에 sagemaker.training_job_name 태그를 붙이므로 Job 으로 정확히 매칭한다.
+        runs = mlflow.search_runs(
+            [experiment.experiment_id],
+            filter_string=f"tags.`sagemaker.training_job_name` = '{job_name}'",
+        )
+        matched = runs is not None and not runs.empty
+        if not matched:
+            runs = mlflow.search_runs([experiment.experiment_id])
         if runs is None or runs.empty:
             return {"mlflow": "no_runs"}
         loss_col = next(
@@ -113,7 +120,10 @@ def _mlflow_summary(config: dict, region: str, job_name: str) -> dict:
             "mlflow_latest_loss": (
                 latest[loss_col] if loss_col else None
             ),
-            "mlflow_note": "best-effort (job과 run 매칭 태그 없음)",
+            "mlflow_note": (
+                "job 태그 매칭" if matched
+                else "best-effort: job 태그 없는 run → 최신 run (구버전 train.py 실행)"
+            ),
         }
     except Exception as exc:  # pragma: no cover - 네트워크/권한 변동성
         return {"mlflow": f"lookup_failed: {exc}"}

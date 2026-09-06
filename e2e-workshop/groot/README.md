@@ -74,7 +74,7 @@ python training/scripts/run_training.py \
 
 기본 인스턴스는 `ml.g5.12xlarge` (A10G 4-GPU)입니다. g6e 쿼터가 있으면 `--instance-type ml.g6e.12xlarge`(L40S 4-GPU)로 더 빠르게 학습할 수 있습니다. 본격 학습은 `--max-steps 6000 --save-steps 2000`처럼 step만 키워서 실행하면 됩니다.
 
-학습 곡선은 SageMaker 콘솔의 *Performance* 탭과 MLflow에서 확인할 수 있습니다.
+학습 곡선(loss/grad_norm/learning_rate, GPU 사용률)은 MLflow에서 봅니다. Studio의 Training Job *Performance* 탭은 `metric_definitions`의 마지막 값만 표로 보여주고, 시계열은 CloudWatch(`/aws/sagemaker/TrainingJobs`)에 남습니다.
 
 ### 5) Pipeline으로 학습 + 스모크 게이트 + 모델 등록 (권장)
 

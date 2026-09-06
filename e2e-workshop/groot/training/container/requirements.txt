@@ -1,0 +1,6 @@
+# sagemaker-training 툴킷이 컨테이너 시작 시 source_dir 의 이 파일을 pip install 한다
+# (Docker 이미지 재빌드 없이 반영). 학습 의존성 본체는 Dockerfile 에 있다.
+#
+# MLflow system metrics (MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING) 의 GPU 수집기(pynvml) 용.
+# 없으면 MLflow 는 GPU 항목만 건너뛰고 CPU/RAM/디스크/네트워크만 기록한다.
+nvidia-ml-py

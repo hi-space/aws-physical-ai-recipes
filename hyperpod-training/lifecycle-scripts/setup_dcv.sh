@@ -48,6 +48,13 @@ apt_install ubuntu-desktop-minimal gdm3 dbus-x11 xterm x11-xserver-utils || \
   apt_install xfce4 xfce4-goodies dbus-x11 xterm x11-xserver-utils || \
   echo "[setup_dcv] WARNING: Desktop install had issues."
 
+# libglvnd 정합성 복구: 드라이버 단계가 libGLdispatch.so.0 / libGLX.so.0 를 NVIDIA 빌드로 바꿔 놓았다면
+# 위에서 설치된 Ubuntu libgles2 와 어긋나 gnome-shell 이 "_glapi_tls_Current" 심볼 오류로 죽는다.
+# Ubuntu libglvnd 패키지를 재설치해 한 세트로 맞춘다(dpkg -V libglvnd0 가 깨끗해야 정상).
+apt-get install -yq --reinstall libglvnd0 libglx0 libgl1 libegl1 libgles2 libopengl0 >/dev/null 2>&1 \
+  || echo "[setup_dcv] WARNING: libglvnd reinstall failed; gnome-shell may not start (check dpkg -V libglvnd0)."
+ldconfig
+
 # Disable Wayland for DCV compatibility
 if [ -f /etc/gdm3/custom.conf ]; then
   sed -i 's/^#\(WaylandEnable=false\)/\1/' /etc/gdm3/custom.conf || true

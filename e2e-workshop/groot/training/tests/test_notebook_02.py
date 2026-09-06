@@ -20,3 +20,11 @@ def test_no_manual_upload_cell():
 
 def test_creates_model_package_group():
     assert "create_model_package_group" in _sources()
+
+
+def test_mlflow_env_comes_from_shared_helper():
+    """MLflow env는 build_pipeline.mlflow_container_env 한 곳에서 만든다 (run_training.py와 동일).
+    checkpoint 전체를 MLflow 아티팩트로 올리던 HF_MLFLOW_LOG_ARTIFACTS 는 더 이상 켜지 않는다."""
+    src = _sources()
+    assert "mlflow_container_env(" in src
+    assert "HF_MLFLOW_LOG_ARTIFACTS" not in src

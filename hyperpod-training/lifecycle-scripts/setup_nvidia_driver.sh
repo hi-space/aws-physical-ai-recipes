@@ -140,8 +140,14 @@ printf 'install nvidia /bin/false\ninstall nvidia_uvm /bin/false\ninstall nvidia
 RC=0
 if [ "${RELOAD_ONLY}" != "1" ]; then
   log "Installing NVIDIA ${NVIDIA_DRIVER_VERSION} (${NVIDIA_KERNEL_MODULE_TYPE} kernel module)..."
+  # libglvnd 는 Ubuntu 패키지 것을 유지한다(--no-install-libglvnd). 설치기의 --install-libglvnd 는
+  # libGLdispatch.so.0 / libGLX.so.0 를 NVIDIA 자체 빌드로 덮어쓰는데, 이 빌드에는 Ubuntu libgles2 가
+  # 요구하는 _glapi_tls_Current 심볼이 없어 이후 setup_dcv.sh 가 설치하는 GNOME 의 gnome-shell 이
+  # "libGLESv2.so.2: undefined symbol: _glapi_tls_Current" 로 즉사하고 DCV 데스크톱이 검은 화면이 된다.
+  # NVIDIA 벤더 라이브러리(libGLX_nvidia, libEGL_nvidia)는 Ubuntu libglvnd 위에서 그대로 동작한다.
+  apt-get install -yq libglvnd0 libglx0 libgl1 libegl1 libgles2 libopengl0 >/dev/null 2>&1 || true
   ( cd extracted && ./nvidia-installer -s --ui=none --no-questions --kernel-module-type="${NVIDIA_KERNEL_MODULE_TYPE}" \
-      --no-x-check --no-nouveau-check --no-backup --install-libglvnd --skip-module-load --tmpdir="${WORK}/tmp" ) 2>&1 | tail -5
+      --no-x-check --no-nouveau-check --no-backup --no-install-libglvnd --skip-module-load --tmpdir="${WORK}/tmp" ) 2>&1 | tail -5
   RC=${PIPESTATUS[0]}
   depmod -a
 fi
