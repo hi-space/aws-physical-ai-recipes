@@ -40,7 +40,7 @@ SCRIPT_DIR="/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl"
 
 echo "Task: ${TASK}  Checkpoint: ${CHECKPOINT}  Envs: ${NUM_ENVS}  Steps: ${VIDEO_LENGTH}  Out: ${VIDEO_DIR}"
 [ -f "${CHECKPOINT}" ] || { echo "ERROR: checkpoint not found: ${CHECKPOINT}"; exit 1; }
-mkdir -p "${VIDEO_DIR}"
+sudo mkdir -p "${VIDEO_DIR}"   # checkpoint dirs are written by the (root) training container
 
 sudo enroot start --root --rw \
     --mount /fsx:/fsx \

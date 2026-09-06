@@ -243,6 +243,19 @@ export class DcvInstanceConstruct extends Construct {
                 Resource: '*',
               },
               {
+                // Bedrock은 서드파티 모델(Anthropic 등)을 첫 호출 시 AWS Marketplace에 자동 구독한다.
+                // 새 Workshop Studio 계정은 구독 이력이 없으므로, 호출 주체(이 역할)에 아래 권한이 없으면
+                // "Model access is denied ... (aws-marketplace:ViewSubscriptions, aws-marketplace:Subscribe)" 403.
+                // https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html
+                Effect: 'Allow',
+                Action: [
+                  'aws-marketplace:ViewSubscriptions',
+                  'aws-marketplace:Subscribe',
+                  'aws-marketplace:Unsubscribe',
+                ],
+                Resource: '*',
+              },
+              {
                 // 모듈 10 §10.10: 잔여 리소스 감사(NAT GW/EIP/SG) + 수동 정리 폴백
                 Effect: 'Allow',
                 Action: [

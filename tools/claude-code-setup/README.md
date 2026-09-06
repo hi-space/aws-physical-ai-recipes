@@ -82,7 +82,7 @@ AWS_REGION                         # 공통, 입력한 리전
 CLAUDE_CODE_USE_BEDROCK=1
 ANTHROPIC_MODEL                    # 선택한 모델
 ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-4-6-v1
-ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-4-6
+ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-4-5-20250929-v1:0
 ANTHROPIC_DEFAULT_HAIKU_MODEL      # global.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_SMALL_FAST_MODEL         # us.anthropic.claude-haiku-4-5-20251001-v1:0
 CLAUDE_CODE_MAX_OUTPUT_TOKENS      # 선택한 값

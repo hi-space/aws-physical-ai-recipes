@@ -66,7 +66,7 @@ echo "[2/5] Setting up Isaac Lab container..."
 
 export ENROOT_CACHE_PATH=/fsx/enroot
 export ENROOT_DATA_PATH=/fsx/enroot/data
-mkdir -p /fsx/enroot/data
+sudo mkdir -p /fsx/enroot/data   # /fsx/enroot is root-owned (enroot cache path); every enroot call below runs under sudo too
 
 # A container left over from a different image version (e.g. the Isaac Sim 4.5 image)
 # is removed so the rootfs and the sqsh always match ${ISAAC_LAB_VERSION}.
@@ -207,7 +207,11 @@ if [ "${CONTAINER_IMPORT_FAILED:-}" != "true" ]; then
         --mount /fsx:/fsx --env ACCEPT_EULA=Y --env PRIVACY_CONSENT=Y \
         isaaclab bash -c "
             python3 -m pip install --no-cache-dir \"numpy<2\" mlflow sagemaker-mlflow pyzmq msgpack 2>&1 | tail -2
-            python3 -m pip install --no-cache-dir --no-deps /fsx/scratch/leisaac/source/leisaac 2>&1 | tail -2
+            # Build from a scratch copy: enroot drops CAP_DAC_OVERRIDE, so container root cannot
+            # write leisaac.egg-info into the ubuntu-owned checkout on /fsx (Permission denied).
+            rm -rf /tmp/leisaac-src && cp -r /fsx/scratch/leisaac/source/leisaac /tmp/leisaac-src
+            python3 -m pip install --no-cache-dir --no-deps /tmp/leisaac-src 2>&1 | tail -2
+            rm -rf /tmp/leisaac-src
             python3 -c 'import importlib.metadata as m, numpy; assert numpy.__version__.startswith(\"1.\"), \"numpy must stay <2 for Isaac Sim: \" + numpy.__version__; print(\"  isaaclab\", m.version(\"isaaclab\"), \"rsl-rl-lib\", m.version(\"rsl-rl-lib\"), \"mlflow\", m.version(\"mlflow\"), \"leisaac\", m.version(\"leisaac\"), \"numpy\", numpy.__version__)'
         " || {
         echo "  WARNING: Package installation failed. finetune_isaaclab.sbatch retries on first run."
