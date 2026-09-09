@@ -17,6 +17,7 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app: isaaclab-rl
+    app: isaaclab-rl
     kueue.x-k8s.io/queue-name: ${QUEUE}
     kueue.x-k8s.io/priority-class: ${PRIORITY}
 spec:
