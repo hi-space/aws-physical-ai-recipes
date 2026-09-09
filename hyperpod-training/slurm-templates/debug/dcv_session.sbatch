@@ -30,7 +30,7 @@ echo "  GPU:  $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 
 # --- DCV 가상 세션 확인 (부팅 시 auto-dcv.service 가 만든 세션 재사용) ---
 if ! sudo dcv list-sessions 2>/dev/null | grep -q "'${DCV_SESSION}'"; then
-  echo "  DCV session '${DCV_SESSION}' not found — creating."
+  echo "  DCV session '${DCV_SESSION}' not found, creating."
   sudo dcv create-session "${DCV_SESSION}" --type virtual --owner "${DCV_USER}" --name "HyperPod Workspace" \
     || echo "  WARNING: dcv create-session failed. Check: sudo systemctl status dcvserver auto-dcv"
 fi

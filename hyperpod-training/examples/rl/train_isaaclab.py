@@ -182,7 +182,7 @@ def main():
                     extra += f", ep_len: {runner.lenbuffer.mean():.0f}"
                 print(
                     f"[INFO] Iteration {it}/{num_learning_iterations}"
-                    f" — fps: {fps:.0f}, elapsed: {elapsed:.0f}s{extra}",
+                    f" | fps: {fps:.0f}, elapsed: {elapsed:.0f}s{extra}",
                     flush=True,
                 )
             return result
@@ -201,7 +201,7 @@ def main():
                 if stats and "mean_reward" in stats:
                     candidates.append({"iteration": it, "file": name, **stats})
         if not candidates:
-            print("[WARN] No reward statistics captured — model_best.pt not written.")
+            print("[WARN] No reward statistics captured, model_best.pt not written.")
             return
         candidates.sort(key=lambda c: c["iteration"])
         best = max(candidates, key=lambda c: c["mean_reward"])
