@@ -59,7 +59,7 @@ export class ObservabilityConstruct extends Construct {
       assumedBy: new iam.ServicePrincipal('grafana.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonPrometheusQueryAccess'),
-        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonGrafanaCloudWatchAccess'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonGrafanaCloudWatchAccess'),
       ],
     });
     this.grafanaWorkspace = new grafana.CfnWorkspace(this, 'Grafana', {
