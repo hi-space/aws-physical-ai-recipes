@@ -1,18 +1,27 @@
 {
   "title": "HyperPod Task Governance (Kueue)",
   "uid": "hyperpod-task-governance",
-  "tags": ["hyperpod", "kueue"],
+  "tags": [
+    "hyperpod",
+    "kueue"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "name": "DS",
         "type": "datasource",
         "query": "prometheus",
-        "current": { "text": "AMP", "value": "AMP" },
+        "current": {
+          "text": "AMP",
+          "value": "AMP"
+        },
         "hide": 2
       }
     ]
@@ -22,100 +31,384 @@
       "id": 1,
       "type": "stat",
       "title": "Pending workloads (all queues)",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "refId": "A", "expr": "sum(kueue_pending_workloads)" }],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] } }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kueue_pending_workloads)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 2,
       "type": "stat",
       "title": "Admitted (running) workloads",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
-      "targets": [{ "refId": "A", "expr": "sum(kueue_admitted_active_workloads)" }],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kueue_admitted_active_workloads)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Evicted (preempted) workloads, 1h",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
-      "targets": [{ "refId": "A", "expr": "sum(increase(kueue_evicted_workloads_total[1h]))" }],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" }, "decimals": 0 }, "overrides": [] }
+      "title": "Evicted (preempted) workloads (total)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kueue_evicted_workloads_total) or vector(0)"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      }
     },
     {
       "id": 4,
       "type": "stat",
       "title": "GPUs allocatable / requested",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(kube_node_status_allocatable{resource=\"nvidia_com_gpu\"})", "legendFormat": "allocatable" },
-        { "refId": "B", "expr": "sum(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"})", "legendFormat": "requested" }
+        {
+          "refId": "A",
+          "expr": "sum(kube_node_status_allocatable{resource=\"nvidia_com_gpu\"})",
+          "legendFormat": "allocatable"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"})",
+          "legendFormat": "requested"
+        }
       ],
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "textMode": "value_and_name" },
-      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
       "type": "timeseries",
       "title": "Pending vs admitted workloads by ClusterQueue (team)",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "sum by (cluster_queue) (kueue_pending_workloads)", "legendFormat": "pending {{cluster_queue}}" },
-        { "refId": "B", "expr": "sum by (cluster_queue) (kueue_admitted_active_workloads)", "legendFormat": "admitted {{cluster_queue}}" }
+        {
+          "refId": "A",
+          "expr": "sum by (cluster_queue) (kueue_pending_workloads)",
+          "legendFormat": "pending {{cluster_queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (cluster_queue) (kueue_admitted_active_workloads)",
+          "legendFormat": "admitted {{cluster_queue}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }, "decimals": 0 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      }
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "ClusterQueue resource usage — nvidia.com/gpu",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource=\"nvidia.com/gpu\"})", "legendFormat": "used {{cluster_queue}}" },
-        { "refId": "B", "expr": "sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"nvidia.com/gpu\"})", "legendFormat": "quota {{cluster_queue}}" },
-        { "refId": "C", "expr": "sum by (cluster_queue) (kueue_cluster_queue_borrowing_usage{resource=\"nvidia.com/gpu\"})", "legendFormat": "borrowed {{cluster_queue}}" }
+        {
+          "refId": "A",
+          "expr": "sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource=\"nvidia.com/gpu\"})",
+          "legendFormat": "used {{cluster_queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"nvidia.com/gpu\"})",
+          "legendFormat": "quota {{cluster_queue}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (cluster_queue) (kueue_cluster_queue_borrowing_usage{resource=\"nvidia.com/gpu\"})",
+          "legendFormat": "borrowed {{cluster_queue}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2 }, "decimals": 0 }, "overrides": [{ "matcher": { "id": "byRegexp", "options": "quota.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }] }] }
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "quota.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "id": 7,
       "type": "timeseries",
       "title": "GPU utilization per node (DCGM)",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
-      "targets": [{ "refId": "A", "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "{{Hostname}} gpu{{gpu}}" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 8,
       "type": "timeseries",
       "title": "GPU memory used per node (DCGM)",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
-      "targets": [{ "refId": "A", "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_FB_USED)", "legendFormat": "{{Hostname}} gpu{{gpu}}" }],
-      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } }, "overrides": [] }
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_FB_USED)",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 9,
       "type": "table",
       "title": "Workload admission wait time (p50 / p95, seconds) by ClusterQueue",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 23 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))", "legendFormat": "p50", "format": "table", "instant": true },
-        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))", "legendFormat": "p95", "format": "table", "instant": true }
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))",
+          "legendFormat": "p50",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))",
+          "legendFormat": "p95",
+          "format": "table",
+          "instant": true
+        }
       ],
-      "transformations": [{ "id": "merge", "options": {} }],
-      "fieldConfig": { "defaults": { "unit": "s", "decimals": 1 }, "overrides": [] }
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1
+        },
+        "overrides": []
+      }
     }
   ]
 }
