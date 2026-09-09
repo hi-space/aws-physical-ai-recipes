@@ -26,6 +26,9 @@ spec:
     metadata:
       labels:
         app: isaaclab-rl
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
     spec:
       restartPolicy: Never
       nodeSelector:

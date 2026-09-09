@@ -173,8 +173,9 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 넘어간 두 운영 축을 실제로 쓴다.
 
 - **Observability** — EKS 애드온 `amazon-sagemaker-hyperpod-observability` + Amazon Managed Service for
-  Prometheus(AMP) + Amazon Managed Grafana(AMG). CDK가 워크스페이스 두 개와 애드온을 만들어 GPU·노드·태스크
-  대시보드가 바로 보인다.
+  Prometheus(AMP) + Grafana. CDK가 AMP 워크스페이스·애드온·Grafana(기본: 클러스터 안 Helm 설치, AMP를 SigV4로
+  읽음)를 만들어 GPU·노드·Kueue 대시보드가 바로 보인다. IAM Identity Center 조직 인스턴스가 있는 계정은
+  `-c grafanaMode=amg`로 Amazon Managed Grafana를 대신 쓸 수 있다.
 - **Task governance** — EKS 애드온 `amazon-sagemaker-hyperpod-taskgovernance`(Kueue). cluster policy(우선순위
   클래스)와 팀별 compute quota를 CLI로 만들면 팀 네임스페이스·LocalQueue가 자동 생성되고, Job은 큐를 거쳐
   할당량·우선순위에 따라 실행·대기·선점된다.
@@ -192,7 +193,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 │  └─ gpu-g5-8x  (ml.g5.8xlarge) ×0 — Isaac Lab RL (scale-cluster.sh) │
 ├──────────────────────────────────────────────────────────────┤
 │ FSx for Lustre (/fsx, CSI 정적 PV) ↔ S3 hyperpod-eks-data-…      │
-│ AMP 워크스페이스 → AMG 워크스페이스 (IAM Identity Center 로그인)   │
+│ AMP 워크스페이스 → Grafana (in-cluster, port-forward | AMG 옵션)   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -213,20 +214,23 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `eksVersion` | `1.33` | Kubernetes 버전 (HyperPod 지원 1.30–1.35) |
 | `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
-| `enableObservability` | true | AMP + AMG + observability 애드온 |
+| `enableObservability` | true | AMP + Grafana + observability 애드온 |
+| `grafanaMode` | `self-hosted` | `self-hosted` = 클러스터 안 Grafana(Helm, `kubectl port-forward`), `amg` = Amazon Managed Grafana(IAM Identity Center **조직** 인스턴스 필요 — 계정 인스턴스는 "SSO is not enabled" 로 실패), `none` |
 | `enableTaskGovernance` | true | task governance 애드온 |
 | `deepHealthChecks` | false | GPU 그룹 `OnStartDeepHealthChecks`(InstanceStress, InstanceConnectivity). 켜면 노드 기동이 길어진다 |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Slurm과 동일 | |
 
-주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `GrafanaUrl`, `GrafanaWorkspaceId`, `AmpWorkspaceId`,
-`S3BucketName`, `FsxFileSystemId`/`FsxDnsName`/`FsxMountName`.
+주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `AmpWorkspaceId`, `GrafanaAccess`(self-hosted) 또는
+`GrafanaUrl`/`GrafanaWorkspaceId`(amg), `S3BucketName`, `FsxFileSystemId`/`FsxDnsName`/`FsxMountName`.
 
 ### 배포 후
 
 ```bash
 cd hyperpod-training
 ./scripts/eks/kubeconfig.sh                       # kubectl 컨텍스트 hyperpod-eks + 노드/애드온 확인
-./scripts/eks/grafana-user.sh <IdC-username>      # 내 IAM Identity Center 사용자에게 Grafana ADMIN 부여 → GrafanaUrl 로그인
+kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → http://localhost:3000 (admin / Secret grafana 의 admin-password)
+kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
+# grafanaMode=amg 인 경우: ./scripts/eks/grafana-user.sh <IdC-username>  → Output GrafanaUrl 로 로그인
 ./scripts/eks/create-governance.sh                # cluster policy + team-a(g5.8xlarge 1) / team-b(c5.4xlarge 1) compute quota
 ./scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-$(aws sts get-caller-identity --query Account --output text)
 ```
@@ -255,7 +259,8 @@ NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-train-job.yaml --apply
 | `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue 라벨 (finetune_isaaclab.sbatch 대응) |
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응) |
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
-| `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana 사용자 · 정책 생성/삭제 |
+| `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana(AMG) 사용자 · 정책 생성/삭제 |
+| `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
 | `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle (진단 로그만; kubelet/plugin은 HyperPod·Helm이 처리) |
 | `eks/helm/HyperPodHelmChart` | vendored HyperPod Helm 의존성 (`VENDOR.md`) |
 

@@ -9,6 +9,10 @@ kind: Job
 metadata:
   name: workshop-setup-${JOB_SUFFIX}
   namespace: ${NAMESPACE}
+  labels:
+    # task governance 의 admission policy 가 모든 Job 에 queue-name 라벨을 요구한다 (라벨 없는 Job 은 거부됨).
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
 spec:
   backoffLimit: 1
   ttlSecondsAfterFinished: 86400
@@ -16,6 +20,9 @@ spec:
     metadata:
       labels:
         app: workshop-setup
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
     spec:
       restartPolicy: Never
       nodeSelector:

@@ -1,15 +1,35 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as eks from 'aws-cdk-lib/aws-eks';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { KubectlV33Layer } from '@aws-cdk/lambda-layer-kubectl-v33';
+import { KubectlV34Layer } from '@aws-cdk/lambda-layer-kubectl-v34';
 import { Construct } from 'constructs';
+
+/**
+ * 지원하는 Kubernetes 버전과 kubectl Lambda 레이어.
+ * 기본 1.34: task governance 애드온(Kueue 0.19)이 요구하는 resource.k8s.io/v1(DRA) API 가 1.34 부터 제공되고,
+ * 1.33 은 EKS 확장 지원(추가 과금) 단계다. 1.33 은 Kueue 가 DeviceClass 캐시 동기화에 실패해 크래시 루프에 빠진다.
+ */
+export const SUPPORTED_EKS_VERSIONS = ['1.34'] as const;
+export type SupportedEksVersion = (typeof SUPPORTED_EKS_VERSIONS)[number];
+export const DEFAULT_EKS_VERSION: SupportedEksVersion = '1.34';
+
+function kubectlLayerFor(scope: Construct, version: string): lambda.ILayerVersion {
+  switch (version) {
+    case '1.33': return new KubectlV33Layer(scope, 'KubectlLayer');
+    case '1.34': return new KubectlV34Layer(scope, 'KubectlLayer');
+    default: throw new Error(`지원하지 않는 EKS 버전: ${version} (지원: ${SUPPORTED_EKS_VERSIONS.join(', ')})`);
+  }
+}
 
 export interface EksControlPlaneProps {
   namePrefix: string;
   /** EKS/HyperPod 클러스터 이름 (소문자). */
   clusterName: string;
   vpcCidr: string;
-  version: eks.KubernetesVersion;
+  /** Kubernetes 버전 문자열 ('1.34'). */
+  version: string;
   /**
    * 클러스터 admin(AmazonEKSClusterAdminPolicy) 액세스 엔트리를 받을 IAM principal ARN.
    * 배포자(code-server의 DCV 인스턴스 롤 또는 개인 CLI 자격증명)와 -c eksAdminArns 목록.
@@ -72,8 +92,8 @@ export class EksControlPlaneConstruct extends Construct {
 
     this.cluster = new eks.Cluster(this, 'Cluster', {
       clusterName: props.clusterName,
-      version: props.version,
-      kubectlLayer: new KubectlV33Layer(this, 'KubectlLayer'),
+      version: eks.KubernetesVersion.of(props.version),
+      kubectlLayer: kubectlLayerFor(this, props.version),
       vpc: this.vpc,
       vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
       securityGroup: this.clusterSecurityGroup,

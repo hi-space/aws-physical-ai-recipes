@@ -4,6 +4,7 @@ import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
 import { HyperPodEksStack } from '../lib/hyperpod-eks-stack';
 import { GRAFANA_MODES, GrafanaMode } from '../lib/constructs/observability';
+import { DEFAULT_EKS_VERSION, SUPPORTED_EKS_VERSIONS } from '../lib/constructs/eks-control-plane';
 import { parseDeploymentProfile } from '../lib/config/deployment-profile';
 
 /**
@@ -96,7 +97,7 @@ if (orchestrator === 'eks') {
   if (profile !== 'personal') {
     throw new Error(`orchestrator=eks 는 profile=personal 에서만 배포할 수 있습니다 (지정된 profile: '${profile}').`);
   }
-  const eksVersion = String(app.node.tryGetContext('eksVersion') ?? '1.33');
+  const eksVersion = String(app.node.tryGetContext('eksVersion') ?? DEFAULT_EKS_VERSION);
   const systemNodeCount = parseInt(app.node.tryGetContext('systemNodeCount') ?? '1', 10);
   const enableObservability = (app.node.tryGetContext('enableObservability') ?? 'true') === 'true';
   const enableTaskGovernance = (app.node.tryGetContext('enableTaskGovernance') ?? 'true') === 'true';
@@ -116,8 +117,8 @@ if (orchestrator === 'eks') {
   if (!Number.isInteger(systemNodeCount) || systemNodeCount < 1 || systemNodeCount > 2) {
     throw new Error(`systemNodeCount는 1 또는 2 여야 합니다 (애드온 설치에 노드 1대 이상 필요): '${systemNodeCount}'`);
   }
-  if (!/^1\.(3[0-5])$/.test(eksVersion)) {
-    throw new Error(`eksVersion은 HyperPod 지원 범위 1.30–1.35 여야 합니다: '${eksVersion}'`);
+  if (!(SUPPORTED_EKS_VERSIONS as readonly string[]).includes(eksVersion)) {
+    throw new Error(`eksVersion은 ${SUPPORTED_EKS_VERSIONS.join(', ')} 중 하나여야 합니다: '${eksVersion}'`);
   }
 
   new HyperPodEksStack(app, `HyperPodEks${accountSuffix}`, {

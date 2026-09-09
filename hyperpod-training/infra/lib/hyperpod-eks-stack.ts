@@ -17,7 +17,7 @@ import {
 export interface HyperPodEksStackProps extends cdk.StackProps {
   accountId: string;
   vpcCidr: string;
-  /** Kubernetes 버전 문자열 (예: '1.33'). HyperPod 지원 범위 1.30–1.35. */
+  /** Kubernetes 버전 문자열. 기본 1.34 (constructs/eks-control-plane.ts SUPPORTED_EKS_VERSIONS). */
   eksVersion: string;
   /** 클러스터 admin 액세스 엔트리를 받을 principal ARN(배포자 + -c eksAdminArns). */
   eksAdminArns: string[];
@@ -53,7 +53,8 @@ export class HyperPodEksStack extends cdk.Stack {
 
     const accountSuffix = props.accountId ? `-${props.accountId}` : '';
     const namePrefix = `HyperPodEks${accountSuffix}`;
-    const clusterName = namePrefix.toLowerCase();
+    // 클러스터 이름은 Slurm 경로(hyperpod-<ACCOUNT_ID>)와 나란히 읽히도록 hyperpod-eks-<ACCOUNT_ID>.
+    const clusterName = `hyperpod-eks${accountSuffix}`.toLowerCase();
 
     cdk.Tags.of(this).add('Project', 'HyperPod');
     cdk.Tags.of(this).add('Orchestrator', 'EKS');
@@ -80,7 +81,7 @@ export class HyperPodEksStack extends cdk.Stack {
       namePrefix,
       clusterName,
       vpcCidr: props.vpcCidr,
-      version: eks.KubernetesVersion.of(props.eksVersion),
+      version: props.eksVersion,
       adminPrincipalArns: props.eksAdminArns,
     });
 
