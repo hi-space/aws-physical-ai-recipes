@@ -17,6 +17,10 @@ export interface StorageProps {
   importedFsxId?: string;
   /** 재사용할 FSx의 Lustre mount name (`aws fsx describe-file-systems`로 확인). */
   importedFsxMountName?: string;
+  /** FSx SG 인바운드 허용 CIDR (VPC CIDR). 기본 10.0.0.0/16. */
+  vpcCidr?: string;
+  /** 데이터 버킷 이름 접두어. 기본 hyperpod-data (EKS 스택은 hyperpod-eks-data). */
+  bucketPrefix?: string;
 }
 
 export class StorageConstruct extends Construct {
@@ -38,7 +42,7 @@ export class StorageConstruct extends Construct {
     this.bucket = new s3.CfnBucket(this, 'DataBucket', {
       // namePrefix(hyperpod-<ACCOUNT_ID>)를 그대로 붙이면 'hyperpod'와 계정 ID가
       // 중복되어 리전명이 긴 리전(ap-northeast-1 등)에서 S3 63자 제한을 초과한다.
-      bucketName: cdk.Fn.join('-', ['hyperpod-data', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
+      bucketName: cdk.Fn.join('-', [props.bucketPrefix ?? 'hyperpod-data', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
       versioningConfiguration: { status: 'Enabled' },
       lifecycleConfiguration: {
         rules: [{ id: 'TransitionToIA', status: 'Enabled', transitions: [{ storageClass: 'INTELLIGENT_TIERING', transitionInDays: 30 }] }],
@@ -46,6 +50,7 @@ export class StorageConstruct extends Construct {
       tags: [{ key: 'Name', value: `${p}-Data-Bucket` }],
     });
 
+    const vpcCidr = props.vpcCidr ?? '10.0.0.0/16';
     if (props.importedFsxId) {
       // 공유 FSx 재사용: 파일시스템/SG를 만들지 않고 식별자만 노출한다.
       this.fileSystemId = props.importedFsxId;
@@ -56,8 +61,8 @@ export class StorageConstruct extends Construct {
         groupDescription: 'FSx for Lustre security group',
         vpcId: props.vpcId,
         securityGroupIngress: [
-          { ipProtocol: 'tcp', fromPort: 988, toPort: 988, cidrIp: '10.0.0.0/16', description: 'Lustre' },
-          { ipProtocol: 'tcp', fromPort: 1021, toPort: 1023, cidrIp: '10.0.0.0/16', description: 'Lustre' },
+          { ipProtocol: 'tcp', fromPort: 988, toPort: 988, cidrIp: vpcCidr, description: 'Lustre' },
+          { ipProtocol: 'tcp', fromPort: 1021, toPort: 1023, cidrIp: vpcCidr, description: 'Lustre' },
         ],
         securityGroupEgress: [{ ipProtocol: '-1', cidrIp: '0.0.0.0/0' }],
         tags: [{ key: 'Name', value: `${p}-FSx-SG` }],

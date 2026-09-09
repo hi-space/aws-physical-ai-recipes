@@ -1,7 +1,26 @@
 #!/usr/bin/env node
+import { execSync } from 'child_process';
 import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
+import { HyperPodEksStack } from '../lib/hyperpod-eks-stack';
 import { parseDeploymentProfile } from '../lib/config/deployment-profile';
+
+/**
+ * 배포자의 IAM principal ARN. EKS 클러스터 admin 액세스 엔트리에 자동으로 넣어 배포 직후
+ * 같은 자격증명으로 kubectl 을 쓸 수 있게 한다. assumed-role 세션(code-server 인스턴스 롤 등)은
+ * 롤 ARN 으로 정규화한다 — 액세스 엔트리는 세션이 아니라 롤을 principal 로 받는다.
+ */
+function resolveCallerPrincipalArn(): string | undefined {
+  try {
+    const arn = execSync('aws sts get-caller-identity --query Arn --output text', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+    const m = arn.match(/^arn:aws:sts::(\d{12}):assumed-role\/([^/]+)\//);
+    return m ? `arn:aws:iam::${m[1]}:role/${m[2]}` : arn || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const app = new cdk.App();
 
@@ -34,7 +53,13 @@ const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 // 기존 VPC 합류 시 isaaclab VPC는 tag:UserId=<ACCOUNT_ID> 로 찾는다.
 const importedFsxId = app.node.tryGetContext('fsxFileSystemId') ?? '';
 const importedFsxMountName = app.node.tryGetContext('fsxMountName') ?? '';
+// 오케스트레이터. slurm(기본) = HyperPod-<ACCOUNT_ID> Slurm 스택(모듈 8–10),
+// eks = HyperPodEks-<ACCOUNT_ID> EKS 스택(모듈 8B/9C: observability, task governance). 두 스택은 공존한다.
+const orchestrator = (app.node.tryGetContext('orchestrator') ?? 'slurm') as 'slurm' | 'eks';
 
+if (orchestrator !== 'slurm' && orchestrator !== 'eks') {
+  throw new Error(`orchestrator는 'slurm' 또는 'eks' 여야 합니다: '${orchestrator}'`);
+}
 if (gpuGroups !== 'core' && gpuGroups !== 'extended') {
   throw new Error(`gpuGroups는 'core' 또는 'extended' 여야 합니다: '${gpuGroups}'`);
 }
@@ -64,6 +89,48 @@ const env = {
 };
 
 const accountSuffix = accountId ? `-${accountId}` : '';
+
+if (orchestrator === 'eks') {
+  // EKS 경로는 personal 프로필 전용: Workshop Studio 이벤트 계정의 허용 서비스 목록에 EKS/AMP/AMG 가 없다.
+  if (profile !== 'personal') {
+    throw new Error(`orchestrator=eks 는 profile=personal 에서만 배포할 수 있습니다 (지정된 profile: '${profile}').`);
+  }
+  const eksVersion = String(app.node.tryGetContext('eksVersion') ?? '1.33');
+  const systemNodeCount = parseInt(app.node.tryGetContext('systemNodeCount') ?? '1', 10);
+  const enableObservability = (app.node.tryGetContext('enableObservability') ?? 'true') === 'true';
+  const enableTaskGovernance = (app.node.tryGetContext('enableTaskGovernance') ?? 'true') === 'true';
+  const deepHealthChecks = (app.node.tryGetContext('deepHealthChecks') ?? 'false') === 'true';
+  const extraAdmins = String(app.node.tryGetContext('eksAdminArns') ?? '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  const caller = resolveCallerPrincipalArn();
+  const eksAdminArns = Array.from(new Set([...(caller ? [caller] : []), ...extraAdmins]));
+  if (eksAdminArns.length === 0) {
+    throw new Error('EKS admin principal 을 찾지 못했습니다. AWS 자격증명을 확인하거나 -c eksAdminArns=<role-arn> 을 지정하세요.');
+  }
+  if (!Number.isInteger(systemNodeCount) || systemNodeCount < 1 || systemNodeCount > 2) {
+    throw new Error(`systemNodeCount는 1 또는 2 여야 합니다 (애드온 설치에 노드 1대 이상 필요): '${systemNodeCount}'`);
+  }
+  if (!/^1\.(3[0-5])$/.test(eksVersion)) {
+    throw new Error(`eksVersion은 HyperPod 지원 범위 1.30–1.35 여야 합니다: '${eksVersion}'`);
+  }
+
+  new HyperPodEksStack(app, `HyperPodEks${accountSuffix}`, {
+    env,
+    accountId,
+    vpcCidr,
+    eksVersion,
+    eksAdminArns,
+    gpuMaxCountPerType,
+    gpuUseSpot,
+    gpuGroups,
+    gpuCount,
+    systemNodeCount,
+    fsxCapacityGiB,
+    enableObservability,
+    enableTaskGovernance,
+    deepHealthChecks,
+  });
+} else {
 const stackName = `HyperPod${accountSuffix}`;
 
 new HyperPodStack(app, stackName, {
@@ -83,3 +150,4 @@ new HyperPodStack(app, stackName, {
   importedFsxId: importedFsxId || undefined,
   importedFsxMountName: importedFsxMountName || undefined,
 });
+}
