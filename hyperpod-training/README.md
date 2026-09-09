@@ -166,6 +166,108 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 | `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상 |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
 
+## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 8B/9C)
+
+같은 CDK 앱에 `-c orchestrator=eks`를 주면 Slurm 스택과 별개로 **EKS 오케스트레이션 HyperPod** 스택
+`HyperPodEks-<ACCOUNT_ID>`(클러스터 `hyperpod-eks-<ACCOUNT_ID>`)를 배포한다. Slurm 경로에서 소개만 하고
+넘어간 두 운영 축을 실제로 쓴다.
+
+- **Observability** — EKS 애드온 `amazon-sagemaker-hyperpod-observability` + Amazon Managed Service for
+  Prometheus(AMP) + Amazon Managed Grafana(AMG). CDK가 워크스페이스 두 개와 애드온을 만들어 GPU·노드·태스크
+  대시보드가 바로 보인다.
+- **Task governance** — EKS 애드온 `amazon-sagemaker-hyperpod-taskgovernance`(Kueue). cluster policy(우선순위
+  클래스)와 팀별 compute quota를 CLI로 만들면 팀 네임스페이스·LocalQueue가 자동 생성되고, Job은 큐를 거쳐
+  할당량·우선순위에 따라 실행·대기·선점된다.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ EKS 컨트롤 플레인 (hyperpod-eks-<ACCOUNT_ID>, K8s 1.33)          │
+│   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin, │
+│   Kubeflow training/MPI operator                                 │
+│   애드온: pod-identity-agent, aws-fsx-csi-driver,                  │
+│           hyperpod-observability, hyperpod-taskgovernance(Kueue)  │
+├──────────────────────────────────────────────────────────────┤
+│ HyperPod 인스턴스 그룹 (NodeProvisioningMode: Continuous)        │
+│  ├─ cpu-c5-4x  (ml.c5.4xlarge) ×1 상시 — 애드온 파드 + MuJoCo CPU │
+│  └─ gpu-g5-8x  (ml.g5.8xlarge) ×0 — Isaac Lab RL (scale-cluster.sh) │
+├──────────────────────────────────────────────────────────────┤
+│ FSx for Lustre (/fsx, CSI 정적 PV) ↔ S3 hyperpod-eks-data-…      │
+│ AMP 워크스페이스 → AMG 워크스페이스 (IAM Identity Center 로그인)   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Workshop Studio 이벤트 계정의 허용 서비스 목록에는 EKS·AMP·AMG가 없으므로 이 경로는 `profile=personal`
+전용이다(`-c profile=workshop-studio`와 함께 지정하면 synth 단계에서 거부).
+
+### 배포
+
+```bash
+cd hyperpod-training/infra
+npm install
+npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never   # ~35분
+```
+
+| 파라미터 | 기본값 | 설명 |
+|---------|--------|------|
+| `orchestrator` | `slurm` | `eks`로 지정 |
+| `eksVersion` | `1.33` | Kubernetes 버전 (HyperPod 지원 1.30–1.35) |
+| `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
+| `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
+| `enableObservability` | true | AMP + AMG + observability 애드온 |
+| `enableTaskGovernance` | true | task governance 애드온 |
+| `deepHealthChecks` | false | GPU 그룹 `OnStartDeepHealthChecks`(InstanceStress, InstanceConnectivity). 켜면 노드 기동이 길어진다 |
+| `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Slurm과 동일 | |
+
+주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `GrafanaUrl`, `GrafanaWorkspaceId`, `AmpWorkspaceId`,
+`S3BucketName`, `FsxFileSystemId`/`FsxDnsName`/`FsxMountName`.
+
+### 배포 후
+
+```bash
+cd hyperpod-training
+./scripts/eks/kubeconfig.sh                       # kubectl 컨텍스트 hyperpod-eks + 노드/애드온 확인
+./scripts/eks/grafana-user.sh <IdC-username>      # 내 IAM Identity Center 사용자에게 Grafana ADMIN 부여 → GrafanaUrl 로그인
+./scripts/eks/create-governance.sh                # cluster policy + team-a(g5.8xlarge 1) / team-b(c5.4xlarge 1) compute quota
+./scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-$(aws sts get-caller-identity --query Account --output text)
+```
+
+### Job 제출 (k8s-templates)
+
+```bash
+cd hyperpod-training/k8s-templates
+./render.sh fsx-pvc.yaml --apply                                   # team-a 네임스페이스에 /fsx PV+PVC
+./render.sh setup/workshop-setup-job.yaml --apply                  # 최초 1회: 레시피·태스크 패키지를 /fsx 에
+MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU, Kueue 큐 경유)
+kubectl get workloads,jobs,pods -n hyperpod-ns-team-a
+kubectl logs -n hyperpod-ns-team-a -l app=isaaclab-rl -f
+
+# GPU 쿼터가 없는 계정: team-b 의 CPU 할당량으로 MuJoCo
+NAMESPACE=hyperpod-ns-team-b ./render.sh fsx-pvc.yaml --apply
+NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-setup-job.yaml --apply
+NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-train-job.yaml --apply
+```
+
+| 파일 | 역할 |
+|---|---|
+| `k8s-templates/render.sh` | `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` 등 치환 + `--apply` |
+| `k8s-templates/fsx-pvc.yaml` | 팀 네임스페이스용 FSx PV+PVC (정적 PV는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍) |
+| `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm 모듈 9 §9.3 대응) |
+| `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue 라벨 (finetune_isaaclab.sbatch 대응) |
+| `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응) |
+| `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
+| `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana 사용자 · 정책 생성/삭제 |
+| `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle (진단 로그만; kubelet/plugin은 HyperPod·Helm이 처리) |
+| `eks/helm/HyperPodHelmChart` | vendored HyperPod Helm 의존성 (`VENDOR.md`) |
+
+### 정리
+
+```bash
+./scripts/eks/delete-governance.sh                                   # compute quota → cluster policy (남아 있으면 클러스터 삭제가 막힌다)
+./scripts/scale-cluster.sh gpu-g5-8x 0 --cluster hyperpod-eks-<ACCOUNT_ID>
+aws s3 rm s3://hyperpod-eks-data-<ACCOUNT_ID>-<REGION> --recursive
+cd infra && npx cdk destroy -c orchestrator=eks -c region=${REGION} --force   # ~25분
+```
+
 ## Step 3: 클러스터 상태 확인
 
 ```bash

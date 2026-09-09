@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
 import { HyperPodEksStack } from '../lib/hyperpod-eks-stack';
+import { GRAFANA_MODES, GrafanaMode } from '../lib/constructs/observability';
 import { parseDeploymentProfile } from '../lib/config/deployment-profile';
 
 /**
@@ -100,6 +101,11 @@ if (orchestrator === 'eks') {
   const enableObservability = (app.node.tryGetContext('enableObservability') ?? 'true') === 'true';
   const enableTaskGovernance = (app.node.tryGetContext('enableTaskGovernance') ?? 'true') === 'true';
   const deepHealthChecks = (app.node.tryGetContext('deepHealthChecks') ?? 'false') === 'true';
+  // Grafana: self-hosted(기본, port-forward) | amg(IAM Identity Center 조직 인스턴스 필요) | none
+  const grafanaMode = (app.node.tryGetContext('grafanaMode') ?? 'self-hosted') as GrafanaMode;
+  if (!GRAFANA_MODES.includes(grafanaMode)) {
+    throw new Error(`grafanaMode는 ${GRAFANA_MODES.join(' | ')} 중 하나여야 합니다: '${grafanaMode}'`);
+  }
   const extraAdmins = String(app.node.tryGetContext('eksAdminArns') ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   const caller = resolveCallerPrincipalArn();
@@ -128,6 +134,7 @@ if (orchestrator === 'eks') {
     fsxCapacityGiB,
     enableObservability,
     enableTaskGovernance,
+    grafanaMode,
     deepHealthChecks,
   });
 } else {

@@ -4,7 +4,7 @@ import { Construct } from 'constructs';
 import { EksControlPlaneConstruct } from './constructs/eks-control-plane';
 import { HyperPodEksClusterConstruct } from './constructs/hyperpod-eks-cluster';
 import { FsxCsiConstruct } from './constructs/fsx-csi';
-import { ObservabilityConstruct } from './constructs/observability';
+import { GrafanaMode, ObservabilityConstruct } from './constructs/observability';
 import { StorageConstruct } from './constructs/storage';
 import {
   buildGpuGroups,
@@ -34,6 +34,8 @@ export interface HyperPodEksStackProps extends cdk.StackProps {
   fsxCapacityGiB: number;
   enableObservability: boolean;
   enableTaskGovernance: boolean;
+  /** self-hosted(기본) | amg | none — constructs/observability.ts GrafanaMode 참고. */
+  grafanaMode: GrafanaMode;
   deepHealthChecks: boolean;
 }
 
@@ -120,15 +122,22 @@ export class HyperPodEksStack extends cdk.Stack {
       podIdentityAgent,
       enableObservability: props.enableObservability,
       enableTaskGovernance: props.enableTaskGovernance,
+      grafanaMode: props.grafanaMode,
     });
 
     new cdk.CfnOutput(this, 'EksClusterName', { value: controlPlane.cluster.clusterName, description: 'EKS cluster name' });
     new cdk.CfnOutput(this, 'KubeconfigCommand', { value: controlPlane.kubeconfigCommand, description: 'Configure kubectl for the HyperPod EKS cluster' });
-    if (observability.ampWorkspace && observability.grafanaWorkspace && observability.grafanaUrl) {
+    if (observability.ampWorkspace) {
       new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: observability.ampWorkspace.attrWorkspaceId, description: 'Amazon Managed Service for Prometheus workspace ID' });
       new cdk.CfnOutput(this, 'AmpEndpoint', { value: observability.ampWorkspace.attrPrometheusEndpoint, description: 'AMP query/remote-write endpoint' });
+    }
+    new cdk.CfnOutput(this, 'GrafanaMode', { value: props.grafanaMode, description: 'self-hosted | amg | none' });
+    if (observability.grafanaWorkspace && observability.grafanaUrl) {
       new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: observability.grafanaWorkspace.attrId, description: 'Amazon Managed Grafana workspace ID' });
       new cdk.CfnOutput(this, 'GrafanaUrl', { value: observability.grafanaUrl, description: 'Grafana URL (sign in with an IAM Identity Center user assigned via scripts/eks/grafana-user.sh)' });
+    }
+    if (observability.grafanaAccessCommand) {
+      new cdk.CfnOutput(this, 'GrafanaAccess', { value: observability.grafanaAccessCommand, description: 'In-cluster Grafana: port-forward and admin password' });
     }
     new cdk.CfnOutput(this, 'ClusterName', { value: hyperpod.clusterName, description: 'HyperPod cluster name (EKS orchestrated)' });
     new cdk.CfnOutput(this, 'ClusterArn', { value: hyperpod.clusterArn, description: 'HyperPod cluster ARN (task governance policies need it)' });
