@@ -110,14 +110,7 @@ export class HyperPodEksStack extends cdk.Stack {
     });
 
     // 4. FSx CSI + 정적 PV
-    new FsxCsiConstruct(this, 'FsxCsi', {
-      eksCluster: controlPlane.cluster,
-      podIdentityAgent,
-      fsxFileSystemId: storage.fileSystemId,
-      fsxDnsName: storage.fsxDnsName,
-      fsxMountName: storage.fsxMountName,
-      capacityGiB: props.fsxCapacityGiB,
-    });
+    new FsxCsiConstruct(this, 'FsxCsi', { eksCluster: controlPlane.cluster, podIdentityAgent });
 
     // 5. Observability (AMP + AMG + 애드온) / Task governance 애드온
     const observability = new ObservabilityConstruct(this, 'Observability', {
@@ -141,6 +134,8 @@ export class HyperPodEksStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ClusterArn', { value: hyperpod.clusterArn, description: 'HyperPod cluster ARN (task governance policies need it)' });
     new cdk.CfnOutput(this, 'S3BucketName', { value: storage.bucket.ref, description: 'Data S3 bucket (FSx DRA: datasets/, checkpoints/, enroot/)' });
     new cdk.CfnOutput(this, 'FsxFileSystemId', { value: storage.fileSystemId, description: 'FSx for Lustre file system ID' });
+    new cdk.CfnOutput(this, 'FsxDnsName', { value: storage.fsxDnsName, description: 'FSx for Lustre DNS name (PV volumeAttributes.dnsname)' });
+    new cdk.CfnOutput(this, 'FsxMountName', { value: storage.fsxMountName, description: 'FSx for Lustre mount name (PV volumeAttributes.mountname)' });
     new cdk.CfnOutput(this, 'VpcId', { value: controlPlane.vpc.vpcId, description: 'VPC ID' });
     new cdk.CfnOutput(this, 'LifecycleBucket', { value: hyperpod.lifecycleBucket.bucketName, description: 'Lifecycle scripts bucket' });
     new cdk.CfnOutput(this, 'Orchestrator', { value: 'eks', description: 'HyperPod orchestrator' });

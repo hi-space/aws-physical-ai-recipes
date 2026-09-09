@@ -1,0 +1,8 @@
+{
+  "PriorityClasses": [
+    { "Name": "training", "Weight": 100 },
+    { "Name": "inference", "Weight": 70 },
+    { "Name": "background", "Weight": 10 }
+  ],
+  "FairShare": "Enabled"
+}

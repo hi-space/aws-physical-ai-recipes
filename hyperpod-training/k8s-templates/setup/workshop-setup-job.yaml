@@ -1,0 +1,60 @@
+# 최초 1회: 워크숍 코드를 /fsx 에 준비한다 (Slurm 경로 모듈 9 §9.3 의 "head node 에서 clone" 에 해당).
+#   /fsx/scratch/aws-physical-ai-recipes        레시피 (train_isaaclab.py, train_mujoco.py, setup 스크립트)
+#   /fsx/scratch/isaaclab-workshop/src          Isaac Lab SO-101 태스크 패키지 (PYTHONPATH)
+#   /fsx/checkpoints/rl, /fsx/scratch/logs      체크포인트·로그 (checkpoints/ 는 S3 로 자동 export)
+# Isaac Lab 컨테이너 이미지는 enroot import 가 필요 없다 — kubelet 이 nvcr.io 에서 직접 pull 한다.
+# 렌더: ./render.sh setup/workshop-setup-job.yaml --apply
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: workshop-setup-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: workshop-setup
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.c5.4xlarge
+      containers:
+        - name: setup
+          image: public.ecr.aws/docker/library/python:3.11
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              REPO=/fsx/scratch/aws-physical-ai-recipes
+              mkdir -p /fsx/scratch /fsx/checkpoints/rl /fsx/scratch/logs
+              chmod 777 /fsx/scratch /fsx/checkpoints/rl /fsx/scratch/logs
+              if [ -d "$REPO/.git" ]; then
+                echo "[setup] recipes already present — pulling ${RECIPES_REF}"
+                git -C "$REPO" fetch --depth 1 origin "${RECIPES_REF}" && git -C "$REPO" reset -q --hard FETCH_HEAD
+              else
+                echo "[setup] cloning recipes (${RECIPES_REF})"
+                git clone --depth 1 -b "${RECIPES_REF}" https://github.com/hi-space/aws-physical-ai-recipes.git "$REPO"
+              fi
+              mkdir -p /fsx/scratch/isaaclab-workshop
+              rm -rf /fsx/scratch/isaaclab-workshop/src
+              cp -r "$REPO/hyperpod-training/isaac-lab-workshop/src" /fsx/scratch/isaaclab-workshop/src
+              echo "[setup] layout:"
+              ls "$REPO/hyperpod-training" /fsx/scratch/isaaclab-workshop/src
+              df -h /fsx
+              echo "[setup] done"
+          env:
+            - name: RECIPES_REF
+              value: "${RECIPES_REF}"
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc

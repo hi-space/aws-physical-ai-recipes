@@ -61,7 +61,7 @@ export class EksControlPlaneConstruct extends Construct {
     this.clusterSecurityGroup = new ec2.SecurityGroup(this, 'ClusterSG', {
       vpc: this.vpc,
       securityGroupName: `${p}-Cluster-SG`,
-      description: 'HyperPod EKS: control plane <-> HyperPod nodes, inter-node (NCCL/EFA)',
+      description: 'HyperPod EKS: control plane to HyperPod nodes and inter-node (NCCL/EFA)',
       allowAllOutbound: true,
     });
     this.clusterSecurityGroup.addIngressRule(

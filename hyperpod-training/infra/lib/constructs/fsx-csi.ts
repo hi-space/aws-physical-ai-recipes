@@ -6,22 +6,17 @@ export interface FsxCsiProps {
   eksCluster: eks.Cluster;
   /** Pod Identity Agent 애드온 — CSI 컨트롤러 SA 의 pod identity 연동이 이에 의존한다. */
   podIdentityAgent: eks.CfnAddon;
-  fsxFileSystemId: string;
-  fsxDnsName: string;
-  fsxMountName: string;
-  capacityGiB: number;
 }
 
-/** 파드에서 참조할 StorageClass / PersistentVolume 이름. k8s-templates/fsx-pvc.yaml 과 일치. */
+/** 파드에서 참조할 StorageClass 이름. k8s-templates/fsx-pvc.yaml 과 일치. */
 export const FSX_STORAGE_CLASS = 'fsx-sc';
-export const FSX_PV_NAME = 'fsx-pv';
 
 /**
- * FSx for Lustre CSI 드라이버(EKS 애드온) + 정적 프로비저닝 PV.
+ * FSx for Lustre CSI 드라이버(EKS 애드온) + StorageClass.
  *
  * Slurm 경로의 lifecycle 스크립트가 /fsx 를 노드에 마운트하는 것과 달리, EKS 에서는 CSI 드라이버가
- * PVC 를 요청한 파드에만 Lustre 를 마운트한다. PV 는 클러스터 범위라 여기서 한 번 만들고, PVC 는
- * 네임스페이스마다(팀마다) 참가자가 만든다 (k8s-templates/fsx-pvc.yaml).
+ * PVC 를 요청한 파드에만 Lustre 를 마운트한다. 정적 PV 는 PVC 하나에만 바인딩되므로 팀 네임스페이스마다
+ * PV+PVC 한 쌍을 만든다 (k8s-templates/fsx-pvc.yaml — render.sh 가 FSx ID/DNS/mount name 을 채운다).
  */
 export class FsxCsiConstruct extends Construct {
   constructor(scope: Construct, id: string, props: FsxCsiProps) {
@@ -49,28 +44,6 @@ export class FsxCsiConstruct extends Construct {
       reclaimPolicy: 'Retain',
       volumeBindingMode: 'Immediate',
     });
-    const pv = props.eksCluster.addManifest('FsxPersistentVolume', {
-      apiVersion: 'v1',
-      kind: 'PersistentVolume',
-      metadata: { name: FSX_PV_NAME },
-      spec: {
-        capacity: { storage: `${props.capacityGiB}Gi` },
-        volumeMode: 'Filesystem',
-        accessModes: ['ReadWriteMany'],
-        persistentVolumeReclaimPolicy: 'Retain',
-        storageClassName: FSX_STORAGE_CLASS,
-        mountOptions: ['flock'],
-        csi: {
-          driver: 'fsx.csi.aws.com',
-          volumeHandle: props.fsxFileSystemId,
-          volumeAttributes: {
-            dnsname: props.fsxDnsName,
-            mountname: props.fsxMountName,
-          },
-        },
-      },
-    });
-    pv.node.addDependency(sc);
-    pv.node.addDependency(addon);
+    sc.node.addDependency(addon);
   }
 }

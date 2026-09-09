@@ -1,0 +1,7 @@
+{
+  "ComputeQuotaResources": [
+    { "InstanceType": "ml.c5.4xlarge", "Count": 1 }
+  ],
+  "ResourceSharingConfig": { "Strategy": "LendAndBorrow", "BorrowLimit": 100 },
+  "PreemptTeamTasks": "LowerPriority"
+}

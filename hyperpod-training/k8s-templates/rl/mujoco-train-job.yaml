@@ -1,0 +1,60 @@
+# MuJoCo(CPU) RL 학습 Job — Slurm 경로의 slurm-templates/rl/train_mujoco.sbatch 에 해당 (모듈 9C 대안 경로).
+# GPU 쿼터가 없어도 상시 시스템 노드(ml.c5.4xlarge, 16 vCPU)에서 SO-101 Reach 를 PPO 로 학습한다.
+# 애드온 파드가 같은 노드에 있으므로 vCPU 12 만 요청한다 (train_mujoco.py 는 요청량과 무관하게 nproc 만큼
+# 환경 프로세스를 띄우므로 --num_envs 12 로 맞춘다).
+# 렌더: NAMESPACE=hyperpod-ns-team-b TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mujoco-rl-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  labels:
+    app: mujoco-rl
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: mujoco-rl
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.c5.4xlarge
+      containers:
+        - name: train
+          image: public.ecr.aws/docker/library/python:3.11
+          imagePullPolicy: IfNotPresent
+          command: ["/fsx/envs/mujoco/bin/python"]
+          args:
+            - /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/train_mujoco.py
+            - --task
+            - "${TASK}"
+            - --num_envs
+            - "12"
+            - --total_steps
+            - "${TOTAL_STEPS}"
+            - --log_dir
+            - /fsx/checkpoints/rl
+          env:
+            - name: MUJOCO_MENAGERIE_DIR
+              value: /fsx/scratch/mujoco_menagerie
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: OMP_NUM_THREADS
+              value: "1"
+          resources:
+            requests:
+              cpu: "12"
+              memory: 16Gi
+            limits:
+              cpu: "14"
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc

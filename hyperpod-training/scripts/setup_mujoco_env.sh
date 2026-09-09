@@ -24,6 +24,10 @@
 
 set -euo pipefail
 
+# Slurm 노드에서는 ubuntu 사용자가 sudo 로 root 소유 /fsx 경로를 만들지만, EKS Job 컨테이너(root, sudo 없음)에서도
+# 같은 스크립트를 쓰므로 sudo 가 없으면 그냥 실행한다.
+SUDO="$(command -v sudo || true)"
+
 VENV_DIR="${VENV_DIR:-/fsx/envs/mujoco}"
 RECIPES_DIR="${RECIPES_DIR:-/fsx/scratch/aws-physical-ai-recipes}"
 WORKSHOP_PKG="${RECIPES_DIR}/hyperpod-training/mujoco-workshop"
@@ -53,7 +57,7 @@ if [ ! -d "${WORKSHOP_PKG}" ]; then
 fi
 if ! python3 -c "import venv, ensurepip" 2>/dev/null; then
     echo "python3-venv missing, installing (sudo apt-get)..."
-    sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
+    ${SUDO} apt-get update -qq && ${SUDO} apt-get install -y -qq python3-venv
 fi
 command -v git >/dev/null || { echo "ERROR: git not found"; exit 1; }
 echo "Prerequisites OK ($(python3 --version), $(nproc) CPUs)"
@@ -61,8 +65,8 @@ echo "Prerequisites OK ($(python3 --version), $(nproc) CPUs)"
 # Step 2: directories
 echo ""
 echo "[2/5] Creating directories..."
-sudo mkdir -p /fsx/envs /fsx/checkpoints/rl /fsx/scratch/logs
-sudo chmod 777 /fsx/envs /fsx/checkpoints/rl /fsx/scratch/logs
+${SUDO} mkdir -p /fsx/envs /fsx/checkpoints/rl /fsx/scratch/logs
+${SUDO} chmod 777 /fsx/envs /fsx/checkpoints/rl /fsx/scratch/logs
 echo "Directories ready."
 
 # Step 3: SO-101 MJCF from mujoco_menagerie (sparse checkout — the full repo is ~1 GB of meshes)
