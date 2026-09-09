@@ -315,8 +315,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "avg by (hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ],
       "fieldConfig": {
@@ -350,8 +350,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg by (Hostname, gpu) (DCGM_FI_DEV_FB_USED)",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "avg by (hostname, gpu) (DCGM_FI_DEV_FB_USED)",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ],
       "fieldConfig": {
