@@ -9,7 +9,7 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 | Category | Recipe | 설명 | 주요 AWS 서비스 | 상태 |
 |----------|--------|------|-----------------|------|
 | End-to-End Workshop | [e2e-workshop](./e2e-workshop/) | Isaac Lab 시뮬레이션 + GR00T 파인튜닝 + 추론 + 모니터링 통합 워크숍 | EC2 (GPU), CDK, Batch, SageMaker, EFS | Available |
-| Distributed Training | [hyperpod-training](./hyperpod-training/) | SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라 (SLURM, FSx, MLflow) | SageMaker HyperPod, FSx for Lustre, S3 | Available |
+| Distributed Training | [hyperpod-training](./hyperpod-training/) | SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라 — Slurm 경로(FSx, MLflow) 또는 EKS 경로(observability 애드온 + task governance) | SageMaker HyperPod, EKS, FSx for Lustre, S3, AMP | Available |
 | Orchestration | [osmo](./osmo/) | NVIDIA OSMO on EKS — CDK 기반 초기 레시피 | EKS, RDS, ElastiCache, S3 | Available |
 | Orchestration | [osmov2](./osmov2/) | NVIDIA OSMO on EKS 레퍼런스 아키텍처 — Terraform + Karpenter GPU, 버전 pin, 검증된 워크플로 모음 | EKS, RDS, ElastiCache, S3, ECR, KMS, Cognito, AMP/AMG | Available |
 | Tools | [tools](./tools/) | EC2 개발 환경 설정 (SSH, Bedrock, Claude Code, 플러그인) | EC2, CloudFront, CloudFormation | Available |
@@ -31,9 +31,11 @@ aws-physical-ai-recipes/
 │       └── groot-sagemaker/           #     GR00T-N1.6-3B SageMaker 파인튜닝 파이프라인
 │
 ├── hyperpod-training/                 # SageMaker HyperPod 분산 학습 인프라
-│   ├── infra/                         #   CDK 스택 (Networking, Storage, HyperPod, MLflow)
-│   ├── lifecycle-scripts/             #   클러스터 lifecycle (FSx, SLURM, SSH, DCV)
+│   ├── infra/                         #   CDK 스택 (Slurm: HyperPod-<acct> / EKS: HyperPodEks-<acct>, -c orchestrator=eks)
+│   ├── lifecycle-scripts/             #   클러스터 lifecycle (FSx, SLURM, SSH, DCV / EKS: on_create_eks.sh)
 │   ├── slurm-templates/               #   SLURM job 템플릿 (RL, VLA, debug)
+│   ├── k8s-templates/                 #   EKS Job 템플릿 (Isaac Lab GPU, MuJoCo CPU, FSx PVC, task governance 정책)
+│   ├── eks/                           #   vendored HyperPodHelmChart, Grafana 대시보드
 │   ├── examples/                      #   VLA/RL/MLflow 예시 코드
 │   ├── scripts/                       #   환경 셋업 스크립트
 │   └── container/                     #   학습 컨테이너 정의

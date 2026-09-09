@@ -15,6 +15,7 @@
 - **컨테이너 런타임**: Enroot + Pyxis로 NVIDIA 컨테이너 최적화
 - **오토스케일링**: 미사용 리소스 자동 축소, 비용 최적화
 - **멀티유저 지원**: CDK context로 사용자별 격리된 VPC 생성 가능
+- **오케스트레이터 선택**: Slurm(기본) 또는 EKS(`-c orchestrator=eks`, 9장) — EKS 경로는 observability 애드온과 task governance(Kueue)를 제공
 
 ## 2. 클러스터 구성
 
@@ -702,3 +703,40 @@ sbatch job.sbatch
 - [Pyxis Container Integration](https://github.com/NVIDIA/pyxis)
 - [AWS VPC 아키텍처](https://docs.aws.amazon.com/vpc/latest/userguide/)
 
+
+
+## 9. EKS 오케스트레이션 경로 (`-c orchestrator=eks`)
+
+Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOUNT_ID>`. 1–8장의 HyperPod 개념(인스턴스 그룹, 헬스체크, FSx↔S3 동기화)은 같고 스케줄러 층이 Kubernetes로 바뀐다.
+
+```
+┌ VPC (2 AZ, 10.0.0.0/16) ─────────────────────────────────────────────────────┐
+│  Public ×2 (NAT 1)         Private ×2 (/20)                                    │
+│                            ┌ EKS 컨트롤 플레인 (1.34, API auth mode) ──────┐  │
+│                            │ 액세스 엔트리: 배포자(admin), 실행 롤(HYPERPOD_LINUX)│  │
+│                            │ Helm: HyperPodHelmChart (HMA, device plugins,   │  │
+│                            │       training/MPI operator, deep health check)  │  │
+│                            │ 애드온: pod-identity-agent, aws-fsx-csi-driver, │  │
+│                            │   hyperpod-observability, hyperpod-taskgovernance│  │
+│                            └──────────────────────────────────────────────────┘  │
+│                            HyperPod 클러스터 hyperpod-eks-<acct> (Continuous)   │
+│                              cpu-c5-4x ×1 (상시: 애드온·Grafana·MuJoCo)        │
+│                              gpu-g5-8x ×0 (Isaac Lab, scale-cluster.sh)        │
+│                            FSx for Lustre (AZ0) ── DRA ── S3 hyperpod-eks-data │
+└───────────────────────────────────────────────────────────────────────────────┘
+        │ remote-write (OTel collector, pod identity)         ▲ SigV4 query
+        ▼                                                     │
+   AMP 워크스페이스  ─────────────────────────────►  Grafana (in-cluster Helm, port-forward)
+                                                      또는 Amazon Managed Grafana (grafanaMode=amg)
+```
+
+| 구성 | 파일 | 비고 |
+|---|---|---|
+| VPC + EKS + 액세스 엔트리 | `infra/lib/constructs/eks-control-plane.ts` | 컨트롤 플레인 추가 SG = HyperPod VpcConfig SG (자기참조 all-traffic) |
+| HyperPod 클러스터 + 실행 롤 + Helm | `infra/lib/constructs/hyperpod-eks-cluster.ts` | 클러스터는 Helm 릴리스·액세스 엔트리에 의존. `NodeProvisioningMode: Continuous` |
+| FSx CSI + StorageClass | `infra/lib/constructs/fsx-csi.ts` | PV/PVC 는 네임스페이스마다 `k8s-templates/fsx-pvc.yaml` |
+| AMP / Grafana / 애드온 | `infra/lib/constructs/observability.ts` | 애드온은 HyperPod 클러스터(노드 1대) 이후 생성 |
+| 스토리지 | `infra/lib/constructs/storage.ts` (공용) | `bucketPrefix=hyperpod-eks-data`, `vpcCidr` |
+| Job 템플릿·정책 | `k8s-templates/` | Kueue 라벨은 Job 과 Pod template 양쪽 (admission policy) |
+
+제약: Kueue 0.19(task governance v1.6.0)는 `resource.k8s.io/v1` API 가 필요해 EKS 1.34 이상만 지원한다. Amazon Managed Grafana 는 IAM Identity Center 조직 인스턴스가 있어야 만들어진다.
