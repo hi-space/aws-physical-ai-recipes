@@ -21,6 +21,10 @@ const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
 // 이 값을 올려 재배포하고 끝나면 0 으로 되돌리는 방식으로 비용을 통제한다.
 // gpuCount 는 기본 학습 그룹(TRAIN_INSTANCE_PRESETS.default = ml.g5.8xlarge, gpu-g5-8x)에만 적용된다.
 const gpuCount = parseInt(app.node.tryGetContext('gpuCount') ?? '0', 10);
+// CPU 그룹(MuJoCo RL, 모듈 9B). cpuCount 는 기본 CPU 학습 그룹(cpu-c5-4x, ml.c5.4xlarge)에만 적용된다.
+// GPU cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정)이 RL 트랙을 끝내는 경로다.
+const cpuMaxCountPerType = parseInt(app.node.tryGetContext('cpuMaxCount') ?? '2', 10);
+const cpuCount = parseInt(app.node.tryGetContext('cpuCount') ?? '0', 10);
 const debugCount = parseInt(app.node.tryGetContext('debugCount') ?? '0', 10);
 const fsxCapacityGiB = parseInt(app.node.tryGetContext('fsxCapacityGiB') ?? '1200', 10);
 const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
@@ -36,6 +40,9 @@ if (gpuGroups !== 'core' && gpuGroups !== 'extended') {
 }
 if (!Number.isInteger(gpuCount) || gpuCount < 0 || gpuCount > gpuMaxCountPerType) {
   throw new Error(`gpuCount는 0 이상 gpuMaxCount(${gpuMaxCountPerType}) 이하의 정수여야 합니다: '${gpuCount}'`);
+}
+if (!Number.isInteger(cpuCount) || cpuCount < 0 || cpuCount > cpuMaxCountPerType) {
+  throw new Error(`cpuCount는 0 이상 cpuMaxCount(${cpuMaxCountPerType}) 이하의 정수여야 합니다: '${cpuCount}'`);
 }
 if (!Number.isInteger(debugCount) || debugCount < 0 || debugCount > 1) {
   throw new Error(`debugCount는 0 또는 1 이어야 합니다: '${debugCount}'`);
@@ -69,6 +76,8 @@ new HyperPodStack(app, stackName, {
   gpuGroups,
   profile,
   gpuCount,
+  cpuMaxCountPerType,
+  cpuCount,
   debugCount,
   fsxCapacityGiB,
   importedFsxId: importedFsxId || undefined,

@@ -13,9 +13,10 @@
 # 예시:
 #   ./scale-cluster.sh gpu-g5-8x 1 --wait    # 학습용 GPU 노드 1대 기동 (InService까지 대기)
 #   ./scale-cluster.sh gpu-g5-8x 0           # 학습 종료 후 0으로 축소 (비용 절감)
-#   ./scale-cluster.sh debug 1 --wait         # DCV 디버그 노드 기동 (모듈 9)
+#   ./scale-cluster.sh debug 1 --wait         # DCV 디버그 노드 기동 (모듈 10)
+#   ./scale-cluster.sh cpu-c5-4x 1 --wait     # MuJoCo RL 용 CPU 노드 1대 기동 (모듈 9B)
 #
-# 그룹 이름 (기본 core 프로필): gpu-g5-8x | debug
+# 그룹 이름 (기본 core 프로필): gpu-g5-8x | cpu-c5-4x | cpu-c5-9x | cpu-m5-4x | debug
 #   -c gpuGroups=extended 로 배포했다면 추가로: gpu-g6e-12x | gpu-g6e-24x | gpu-g6e-48x
 #            | gpu-g6-12x | gpu-g6-24x | gpu-g6-48x | gpu-p4d | gpu-p5
 #
@@ -23,7 +24,7 @@
 #   - 이 스크립트는 CloudFormation 밖에서 노드 수를 바꾸므로 CDK 스택과 드리프트가
 #     생긴다. 이후 `cdk deploy`를 다시 실행하면 노드 수가 context 기본값(0)으로
 #     돌아가며, `cdk destroy`에는 영향이 없다.
-#   - 노드 기동에는 GPU 용량에 따라 10~20분 걸릴 수 있다. --wait 로 InService까지
+#   - 노드 기동에는 GPU 노드 10~20분, CPU 노드 5~10분 걸린다. --wait 로 InService까지
 #     폴링한다.
 # =============================================================================
 set -euo pipefail
@@ -115,7 +116,7 @@ aws sagemaker update-cluster --region "$REGION" --cli-input-json "$REQUEST_JSON"
 echo "update-cluster 요청 접수 완료."
 
 if [[ "$WAIT" == true ]]; then
-  echo "클러스터가 InService가 될 때까지 대기 중... (GPU 노드 기동은 10~20분 소요)"
+  echo "클러스터가 InService가 될 때까지 대기 중... (GPU 노드 10~20분, CPU 노드 5~10분 소요)"
   SEEN_UPDATING=false
   while true; do
     DESC="$(aws sagemaker describe-cluster --cluster-name "$CLUSTER_NAME" \

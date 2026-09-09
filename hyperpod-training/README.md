@@ -11,6 +11,7 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 │  ├─ gpu-g5-8x (ml.g5.8xlarge) — RL 학습 (0에서, debug 와 같은 타입)    │
 │  │     -c gpuGroups=extended: g6e/g6/p4d/p5 그룹 추가    │
 │  │     (전부 노드 0에서 시작)                            │
+│  ├─ cpu-c5-4x / cpu-c5-9x / cpu-m5-4x — MuJoCo RL (CPU, 파티션 cpu, 0에서) │
 │  └─ debug  (ml.g5.8xlarge)    — 디버깅/시각화 (0에서)    │
 ├─────────────────────────────────────────────────────────┤
 │ Storage                                                  │
@@ -64,6 +65,8 @@ npx cdk deploy -c region=us-east-1 --require-approval never
 | `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-8x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
 | `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(us-east-1/us-west-2에서만). head 노드는 두 프로필 모두 `ml.m5.xlarge` — 실측한 WS 계정 cluster usage 쿼터가 m5.xlarge 10, g5.* 0이었다 |
 | `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-8x, ml.g5.8xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
+| `cpuMaxCount` | 2 | CPU 그룹(cpu-c5-4x / cpu-c5-9x / cpu-m5-4x) 각각의 최대 노드 수 |
+| `cpuCount` | 0 | 기본 CPU 학습 그룹(cpu-c5-4x, ml.c5.4xlarge — MuJoCo RL)에서 기동할 노드 수 |
 | `debugCount` | 0 | debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1) |
 | `gpuUseSpot` | false | GPU 그룹에 Spot 인스턴스 사용 |
 | `fsxCapacityGiB` | 1200 | FSx 스토리지 용량 (GiB) |
@@ -119,6 +122,9 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 
 # DCV 디버그 노드 (시각화 검증)
 ./scripts/scale-cluster.sh debug 1 --wait
+
+# MuJoCo RL 용 CPU 노드 (GPU 쿼터가 없는 계정, 워크숍 모듈 9B)
+./scripts/scale-cluster.sh cpu-c5-4x 1 --wait
 ```
 
 > 스크립트는 CloudFormation 밖에서 노드 수를 바꾸므로 CDK 스택과 드리프트가 생깁니다.
@@ -126,6 +132,38 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 > `cdk destroy`에는 영향이 없습니다. IaC로 일관되게 관리하고 싶다면
 > `-c gpuCount=1` 재배포 방식도 유효합니다(이때 기존 배포에 사용한 다른 context
 > 값들을 반드시 함께 지정).
+
+## MuJoCo (CPU) RL — GPU 노드 없이 학습·검증 (워크숍 모듈 9B)
+
+`ml.g5.*` cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정 등)을 위한 경로. CPU 그룹
+(`cpu-c5-4x`, 16 vCPU)에서 SO-101 Reach 태스크를 MuJoCo + Stable-Baselines3(PPO)로 학습하고,
+오프스크린 렌더링으로 mp4/gif를 만들어 검증한다. 관측·행동·보상은 Isaac Lab Reach와 동일하게 설계.
+
+```bash
+# [code-server] CPU 노드 기동 (5~10분)
+./scripts/scale-cluster.sh cpu-c5-4x 1 --wait
+
+# [head node] 최초 1회: /fsx/envs/mujoco venv + mujoco_menagerie(robotstudio_so101) + 태스크 패키지
+bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/setup_mujoco_env.sh
+
+# [head node] 학습 (cpu 파티션, 1M 스텝 ≈ 5분) → /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/
+sbatch slurm-templates/rl/train_mujoco.sbatch          # TASK / NUM_ENVS / TOTAL_STEPS / CHECKPOINT
+slurm-templates/rl/run_mujoco.sh --steps 3000000        # 래퍼
+
+# [head node] 평가 + 영상 (model_best.zip → videos/model_best.{mp4,gif}, S3 로 동기화)
+sbatch slurm-templates/rl/play_mujoco.sbatch           # CHECKPOINT / EPISODES / MUJOCO_GL
+
+# [code-server] 끝나면 0으로
+./scripts/scale-cluster.sh cpu-c5-4x 0
+```
+
+| 파일 | 역할 |
+|---|---|
+| `mujoco-workshop/` | `Workshop-SO101-Reach-MuJoCo-v0` Gymnasium 태스크 패키지 (`so101_reach.py`) |
+| `scripts/setup_mujoco_env.sh` | FSx venv 생성, menagerie 고정 커밋 sparse checkout, 패키지 설치, smoke test (head node에서 실행) |
+| `examples/rl/train_mujoco.py` | SB3 PPO + SubprocVecEnv(vCPU당 1 프로세스) + VecNormalize, model_best.zip 선택, TensorBoard `reward_terms/` |
+| `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif |
+| `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
 
 ## Step 3: 클러스터 상태 확인
 

@@ -7,11 +7,19 @@ export interface InstanceGroupConfig {
   maxCount: number;
   useSpot: boolean;
   slurmNodeType: 'Controller' | 'Compute';
+  /**
+   * 이 그룹 전용 Slurm 파티션 이름(SlurmConfig.PartitionNames, 그룹당 1개).
+   * HyperPod는 모든 Compute 노드를 범용 `dev` 파티션에 넣고, 여기 지정한 파티션에도
+   * 추가로 넣는다. GPU 그룹은 지정하지 않아 `dev`만 쓰고, CPU 그룹은 `cpu`를 받아
+   * MuJoCo job(`#SBATCH --partition=cpu`)이 유휴 GPU 노드로 배치되지 않게 한다.
+   */
+  partitionName?: string;
 }
 
 export interface ClusterDefaults {
   head: InstanceGroupConfig;
   gpu: InstanceGroupConfig[];
+  cpu: InstanceGroupConfig[];
   debug: InstanceGroupConfig;
 }
 
@@ -117,6 +125,45 @@ export function buildGpuGroups(
 }
 
 /**
+ * CPU 인스턴스 그룹 — MuJoCo RL(모듈 9B) 용.
+ *
+ * GPU cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정 포함)에서도 RL 트랙을 끝까지
+ * 진행할 수 있게 하는 그룹이다. MuJoCo 물리 + PPO(Stable-Baselines3)는 vCPU 하나에
+ * 환경 프로세스 하나를 얹는 방식으로 병렬화하므로 vCPU 수가 곧 학습 속도다.
+ * 세 타입 모두 Workshop Studio 이벤트 계정의 cluster 허용 목록에 있다.
+ * 모두 노드 0으로 생성되므로 정의만으로는 비용이 없다.
+ *
+ * | 인스턴스        | vCPU | RAM    | 시간당(us-west-2) | 용도                         |
+ * |----------------|------|--------|------------------|-----------------------------|
+ * | ml.c5.4xlarge  | 16   | 32 GB  | ~$0.82           | 기본 학습 그룹 (cpu-c5-4x)     |
+ * | ml.c5.9xlarge  | 36   | 72 GB  | ~$1.84           | 더 많은 병렬 환경 (cpu-c5-9x)  |
+ * | ml.m5.4xlarge  | 16   | 64 GB  | ~$0.92           | 메모리 여유 (cpu-m5-4x)        |
+ */
+export const CPU_INSTANCES: { type: string; shortName: string }[] = [
+  { type: 'ml.c5.4xlarge', shortName: 'c5-4x' },
+  { type: 'ml.c5.9xlarge', shortName: 'c5-9x' },
+  { type: 'ml.m5.4xlarge', shortName: 'm5-4x' },
+];
+
+/** `cpuCount` 가 적용되는 기본 CPU 학습 그룹의 인스턴스 타입. */
+export const CPU_TRAIN_INSTANCE_TYPE = 'ml.c5.4xlarge';
+
+/** CPU 그룹이 공유하는 Slurm 파티션 이름 (`#SBATCH --partition=cpu`). */
+export const CPU_PARTITION_NAME = 'cpu';
+
+export function buildCpuGroups(prefix: string, maxCountPerType: number): InstanceGroupConfig[] {
+  return CPU_INSTANCES.map(({ type, shortName }) => ({
+    name: `${prefix}-${shortName}`,
+    instanceType: type,
+    instanceCount: 0,
+    maxCount: maxCountPerType,
+    useSpot: false,
+    slurmNodeType: 'Compute' as const,
+    partitionName: CPU_PARTITION_NAME,
+  }));
+}
+
+/**
  * 프로필별 head(컨트롤러) 노드 타입. 두 프로필 모두 ml.m5.xlarge.
  *
  * 이전에는 Workshop Studio 지원 서비스 문서("cluster/ml.g5.2xlarge·8xlarge·12xlarge 2대 부여,
@@ -143,6 +190,7 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterDefaults = {
     slurmNodeType: 'Controller',
   },
   gpu: buildGpuGroups('gpu', 4, false),
+  cpu: buildCpuGroups('cpu', 2),
   debug: {
     name: 'debug',
     instanceType: 'ml.g5.8xlarge',

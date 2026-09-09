@@ -9,6 +9,8 @@ import {
   DEFAULT_CLUSTER_CONFIG,
   DEFAULT_AMI_UPDATE_SCHEDULE,
   buildGpuGroups,
+  buildCpuGroups,
+  CPU_TRAIN_INSTANCE_TYPE,
   GpuGroupProfile,
   HEAD_INSTANCE_BY_PROFILE,
   TRAIN_INSTANCE_PRESETS,
@@ -28,6 +30,10 @@ export interface HyperPodStackProps extends cdk.StackProps {
   profile: DeploymentProfile;
   /** 기본 학습 그룹(ml.g5.8xlarge, gpu-g5-8x)에서 기동할 노드 수. 0 이면 노드 비용이 없다. */
   gpuCount: number;
+  /** CPU 그룹 각각의 최대 노드 수(상한). */
+  cpuMaxCountPerType: number;
+  /** 기본 CPU 학습 그룹(ml.c5.4xlarge, cpu-c5-4x — MuJoCo RL)에서 기동할 노드 수. */
+  cpuCount: number;
   /** debug(DCV) 그룹에서 기동할 노드 수 (0 또는 1). */
   debugCount: number;
   fsxCapacityGiB: number;
@@ -58,6 +64,11 @@ export class HyperPodStack extends cdk.Stack {
       head: { ...DEFAULT_CLUSTER_CONFIG.head, instanceType: HEAD_INSTANCE_BY_PROFILE[props.profile] },
       gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot, props.gpuGroups).map((g) =>
         g.instanceType === trainInstanceType ? { ...g, instanceCount: props.gpuCount } : g,
+      ),
+      // CPU 그룹(MuJoCo RL, 모듈 9B). GPU cluster 쿼터가 없는 계정을 위한 경로라 프로필과 무관하게
+      // 항상 정의한다(노드 0 = 비용 0). `cpu` 파티션에 함께 들어간다.
+      cpu: buildCpuGroups('cpu', props.cpuMaxCountPerType).map((g) =>
+        g.instanceType === CPU_TRAIN_INSTANCE_TYPE ? { ...g, instanceCount: props.cpuCount } : g,
       ),
       debug: { ...DEFAULT_CLUSTER_CONFIG.debug, instanceCount: props.debugCount },
     };

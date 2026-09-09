@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mujoco-workshop"
+version = "0.1.0"
+description = "SO-101 Reach task in MuJoCo (CPU) for the Physical AI on AWS workshop — module 9B"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco>=3.1.3,<4",
+    "gymnasium>=1.0,<2",
+    "numpy>=1.24,<3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

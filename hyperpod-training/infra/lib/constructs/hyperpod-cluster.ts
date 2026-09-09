@@ -24,6 +24,8 @@ export interface HyperPodClusterProps {
   ssmEndpoints?: ec2.CfnVPCEndpoint[];
   head: InstanceGroupConfig;
   gpu: InstanceGroupConfig[];
+  /** CPU 그룹(MuJoCo RL). `cpu` 파티션 소속. */
+  cpu: InstanceGroupConfig[];
   debug: InstanceGroupConfig;
   /** AMI 보안 패치 cron. 비우면 패치가 수동 작업으로 남는다. */
   amiUpdateSchedule?: string;
@@ -170,8 +172,12 @@ export class HyperPodClusterConstruct extends Construct {
         OnCreate: 'on_create.sh',
       },
       ExecutionRole: this.executionRole.attrArn,
+      // PartitionNames: HyperPod는 모든 Compute 노드를 범용 `dev` 파티션에 넣고, 여기 지정한
+      // 파티션에도 추가한다. CPU 그룹만 `cpu`를 지정해 MuJoCo job(--partition=cpu)이 GPU 노드로
+      // 가지 않게 한다. Controller 에는 지정할 수 없다.
       SlurmConfig: {
         NodeType: config.slurmNodeType,
+        ...(config.partitionName ? { PartitionNames: [config.partitionName] } : {}),
       },
       // 보안 패치를 예약 실행으로 넘겨 수동 UpdateClusterSoftware 호출을 없앤다.
       // Slurm은 DeploymentConfig(배치 교체/자동 롤백)를 못 쓰므로 ScheduleExpression만 지정한다.
@@ -194,6 +200,7 @@ export class HyperPodClusterConstruct extends Construct {
         InstanceGroups: [
           buildInstanceGroup(props.head),
           ...props.gpu.map(buildInstanceGroup),
+          ...props.cpu.map(buildInstanceGroup),
           buildInstanceGroup(props.debug),
         ],
         VpcConfig: {
