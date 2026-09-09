@@ -215,7 +215,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
 | `enableObservability` | true | AMP + Grafana + observability 애드온 |
-| `grafanaMode` | `self-hosted` | `self-hosted` = 클러스터 안 Grafana(Helm, `kubectl port-forward`), `amg` = Amazon Managed Grafana(IAM Identity Center **조직** 인스턴스 필요 — 계정 인스턴스는 "SSO is not enabled" 로 실패), `none` |
+| `grafanaMode` | `self-hosted` | `self-hosted` = 클러스터 안 Grafana(Helm, `kubectl port-forward`, 서브패스 `/absproxy/3000/` = code-server absproxy 경로), `amg` = Amazon Managed Grafana(IAM Identity Center **조직** 인스턴스 필요 — 계정 인스턴스는 "SSO is not enabled" 로 실패), `none` |
 | `enableTaskGovernance` | true | task governance 애드온 |
 | `deepHealthChecks` | false | GPU 그룹 `OnStartDeepHealthChecks`(InstanceStress, InstanceConnectivity). 켜면 노드 기동이 길어진다 |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Slurm과 동일 | |
@@ -228,7 +228,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 ```bash
 cd hyperpod-training
 ./scripts/eks/kubeconfig.sh                       # kubectl 컨텍스트 hyperpod-eks + 노드/애드온 확인
-kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → http://localhost:3000 (admin / Secret grafana 의 admin-password)
+kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → https://<CodeServerUrl>/absproxy/3000/ 또는 http://localhost:3000/absproxy/3000/ (admin / Secret grafana 의 admin-password)
 kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
 # grafanaMode=amg 인 경우: ./scripts/eks/grafana-user.sh <IdC-username>  → Output GrafanaUrl 로 로그인
 ./scripts/eks/create-governance.sh                # cluster policy + team-a(g5.8xlarge 1) / team-b(c5.4xlarge 1) compute quota

@@ -157,7 +157,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "GPUs allocatable / requested",
+      "title": "GPUs allocatable / requested by running pods",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS}"
@@ -176,7 +176,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"})",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"} * on (namespace, pod) group_left() (kube_pod_status_phase{phase=~\"Running|Pending\"} == 1)) or vector(0)",
           "legendFormat": "requested"
         }
       ],
@@ -369,7 +369,7 @@
     {
       "id": 9,
       "type": "table",
-      "title": "Workload admission wait time (p50 / p95, seconds) by ClusterQueue",
+      "title": "Workload admission wait time (p50 / p95, seconds) by ClusterQueue, dashboard time range",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS}"
@@ -383,14 +383,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.5, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[$__range])))",
           "legendFormat": "p50",
           "format": "table",
           "instant": true
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.95, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[$__range])))",
           "legendFormat": "p95",
           "format": "table",
           "instant": true

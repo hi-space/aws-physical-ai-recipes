@@ -39,8 +39,9 @@ echo ""
 echo "== 노드 (HyperPod 인스턴스 그룹별) =="
 kubectl get nodes -L node.kubernetes.io/instance-type,sagemaker.amazonaws.com/instance-group-name,sagemaker.amazonaws.com/node-health-status
 echo ""
-echo "== HyperPod 시스템 파드 =="
-kubectl get pods -n aws-hyperpod -o wide 2>/dev/null || true
+echo "== 파드 수 (네임스페이스별; 모두 Running/Completed 이어야 정상) =="
+kubectl get pods -A --no-headers 2>/dev/null | awk '{ns[$1]++; if ($4!="Running" && $4!="Completed" && $4!="Succeeded") bad[$1]++} END {for (n in ns) printf "  %-28s %2d pods%s\n", n, ns[n], (bad[n]?"  (" bad[n] " not ready)":"")}' | sort
+echo "  (aws-hyperpod 의 health-monitoring-agent 는 GPU/Trainium 노드가 있을 때만 배치됨)"
 echo ""
 echo "== 애드온 =="
 aws eks list-addons --cluster-name "$CLUSTER_NAME" --region "$REGION" --query "addons" --output text | tr '\t' '\n'

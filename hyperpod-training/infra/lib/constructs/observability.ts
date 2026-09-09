@@ -22,6 +22,13 @@ export const GRAFANA_MODES: readonly GrafanaMode[] = ['self-hosted', 'amg', 'non
 /** Grafana Helm 차트 버전(https://grafana.github.io/helm-charts). Grafana 12.3. */
 export const GRAFANA_CHART_VERSION = '10.5.15';
 export const GRAFANA_NAMESPACE = 'grafana';
+// Grafana 는 서브패스 /absproxy/3000/ 에서 서비스한다. 워크숍 참가자는 code-server(브라우저) 터미널에서
+// `kubectl port-forward 3000:80` 을 띄운 뒤 `https://<CodeServerUrl>/absproxy/3000/` 으로 접속하는데,
+// code-server 의 /absproxy/<port>/ 는 경로를 그대로 전달하므로 Grafana 가 이 서브패스를 알아야 리다이렉트와
+// 정적 파일 경로가 맞는다(/proxy/<port>/ 는 경로를 잘라내 Grafana 가 "failed to load its application files").
+// serve_from_sub_path=true 이므로 로컬 port-forward 에서도 같은 경로 http://localhost:3000/absproxy/3000/ 로 연다.
+export const GRAFANA_PORT = 3000;
+export const GRAFANA_SUB_PATH = `/absproxy/${GRAFANA_PORT}/`;
 
 export interface ObservabilityProps {
   namePrefix: string;
@@ -177,6 +184,12 @@ export class ObservabilityConstruct extends Construct {
         // 애드온 파드와 함께 상시 시스템 노드(cpu-c5-4x)에 두고 GPU 노드에는 올리지 않는다.
         nodeSelector: { 'node.kubernetes.io/instance-type': 'ml.c5.4xlarge' },
         env: { GF_AUTH_SIGV4_AUTH_ENABLED: 'true' },
+        'grafana.ini': {
+          server: {
+            root_url: `%(protocol)s://%(domain)s${GRAFANA_SUB_PATH}`,
+            serve_from_sub_path: true,
+          },
+        },
         resources: { requests: { cpu: '250m', memory: '512Mi' }, limits: { memory: '1Gi' } },
         datasources: {
           'datasources.yaml': {
@@ -218,9 +231,10 @@ export class ObservabilityConstruct extends Construct {
     });
     chart.node.addDependency(association);
 
-    this.grafanaUrl = 'http://localhost:3000';
+    this.grafanaUrl = `http://localhost:${GRAFANA_PORT}${GRAFANA_SUB_PATH}`;
     this.grafanaAccessCommand =
-      `kubectl port-forward -n ${GRAFANA_NAMESPACE} svc/grafana 3000:80  # then http://localhost:3000, user admin, password: ` +
+      `kubectl port-forward -n ${GRAFANA_NAMESPACE} svc/grafana ${GRAFANA_PORT}:80  # then https://<CodeServerUrl>${GRAFANA_SUB_PATH} ` +
+      `(or ${this.grafanaUrl} locally), user admin, password: ` +
       `kubectl get secret -n ${GRAFANA_NAMESPACE} grafana -o jsonpath='{.data.admin-password}' | base64 -d`;
   }
 }

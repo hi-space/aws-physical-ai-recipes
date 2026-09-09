@@ -95,6 +95,17 @@ if ! which session-manager-plugin > /dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
+# 1.7. kubectl 설치
+#      모듈 8B/9C(HyperPod EKS 경로)에서 code-server 터미널로 EKS 클러스터에 접속할 때 필요.
+#      버전은 EKS 기본 버전(1.34)에 맞춘다(kubectl 은 ±1 마이너 버전 호환).
+# -----------------------------------------------------------------------------
+if ! which kubectl > /dev/null 2>&1; then
+  curl -fsSL "https://dl.k8s.io/release/v1.34.0/bin/linux/amd64/kubectl" -o /tmp/kubectl \
+    && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl && rm -f /tmp/kubectl
+  echo "kubectl 설치 완료: $(kubectl version --client 2>/dev/null | head -1 || true)"
+fi
+
+# -----------------------------------------------------------------------------
 # 2. 패키지 인덱스 갱신
 #    전체 upgrade는 하지 않는다 — DLAMI는 이미 최신에 가깝고, 전체 업그레이드는
 #    5~15분을 소모하는 데 비해 워크샵 수명(수 시간) 동안 얻는 것이 없다.

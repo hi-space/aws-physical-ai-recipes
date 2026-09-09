@@ -256,6 +256,32 @@ export class DcvInstanceConstruct extends Construct {
                 Resource: '*',
               },
               {
+                // 모듈 8B/9C (HyperPod EKS 경로): code-server에서 kubeconfig 등록(eks:DescribeCluster),
+                // kubeconfig.sh의 애드온 목록, 콘솔 principal 액세스 엔트리 추가, AMP/AMG 조회,
+                // grafana-user.sh(Identity Center 사용자 → AMG 권한).
+                Effect: 'Allow',
+                Action: [
+                  'eks:DescribeCluster',
+                  'eks:ListClusters',
+                  'eks:ListAddons',
+                  'eks:DescribeAddon',
+                  'eks:DescribeAddonVersions',
+                  'eks:ListAccessEntries',
+                  'eks:DescribeAccessEntry',
+                  'eks:CreateAccessEntry',
+                  'eks:AssociateAccessPolicy',
+                  'eks:ListAssociatedAccessPolicies',
+                  'aps:ListWorkspaces',
+                  'aps:DescribeWorkspace',
+                  'grafana:ListWorkspaces',
+                  'grafana:DescribeWorkspace',
+                  'grafana:UpdatePermissions',
+                  'identitystore:ListUsers',
+                  'identitystore:DescribeUser',
+                ],
+                Resource: '*',
+              },
+              {
                 // 모듈 10 §10.10: 잔여 리소스 감사(NAT GW/EIP/SG) + 수동 정리 폴백
                 Effect: 'Allow',
                 Action: [
