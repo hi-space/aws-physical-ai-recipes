@@ -182,7 +182,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ EKS 컨트롤 플레인 (hyperpod-eks-<ACCOUNT_ID>, K8s 1.33)          │
+│ EKS 컨트롤 플레인 (hyperpod-eks-<ACCOUNT_ID>, K8s 1.34)          │
 │   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin, │
 │   Kubeflow training/MPI operator                                 │
 │   애드온: pod-identity-agent, aws-fsx-csi-driver,                  │
@@ -211,7 +211,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
 | `orchestrator` | `slurm` | `eks`로 지정 |
-| `eksVersion` | `1.33` | Kubernetes 버전 (HyperPod 지원 1.30–1.35) |
+| `eksVersion` | `1.34` | Kubernetes 버전. task governance 애드온의 Kueue 0.19가 `resource.k8s.io/v1`(1.34+)을 요구한다 |
 | `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
 | `enableObservability` | true | AMP + Grafana + observability 애드온 |
