@@ -52,7 +52,7 @@ if [ ! -d "${WORKSHOP_PKG}" ]; then
     exit 1
 fi
 if ! python3 -c "import venv, ensurepip" 2>/dev/null; then
-    echo "python3-venv missing — installing (sudo apt-get)..."
+    echo "python3-venv missing, installing (sudo apt-get)..."
     sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
 fi
 command -v git >/dev/null || { echo "ERROR: git not found"; exit 1; }
@@ -70,7 +70,7 @@ echo ""
 echo "[3/5] Fetching SO-101 MJCF (mujoco_menagerie/${MODEL_SUBDIR})..."
 if [ -f "${MENAGERIE_DIR}/${MODEL_SUBDIR}/scene.xml" ] && \
    [ "$(git -C "${MENAGERIE_DIR}" rev-parse HEAD 2>/dev/null)" = "${MENAGERIE_COMMIT}" ]; then
-    echo "Already present at the pinned commit — skipping."
+    echo "Already present at the pinned commit, skipping."
 else
     rm -rf "${MENAGERIE_DIR}"
     git clone --quiet --filter=blob:none --no-checkout --sparse "${MENAGERIE_REPO}" "${MENAGERIE_DIR}"
@@ -109,8 +109,8 @@ obs, info = env.reset(seed=0)
 t = time.time()
 for _ in range(50):
     obs, r, term, trunc, info = env.step(env.action_space.sample())
-print(f"verify: env OK — obs dim {obs.shape[0]}, {int(50 / (time.time() - t))} steps/s single process, "
-      f"distance to target {info['distance']*100:.1f} cm")
+print(f"verify: env OK (obs dim {obs.shape[0]}, {int(50 / (time.time() - t))} steps/s single process, "
+      f"distance to target {info['distance']*100:.1f} cm)")
 PY
 
 echo ""

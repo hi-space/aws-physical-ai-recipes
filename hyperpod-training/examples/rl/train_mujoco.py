@@ -90,7 +90,7 @@ class ProgressCallback(BaseCallback):
             self.logger.record("rollout/success_rate", float(np.mean(self._successes)))
         succ = f", success: {np.mean(self._successes):.2f}" if self._successes else ""
         print(
-            f"[INFO] Iteration {self.iteration}/{self.total_iters} — steps: {self.num_timesteps}, "
+            f"[INFO] Iteration {self.iteration}/{self.total_iters} | steps: {self.num_timesteps}, "
             f"fps: {fps}, elapsed: {elapsed:.0f}s, mean episode reward: {mean_rew:.2f}{succ}",
             flush=True,
         )
