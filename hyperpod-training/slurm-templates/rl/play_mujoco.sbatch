@@ -16,10 +16,12 @@
 # Usage:
 #   sbatch play_mujoco.sbatch
 #   CHECKPOINT=/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_200000_steps.zip sbatch play_mujoco.sbatch
+#   CHECKPOINT=untrained EPISODES=2 sbatch play_mujoco.sbatch   # "before training" reference video
 #
 # Environment Variables:
 #   TASK: Gymnasium task ID (default: Workshop-SO101-Reach-MuJoCo-v0)
-#   CHECKPOINT: model .zip (default: /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip)
+#   CHECKPOINT: model .zip (default: /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip),
+#               or the word "untrained" to render a freshly initialised policy (videos/untrained.{mp4,gif})
 #   EPISODES: episodes to run (default: 5, 10 s each)
 #   VIDEO_DIR: output dir (default: <checkpoint dir>/videos)
 #   MUJOCO_GL: offscreen OpenGL backend, egl (default) or osmesa
@@ -51,10 +53,17 @@ if [ ! -x "${VENV_DIR}/bin/python" ]; then
     echo "ERROR: venv not found at ${VENV_DIR}. Run scripts/setup_mujoco_env.sh on the head node first."
     exit 1
 fi
-if [ ! -f "${CHECKPOINT}" ]; then
-    echo "ERROR: checkpoint not found: ${CHECKPOINT}"
-    echo "  ls /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/  to see what training produced"
-    exit 1
+if [ "${CHECKPOINT}" = "untrained" ]; then
+    # No checkpoint to sit next to, so give the video an explicit home (still synced to S3).
+    MODEL_ARGS="--untrained --video_dir ${VIDEO_DIR:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/videos}"
+else
+    if [ ! -f "${CHECKPOINT}" ]; then
+        echo "ERROR: checkpoint not found: ${CHECKPOINT}"
+        echo "  ls /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/  to see what training produced"
+        exit 1
+    fi
+    MODEL_ARGS="--checkpoint ${CHECKPOINT}"
+    [ -n "${VIDEO_DIR}" ] && MODEL_ARGS="${MODEL_ARGS} --video_dir ${VIDEO_DIR}"
 fi
 
 # Offscreen rendering needs Mesa's software OpenGL. HyperPod CPU nodes do not ship it, so
@@ -71,15 +80,11 @@ fi
 source "${VENV_DIR}/bin/activate"
 export PYTHONUNBUFFERED=1
 
-VIDEO_ARG=""
-[ -n "${VIDEO_DIR}" ] && VIDEO_ARG="--video_dir ${VIDEO_DIR}"
-
 EXIT_CODE=0
 python "${SCRIPT_DIR}/play_mujoco.py" \
     --task "${TASK}" \
-    --checkpoint "${CHECKPOINT}" \
     --episodes "${EPISODES}" \
-    ${VIDEO_ARG} || EXIT_CODE=$?
+    ${MODEL_ARGS} || EXIT_CODE=$?
 
 echo ""
 echo "=================================================="

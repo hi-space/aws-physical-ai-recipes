@@ -152,6 +152,7 @@ slurm-templates/rl/run_mujoco.sh --steps 3000000        # 래퍼
 
 # [head node] 평가 + 영상 (model_best.zip → videos/model_best.{mp4,gif}, S3 로 동기화)
 sbatch slurm-templates/rl/play_mujoco.sbatch           # CHECKPOINT / EPISODES / MUJOCO_GL
+CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   # 학습 전 비교 영상 (videos/untrained.gif)
 
 # [code-server] 끝나면 0으로
 ./scripts/scale-cluster.sh cpu-c5-4x 0
@@ -162,7 +163,7 @@ sbatch slurm-templates/rl/play_mujoco.sbatch           # CHECKPOINT / EPISODES /
 | `mujoco-workshop/` | `Workshop-SO101-Reach-MuJoCo-v0` Gymnasium 태스크 패키지 (`so101_reach.py`) |
 | `scripts/setup_mujoco_env.sh` | FSx venv 생성, menagerie 고정 커밋 sparse checkout, 패키지 설치, smoke test (head node에서 실행) |
 | `examples/rl/train_mujoco.py` | SB3 PPO + SubprocVecEnv(vCPU당 1 프로세스) + VecNormalize, model_best.zip 선택, TensorBoard `reward_terms/` |
-| `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif |
+| `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상 |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
 
 ## Step 3: 클러스터 상태 확인
