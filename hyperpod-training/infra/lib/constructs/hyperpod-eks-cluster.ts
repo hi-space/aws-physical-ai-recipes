@@ -164,6 +164,10 @@ export class HyperPodEksClusterConstruct extends Construct {
       },
     });
     this.clusterArn = this.clusterResource.getAtt('ClusterArn').toString();
+    // 롤 *construct* 전체(인라인 DefaultPolicy 포함)에 의존한다. ExecutionRole ARN 참조만으로는 Role 리소스에만
+    // 의존이 걸려, 스택 삭제 시 CloudFormation 이 인라인 정책을 클러스터보다 먼저 지운다 → HyperPod 가 노드 ENI 를
+    // 삭제할 권한(ec2:DeleteNetworkInterface*)을 잃고 클러스터가 Deleting 에서 영구히 멈춘다.
+    this.clusterResource.node.addDependency(this.executionRole);
     this.clusterResource.node.addDependency(this.helmChart);
     this.clusterResource.node.addDependency(nodeAccess);
     this.clusterResource.node.addDependency(lifecycleDeploy);
