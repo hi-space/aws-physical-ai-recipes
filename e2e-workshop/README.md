@@ -1,45 +1,47 @@
 # Physical AI End-to-End on AWS
 
-AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번에 굴려볼 수 있는 레시피 모음입니다. NVIDIA Isaac Lab으로 휴머노이드 로봇의 강화학습 정책(RL Policy)을 학습하고, NVIDIA GR00T로 자연어를 이해하는 Vision-Language-Action(VLA) 모델을 fine-tuning한 뒤, 시뮬레이션 환경에서 실제로 로봇을 움직여 검증합니다.
+A collection of recipes for running the **whole robot AI model lifecycle — training, deployment, and evaluation** — on AWS. Train a reinforcement learning policy (RL Policy) for a humanoid robot with NVIDIA Isaac Lab, fine-tune a Vision-Language-Action (VLA) model that understands natural language with NVIDIA GR00T, and verify it by actually moving the robot in a simulation environment.
 
-> 단계별 실습 가이드는 별도 문서로 제공됩니다 → **[Physical AI on AWS — End-to-End 워크숍](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)**
+> 한국어 문서: [README.ko.md](README.ko.md)
+
+> A step-by-step hands-on guide is provided as a separate document → **[Physical AI on AWS — End-to-End Workshop](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)**
 
 ## Overview
 
-실제 로봇으로 AI를 학습시키려면 수백만 번의 시행착오가 필요합니다. 이걸 진짜 로봇으로 하면 시간·비용·안전 모두 부담이 큽니다. 시뮬레이션을 활용하는 **Sim-to-Real** 접근이 표준이지만, GPU 인프라를 직접 세팅하고, 분산 학습 클러스터를 띄우고, 모델을 추론 환경에 배포하는 일은 여전히 무겁습니다.
+Training AI with a real robot takes millions of trial-and-error attempts. Doing that with an actual robot is costly in time, money, and safety. The **Sim-to-Real** approach that leverages simulation is the standard, but setting up GPU infrastructure yourself, standing up a distributed training cluster, and deploying a model to an inference environment is still a heavy lift.
 
-이 저장소는 그 인프라와 학습/추론 코드를 한 번의 명령으로 띄울 수 있게 묶어둔 것입니다. AWS CDK로 GPU 인스턴스(DCV)를 자동 배포하고, SageMaker 학습 환경은 필요한 단계에서 추가로 올립니다. GR00T 학습 컨테이너와 추론 엔드포인트까지 표준화된 형태로 제공합니다.
+This repository bundles that infrastructure and the training/inference code so you can bring it all up with a single command. AWS CDK automatically deploys a GPU instance (DCV), and the SageMaker training environment is layered on top when the stage needs it. The GR00T training container and inference endpoint are also provided in a standardized form.
 
-두 가지 학습 트랙을 다룹니다.
+Two training tracks are covered.
 
-| 트랙 | 설명 | 결과물 |
+| Track | Description | Output |
 |------|------|--------|
-| **RL Policy** (Isaac Lab) | 휴머노이드 로봇이 거친 지형에서 걷도록 PPO로 학습. 단일 GPU에서 2,048개의 가상 로봇을 동시에 시뮬레이션 | `.pt` 체크포인트 |
-| **VLA Foundation Model** (GR00T) | 카메라 영상 + 자연어 명령을 받아 로봇 관절 명령을 직접 생성하는 3B 파라미터 모델을 커스텀 데이터셋으로 fine-tune | S3에 export된 fine-tuned 모델 (`aws s3 sync`로 받아 IsaacSim에서 로드) |
+| **RL Policy** (Isaac Lab) | Train a humanoid robot to walk over rough terrain with PPO. Simulates 2,048 virtual robots at once on a single GPU | `.pt` checkpoint |
+| **VLA Foundation Model** (GR00T) | Fine-tune a 3B-parameter model that takes camera footage + natural-language commands and directly generates robot joint commands, on a custom dataset | A fine-tuned model exported to S3 (pulled with `aws s3 sync` and loaded in IsaacSim) |
 
-두 트랙 모두 같은 기반 인프라(VPC · GPU EC2)를 공유합니다.
+Both tracks share the same underlying infrastructure (VPC · GPU EC2).
 
 ## Features
 
-- **원클릭 배포** — VPC, GPU EC2(DCV)를 CDK 한 번에 생성. ECR·SageMaker Studio·MLflow는 필요한 트랙에서 추가 배포. 공유 FSx for Lustre는 옵션(`-c enableFsx=true`)
-- **1인 1계정 모델** — 스택·리소스 식별자에 계정 ID를 자동 사용, 별도 인자 없이 이름이 항상 확정
-- **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
-- **MLOps 통합** — 학습 잡이 끝에 source에서 압축 해제된 모델을 S3로 직접 업로드하는 단일-스텝 SageMaker Pipeline, 모델 버전·지표는 MLflow로 추적
-- **비압축 export 소비** — export한 S3 prefix를 `aws s3 sync`로 받아 IsaacSim(EC2)에서 tar 해제 없이 바로 로드
-- **Fleet 모니터링** — 분산 학습 워커들의 Rerun 3D 뷰어와 TensorBoard를 한 화면에서 확인하는 Next.js 대시보드
+- **One-click deployment** — CDK creates the VPC and GPU EC2 (DCV) in one shot. ECR·SageMaker Studio·MLflow are deployed additionally for whichever track needs them. Shared FSx for Lustre is optional (`-c enableFsx=true`)
+- **One-account-per-person model** — stack and resource identifiers automatically use the account ID, so names are always deterministic with no extra arguments
+- **Automatic fallback** — if an AZ lacks capacity for the GPU instance, a Lambda automatically detects it and deploys to an available one instead
+- **MLOps integration** — a single-step SageMaker Pipeline in which the training job uploads the unpacked model straight to S3 from the source at the end; model versions and metrics are tracked in MLflow
+- **Consuming uncompressed exports** — pull the exported S3 prefix with `aws s3 sync` and load it directly in IsaacSim (EC2) without untarring
+- **Fleet monitoring** — a Next.js dashboard that shows the Rerun 3D viewer and TensorBoard for distributed training workers on one screen
 
 ## Prerequisites
 
-- AWS 계정 (관리자 또는 동등 권한)
-- GPU 인스턴스 서비스 할당량 — 배포 리전의 G6/G5 vCPU 한도 확인
+- AWS account (administrator or equivalent permissions)
+- GPU instance service quota — check the G6/G5 vCPU limit in the deployment region
 - Node.js 18+, AWS CDK CLI
-- Python 3.10+ (GR00T 학습 스크립트용 — `uv` 권장)
+- Python 3.10+ (for the GR00T training scripts — `uv` recommended)
 
-CloudShell을 사용하면 위 환경이 거의 다 준비되어 있어 가장 편합니다.
+CloudShell is the most convenient option since it comes with almost all of the above already set up.
 
 ## Getting Started
 
-### 1) IsaacLab 인프라 배포
+### 1) Deploy the IsaacLab infrastructure
 
 ```bash
 git clone https://github.com/hi-space/aws-physical-ai-recipes.git
@@ -48,95 +50,95 @@ npm install
 
 cdk deploy -c region=us-east-1
 
-# Workshop Studio 이벤트 계정 (EC2 GPU 불가): CPU 워크스테이션 + SageMaker/HyperPod 모듈만
+# Workshop Studio event account (no EC2 GPU): CPU workstation + SageMaker/HyperPod modules only
 cdk deploy -c region=us-east-1 -c profile=workshop-studio
 ```
 
-배포 프로필은 `personal`(기본, GPU 워크스테이션)과 `workshop-studio`(CPU 워크스테이션, us-east-1/us-west-2)입니다. 세 스택(IsaacLab·GrootFinetune·HyperPod)에 같은 값을 지정합니다.
+The deployment profiles are `personal` (default, GPU workstation) and `workshop-studio` (CPU workstation, us-east-1/us-west-2). Specify the same value across all three stacks (IsaacLab · GrootFinetune · HyperPod).
 
-스택 이름은 배포 대상 계정 ID가 붙은 `IsaacLab-Latest-<ACCOUNT_ID>`가 됩니다(1인 1계정 전제).
+The stack name becomes `IsaacLab-Latest-<ACCOUNT_ID>`, suffixed with the target account ID (assuming one account per person).
 
-배포에 35~45분 정도 걸립니다. 대부분은 GPU 인스턴스 안에서 Isaac Sim 이미지(약 20GB)를 받아 Isaac Lab을 빌드하고 데스크톱 환경을 설치하는 시간입니다. 끝나면 출력되는 `DcvUrl`로 접속해 GPU 데스크탑을 사용할 수 있습니다.
+Deployment takes about 35–45 minutes. Most of that time is spent inside the GPU instance pulling the Isaac Sim image (about 20GB), building Isaac Lab, and installing the desktop environment. Once it finishes, connect via the printed `DcvUrl` to use the GPU desktop.
 
-### 2) RL 학습 — Isaac Lab으로 휴머노이드 보행
+### 2) RL training — humanoid locomotion with Isaac Lab
 
-DCV 데스크탑에 접속해서:
+From the DCV desktop:
 
 ```bash
 docker run --shm-size=60g --gpus all --rm -it --network=host \
   -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y -e DISPLAY \
   isaaclab-batch:latest bash
 
-# 컨테이너 안에서
+# Inside the container
 cd /workspace/IsaacLab
 ./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
   --task Isaac-Velocity-Rough-H1-v0 --num_envs 2048 --headless
 ```
 
-### 3) VLA 학습 — GR00T fine-tuning
+### 3) VLA training — GR00T fine-tuning
 
 ```bash
-# GR00T용 인프라 추가 배포
+# Deploy the additional GR00T infrastructure
 cd ../../infra/groot
 npm install
-npm run deploy                        # 단일 스택 GrootFinetune-<ACCOUNT_ID>
+npm run deploy                        # Single stack: GrootFinetune-<ACCOUNT_ID>
 
-# 학습 코드 환경
+# Training code environment
 cd ../../groot
 uv sync && source .venv/bin/activate
 npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
     --region us-east-1
 
-# 학습 + 비압축 export (Pipeline) — 노트북으로 실행
-./setup-notebooks.sh   # 1회만 실행 (커널·의존성 준비)
-# code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 순서대로 실행
+# Training + uncompressed export (Pipeline) — run via notebook
+./setup-notebooks.sh   # Run once (prepares kernel and dependencies)
+# Open notebooks/02_sagemaker_pipeline.ipynb in code-server and run the cells in order
 ```
 
-완료 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/` 에 압축되지 않은 모델이 생성됩니다. DCV 인스턴스에서 이 prefix를 `aws s3 sync`로 받아 IsaacSim에서 로드합니다.
+Once complete, an uncompressed model is produced at `s3://<bucket>/<model.s3_prefix>/<execution-id>/`. Pull this prefix on the DCV instance with `aws s3 sync` and load it in IsaacSim.
 
 ## Project Structure
 
 ```
 e2e-workshop/
 ├── infra/
-│   ├── isaaclab/              IsaacLab CDK 스택 (GPU EC2 + DCV, 옵션 공유 FSx)
-│   └── groot/                 GR00T VLA CDK 단일 스택 (ECR + CodeBuild + SageMaker + MLflow)
-├── groot/                     GR00T 학습 코드 (uv venv)
-│   ├── training/              SageMaker 학습 컨테이너 + 트리거 스크립트
-│   ├── pipeline/              학습 → 비압축 export 자동화 Pipeline
+│   ├── isaaclab/              IsaacLab CDK stack (GPU EC2 + DCV, optional shared FSx)
+│   └── groot/                 GR00T VLA CDK single stack (ECR + CodeBuild + SageMaker + MLflow)
+├── groot/                     GR00T training code (uv venv)
+│   ├── training/              SageMaker training container + trigger scripts
+│   ├── pipeline/              Training → uncompressed export automation Pipeline
 │   └── inference/
-│       └── batch-zmq/         GR00T Policy Server ZMQ ping 클라이언트
+│       └── batch-zmq/         GR00T Policy Server ZMQ ping client
 ├── apps/
-│   └── mlops-dashboard/       RL Fleet 모니터링 대시보드 (Next.js)
+│   └── mlops-dashboard/       RL Fleet monitoring dashboard (Next.js)
 ├── scripts/
 
-└── assets/                    스크린샷
+└── assets/                    Screenshots
 ```
 
-각 하위 디렉토리에 자체 README가 있어 더 자세한 사용법과 옵션을 설명합니다.
+Each subdirectory has its own README with more detailed usage and options.
 
 ## Workshop Modules
 
-[워크숍 가이드](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop)가 이 코드베이스를 모듈 단위로 나눠 따라할 수 있게 안내합니다.
+The [workshop guide](https://hi-space.gitbook.io/physical-ai-on-aws/guide/e2e-workshop) walks through this codebase module by module.
 
-| 모듈 | 다루는 내용 | 주로 사용하는 디렉토리 |
+| Module | What it covers | Directories mainly used |
 |------|-------------|------------------------|
-| 1. 인프라 확인 및 환경 접속 | 사전 배포된 GPU 데스크탑(DCV)·code-server 접속 | `infra/isaaclab/` |
-| 2. Greengrass base 모델 배포 | GR00T base 모델을 Greengrass 컴포넌트로 시뮬레이션 배포 | `infra/groot/` |
-| 3. VLA 인프라 | GR00T용 ECR + SageMaker 확인, base 모델 추론 검증 | `infra/groot/`, `groot/inference/batch-zmq/` · 노트북: `groot/notebooks/01_infra_and_base_check.ipynb` |
-| 4. SageMaker 파이프라인 | GR00T fine-tuning + 비압축 export 자동화 | `groot/training/`, `groot/pipeline/` · 노트북: `groot/notebooks/02_sagemaker_pipeline.ipynb` |
-| 5. Closed-loop 평가 | LeIsaac으로 fine-tuned 모델을 시뮬레이션에서 평가 | `groot/inference/run-isaaclab.sh` · 노트북: `groot/notebooks/03_closed_loop_eval.ipynb` |
-| 6. Greengrass 엣지 배포 | fine-tuned 모델 엣지 배포 (TensorRT) | `infra/groot/` |
-| 7-10. RL 트랙 | Isaac Lab 단일 노드 RL → HyperPod 분산 학습 → 정책 검증 | `infra/isaaclab/assets/workshop/`, `../hyperpod-training/` |
-| 11. 리소스 정리 | 전체 스택 정리 | — |
+| 1. Infrastructure check and environment access | Access the pre-deployed GPU desktop (DCV) · code-server | `infra/isaaclab/` |
+| 2. Deploy the Greengrass base model | Deploy the GR00T base model as a Greengrass component in simulation | `infra/groot/` |
+| 3. VLA infrastructure | Verify the ECR + SageMaker for GR00T, validate base-model inference | `infra/groot/`, `groot/inference/batch-zmq/` · notebook: `groot/notebooks/01_infra_and_base_check.ipynb` |
+| 4. SageMaker pipeline | GR00T fine-tuning + uncompressed export automation | `groot/training/`, `groot/pipeline/` · notebook: `groot/notebooks/02_sagemaker_pipeline.ipynb` |
+| 5. Closed-loop evaluation | Evaluate the fine-tuned model in simulation with LeIsaac | `groot/inference/run-isaaclab.sh` · notebook: `groot/notebooks/03_closed_loop_eval.ipynb` |
+| 6. Greengrass edge deployment | Deploy the fine-tuned model to the edge (TensorRT) | `infra/groot/` |
+| 7-10. RL track | Isaac Lab single-node RL → HyperPod distributed training → policy verification | `infra/isaaclab/assets/workshop/`, `../hyperpod-training/` |
+| 11. Resource cleanup | Clean up all stacks | — |
 
 ## License
 
-이 프로젝트의 라이선스는 저장소 루트 LICENSE 파일을 따릅니다. 사용된 외부 모델·데이터셋(NVIDIA GR00T, Isaac Lab, Cosmos-Reason2-2B, leisaac-pick-orange 등)은 각자의 라이선스를 따릅니다.
+This project's license follows the LICENSE file at the repository root. External models/datasets used (NVIDIA GR00T, Isaac Lab, Cosmos-Reason2-2B, leisaac-pick-orange, etc.) follow their own respective licenses.
 
 ## References
 
 - [NVIDIA Isaac Lab](https://isaac-sim.github.io/IsaacLab/)
 - [NVIDIA GR00T Foundation Model](https://developer.nvidia.com/gr00t)
 - [Isaac-GR00T (GitHub)](https://github.com/NVIDIA/Isaac-GR00T)
-- [LeIsaac — Closed-loop 평가 프레임워크](https://github.com/LightwheelAI/leisaac)
+- [LeIsaac — Closed-loop Evaluation Framework](https://github.com/LightwheelAI/leisaac)

@@ -1,30 +1,32 @@
 # GR00T Training
 
-NVIDIA GR00T VLA 모델을 SageMaker Training Job으로 fine-tuning하기 위한 코드입니다. 학습용 Docker 이미지 정의, 데이터셋 준비, SageMaker Estimator로 학습 시작까지를 담당합니다.
+Code for fine-tuning the NVIDIA GR00T VLA model as a SageMaker Training Job. Covers defining the training Docker image, preparing the dataset, and launching training via a SageMaker Estimator.
+
+> 한국어 문서: [README.ko.md](README.ko.md)
 
 ## Overview
 
-세 가지 주된 작업을 처리합니다.
+Handles three main tasks.
 
-1. **학습 이미지 빌드** — `container/`의 Dockerfile을 CodeBuild로 빌드해 ECR에 push
-2. **데이터셋 준비** — HuggingFace 데이터셋이나 로컬 데이터를 LeRobot v2.1 형식으로 정리해 S3에 업로드
-3. **학습 실행** — SageMaker Training Job을 시작하고 모니터링
+1. **Build the training image** — Build the Dockerfile in `container/` with CodeBuild and push to ECR
+2. **Prepare the dataset** — Organize a HuggingFace dataset or local data into LeRobot v2.1 format and upload to S3
+3. **Run training** — Launch and monitor a SageMaker Training Job
 
 ## Project Structure
 
 ```
 training/
-├── container/    학습 Docker 이미지를 만드는 코드 (CodeBuild가 빌드)
+├── container/    Code that builds the training Docker image (built by CodeBuild)
 │   ├── Dockerfile
 │   ├── buildspec.yml
-│   ├── train.py            SageMaker가 호출하는 학습 entrypoint
-│   └── sitecustomize.py    MLflow 로깅 강제 활성화 monkey-patch
-├── data/         데이터셋 업로드/변환 유틸과 SO-101용 modality 예시
+│   ├── train.py            Training entrypoint invoked by SageMaker
+│   └── sitecustomize.py    Monkey-patch that forces MLflow logging on
+├── data/         Dataset upload/conversion utilities and SO-101 modality examples
 │   ├── upload_dataset.py
 │   ├── convert_v3_to_v2.py
 │   ├── download_model.py
 │   └── configs/            so101_modality.json, so101_modality_config.py
-├── scripts/      학습 시작·이미지 빌드 트리거 스크립트
+├── scripts/      Scripts to trigger training and image build
 │   ├── trigger_build.py
 │   ├── run_training.py
 │   └── build_local.sh
@@ -33,34 +35,34 @@ training/
 
 ## Getting Started
 
-상위 [`groot/`](../) 환경이 준비되어 있다고 가정합니다 (`uv sync` 완료, `config.yaml` 채워짐).
+Assumes the parent [`groot/`](../) environment is already set up (`uv sync` complete, `config.yaml` filled in).
 
-### 컨테이너 빌드
+### Build the container
 
-CodeBuild 프로젝트를 시작하고 빌드 종료까지 기다립니다.
+Starts the CodeBuild project and waits for the build to finish.
 
 ```bash
-python training/scripts/trigger_build.py --type training     # 학습 이미지 빌드
+python training/scripts/trigger_build.py --type training     # build the training image
 python training/scripts/trigger_build.py --type training --groot-version n1.7
 ```
 
-ECR에는 `latest`, 버전(`n1.6`/`n1.7`), commit hash 세 가지 태그로 push됩니다.
+Pushed to ECR under three tags: `latest`, the version (`n1.6`/`n1.7`), and the commit hash.
 
-### 데이터셋 업로드
+### Upload the dataset
 
 ```bash
 python training/data/upload_dataset.py \
     --hf-dataset-id LightwheelAI/leisaac-pick-orange
-# 또는 로컬 데이터셋
+# or a local dataset
 python training/data/upload_dataset.py \
     --local-path ./my-dataset --prefix datasets/my-robot
 ```
 
-### 학습 실행
+### Run training
 
-기본 인스턴스는 `ml.g5.12xlarge` (A10G 4-GPU)입니다. g6e 쿼터가 있으면 `--instance-type ml.g6e.12xlarge`(L40S 4-GPU)도 사용할 수 있습니다.
+The default instance is `ml.g5.12xlarge` (A10G, 4 GPUs). If you have g6e quota, `--instance-type ml.g6e.12xlarge` (L40S, 4 GPUs) also works.
 
-빠른 검증 (100 step):
+Quick validation (100 steps):
 
 ```bash
 python training/scripts/run_training.py \
@@ -68,7 +70,7 @@ python training/scripts/run_training.py \
     --max-steps 100 --save-steps 50
 ```
 
-본격 학습:
+Full training run:
 
 ```bash
 python training/scripts/run_training.py \
@@ -76,42 +78,42 @@ python training/scripts/run_training.py \
     --max-steps 6000 --save-steps 2000
 ```
 
-단일 GPU로 가볍게 돌리고 싶다면 `--instance-type ml.g5.2xlarge --num-gpus 1` 옵션을 붙이세요.
+To run lightly on a single GPU, add `--instance-type ml.g5.2xlarge --num-gpus 1`.
 
 ## Configuration
 
-`run_training.py`의 모든 인자는 상위 `config.yaml`에서 기본값을 읽고, CLI 옵션이 우선합니다.
+Every argument to `run_training.py` reads its default from the parent `config.yaml`, and CLI options take precedence.
 
-| 옵션 | 설명 |
+| Option | Description |
 |------|------|
-| `--dataset-s3-uri` | S3에 업로드된 데이터셋 경로 |
-| `--hf-dataset-id` | HF에서 직접 다운로드할 때 (S3 업로드 생략) |
-| `--hf-token` | gated 데이터셋·모델용. `ssm:/groot/hf-token`으로 SSM 참조도 가능 |
-| `--max-steps`, `--save-steps` | 학습 step 수와 체크포인트 간격 |
-| `--instance-type`, `--num-gpus` | 인스턴스 타입과 GPU 개수 |
-| `--global-batch-size` | 전체 배치 크기 |
-| `--use-spot` / `--no-spot` | Spot Instance 사용 여부 |
-| `--groot-version` | `n1.6` 또는 `n1.7` |
-| `--embodiment-tag` | 기본 `NEW_EMBODIMENT`. GR00T 내장 임베디먼트면 `LIBERO_PANDA` 등 |
+| `--dataset-s3-uri` | Path to the dataset already uploaded to S3 |
+| `--hf-dataset-id` | For downloading directly from HF (skips the S3 upload) |
+| `--hf-token` | For gated datasets/models. Can also be an SSM reference like `ssm:/groot/hf-token` |
+| `--max-steps`, `--save-steps` | Number of training steps and checkpoint interval |
+| `--instance-type`, `--num-gpus` | Instance type and GPU count |
+| `--global-batch-size` | Global batch size |
+| `--use-spot` / `--no-spot` | Whether to use Spot Instances |
+| `--groot-version` | `n1.6` or `n1.7` |
+| `--embodiment-tag` | Defaults to `NEW_EMBODIMENT`. For a GR00T built-in embodiment, e.g. `LIBERO_PANDA` |
 
 ## Training Container
 
-| 파일 | 역할 |
+| File | Role |
 |------|------|
-| `Dockerfile` | 학습 이미지 정의. `nvcr.io/nvidia/pytorch` 베이스에 Python 3.10, Isaac-GR00T, transformers, MLflow 설치 |
-| `buildspec.yml` | CodeBuild가 위 Dockerfile을 빌드해 ECR로 push하는 절차 |
-| `train.py` | SageMaker가 호출하는 학습 entrypoint. SageMaker 환경변수를 파싱해 Isaac-GR00T의 `launch_finetune.py`를 실행하고, 결과 모델을 `SM_MODEL_DIR`에 저장 |
-| `sitecustomize.py` | MLflow 로깅을 강제 활성화하는 monkey-patch. GR00T 본체가 `report_to`를 하드코딩해서 HF Trainer의 MLflow callback이 자동 등록되지 않는 문제를 우회하고, run 이름을 `MLFLOW_RUN_NAME`(= Training Job 이름)으로 바꿈 |
-| `requirements.txt` | sagemaker-training 툴킷이 컨테이너 시작 시 pip install (이미지 재빌드 없음). MLflow GPU system metrics용 `nvidia-ml-py` |
+| `Dockerfile` | Defines the training image. Installs Python 3.10, Isaac-GR00T, transformers, and MLflow on an `nvcr.io/nvidia/pytorch` base |
+| `buildspec.yml` | The procedure CodeBuild uses to build the above Dockerfile and push it to ECR |
+| `train.py` | Training entrypoint invoked by SageMaker. Parses SageMaker env vars, runs Isaac-GR00T's `launch_finetune.py`, and saves the resulting model to `SM_MODEL_DIR` |
+| `sitecustomize.py` | Monkey-patch that forces MLflow logging on. Works around GR00T hardcoding `report_to` so that the HF Trainer's MLflow callback doesn't get auto-registered, and renames the run to `MLFLOW_RUN_NAME` (= the Training Job name) |
+| `requirements.txt` | pip-installed by the sagemaker-training toolkit at container startup (no image rebuild needed). Includes `nvidia-ml-py` for MLflow GPU system metrics |
 
 ## Monitoring
 
-`run_training.py`와 `pipeline/build_pipeline.py`는 같은 정의(`GR00T_METRIC_DEFINITIONS`, `mlflow_container_env`)를 Estimator에 주입합니다.
+`run_training.py` and `pipeline/build_pipeline.py` inject the same definitions (`GR00T_METRIC_DEFINITIONS`, `mlflow_container_env`) into the Estimator.
 
-- **CloudWatch metric** — HF Trainer가 stdout으로 출력하는 dict 로그(`{'loss': ..., 'grad_norm': ..., 'learning_rate': ...}`)를 정규식으로 파싱해 `train:loss`, `train:grad_norm`, `train:learning_rate`로 발행 (GR00T의 `Gr00tTrainer`가 찍는 키는 이 셋이 전부 — `epoch`는 숨기고 평가 단계 없음). Studio의 Training Job *Performance* 탭은 마지막 값만 표로 보여주고, 시계열 그래프는 CloudWatch(`/aws/sagemaker/TrainingJobs`, `TrainingJobName` 차원)에서 봄
-- **MLflow** — `MLFLOW_TRACKING_URI`/`MLFLOW_EXPERIMENT_NAME`/`MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING`이 컨테이너에 자동 설정. run 이름 = Training Job 이름, step 단위 loss/grad_norm/learning_rate + `system/` GPU·CPU·메모리·디스크·네트워크 시계열, TrainingArguments 전체를 param으로, `sagemaker.checkpoint_s3_uri`/`sagemaker.export_s3_uri` 등을 tag로 기록. checkpoint 파일은 MLflow 아티팩트로 복사하지 않음(S3 경로 태그만) — `HF_MLFLOW_LOG_ARTIFACTS=true`를 넣으면 save_steps마다 옵티마이저 상태 포함 수십 GB가 아티팩트 스토어에 중복 저장됨
+- **CloudWatch metric** — Parses the dict logs the HF Trainer prints to stdout (`{'loss': ..., 'grad_norm': ..., 'learning_rate': ...}`) with a regex and publishes them as `train:loss`, `train:grad_norm`, `train:learning_rate` (these three are the entirety of the keys GR00T's `Gr00tTrainer` emits — `epoch` is hidden and there's no eval step). The Training Job *Performance* tab in Studio shows only the last value in a table; view the time-series graphs in CloudWatch (`/aws/sagemaker/TrainingJobs`, `TrainingJobName` dimension)
+- **MLflow** — `MLFLOW_TRACKING_URI`/`MLFLOW_EXPERIMENT_NAME`/`MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING` are auto-configured on the container. Run name = the Training Job name, per-step loss/grad_norm/learning_rate + `system/` GPU/CPU/memory/disk/network time series, the full TrainingArguments as params, and tags like `sagemaker.checkpoint_s3_uri`/`sagemaker.export_s3_uri`. Checkpoint files are not copied as MLflow artifacts (only the S3 path is tagged) — setting `HF_MLFLOW_LOG_ARTIFACTS=true` would duplicate tens of GB (including optimizer state) into the artifact store on every save_steps
 
-MLflow UI는 다음 명령으로 발급한 URL로 접속합니다:
+Access the MLflow UI via a URL issued with:
 
 ```bash
 aws sagemaker create-presigned-mlflow-tracking-server-url \
@@ -119,7 +121,7 @@ aws sagemaker create-presigned-mlflow-tracking-server-url \
     --query AuthorizedUrl --output text
 ```
 
-비용을 아끼려면 안 쓸 때 정지하세요:
+Stop it when not in use to save cost:
 
 ```bash
 aws sagemaker stop-mlflow-tracking-server --tracking-server-name groot-mlflow-<ACCOUNT_ID>
@@ -127,17 +129,17 @@ aws sagemaker stop-mlflow-tracking-server --tracking-server-name groot-mlflow-<A
 
 ## Custom Robot
 
-기본 시나리오는 SO-101 + `leisaac-pick-orange`이지만, 다른 데이터로 학습하려면:
+The default scenario is SO-101 + `leisaac-pick-orange`, but to train on other data:
 
-1. 데이터셋을 LeRobot v2.1 형식으로 만들고 `meta/modality.json`을 포함
-2. 데이터셋 root에 `modality_config.py`를 두고 `register_modality_config(..., embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)` 호출
-3. `python training/data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot`로 업로드
-4. `--dataset-s3-uri s3://.../my-robot --embodiment-tag NEW_EMBODIMENT`로 학습
+1. Build the dataset in LeRobot v2.1 format, including `meta/modality.json`
+2. Place a `modality_config.py` at the dataset root and call `register_modality_config(..., embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)`
+3. Upload with `python training/data/upload_dataset.py --local-path ./my-dataset --prefix datasets/my-robot`
+4. Train with `--dataset-s3-uri s3://.../my-robot --embodiment-tag NEW_EMBODIMENT`
 
-GR00T 내장 임베디먼트는 `meta/modality.json`만 있으면 됩니다.
+For a GR00T built-in embodiment, only `meta/modality.json` is needed.
 
 ## See Also
 
-- 데이터 준비 → 학습 → 스모크 게이트 → 모델 등록까지 한 번에 자동화: [`../pipeline/`](../pipeline/)
-- 시뮬레이션 closed-loop 평가: [`../inference/`](../inference/)
-- 인프라 정의: [`../../infra/groot/`](../../infra/groot/)
+- Fully automates data prep → training → smoke gate → model registration in one shot: [`../pipeline/`](../pipeline/)
+- Simulation closed-loop evaluation: [`../inference/`](../inference/)
+- Infrastructure definitions: [`../../infra/groot/`](../../infra/groot/)

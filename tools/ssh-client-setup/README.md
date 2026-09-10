@@ -1,55 +1,57 @@
-# IsaacLab EC2 인스턴스 SSH 접속 가이드
+# SSH Access Guide for the IsaacLab EC2 Instance
 
-## 인스턴스 정보
+> 한국어 문서: [README.ko.md](README.ko.md)
 
-관리자에게 아래 정보를 전달받으세요.
+## Instance Information
 
-| 항목 | 값 |
+Ask your administrator for the values below.
+
+| Item | Value |
 |------|-----|
 | Instance ID | `<INSTANCE_ID>` |
 | Region | `<REGION>` |
 | Public IP | `<PUBLIC_IP>` |
 | OS | Ubuntu 22.04 |
 | Instance Type | g6.12xlarge |
-| 접속 유저 | `ubuntu` |
+| Login user | `ubuntu` |
 
 ---
 
-## 자동 설정 (스크립트)
+## Automatic Setup (Script)
 
-SSH 키 생성부터 `~/.ssh/config` 등록까지 아래 스크립트가 한 번에 수행합니다. 실행 후 출력되는 공개키 등록 명령어만 EC2 Instance Connect 브라우저 터미널에서 실행하면 됩니다.
+The script below handles everything from SSH key generation to registering the host in `~/.ssh/config`. Afterwards, all you need to do is run the public-key registration command it prints in the EC2 Instance Connect browser terminal.
 
 ```bash
-# [로컬] macOS / Linux
+# [Local] macOS / Linux
 bash setup-ssh-client.sh <PUBLIC_IP>
 ```
 
 ```powershell
-# [로컬] Windows PowerShell
+# [Local] Windows PowerShell
 .\setup-ssh-client.ps1 <PUBLIC_IP>
 ```
 
-스크립트 대신 수동으로 설정하려면 아래 절차를 따르세요.
+To configure this manually instead of using the script, follow the steps below.
 
 ---
 
-## 사전 준비 (수동 설정)
+## Prerequisites (Manual Setup)
 
-### SSH 키 생성 (키가 없는 경우)
+### Generate an SSH key (if you don't have one)
 
 ```bash
-# [로컬]
+# [Local]
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
 ```
 
 ---
 
-## SSH Config 설정
+## SSH Config Setup
 
-로컬 PC의 `~/.ssh/config` 파일에 아래 내용을 추가합니다. `<PUBLIC_IP>`를 전달받은 IP로 교체하세요.
+Add the following to `~/.ssh/config` on your local PC. Replace `<PUBLIC_IP>` with the IP you were given.
 
 ```
-# [로컬] ~/.ssh/config 에 추가
+# [Local] add to ~/.ssh/config
 Host isaaclab
     HostName <PUBLIC_IP>
     User ubuntu
@@ -58,47 +60,47 @@ Host isaaclab
 
 ---
 
-## 최초 접속 (공개키 등록)
+## First Connection (Public Key Registration)
 
 ### Step 1
 
-로컬 공개키 내용을 확인합니다.
+Print your local public key.
 
 ```bash
-# [로컬]
+# [Local]
 cat ~/.ssh/id_ed25519.pub
 ```
 
 ### Step 2
 
-AWS 콘솔에서 EC2 Instance Connect로 인스턴스에 접속한 뒤, 출력된 공개키를 등록합니다.
+Connect to the instance with EC2 Instance Connect from the AWS console, then register the public key you just printed.
 
-1. AWS 콘솔 > EC2 > 인스턴스 선택 > **연결** > **EC2 Instance Connect** 탭 > **연결**
-2. 브라우저 터미널이 열리면 아래 명령 실행:
+1. AWS console > EC2 > select the instance > **Connect** > **EC2 Instance Connect** tab > **Connect**
+2. When the browser terminal opens, run:
 
 ```bash
-# [EC2 인스턴스] — 브라우저 터미널에서 실행
-echo "전달받은_공개키_내용" >> /home/ubuntu/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+# [EC2 instance] — run in the browser terminal
+echo "your_public_key_contents" >> /home/ubuntu/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
 ```
 
 ---
 
-## 이후 접속
+## Subsequent Connections
 
-공개키가 영구 등록된 후에는 아래 명령으로 바로 접속할 수 있습니다:
+Once the public key is permanently registered, connect with:
 
 ```bash
-# [로컬]
+# [Local]
 ssh isaaclab
 ```
 
 ---
 
-## 트러블슈팅
+## Troubleshooting
 
-| 증상 | 원인 및 해결 |
+| Symptom | Cause and fix |
 |------|-------------|
-| `Permission denied (publickey)` | 인스턴스에 공개키가 등록되지 않음. "최초 접속" 섹션을 따라 키 등록 필요 |
-| `Connection timed out` | 보안 그룹에서 22번 포트가 열려 있는지 확인. 인스턴스가 실행 중인지 확인 |
-| `send-ssh-public-key` 실패 (방법 A) | IAM 권한에 `ec2-instance-connect:SendSSHPublicKey` 액션이 허용되어 있는지 확인 |
-| ProxyCommand 관련 오류 (SSM 방식) | Session Manager Plugin 설치 여부 확인: `session-manager-plugin --version` |
+| `Permission denied (publickey)` | The public key is not registered on the instance. Follow the "First Connection" section to register it |
+| `Connection timed out` | Check that port 22 is open in the security group, and that the instance is running |
+| `send-ssh-public-key` fails (method A) | Check that your IAM permissions allow the `ec2-instance-connect:SendSSHPublicKey` action |
+| ProxyCommand errors (SSM method) | Check whether the Session Manager Plugin is installed: `session-manager-plugin --version` |
