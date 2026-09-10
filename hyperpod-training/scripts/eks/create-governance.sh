@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# create-governance.sh — HyperPod task governance 정책 생성 (모듈 9 §9.2)
+# create-governance.sh — HyperPod task governance 정책 생성 (모듈 11 §11.3)
 #
 #   cluster policy  (ClusterSchedulerConfig) : 우선순위 클래스 training/inference/background + FairShare
 #   compute quota   (ComputeQuota) x2        : team-a = ml.g5.8xlarge 1대, team-b = ml.c5.4xlarge 1대

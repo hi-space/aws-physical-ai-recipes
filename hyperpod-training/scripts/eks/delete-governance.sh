@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# delete-governance.sh — task governance 정책 삭제 (모듈 10 정리 / 모듈 11)
+# delete-governance.sh — task governance 정책 삭제 (모듈 12 정리)
 #
 # 순서: compute quota(팀별) → cluster policy. 정책이 남아 있으면 HyperPod 클러스터 삭제(cdk destroy)가 막힌다.
 # 사용법: ./scripts/eks/delete-governance.sh [--region <region>] [--cluster <hyperpod-cluster-name>]

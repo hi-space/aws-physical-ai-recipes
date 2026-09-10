@@ -166,7 +166,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 | `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상 |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
 
-## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 8~10, RL 트랙 메인 경로)
+## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 8~11, RL 트랙 메인 경로)
 
 같은 CDK 앱에 `-c orchestrator=eks`를 주면 Slurm 스택과 별개로 **EKS 오케스트레이션 HyperPod** 스택
 `HyperPodEks-<ACCOUNT_ID>`(클러스터 `hyperpod-eks-<ACCOUNT_ID>`)를 배포한다. Slurm 경로에서 소개만 하고
@@ -198,7 +198,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 ```
 
 두 프로필 모두 배포할 수 있다. `profile=workshop-studio`(이벤트 계정)는 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
-시스템 그룹 cpu-c5-4x(ml.c5.4xlarge)를 2대로 올려 MuJoCo CPU 경로(모듈 9~10)로 학습·거버넌스·관측 실습을 진행한다. 이벤트에서는 프로비저너
+상시 시스템 그룹 cpu-c5-4x(ml.c5.4xlarge) 1대에서 MuJoCo CPU 경로(모듈 9~10)로 학습·검증하고, 모듈 11에서 2대로 올려 거버넌스·관측 실습을 진행한다. 이벤트에서는 프로비저너
 템플릿(`physical-ai-on-aws/static/e2e-workshop-provisioner.yaml`)의 `DeployHyperPodEks=true`가 이 스택을 미리 배포한다.
 
 ### 배포
@@ -232,32 +232,43 @@ cd hyperpod-training
 kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → https://<CodeServerUrl>/absproxy/3000/ 또는 http://localhost:3000/absproxy/3000/ (admin / Secret grafana 의 admin-password)
 kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
 # grafanaMode=amg 인 경우: ./scripts/eks/grafana-user.sh <IdC-username>  → Output GrafanaUrl 로 로그인
-./scripts/eks/create-governance.sh                # cluster policy + team-a(g5.8xlarge 1) / team-b(c5.4xlarge 1) compute quota
-./scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-$(aws sts get-caller-identity --query Account --output text)
 ```
 
 ### Job 제출 (k8s-templates)
 
+모듈 9~10 (학습·검증): 일반 네임스페이스 `rl`, Kueue 없이 상시 시스템 노드에서 바로 스케줄
+
 ```bash
 cd hyperpod-training/k8s-templates
-../scripts/scale-cluster.sh cpu-c5-4x 2 --wait --cluster hyperpod-eks-<ACCOUNT_ID>   # 학습용 CPU 노드 1대 추가 (~3분)
-./render.sh fsx-pvc.yaml --apply                                   # team-a 네임스페이스에 /fsx PV+PVC
+./render.sh fsx-pvc.yaml --apply                                   # rl 네임스페이스 생성 + /fsx PV+PVC
 ./render.sh setup/workshop-setup-job.yaml --apply                  # 최초 1회: 레시피·태스크 패키지를 /fsx 에
 ./render.sh rl/mujoco-setup-job.yaml --apply                       # 최초 1회: /fsx/envs/mujoco venv (~4분)
-TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU 12 vCPU, Kueue 큐 경유, ~5분)
-kubectl get workloads,jobs,pods -n hyperpod-ns-team-a
-kubectl logs -n hyperpod-ns-team-a -l app=mujoco-rl -f
+TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU 12 vCPU, ~5분)
+kubectl get jobs,pods -n rl
+kubectl logs -n rl -l app=mujoco-rl -f
 ./render.sh rl/mujoco-render-job.yaml --apply                      # 정책 검증: 성공률 + mp4/gif (OSMesa, ~5분)
 
-# GPU 쿼터가 있는 계정(모듈 9 §9.7): Isaac Lab
+# GPU 쿼터가 있는 계정(모듈 9 §9.5): Isaac Lab
 ../scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU)
 ```
 
+모듈 11 (task governance · observability): 팀 네임스페이스 `hyperpod-ns-team-a/b`, Kueue 큐 경유
+
+```bash
+../scripts/eks/create-governance.sh                                # cluster policy + team-a / team-b compute quota
+../scripts/scale-cluster.sh cpu-c5-4x 2 --wait --cluster hyperpod-eks-<ACCOUNT_ID>   # 두 팀 Job 을 겹치기 위한 CPU 노드 1대 추가 (~3분)
+export NAMESPACE=hyperpod-ns-team-a
+./render.sh fsx-pvc.yaml --apply                                   # team-a 네임스페이스에 /fsx PV+PVC
+NAMESPACE=hyperpod-ns-team-b ./render.sh fsx-pvc.yaml --apply     # team-b
+LOG_DIR=/fsx/scratch/governance-demo/team-a PRIORITY=background-priority ./render.sh rl/mujoco-train-job.yaml --apply   # Kueue 라벨이 채워진다
+kubectl get workloads -A
+```
+
 | 파일 | 역할 |
 |---|---|
-| `k8s-templates/render.sh` | `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` 등 치환 + `--apply` |
-| `k8s-templates/fsx-pvc.yaml` | 팀 네임스페이스용 FSx PV+PVC (정적 PV는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍) |
+| `k8s-templates/render.sh` | `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` 등 치환 + `--apply`. 기본 네임스페이스 `rl`(없으면 생성), `hyperpod-ns-*` 를 주면 Kueue 라벨을 채우고 그 외에는 라벨 줄을 제거 |
+| `k8s-templates/fsx-pvc.yaml` | 네임스페이스용 FSx PV+PVC (정적 PV는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍) |
 | `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm 부록 E2 §E2.3 대응) |
 | `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue 라벨 (finetune_isaaclab.sbatch 대응) |
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응), 정책 검증 영상 (play_mujoco.sbatch 대응) |
@@ -605,7 +616,7 @@ aws cloudformation delete-stack --stack-name HyperPod-${ACCOUNT_ID} --region ${R
 aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID} --region ${REGION}
 ```
 
-워크숍 참가자용 절차는 콘텐츠 모듈 11 §11.7과 동일하다.
+워크숍 참가자용 절차는 콘텐츠 모듈 12 §12.7과 동일하다.
 
 ---
 

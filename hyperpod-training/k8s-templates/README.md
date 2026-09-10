@@ -1,4 +1,4 @@
-# k8s-templates: HyperPod EKS Job 템플릿 (워크숍 모듈 9~10)
+# k8s-templates: HyperPod EKS Job 템플릿 (워크숍 모듈 9~11)
 
 Slurm 경로의 `slurm-templates/` 에 대응한다. `render.sh` 가 `${VAR}` 를 채워 `kubectl apply` 한다.
 
@@ -13,7 +13,7 @@ MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab S
 
 | 파일 | 역할 |
 |---|---|
-| `render.sh` | envsubst 렌더 + `--apply`. 변수: `NAMESPACE`(hyperpod-ns-team-a) `QUEUE` `PRIORITY`(training-priority) `TASK` `NUM_ENVS` `MAX_ITERATIONS` `TOTAL_STEPS` `CHECKPOINT` `EPISODES` `JOB_SUFFIX` `FSX_*` |
+| `render.sh` | envsubst 렌더 + `--apply`. 변수: `NAMESPACE`(기본 `rl`; `hyperpod-ns-*` 이면 Kueue 라벨 유지, 그 외 라벨 제거) `QUEUE` `PRIORITY`(training-priority) `TASK` `NUM_ENVS` `MAX_ITERATIONS` `TOTAL_STEPS` `CHECKPOINT` `EPISODES` `JOB_SUFFIX` `FSX_*` |
 | `fsx-pvc.yaml` | 정적 PV(`fsx-pv-<ns>`) + PVC(`fsx-pvc`). 정적 PV 는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍 |
 | `setup/workshop-setup-job.yaml` | `/fsx/scratch/aws-physical-ai-recipes` clone, `/fsx/scratch/isaaclab-workshop/src` 배치 |
 | `rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0` + `train_isaaclab.py`, `nvidia.com/gpu: 1`, ml.g5.8xlarge |

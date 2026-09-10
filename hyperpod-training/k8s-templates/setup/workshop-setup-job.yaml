@@ -11,7 +11,8 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app: workshop-setup
-    # task governance 의 admission policy 가 모든 Job 에 queue-name 라벨을 요구한다 (라벨 없는 Job 은 거부됨).
+    # 팀 네임스페이스(hyperpod-ns-*)에서는 task governance 의 admission policy 가 queue-name 라벨을 요구한다.
+    # 일반 네임스페이스(rl)에서는 render.sh 가 QUEUE 가 비어 있을 때 이 줄들을 제거한다.
     kueue.x-k8s.io/queue-name: ${QUEUE}
     kueue.x-k8s.io/priority-class: ${PRIORITY}
 spec:

@@ -28,7 +28,7 @@ export interface HyperPodEksStackProps extends cdk.StackProps {
   gpuCount: number;
   /**
    * 상시 시스템 노드(cpu-c5-4x, ml.c5.4xlarge) 수. observability / task governance 애드온은 HyperPod 노드가
-   * 1대 이상(4xlarge 이상) 있어야 설치되므로 기본 1. 이 그룹은 MuJoCo CPU 학습(모듈 9)에도 쓰며, 모듈 9 가 scale-cluster.sh 로 2대로 올린다.
+   * 1대 이상(4xlarge 이상) 있어야 설치되므로 기본 1. 이 그룹은 MuJoCo CPU 학습(모듈 9)에도 쓰며, 모듈 11 이 scale-cluster.sh 로 2대로 올린다.
    */
   systemNodeCount: number;
   fsxCapacityGiB: number;
@@ -43,7 +43,7 @@ export interface HyperPodEksStackProps extends cdk.StackProps {
 export const SYSTEM_GROUP_NAME = 'cpu-c5-4x';
 
 /**
- * HyperPodEks-<ACCOUNT_ID>: EKS 오케스트레이션 HyperPod 스택 (RL 트랙 모듈 8–10).
+ * HyperPodEks-<ACCOUNT_ID>: EKS 오케스트레이션 HyperPod 스택 (RL 트랙 모듈 8–11).
  *
  * Slurm 스택(HyperPod-<ACCOUNT_ID>)과 독립적으로 자체 VPC·FSx·버킷을 가지며 한 계정에 공존할 수 있다.
  */

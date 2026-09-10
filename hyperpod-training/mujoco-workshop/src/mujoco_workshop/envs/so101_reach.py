@@ -1,6 +1,6 @@
 """``Workshop-SO101-Reach-MuJoCo-v0`` — SO-101 arm reaches a random 3-D target (MuJoCo, CPU).
 
-This is the CPU counterpart of the Isaac Lab task (appendix E2, module 9 §9.7 GPU extension) ``Workshop-SO101-Reach-v0``.
+This is the CPU counterpart of the Isaac Lab task (appendix E2, module 9 §9.5 GPU extension) ``Workshop-SO101-Reach-v0``.
 The MDP is kept deliberately close to the Isaac Lab version so the two can be compared:
 
 * **Observation (21)** — 5 joint positions (rad, relative to the home pose), 5 joint velocities,

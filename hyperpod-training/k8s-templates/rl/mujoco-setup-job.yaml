@@ -1,7 +1,7 @@
 # 최초 1회: MuJoCo(CPU) RL venv 를 /fsx/envs/mujoco 에 만든다 (모듈 9. 부록 E3 의 setup_mujoco_env.sh 를 컨테이너에서 실행).
 # workshop-setup-job 이 먼저 끝나 /fsx/scratch/aws-physical-ai-recipes 가 있어야 한다.
 # venv 는 이 이미지의 python 3.11 에 묶이므로 mujoco-train-job.yaml 과 같은 이미지를 쓴다.
-# 렌더: NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-setup-job.yaml --apply
+# 렌더: ./render.sh rl/mujoco-setup-job.yaml --apply
 apiVersion: batch/v1
 kind: Job
 metadata:

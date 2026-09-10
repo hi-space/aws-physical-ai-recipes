@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # =============================================================================
-# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 9~10)
+# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 9~11)
 #
 # 사용법:
 #   ./render.sh <template.yaml> [--apply] [--namespace <ns>]
 #
-# 예시:
-#   ./render.sh fsx-pvc.yaml --apply                          # team-a 네임스페이스에 FSx PV+PVC
+# 예시 (모듈 9~10: 일반 네임스페이스 rl, Kueue 없이 바로 스케줄):
+#   ./render.sh fsx-pvc.yaml --apply                          # rl 네임스페이스에 FSx PV+PVC (네임스페이스가 없으면 만든다)
 #   ./render.sh setup/workshop-setup-job.yaml --apply         # /fsx 에 워크숍 코드 준비 (최초 1회)
-#   MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply
-#   PRIORITY=background-priority ./render.sh rl/isaaclab-train-job.yaml --apply
 #   TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply
+#   MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply
 #   CHECKPOINT=untrained EPISODES=2 ./render.sh rl/mujoco-render-job.yaml --apply
+# 예시 (모듈 11: 팀 네임스페이스, task governance 큐를 거친다):
+#   NAMESPACE=hyperpod-ns-team-a ./render.sh fsx-pvc.yaml --apply
+#   NAMESPACE=hyperpod-ns-team-a PRIORITY=background-priority ./render.sh rl/mujoco-train-job.yaml --apply
 #
 # 치환 변수 (환경변수로 덮어쓴다):
-#   NAMESPACE       팀 네임스페이스. 기본 hyperpod-ns-team-a (task governance 가 compute quota 생성 시 만든다)
-#   QUEUE           Kueue LocalQueue. 기본 ${NAMESPACE}-localqueue
-#   PRIORITY        WorkloadPriorityClass. 기본 training-priority (cluster policy 의 <name>-priority)
+#   NAMESPACE       네임스페이스. 기본 rl (일반 네임스페이스, --apply 시 없으면 생성).
+#                   hyperpod-ns-<팀> 을 주면 task governance 가 compute quota 생성 시 만든 팀 네임스페이스를 쓴다.
+#   QUEUE           Kueue LocalQueue. NAMESPACE 가 hyperpod-ns-* 이면 기본 ${NAMESPACE}-localqueue, 그 외에는 비어 있다.
+#                   비어 있으면 렌더 결과에서 kueue.x-k8s.io/* 라벨 줄을 제거해 Job 이 큐를 거치지 않고 바로 스케줄된다.
+#   PRIORITY        WorkloadPriorityClass. 기본 training-priority (cluster policy 의 <name>-priority). QUEUE 가 있을 때만 쓰인다.
 #   TASK            Isaac Lab: Workshop-SO101-Reach-v0 / MuJoCo: Workshop-SO101-Reach-MuJoCo-v0
 #   NUM_ENVS        Isaac Lab 병렬 환경 수 (기본 2048)
 #   MAX_ITERATIONS  Isaac Lab PPO iteration (기본 300, ~15–20분)
@@ -48,8 +52,14 @@ fi
 [[ -f "$TEMPLATE" ]] || { echo "템플릿을 찾을 수 없습니다: $1" >&2; exit 1; }
 command -v envsubst >/dev/null || { echo "envsubst 가 없습니다 (apt-get install gettext-base)" >&2; exit 1; }
 
-export NAMESPACE="${NAMESPACE:-hyperpod-ns-team-a}"
-export QUEUE="${QUEUE:-${NAMESPACE}-localqueue}"
+export NAMESPACE="${NAMESPACE:-rl}"
+if [[ -z "${QUEUE+x}" ]]; then
+  case "$NAMESPACE" in
+    hyperpod-ns-*) QUEUE="${NAMESPACE}-localqueue" ;;   # 팀 네임스페이스: task governance 큐를 거친다
+    *)             QUEUE="" ;;                          # 일반 네임스페이스: Kueue 라벨 없이 바로 스케줄
+  esac
+fi
+export QUEUE
 export PRIORITY="${PRIORITY:-training-priority}"
 export NUM_ENVS="${NUM_ENVS:-2048}"
 export MAX_ITERATIONS="${MAX_ITERATIONS:-300}"
@@ -80,8 +90,23 @@ fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
 VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
+
+render() {
+  if [[ -n "$QUEUE" ]]; then
+    envsubst "$VARS" < "$TEMPLATE"
+  else
+    envsubst "$VARS" < "$TEMPLATE" | grep -v 'kueue.x-k8s.io/'   # 큐가 없으면 Kueue 라벨 줄을 뺀다
+  fi
+}
+
 if [[ "$APPLY" == true ]]; then
-  envsubst "$VARS" < "$TEMPLATE" | kubectl apply -f -
+  if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    case "$NAMESPACE" in
+      hyperpod-ns-*) echo "네임스페이스 ${NAMESPACE} 가 없습니다. 먼저 scripts/eks/create-governance.sh 로 compute quota 를 만드세요 (모듈 11)." >&2; exit 1 ;;
+      *) kubectl create namespace "$NAMESPACE" ;;
+    esac
+  fi
+  render | kubectl apply -f -
 else
-  envsubst "$VARS" < "$TEMPLATE"
+  render
 fi

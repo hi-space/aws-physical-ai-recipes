@@ -1,4 +1,4 @@
-"""SO-101 MuJoCo tasks for the Physical AI on AWS workshop (RL track, module 9 and appendix E3).
+"""SO-101 MuJoCo tasks for the Physical AI on AWS workshop (RL track, modules 9 and 11, and appendix E3).
 
 Importing this package registers the Gymnasium task IDs below, so a trainer only needs
 ``import mujoco_workshop`` followed by ``gymnasium.make("Workshop-SO101-Reach-MuJoCo-v0")``.
