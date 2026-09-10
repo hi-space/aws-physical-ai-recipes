@@ -15,6 +15,16 @@ Usage:
     --checkpoint /fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt \
     --num_envs 4
 
+  # On the module 1 DCV instance (EKS path, checkpoint copied from S3) — same image as the training Job.
+  # The image ENTRYPOINT is runheadless.sh, so run through python.sh (sets up Isaac Sim's Python paths):
+  docker run --rm -it --gpus all --network=host --shm-size=8g --entrypoint /isaac-sim/python.sh \
+    -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y -e OMNI_KIT_ALLOW_ROOT=1 -e DISPLAY \
+    -e PYTHONPATH=/workspace/recipes/hyperpod-training/isaac-lab-workshop/src \
+    -v /tmp/.X11-unix:/tmp/.X11-unix -v ~/aws-physical-ai-recipes:/workspace/recipes \
+    -v ~/environment/checkpoints:/checkpoints nvcr.io/nvidia/isaac-lab:2.3.0 \
+    /workspace/recipes/hyperpod-training/examples/rl/play_isaaclab.py \
+    --task Workshop-SO101-Reach-v0 --checkpoint /checkpoints/eks/reach/model_best.pt --num_envs 4
+
   # No display needed — record an mp4 of the rendered scene instead (offscreen, any GPU node):
   python play_isaaclab.py \
     --task Workshop-SO101-Reach-v0 \
