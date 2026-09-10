@@ -8,6 +8,10 @@
 # 정책은 CloudFormation 리소스 타입이 없어 AWS CLI 로 만든다. compute quota 가 생기면 task governance 애드온이
 # 네임스페이스 hyperpod-ns-<team>, LocalQueue hyperpod-ns-<team>-localqueue, ClusterQueue 를 자동 생성한다.
 #
+# 정책 이름은 리전 안에서 유일하다. 스택(cdk destroy)을 지워도 정책은 함께 삭제되지 않고 이전 클러스터 ARN 을 가리키는
+# 채로 남아, 같은 이름으로 다시 만들 때 "already exists" 로 실패한다. 그래서 같은 이름의 정책이 다른(이전) 클러스터를
+# 가리키면 먼저 지우고 다시 만든다. 현재 클러스터의 정책이 이미 있으면 건너뛴다.
+#
 # 사용법:
 #   ./scripts/eks/create-governance.sh [--region <region>] [--cluster <hyperpod-cluster-name>]
 # 입력 JSON: k8s-templates/governance/{cluster-policy,compute-quota-team-a,compute-quota-team-b}.json
@@ -46,14 +50,45 @@ wait_status() { # <describe-cmd...> — Status 가 Created 가 될 때까지 대
   echo "  시간 초과 (마지막 상태: ${STATUS})" >&2; return 1
 }
 
-# 1) cluster policy — 클러스터당 하나만 존재할 수 있다.
+wait_gone() { # <list-cmd...> — 결과가 비어질 때까지 대기
+  for _ in $(seq 1 36); do
+    LEFT="$("$@" --output text 2>/dev/null | wc -w)"
+    [[ "$LEFT" == "0" ]] && return 0
+    sleep 5
+  done
+  echo "  시간 초과: 이전 정책이 아직 삭제 중" >&2; return 1
+}
+
+# 0) 이전 클러스터가 남긴 같은 이름의 정책 정리 (compute quota 를 먼저 지워야 cluster policy 를 지울 수 있다).
+for TEAM in team-a team-b; do
+  QUOTA_NAME="${CLUSTER_NAME}-${TEAM}"
+  STALE="$(aws sagemaker list-compute-quotas --region "$REGION" --name-contains "$QUOTA_NAME" \
+    --query "ComputeQuotaSummaries[?Name=='${QUOTA_NAME}' && ClusterArn!='${CLUSTER_ARN}'].ComputeQuotaId" --output text 2>/dev/null || true)"
+  for ID in $STALE; do
+    echo "이전 클러스터의 compute quota 삭제: ${ID}"
+    aws sagemaker delete-compute-quota --region "$REGION" --compute-quota-id "$ID"
+  done
+  [[ -z "$STALE" ]] || wait_gone aws sagemaker list-compute-quotas --region "$REGION" --name-contains "$QUOTA_NAME" \
+    --query "ComputeQuotaSummaries[?Name=='${QUOTA_NAME}' && ClusterArn!='${CLUSTER_ARN}'].ComputeQuotaId"
+done
+
+# 1) cluster policy — 클러스터당 하나, 이름은 리전에서 유일.
+POLICY_NAME="${CLUSTER_NAME}-policy"
+STALE="$(aws sagemaker list-cluster-scheduler-configs --region "$REGION" --name-contains "$POLICY_NAME" \
+  --query "ClusterSchedulerConfigSummaries[?Name=='${POLICY_NAME}' && ClusterArn!='${CLUSTER_ARN}'].ClusterSchedulerConfigId" --output text 2>/dev/null || true)"
+for ID in $STALE; do
+  echo "이전 클러스터의 cluster policy 삭제: ${ID}"
+  aws sagemaker delete-cluster-scheduler-config --region "$REGION" --cluster-scheduler-config-id "$ID"
+done
+[[ -z "$STALE" ]] || wait_gone aws sagemaker list-cluster-scheduler-configs --region "$REGION" --name-contains "$POLICY_NAME" \
+  --query "ClusterSchedulerConfigSummaries[?Name=='${POLICY_NAME}' && ClusterArn!='${CLUSTER_ARN}'].ClusterSchedulerConfigId"
 EXISTING="$(aws sagemaker list-cluster-scheduler-configs --cluster-arn "$CLUSTER_ARN" --region "$REGION" \
   --query "ClusterSchedulerConfigSummaries[0].ClusterSchedulerConfigId" --output text 2>/dev/null || true)"
 if [[ -n "$EXISTING" && "$EXISTING" != "None" ]]; then
   echo "cluster policy 이미 존재: ${EXISTING} (건너뜀)"
 else
   POLICY_ID="$(aws sagemaker create-cluster-scheduler-config --region "$REGION" \
-    --name "${CLUSTER_NAME}-policy" --cluster-arn "$CLUSTER_ARN" \
+    --name "${POLICY_NAME}" --cluster-arn "$CLUSTER_ARN" \
     --description "Workshop: training > inference > background, fair share on" \
     --scheduler-config "file://${GOV_DIR}/cluster-policy.json" \
     --query ClusterSchedulerConfigId --output text)"
@@ -63,6 +98,7 @@ fi
 
 # 2) compute quota — 팀마다 하나.
 for TEAM in team-a team-b; do
+  QUOTA_NAME="${CLUSTER_NAME}-${TEAM}"
   EXISTING="$(aws sagemaker list-compute-quotas --cluster-arn "$CLUSTER_ARN" --region "$REGION" \
     --query "ComputeQuotaSummaries[?ComputeQuotaTarget.TeamName=='${TEAM}'].ComputeQuotaId | [0]" --output text 2>/dev/null || true)"
   if [[ -n "$EXISTING" && "$EXISTING" != "None" ]]; then
@@ -70,7 +106,7 @@ for TEAM in team-a team-b; do
     continue
   fi
   QUOTA_ID="$(aws sagemaker create-compute-quota --region "$REGION" \
-    --name "${CLUSTER_NAME}-${TEAM}" --cluster-arn "$CLUSTER_ARN" \
+    --name "${QUOTA_NAME}" --cluster-arn "$CLUSTER_ARN" \
     --description "Workshop compute allocation for ${TEAM}" \
     --compute-quota-config "file://${GOV_DIR}/compute-quota-${TEAM}.json" \
     --compute-quota-target "{\"TeamName\":\"${TEAM}\",\"FairShareWeight\":50}" \
