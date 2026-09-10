@@ -113,6 +113,14 @@ def main():
         print(f"Recording {args.video_length} steps to {video_dir}/")
     else:
         env = gym.make(args.task, cfg=env_cfg, render_mode="human")
+        # GUI 기본 카메라는 원점에서 7.5 m 떨어져 있어 팔이 점처럼 보인다. 환경 원점들의 중심을
+        # 앞쪽 위에서 내려다보도록 카메라를 옮겨 처음부터 팔이 보이게 한다 (뷰포트에서 마우스로 더 조정 가능).
+        origins = env.unwrapped.scene.env_origins.cpu().numpy()
+        center = origins.mean(axis=0)
+        spread = float((origins.max(axis=0) - origins.min(axis=0)).max())
+        dist = 0.8 * spread + 1.2
+        env.unwrapped.sim.set_camera_view(
+            eye=tuple(center + (dist, dist, 0.6 * dist)), target=tuple(center + (0.0, 0.0, 0.1)))
     env = RslRlVecEnvWrapper(env)
 
     print(f"Loading checkpoint: {args.checkpoint}")
