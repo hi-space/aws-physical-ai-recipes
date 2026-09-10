@@ -1,8 +1,8 @@
-"""SO-101 MuJoCo tasks for the Physical AI on AWS workshop (RL track, module 8 and appendix A4).
+"""SO-101 MuJoCo tasks for the Physical AI on AWS workshop (RL track, module 9 and appendix E3).
 
 Importing this package registers the Gymnasium task IDs below, so a trainer only needs
 ``import mujoco_workshop`` followed by ``gymnasium.make("Workshop-SO101-Reach-MuJoCo-v0")``.
-The IDs mirror the Isaac Lab tasks of appendix A3 (``Workshop-SO101-Reach-v0``) with a
+The IDs mirror the Isaac Lab tasks of appendix E2 (``Workshop-SO101-Reach-v0``) with a
 ``-MuJoCo`` suffix so checkpoints from the two simulators are never mixed up.
 """
 

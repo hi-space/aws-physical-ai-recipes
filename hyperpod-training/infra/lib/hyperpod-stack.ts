@@ -65,7 +65,7 @@ export class HyperPodStack extends cdk.Stack {
       gpu: buildGpuGroups('gpu', props.gpuMaxCountPerType, props.gpuUseSpot, props.gpuGroups).map((g) =>
         g.instanceType === trainInstanceType ? { ...g, instanceCount: props.gpuCount } : g,
       ),
-      // CPU 그룹(MuJoCo RL, 부록 A4). GPU cluster 쿼터가 없는 계정을 위한 경로라 프로필과 무관하게
+      // CPU 그룹(MuJoCo RL, 부록 E3). GPU cluster 쿼터가 없는 계정을 위한 경로라 프로필과 무관하게
       // 항상 정의한다(노드 0 = 비용 0). `cpu` 파티션에 함께 들어간다.
       cpu: buildCpuGroups('cpu', props.cpuMaxCountPerType).map((g) =>
         g.instanceType === CPU_TRAIN_INSTANCE_TYPE ? { ...g, instanceCount: props.cpuCount } : g,

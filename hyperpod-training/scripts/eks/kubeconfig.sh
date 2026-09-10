@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# kubeconfig.sh — HyperPod EKS 클러스터용 kubectl 설정 + 접속 확인 (모듈 7)
+# kubeconfig.sh — HyperPod EKS 클러스터용 kubectl 설정 + 접속 확인 (모듈 8)
 #
 # 사용법:
 #   ./scripts/eks/kubeconfig.sh [--region <region>] [--cluster <eks-cluster-name>]

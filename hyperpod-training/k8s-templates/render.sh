@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 8~10)
+# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 9~10)
 #
 # 사용법:
 #   ./render.sh <template.yaml> [--apply] [--namespace <ns>]

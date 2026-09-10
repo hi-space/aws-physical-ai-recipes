@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# MuJoCo (CPU) RL Training wrapper — appendix A4
+# MuJoCo (CPU) RL Training wrapper — appendix E3
 # Usage:
 #   ./run_mujoco.sh                                   # SO-101 Reach, 1M steps
 #   ./run_mujoco.sh --steps 3000000                   # longer run

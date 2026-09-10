@@ -1,4 +1,4 @@
-# Isaac Lab RL 학습 Job (모듈 8 GPU 확장 절) — Slurm 경로의 slurm-templates/rl/finetune_isaaclab.sbatch 에 해당.
+# Isaac Lab RL 학습 Job (모듈 9 §9.7) — Slurm 경로의 slurm-templates/rl/finetune_isaaclab.sbatch 에 해당.
 #
 # - kueue.x-k8s.io/queue-name / priority-class 라벨로 task governance(Kueue) 큐에 들어간다.
 #   라벨이 없으면 큐를 거치지 않고 바로 스케줄되어 콘솔 Dashboard 의 Tasks 에도 잡히지 않는다.

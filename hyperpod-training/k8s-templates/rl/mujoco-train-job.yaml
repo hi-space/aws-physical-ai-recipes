@@ -1,10 +1,10 @@
-# MuJoCo(CPU) RL 학습 Job (모듈 8) — Slurm 경로의 slurm-templates/rl/train_mujoco.sbatch 에 해당.
-# GPU 없이 cpu-c5-4x 그룹(ml.c5.4xlarge, 16 vCPU)에서 SO-101 Reach 를 PPO 로 학습한다. 모듈 8 은 이 그룹을
+# MuJoCo(CPU) RL 학습 Job (모듈 9) — Slurm 경로의 slurm-templates/rl/train_mujoco.sbatch 에 해당.
+# GPU 없이 cpu-c5-4x 그룹(ml.c5.4xlarge, 16 vCPU)에서 SO-101 Reach 를 PPO 로 학습한다. 모듈 9 는 이 그룹을
 # 2대로 올려 학습 Job 이 시스템 노드(애드온 파드 약 3 vCPU 사용)와 새 노드 어디에나 배치될 수 있게 한다.
 # 어느 노드에 가든 들어가도록 vCPU 12 만 요청한다 (train_mujoco.py 는 요청량과 무관하게 nproc 만큼
 # 환경 프로세스를 띄우므로 --num_envs 12 로 맞춘다). 각 Job 이 12 vCPU 이므로 노드 하나에 하나만 돈다.
 # 체크포인트는 ${LOG_DIR}/reach-mujoco/SO101_Reach/ 에 쓴다. 기본 /fsx/checkpoints/rl 은 S3 로 export 되는 경로이므로
-# 여러 Job 을 동시에 돌리는 거버넌스 실습(모듈 9)은 LOG_DIR=/fsx/scratch/governance-demo/<팀> 으로 서로 덮어쓰지 않게 한다.
+# 여러 Job 을 동시에 돌리는 거버넌스 실습(모듈 9 §9.9~9.14)은 LOG_DIR=/fsx/scratch/governance-demo/<팀> 으로 서로 덮어쓰지 않게 한다.
 # 렌더: TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply
 #       LOG_DIR=/fsx/scratch/governance-demo/team-a PRIORITY=background-priority ./render.sh rl/mujoco-train-job.yaml --apply
 apiVersion: batch/v1

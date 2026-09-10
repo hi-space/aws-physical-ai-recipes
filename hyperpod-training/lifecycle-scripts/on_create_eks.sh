@@ -7,7 +7,7 @@
 # 여기서는 진단 로그만 남긴다.
 #
 # Isaac Sim RTX 렌더러가 AMI 기본 드라이버에서 죽는 경우 setup_nvidia_driver.sh 호출을 이 자리에
-# 추가한다(Slurm 경로 on_create.sh 참고). 헤드리스 RL 학습(모듈 8)은 렌더러를 쓰지 않는다.
+# 추가한다(Slurm 경로 on_create.sh 참고). 헤드리스 RL 학습(모듈 9)은 렌더러를 쓰지 않는다.
 set -u
 
 LOG=/var/log/provision/provisioning.log

@@ -1,4 +1,4 @@
-# k8s-templates: HyperPod EKS Job 템플릿 (워크숍 모듈 8~10)
+# k8s-templates: HyperPod EKS Job 템플릿 (워크숍 모듈 9~10)
 
 Slurm 경로의 `slurm-templates/` 에 대응한다. `render.sh` 가 `${VAR}` 를 채워 `kubectl apply` 한다.
 
