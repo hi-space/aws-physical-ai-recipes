@@ -250,7 +250,7 @@ kubectl get jobs,pods -n rl
 kubectl logs -n rl -l app=mujoco-rl -f
 ./render.sh rl/mujoco-render-job.yaml --apply                      # 정책 검증: 성공률 + mp4/gif (OSMesa, ~5분)
 
-# GPU 쿼터가 있는 계정(모듈 9 §9.5): Isaac Lab
+# GPU 쿼터가 있는 계정(모듈 9B): Isaac Lab
 ../scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU)
 ```
@@ -277,7 +277,10 @@ kubectl get workloads -A
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana(AMG) 사용자 · 정책 생성/삭제 |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
-| `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle (진단 로그만; kubelet/plugin은 HyperPod·Helm이 처리) |
+| `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle. CPU 노드는 진단 로그만(kubelet/plugin은 HyperPod·Helm이 처리). GPU 노드는 `setup_nvidia_driver.sh`(Isaac Sim 렌더링용 580 드라이버) + `setup_dcv_al2023.sh`(AL2023 GNOME + DCV, 세션 `workspace`, ec2-user/hyperpod)를 추가 실행 (모듈 10 §10.7 방법 B) |
+| `lifecycle-scripts/setup_dcv_al2023.sh` | Amazon Linux 2023(EKS AMI)용 DCV 설치. Slurm AMI(Ubuntu)의 `setup_dcv.sh`에 해당하며 Docker 는 설치하지 않는다 |
+| `k8s-templates/rl/isaaclab-play-job.yaml` | GPU 노드 DCV 세션에 Isaac Sim 창을 띄우는 재생 Job (hostPath `/tmp/.X11-unix`, `X_DISPLAY` 자동 선택) |
+| `scripts/eks/dcv-target.sh` | GPU 노드의 SSM target 과 DCV 포트포워딩 명령 출력 |
 | `eks/helm/HyperPodHelmChart` | vendored HyperPod Helm 의존성 (`VENDOR.md`) |
 
 ### 정리

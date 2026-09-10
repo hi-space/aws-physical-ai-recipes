@@ -5,12 +5,13 @@
 Counterpart to `slurm-templates/` on the Slurm path. `render.sh` fills in `${VAR}` and runs `kubectl apply`.
 
 ```bash
-./render.sh fsx-pvc.yaml --apply                                   # /fsx PV+PVC in the team namespace (FSx info from the stack Output)
+./render.sh fsx-pvc.yaml --apply                                   # /fsx PV+PVC in the rl namespace (FSx info from the stack Output)
 ./render.sh setup/workshop-setup-job.yaml --apply                  # one-time: clone the recipe + place the Isaac Lab task package
 ./render.sh rl/mujoco-setup-job.yaml --apply                       # one-time: /fsx/envs/mujoco venv
-TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU, Kueue queue) — main path
+TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU) — main path (module 11 adds NAMESPACE=hyperpod-ns-team-a for the Kueue queue)
 ./render.sh rl/mujoco-render-job.yaml --apply                      # policy verification: success rate + mp4/gif
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (when a GPU quota is available)
+./render.sh rl/isaaclab-play-job.yaml --apply                      # Isaac Sim replay on the GPU node's DCV desktop (module 10 §10.7 method B)
 ```
 
 | File | Role |

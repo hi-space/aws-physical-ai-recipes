@@ -1,0 +1,103 @@
+# Isaac Lab 정책 재생 Job — HyperPod GPU 노드의 DCV 데스크톱에 Isaac Sim 창을 띄운다 (모듈 10 §10.7 방법 B).
+# Slurm 경로 부록 E4 의 "enroot start ... play_isaaclab.py" 에 해당한다.
+#
+# - GPU 노드(gpu-g5-8x)에는 lifecycle 스크립트(on_create_eks.sh → setup_dcv.sh)가 GNOME 데스크톱과 DCV 서버,
+#   'workspace' 가상 세션을 만들어 둔다. 이 Job 은 노드의 X 소켓 디렉터리(/tmp/.X11-unix)를 hostPath 로 마운트해
+#   그 세션의 디스플레이에 Isaac Sim 창을 그린다. 참가자는 DCV 클라이언트(SSM 포트포워딩)로 그 화면을 본다.
+# - X_DISPLAY 가 비어 있으면 노드에 있는 X 소켓 중 번호가 가장 큰 것(DCV 가상 세션)을 고른다.
+#   DCV 데스크톱의 터미널에서 먼저 `xhost +si:localuser:root` 를 실행해 컨테이너(root)의 접근을 허용해야 한다.
+# - 학습 Job 과 같은 이미지(nvcr.io/nvidia/isaac-lab:2.3.0)와 같은 /fsx 체크포인트를 쓴다. 창을 닫거나
+#   `kubectl delete job` 으로 끝낸다. 학습 Job 이 같은 GPU 노드에서 돌고 있으면 GPU 1장을 나눌 수 없어 Pending 이 된다.
+# 렌더: ./render.sh rl/isaaclab-play-job.yaml --apply
+#       CHECKPOINT=/fsx/checkpoints/rl/reach/SO101_Reach/model_299.pt PLAY_ENVS=8 ./render.sh rl/isaaclab-play-job.yaml --apply
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: isaaclab-play-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  labels:
+    app: isaaclab-play
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: isaaclab-play
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.g5.8xlarge
+        sagemaker.amazonaws.com/node-health-status: Schedulable
+      containers:
+        - name: play
+          image: nvcr.io/nvidia/isaac-lab:2.3.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              if [ -z "${X_DISPLAY}" ]; then
+                N=$(ls /tmp/.X11-unix 2>/dev/null | sed -n 's/^X\([0-9]*\)$/\1/p' | sort -n | tail -1)
+                [ -n "$N" ] || { echo "ERROR: no X socket in /tmp/.X11-unix on this node (is DCV installed? check /var/log/setup-dcv.log)"; exit 1; }
+                export DISPLAY=":$N"
+              else
+                export DISPLAY="${X_DISPLAY}"
+              fi
+              echo "DISPLAY=$DISPLAY (X sockets: $(ls /tmp/.X11-unix | tr '\n' ' '))"
+              [ -f "${CHECKPOINT}" ] || { echo "ERROR: checkpoint not found: ${CHECKPOINT}"; exit 1; }
+              exec /isaac-sim/python.sh /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/play_isaaclab.py \
+                --task "${TASK}" --checkpoint "${CHECKPOINT}" --num_envs "${PLAY_ENVS}"
+          env:
+            - name: X_DISPLAY
+              value: "${X_DISPLAY}"
+            - name: CHECKPOINT
+              value: "${CHECKPOINT}"
+            - name: TASK
+              value: "${TASK}"
+            - name: PLAY_ENVS
+              value: "${PLAY_ENVS}"
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: PRIVACY_CONSENT
+              value: "Y"
+            - name: OMNI_KIT_ACCEPT_EULA
+              value: "YES"
+            - name: OMNI_KIT_ALLOW_ROOT
+              value: "1"
+            - name: PYTHONPATH
+              value: /fsx/scratch/isaaclab-workshop/src
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: GIT_PYTHON_REFRESH
+              value: quiet
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: 1
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+            - name: x11
+              mountPath: /tmp/.X11-unix
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc
+        - name: x11
+          hostPath:
+            path: /tmp/.X11-unix
+            type: Directory
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

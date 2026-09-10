@@ -5,12 +5,13 @@
 Slurm 경로의 `slurm-templates/` 에 대응한다. `render.sh` 가 `${VAR}` 를 채워 `kubectl apply` 한다.
 
 ```bash
-./render.sh fsx-pvc.yaml --apply                                   # 팀 네임스페이스에 /fsx PV+PVC (FSx 정보는 스택 Output)
+./render.sh fsx-pvc.yaml --apply                                   # rl 네임스페이스에 /fsx PV+PVC (FSx 정보는 스택 Output)
 ./render.sh setup/workshop-setup-job.yaml --apply                  # 최초 1회: 레시피 clone + Isaac Lab 태스크 패키지
 ./render.sh rl/mujoco-setup-job.yaml --apply                       # 최초 1회: /fsx/envs/mujoco venv
-TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU, Kueue 큐) — 메인 경로
+TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU) — 메인 경로 (모듈 11 은 NAMESPACE=hyperpod-ns-team-a 로 Kueue 큐 경유)
 ./render.sh rl/mujoco-render-job.yaml --apply                      # 정책 검증: 성공률 + mp4/gif
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU 쿼터가 있을 때)
+./render.sh rl/isaaclab-play-job.yaml --apply                      # GPU 노드 DCV 데스크톱에 Isaac Sim 재생 (모듈 10 §10.7 방법 B)
 ```
 
 | 파일 | 역할 |

@@ -76,12 +76,20 @@ mkdir -p "${WORK}/tmp"; cd "${WORK}"
 
 export DEBIAN_FRONTEND=noninteractive
 KVER="$(uname -r)"
+# 패키지 관리자: Slurm AMI(Ubuntu)는 apt, HyperPod EKS AMI(Amazon Linux 2023)는 dnf.
+if command -v dnf >/dev/null 2>&1; then PKG=dnf; else PKG=apt; fi
 if [ ! -d "/lib/modules/${KVER}/build" ]; then
-  apt-get update -yq && apt-get install -yq "linux-headers-${KVER}" || { log "WARNING: kernel headers unavailable; keeping current driver."; exit 0; }
+  if [ "$PKG" = dnf ]; then
+    dnf install -yq "kernel-devel-${KVER}" "kernel-headers-${KVER}" || { log "WARNING: kernel headers unavailable; keeping current driver."; exit 0; }
+  else
+    apt-get update -yq && apt-get install -yq "linux-headers-${KVER}" || { log "WARNING: kernel headers unavailable; keeping current driver."; exit 0; }
+  fi
 fi
-command -v gcc >/dev/null && command -v make >/dev/null || apt-get install -yq build-essential
-# Vulkan 로더: NVIDIA Vulkan ICD 가 동작하려면 호스트에 libvulkan1 이 필요하다.
-apt-get install -yq libvulkan1 >/dev/null 2>&1 || true
+if ! { command -v gcc >/dev/null && command -v make >/dev/null; }; then
+  if [ "$PKG" = dnf ]; then dnf install -yq gcc make; else apt-get install -yq build-essential; fi
+fi
+# Vulkan 로더: NVIDIA Vulkan ICD 가 동작하려면 호스트에 Vulkan 로더가 필요하다.
+if [ "$PKG" = dnf ]; then dnf install -yq vulkan-loader >/dev/null 2>&1 || true; else apt-get install -yq libvulkan1 >/dev/null 2>&1 || true; fi
 
 if [ "${RELOAD_ONLY}" = "1" ]; then
   log "Target ${NVIDIA_DRIVER_VERSION} already on disk — only reloading kernel modules."
@@ -145,7 +153,11 @@ if [ "${RELOAD_ONLY}" != "1" ]; then
   # 요구하는 _glapi_tls_Current 심볼이 없어 이후 setup_dcv.sh 가 설치하는 GNOME 의 gnome-shell 이
   # "libGLESv2.so.2: undefined symbol: _glapi_tls_Current" 로 즉사하고 DCV 데스크톱이 검은 화면이 된다.
   # NVIDIA 벤더 라이브러리(libGLX_nvidia, libEGL_nvidia)는 Ubuntu libglvnd 위에서 그대로 동작한다.
-  apt-get install -yq libglvnd0 libglx0 libgl1 libegl1 libgles2 libopengl0 >/dev/null 2>&1 || true
+  if [ "$PKG" = dnf ]; then
+    dnf install -yq libglvnd libglvnd-glx libglvnd-egl libglvnd-gles libglvnd-opengl >/dev/null 2>&1 || true
+  else
+    apt-get install -yq libglvnd0 libglx0 libgl1 libegl1 libgles2 libopengl0 >/dev/null 2>&1 || true
+  fi
   ( cd extracted && ./nvidia-installer -s --ui=none --no-questions --kernel-module-type="${NVIDIA_KERNEL_MODULE_TYPE}" \
       --no-x-check --no-nouveau-check --no-backup --no-install-libglvnd --skip-module-load --tmpdir="${WORK}/tmp" ) 2>&1 | tail -5
   RC=${PIPESTATUS[0]}

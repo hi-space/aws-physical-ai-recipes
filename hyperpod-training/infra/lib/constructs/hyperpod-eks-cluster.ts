@@ -115,7 +115,8 @@ export class HyperPodEksClusterConstruct extends Construct {
       },
     });
 
-    // --- lifecycle 버킷: on_create_eks.sh 하나만 올린다 ---
+    // --- lifecycle 버킷: on_create_eks.sh 와, GPU 노드의 DCV 재생(모듈 10 §10.7 방법 B)에 필요한
+    //     setup_nvidia_driver.sh / setup_dcv_al2023.sh 만 올린다 (Slurm 전용 스크립트는 제외) ---
     this.lifecycleBucket = new s3.Bucket(this, 'LifecycleBucket', {
       bucketName: cdk.Fn.join('-', ['hyperpod-eks-lifecycle', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -125,7 +126,7 @@ export class HyperPodEksClusterConstruct extends Construct {
     const lifecycleDeploy = new s3deploy.BucketDeployment(this, 'LifecycleScriptsDeploy', {
       sources: [
         s3deploy.Source.asset(path.join(__dirname, '..', '..', '..', 'lifecycle-scripts'), {
-          exclude: ['**', '!on_create_eks.sh'],
+          exclude: ['**', '!on_create_eks.sh', '!setup_nvidia_driver.sh', '!setup_dcv_al2023.sh'],
         }),
       ],
       destinationBucket: this.lifecycleBucket,

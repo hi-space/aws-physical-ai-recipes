@@ -277,7 +277,10 @@ kubectl get workloads -A
 | `k8s-templates/governance/*.json` | Inputs for cluster policy, team-a/team-b compute quota |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | Access · Grafana(AMG) user · policy create/delete |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Dashboards for Kueue waiting/running/preemption, ClusterQueue allocation/borrowing, DCGM GPU utilization (provisioned into self-hosted Grafana) |
-| `lifecycle-scripts/on_create_eks.sh` | EKS node lifecycle (diagnostic logging only; kubelet/plugins are handled by HyperPod/Helm) |
+| `lifecycle-scripts/on_create_eks.sh` | EKS node lifecycle. CPU nodes: diagnostic logging only (kubelet/plugins are handled by HyperPod/Helm). GPU nodes additionally run `setup_nvidia_driver.sh` (580 driver for Isaac Sim rendering) and `setup_dcv_al2023.sh` (AL2023 GNOME + DCV, session `workspace`, ec2-user/hyperpod) for workshop module 10 §10.7 method B |
+| `lifecycle-scripts/setup_dcv_al2023.sh` | DCV install for Amazon Linux 2023 (the EKS AMI). Counterpart of the Slurm AMI's Ubuntu `setup_dcv.sh`; installs no Docker |
+| `k8s-templates/rl/isaaclab-play-job.yaml` | Replay Job that opens the Isaac Sim window on the GPU node's DCV session (hostPath `/tmp/.X11-unix`, `X_DISPLAY` auto-selected) |
+| `scripts/eks/dcv-target.sh` | Prints the GPU node's SSM target and the DCV port-forwarding command |
 | `eks/helm/HyperPodHelmChart` | Vendored HyperPod Helm dependency (`VENDOR.md`) |
 
 ### Cleanup

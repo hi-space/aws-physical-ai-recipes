@@ -11,6 +11,7 @@
 #   TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply
 #   MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply
 #   CHECKPOINT=untrained EPISODES=2 ./render.sh rl/mujoco-render-job.yaml --apply
+#   ./render.sh rl/isaaclab-play-job.yaml --apply                  # GPU 노드 DCV 데스크톱에 Isaac Sim 재생 (모듈 10 §10.7 방법 B)
 # 예시 (모듈 11: 팀 네임스페이스, task governance 큐를 거친다):
 #   NAMESPACE=hyperpod-ns-team-a ./render.sh fsx-pvc.yaml --apply
 #   NAMESPACE=hyperpod-ns-team-a PRIORITY=background-priority ./render.sh rl/mujoco-train-job.yaml --apply
@@ -27,6 +28,9 @@
 #   TOTAL_STEPS     MuJoCo 총 env step (기본 1000000, ~5분)
 #   LOG_DIR         mujoco-train-job 체크포인트 루트 (기본 /fsx/checkpoints/rl → S3 export). 거버넌스 실습은 /fsx/scratch/governance-demo/<팀>
 #   CHECKPOINT      mujoco-render-job 이 재생할 체크포인트 (기본 .../reach-mujoco/SO101_Reach/model_best.zip, 또는 untrained)
+#                   isaaclab-play-job 에서는 기본 /fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt
+#   PLAY_ENVS       isaaclab-play-job 이 그릴 환경 수 (기본 4)
+#   X_DISPLAY       isaaclab-play-job 이 창을 띄울 노드의 X 디스플레이 (기본 비움 = DCV 가상 세션 자동 선택)
 #   EPISODES        mujoco-render-job 에피소드 수 (기본 5, 각 10초)
 #   JOB_SUFFIX      Job 이름 접미어. 기본 현재 시각(MMDDHHMM) — 같은 이름의 Job 충돌을 피한다
 #   FSX_ID / FSX_DNS / FSX_MOUNT / FSX_GIB   fsx-pvc.yaml 용. 비어 있으면 HyperPodEks 스택 Output 에서 읽는다
@@ -65,7 +69,12 @@ export NUM_ENVS="${NUM_ENVS:-2048}"
 export MAX_ITERATIONS="${MAX_ITERATIONS:-300}"
 export TOTAL_STEPS="${TOTAL_STEPS:-1000000}"
 export LOG_DIR="${LOG_DIR:-/fsx/checkpoints/rl}"
-export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}"
+case "$TEMPLATE" in
+  *isaaclab-play*) export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt}" ;;
+  *)               export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}" ;;
+esac
+export PLAY_ENVS="${PLAY_ENVS:-4}"
+export X_DISPLAY="${X_DISPLAY:-}"
 export EPISODES="${EPISODES:-5}"
 export JOB_SUFFIX="${JOB_SUFFIX:-$(date +%m%d%H%M)}"
 export RECIPES_REF="${RECIPES_REF:-feat/e2e-workshop}"
@@ -89,7 +98,7 @@ if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z 
 fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
-VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
+VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
 
 render() {
   if [[ -n "$QUEUE" ]]; then
