@@ -91,15 +91,15 @@ def main():
     agent_cfg = getattr(importlib.import_module(module_path), class_name)()
 
     env_cfg.scene.num_envs = args.num_envs
+    # Draw the commanded target pose (goal frame marker) so the viewer shows what the
+    # arm is tracking — the red sphere in the scene is a fixed decoration, not the target.
+    for term_name in getattr(env_cfg.commands, "__dataclass_fields__", {}) or vars(env_cfg.commands):
+        term = getattr(env_cfg.commands, term_name, None)
+        if hasattr(term, "debug_vis"):
+            term.debug_vis = True
 
     if args.video:
         env_cfg.viewer.resolution = (1280, 720)
-        # Draw the commanded target pose (goal frame marker) so the recording shows what the
-        # arm is tracking — the red sphere in the scene is a fixed decoration, not the target.
-        for term_name in getattr(env_cfg.commands, "__dataclass_fields__", {}) or vars(env_cfg.commands):
-            term = getattr(env_cfg.commands, term_name, None)
-            if hasattr(term, "debug_vis"):
-                term.debug_vis = True
         env = gym.make(args.task, cfg=env_cfg, render_mode="rgb_array")
         # Frame env 0's arm from the front-right (env origins are spread on a grid).
         origin = env.unwrapped.scene.env_origins[0].cpu().numpy()
