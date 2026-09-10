@@ -72,6 +72,8 @@ export interface DcvInstanceProps {
 export class DcvInstanceConstruct extends Construct {
   /** DCV EC2 인스턴스 */
   public readonly instance: ec2.CfnInstance;
+  /** 인스턴스 롤 ARN. 프로비저너가 HyperPod EKS 스택의 admin 액세스 엔트리(-c eksAdminArns)에 넘긴다. */
+  public readonly roleArn: string;
   /** Secrets Manager Secret ARN */
   public readonly secretArn: string;
 
@@ -357,6 +359,8 @@ export class DcvInstanceConstruct extends Construct {
     });
 
     // --- Instance Profile ---
+    this.roleArn = role.attrArn;
+
     const instanceProfile = new iam.CfnInstanceProfile(this, 'DcvInstanceProfile', {
       roles: [role.ref],
     });

@@ -206,6 +206,11 @@ export class IsaacLabStack extends cdk.Stack {
       description: 'DCV Instance ID',
     });
 
+    new cdk.CfnOutput(this, 'InstanceRoleArn', {
+      value: dcvInstance.roleArn,
+      description: 'DCV/code-server instance role ARN (EKS admin access entry for the HyperPod EKS stack)',
+    });
+
     new cdk.CfnOutput(this, 'DcvUrl', {
       value: cdk.Fn.join('', ['https://', dcvInstance.instance.attrPublicIp, ':8443']),
       description: 'DCV Access URL',

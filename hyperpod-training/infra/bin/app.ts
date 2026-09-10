@@ -56,7 +56,7 @@ const vpcCidr = app.node.tryGetContext('vpcCidr') ?? '10.0.0.0/16';
 const importedFsxId = app.node.tryGetContext('fsxFileSystemId') ?? '';
 const importedFsxMountName = app.node.tryGetContext('fsxMountName') ?? '';
 // 오케스트레이터. slurm(기본) = HyperPod-<ACCOUNT_ID> Slurm 스택(모듈 8–10),
-// eks = HyperPodEks-<ACCOUNT_ID> EKS 스택(모듈 8B/9C: observability, task governance). 두 스택은 공존한다.
+// eks = HyperPodEks-<ACCOUNT_ID> EKS 스택(모듈 8B/9C: observability, task governance). 두 스택은 공존하며 프로필 제한은 없다.
 const orchestrator = (app.node.tryGetContext('orchestrator') ?? 'slurm') as 'slurm' | 'eks';
 
 if (orchestrator !== 'slurm' && orchestrator !== 'eks') {
@@ -93,10 +93,9 @@ const env = {
 const accountSuffix = accountId ? `-${accountId}` : '';
 
 if (orchestrator === 'eks') {
-  // EKS 경로는 personal 프로필 전용: Workshop Studio 이벤트 계정의 허용 서비스 목록에 EKS/AMP/AMG 가 없다.
-  if (profile !== 'personal') {
-    throw new Error(`orchestrator=eks 는 profile=personal 에서만 배포할 수 있습니다 (지정된 profile: '${profile}').`);
-  }
+  // 두 프로필 모두 배포한다. workshop-studio 이벤트 계정은 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
+  // 상시 시스템 노드(ml.c5.4xlarge)에서 CPU 경로(모듈 9C §9C.9 MuJoCo)로 관측·거버넌스 실습을 진행한다.
+  // Grafana 는 self-hosted 기본값을 유지한다(AMG 는 IAM Identity Center 조직 인스턴스가 필요해 이벤트 계정에서 만들 수 없다).
   const eksVersion = String(app.node.tryGetContext('eksVersion') ?? DEFAULT_EKS_VERSION);
   const systemNodeCount = parseInt(app.node.tryGetContext('systemNodeCount') ?? '1', 10);
   const enableObservability = (app.node.tryGetContext('enableObservability') ?? 'true') === 'true';

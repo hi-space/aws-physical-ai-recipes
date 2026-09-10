@@ -197,8 +197,9 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Workshop Studio 이벤트 계정의 허용 서비스 목록에는 EKS·AMP·AMG가 없으므로 이 경로는 `profile=personal`
-전용이다(`-c profile=workshop-studio`와 함께 지정하면 synth 단계에서 거부).
+두 프로필 모두 배포할 수 있다. `profile=workshop-studio`(이벤트 계정)는 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
+상시 시스템 노드(ml.c5.4xlarge)에서 CPU 경로(모듈 9C §9C.9 MuJoCo)로 관측·거버넌스 실습을 진행한다. 이벤트에서는 프로비저너
+템플릿(`physical-ai-on-aws/static/e2e-workshop-provisioner.yaml`)의 `DeployHyperPodEks=true`가 이 스택을 미리 배포한다.
 
 ### 배포
 
