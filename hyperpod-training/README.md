@@ -621,7 +621,7 @@ aws cloudformation delete-stack --stack-name HyperPod-${ACCOUNT_ID} --region ${R
 aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID} --region ${REGION}
 ```
 
-The procedure for workshop participants is the same as content module 12 §12.7.
+The procedure for workshop participants is the same as content module 12 §12.7B.
 
 ---
 
