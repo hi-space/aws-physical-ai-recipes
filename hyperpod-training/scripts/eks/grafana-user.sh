@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# grafana-user.sh — IAM Identity Center 사용자에게 HyperPod Grafana 워크스페이스 ADMIN 권한 부여 (모듈 8B)
+# grafana-user.sh — IAM Identity Center 사용자에게 HyperPod Grafana 워크스페이스 ADMIN 권한 부여 (모듈 7)
 #
 # 사용법:
 #   ./scripts/eks/grafana-user.sh <identity-center-username> [--role ADMIN|EDITOR|VIEWER] [--region <region>]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train a PPO policy for the SO-101 Reach task in MuJoCo on CPU (Stable-Baselines3).
 
-CPU counterpart of ``train_isaaclab.py`` (module 9). Where Isaac Lab simulates thousands of
+CPU counterpart of ``train_isaaclab.py`` (appendix A3, module 8 GPU extension). Where Isaac Lab simulates thousands of
 arms inside one GPU process, this script runs one MuJoCo environment per CPU core in separate
 processes (``SubprocVecEnv``) and gathers their rollouts into a single PPO update.
 

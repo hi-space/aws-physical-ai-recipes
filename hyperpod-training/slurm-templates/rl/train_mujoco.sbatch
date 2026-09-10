@@ -7,7 +7,7 @@
 #SBATCH --output=/fsx/scratch/logs/mujoco-%j.out
 #SBATCH --error=/fsx/scratch/logs/mujoco-%j.err
 
-# SO-101 Reach RL training in MuJoCo on a HyperPod CPU node (module 9B)
+# SO-101 Reach RL training in MuJoCo on a HyperPod CPU node (appendix A4)
 #
 # --partition=cpu: HyperPod adds every compute node to the universal `dev` partition and,
 # for the CPU groups (cpu-c5-4x / cpu-c5-9x / cpu-m5-4x), also to `cpu`. Submitting to

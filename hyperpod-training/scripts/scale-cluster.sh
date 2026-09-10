@@ -13,8 +13,10 @@
 # 예시:
 #   ./scale-cluster.sh gpu-g5-8x 1 --wait    # 학습용 GPU 노드 1대 기동 (InService까지 대기)
 #   ./scale-cluster.sh gpu-g5-8x 0           # 학습 종료 후 0으로 축소 (비용 절감)
-#   ./scale-cluster.sh debug 1 --wait         # DCV 디버그 노드 기동 (모듈 10)
-#   ./scale-cluster.sh cpu-c5-4x 1 --wait     # MuJoCo RL 용 CPU 노드 1대 기동 (모듈 9B)
+#   ./scale-cluster.sh debug 1 --wait         # DCV 디버그 노드 기동 (부록 A5)
+#   ./scale-cluster.sh cpu-c5-4x 1 --wait     # MuJoCo RL 용 CPU 노드 1대 기동 (부록 A4)
+#   ./scale-cluster.sh cpu-c5-4x 2 --wait --cluster hyperpod-eks-<ACCOUNT_ID>   # EKS: 시스템 그룹에 학습용 CPU 노드 추가 (모듈 8)
+#   ./scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>   # EKS: GPU 노드 (모듈 8 GPU 확장 절)
 #
 # 그룹 이름 (기본 core 프로필): gpu-g5-8x | cpu-c5-4x | cpu-c5-9x | cpu-m5-4x | debug
 #   -c gpuGroups=extended 로 배포했다면 추가로: gpu-g6e-12x | gpu-g6e-24x | gpu-g6e-48x

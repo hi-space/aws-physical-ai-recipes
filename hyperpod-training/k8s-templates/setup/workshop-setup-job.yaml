@@ -1,4 +1,4 @@
-# 최초 1회: 워크숍 코드를 /fsx 에 준비한다 (Slurm 경로 모듈 9 §9.3 의 "head node 에서 clone" 에 해당).
+# 최초 1회: 워크숍 코드를 /fsx 에 준비한다 (Slurm 경로 부록 A3 §A3.3 의 "head node 에서 clone" 에 해당).
 #   /fsx/scratch/aws-physical-ai-recipes        레시피 (train_isaaclab.py, train_mujoco.py, setup 스크립트)
 #   /fsx/scratch/isaaclab-workshop/src          Isaac Lab SO-101 태스크 패키지 (PYTHONPATH)
 #   /fsx/checkpoints/rl, /fsx/scratch/logs      체크포인트·로그 (checkpoints/ 는 S3 로 자동 export)

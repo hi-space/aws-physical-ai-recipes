@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 9C)
+# render.sh — k8s-templates 의 ${VAR} 를 채워 출력하거나 바로 적용한다 (HyperPod EKS, 모듈 8~10)
 #
 # 사용법:
 #   ./render.sh <template.yaml> [--apply] [--namespace <ns>]
@@ -10,7 +10,8 @@
 #   ./render.sh setup/workshop-setup-job.yaml --apply         # /fsx 에 워크숍 코드 준비 (최초 1회)
 #   MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply
 #   PRIORITY=background-priority ./render.sh rl/isaaclab-train-job.yaml --apply
-#   NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-train-job.yaml --apply
+#   TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply
+#   CHECKPOINT=untrained EPISODES=2 ./render.sh rl/mujoco-render-job.yaml --apply
 #
 # 치환 변수 (환경변수로 덮어쓴다):
 #   NAMESPACE       팀 네임스페이스. 기본 hyperpod-ns-team-a (task governance 가 compute quota 생성 시 만든다)
@@ -20,6 +21,9 @@
 #   NUM_ENVS        Isaac Lab 병렬 환경 수 (기본 2048)
 #   MAX_ITERATIONS  Isaac Lab PPO iteration (기본 300, ~15–20분)
 #   TOTAL_STEPS     MuJoCo 총 env step (기본 1000000, ~5분)
+#   LOG_DIR         mujoco-train-job 체크포인트 루트 (기본 /fsx/checkpoints/rl → S3 export). 거버넌스 실습은 /fsx/scratch/governance-demo/<팀>
+#   CHECKPOINT      mujoco-render-job 이 재생할 체크포인트 (기본 .../reach-mujoco/SO101_Reach/model_best.zip, 또는 untrained)
+#   EPISODES        mujoco-render-job 에피소드 수 (기본 5, 각 10초)
 #   JOB_SUFFIX      Job 이름 접미어. 기본 현재 시각(MMDDHHMM) — 같은 이름의 Job 충돌을 피한다
 #   FSX_ID / FSX_DNS / FSX_MOUNT / FSX_GIB   fsx-pvc.yaml 용. 비어 있으면 HyperPodEks 스택 Output 에서 읽는다
 #   RECIPES_REF     workshop-setup-job 이 clone 할 브랜치 (기본 feat/e2e-workshop)
@@ -50,6 +54,9 @@ export PRIORITY="${PRIORITY:-training-priority}"
 export NUM_ENVS="${NUM_ENVS:-2048}"
 export MAX_ITERATIONS="${MAX_ITERATIONS:-300}"
 export TOTAL_STEPS="${TOTAL_STEPS:-1000000}"
+export LOG_DIR="${LOG_DIR:-/fsx/checkpoints/rl}"
+export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}"
+export EPISODES="${EPISODES:-5}"
 export JOB_SUFFIX="${JOB_SUFFIX:-$(date +%m%d%H%M)}"
 export RECIPES_REF="${RECIPES_REF:-feat/e2e-workshop}"
 case "$TEMPLATE" in
@@ -72,7 +79,7 @@ if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z 
 fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
-VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
+VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
 if [[ "$APPLY" == true ]]; then
   envsubst "$VARS" < "$TEMPLATE" | kubectl apply -f -
 else

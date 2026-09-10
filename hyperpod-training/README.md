@@ -123,7 +123,7 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 # DCV 디버그 노드 (시각화 검증)
 ./scripts/scale-cluster.sh debug 1 --wait
 
-# MuJoCo RL 용 CPU 노드 (GPU 쿼터가 없는 계정, 워크숍 모듈 9B)
+# MuJoCo RL 용 CPU 노드 (Slurm 경로, 워크숍 부록 A4)
 ./scripts/scale-cluster.sh cpu-c5-4x 1 --wait
 ```
 
@@ -133,7 +133,7 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 > `-c gpuCount=1` 재배포 방식도 유효합니다(이때 기존 배포에 사용한 다른 context
 > 값들을 반드시 함께 지정).
 
-## MuJoCo (CPU) RL — GPU 노드 없이 학습·검증 (워크숍 모듈 9B)
+## MuJoCo (CPU) RL — GPU 노드 없이 학습·검증 (워크숍 부록 A4)
 
 `ml.g5.*` cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정 등)을 위한 경로. CPU 그룹
 (`cpu-c5-4x`, 16 vCPU)에서 SO-101 Reach 태스크를 MuJoCo + Stable-Baselines3(PPO)로 학습하고,
@@ -166,7 +166,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 | `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상 |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
 
-## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 8B/9C)
+## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 7~10, RL 트랙 메인 경로)
 
 같은 CDK 앱에 `-c orchestrator=eks`를 주면 Slurm 스택과 별개로 **EKS 오케스트레이션 HyperPod** 스택
 `HyperPodEks-<ACCOUNT_ID>`(클러스터 `hyperpod-eks-<ACCOUNT_ID>`)를 배포한다. Slurm 경로에서 소개만 하고
@@ -198,7 +198,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 ```
 
 두 프로필 모두 배포할 수 있다. `profile=workshop-studio`(이벤트 계정)는 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
-상시 시스템 노드(ml.c5.4xlarge)에서 CPU 경로(모듈 9C §9C.9 MuJoCo)로 관측·거버넌스 실습을 진행한다. 이벤트에서는 프로비저너
+시스템 그룹 cpu-c5-4x(ml.c5.4xlarge)를 2대로 올려 MuJoCo CPU 경로(모듈 8~10)로 학습·거버넌스·관측 실습을 진행한다. 이벤트에서는 프로비저너
 템플릿(`physical-ai-on-aws/static/e2e-workshop-provisioner.yaml`)의 `DeployHyperPodEks=true`가 이 스택을 미리 배포한다.
 
 ### 배포
@@ -240,25 +240,27 @@ kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | bas
 
 ```bash
 cd hyperpod-training/k8s-templates
+../scripts/scale-cluster.sh cpu-c5-4x 2 --wait --cluster hyperpod-eks-<ACCOUNT_ID>   # 학습용 CPU 노드 1대 추가 (~3분)
 ./render.sh fsx-pvc.yaml --apply                                   # team-a 네임스페이스에 /fsx PV+PVC
 ./render.sh setup/workshop-setup-job.yaml --apply                  # 최초 1회: 레시피·태스크 패키지를 /fsx 에
-MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU, Kueue 큐 경유)
+./render.sh rl/mujoco-setup-job.yaml --apply                       # 최초 1회: /fsx/envs/mujoco venv (~4분)
+TOTAL_STEPS=1000000 ./render.sh rl/mujoco-train-job.yaml --apply   # MuJoCo SO-101 Reach (CPU 12 vCPU, Kueue 큐 경유, ~5분)
 kubectl get workloads,jobs,pods -n hyperpod-ns-team-a
-kubectl logs -n hyperpod-ns-team-a -l app=isaaclab-rl -f
+kubectl logs -n hyperpod-ns-team-a -l app=mujoco-rl -f
+./render.sh rl/mujoco-render-job.yaml --apply                      # 정책 검증: 성공률 + mp4/gif (OSMesa, ~5분)
 
-# GPU 쿼터가 없는 계정: team-b 의 CPU 할당량으로 MuJoCo
-NAMESPACE=hyperpod-ns-team-b ./render.sh fsx-pvc.yaml --apply
-NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-setup-job.yaml --apply
-NAMESPACE=hyperpod-ns-team-b ./render.sh rl/mujoco-train-job.yaml --apply
+# GPU 쿼터가 있는 계정(모듈 8 GPU 확장 절): Isaac Lab
+../scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>
+MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU)
 ```
 
 | 파일 | 역할 |
 |---|---|
 | `k8s-templates/render.sh` | `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` 등 치환 + `--apply` |
 | `k8s-templates/fsx-pvc.yaml` | 팀 네임스페이스용 FSx PV+PVC (정적 PV는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍) |
-| `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm 모듈 9 §9.3 대응) |
+| `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm 부록 A3 §A3.3 대응) |
 | `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue 라벨 (finetune_isaaclab.sbatch 대응) |
-| `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응) |
+| `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응), 정책 검증 영상 (play_mujoco.sbatch 대응) |
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana(AMG) 사용자 · 정책 생성/삭제 |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |

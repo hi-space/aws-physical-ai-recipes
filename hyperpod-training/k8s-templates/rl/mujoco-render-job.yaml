@@ -1,0 +1,72 @@
+# MuJoCo(CPU) 정책 검증 Job — 학습된 정책을 노이즈 없이 몇 에피소드 실행해 성공률을 재고, 프레임을 소프트웨어
+# 렌더러로 그려 mp4/gif 로 저장한다 (모듈 10). Slurm 경로의 slurm-templates/rl/play_mujoco.sbatch 에 해당.
+# 영상은 체크포인트 옆 videos/ 에 쓰이고 FSx DRA 가 S3 checkpoints/ 로 내보낸다.
+# 렌더: ./render.sh rl/mujoco-render-job.yaml --apply
+#       CHECKPOINT=untrained EPISODES=2 ./render.sh rl/mujoco-render-job.yaml --apply   # 학습 전 정책 비교용
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mujoco-render-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  labels:
+    app: mujoco-render
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: mujoco-render
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.c5.4xlarge
+      containers:
+        - name: render
+          image: public.ecr.aws/docker/library/python:3.11
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              # 오프스크린 렌더링에는 소프트웨어 OpenGL(OSMesa) 이 필요하다. 컨테이너 이미지에 없으므로 시작 시 설치한다(약 1분).
+              # (EGL 은 GPU/DRM 장치가 없는 컨테이너에서 초기화에 실패하므로 쓰지 않는다.)
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq && apt-get install -y -qq libosmesa6 >/dev/null
+              if [ "${CHECKPOINT}" = "untrained" ]; then
+                MODEL_ARGS="--untrained --video_dir /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/videos"
+              else
+                [ -f "${CHECKPOINT}" ] || { echo "ERROR: checkpoint not found: ${CHECKPOINT}"; ls /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/ || true; exit 1; }
+                MODEL_ARGS="--checkpoint ${CHECKPOINT}"
+              fi
+              exec /fsx/envs/mujoco/bin/python \
+                /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/play_mujoco.py \
+                --task "${TASK}" --episodes "${EPISODES}" ${MODEL_ARGS}
+          env:
+            - name: CHECKPOINT
+              value: "${CHECKPOINT}"
+            - name: EPISODES
+              value: "${EPISODES}"
+            - name: TASK
+              value: "${TASK}"
+            - name: MUJOCO_GL
+              value: osmesa
+            - name: MUJOCO_MENAGERIE_DIR
+              value: /fsx/scratch/mujoco_menagerie
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc

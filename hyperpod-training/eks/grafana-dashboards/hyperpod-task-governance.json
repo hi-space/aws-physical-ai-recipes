@@ -264,7 +264,7 @@
         },
         {
           "refId": "C",
-          "expr": "sum by (cluster_queue) (kueue_cluster_queue_borrowing_usage{resource=\"nvidia.com/gpu\"})",
+          "expr": "clamp_min(sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource=\"nvidia.com/gpu\"}) - sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"nvidia.com/gpu\"}), 0)",
           "legendFormat": "borrowed {{cluster_queue}}"
         }
       ],
@@ -299,6 +299,123 @@
       }
     },
     {
+      "id": 10,
+      "type": "timeseries",
+      "title": "ClusterQueue resource usage: cpu (ml.c5.4xlarge flavor, vCPU)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource=\"cpu\", flavor=\"ml.c5.4xlarge\"})",
+          "legendFormat": "used {{cluster_queue}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"cpu\", flavor=\"ml.c5.4xlarge\"})",
+          "legendFormat": "quota {{cluster_queue}}"
+        },
+        {
+          "refId": "C",
+          "expr": "clamp_min(sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource=\"cpu\", flavor=\"ml.c5.4xlarge\"}) - sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"cpu\", flavor=\"ml.c5.4xlarge\"}), 0)",
+          "legendFormat": "borrowed {{cluster_queue}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "quota.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "borrowed.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CPU requested by running pods per team namespace (vCPU)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\", namespace=~\"hyperpod-ns-.*\"} * on (namespace, pod) group_left() (kube_pod_status_phase{phase=\"Running\"} == 1))",
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 7,
       "type": "timeseries",
       "title": "GPU utilization per node (DCGM)",
@@ -310,7 +427,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 23
       },
       "targets": [
         {
@@ -345,7 +462,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 23
       },
       "targets": [
         {
@@ -378,7 +495,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 32
       },
       "targets": [
         {

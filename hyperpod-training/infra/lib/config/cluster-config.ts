@@ -125,7 +125,7 @@ export function buildGpuGroups(
 }
 
 /**
- * CPU 인스턴스 그룹 — MuJoCo RL(모듈 9B) 용.
+ * CPU 인스턴스 그룹 — MuJoCo RL(부록 A4) 용.
  *
  * GPU cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정 포함)에서도 RL 트랙을 끝까지
  * 진행할 수 있게 하는 그룹이다. MuJoCo 물리 + PPO(Stable-Baselines3)는 vCPU 하나에

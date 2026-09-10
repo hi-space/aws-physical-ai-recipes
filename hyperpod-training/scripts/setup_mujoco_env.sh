@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup the MuJoCo (CPU) RL environment on HyperPod — module 9B
+# Setup the MuJoCo (CPU) RL environment on HyperPod (appendix A4, module 8 setup Job)
 #
 # This script:
 #   1. Creates a Python venv on FSx (/fsx/envs/mujoco) shared by every node
@@ -52,7 +52,7 @@ if ! mountpoint -q /fsx; then
     exit 1
 fi
 if [ ! -d "${WORKSHOP_PKG}" ]; then
-    echo "ERROR: ${WORKSHOP_PKG} not found. Download the workshop code to /fsx/scratch first (module 9B)."
+    echo "ERROR: ${WORKSHOP_PKG} not found. Download the workshop code to /fsx/scratch first (appendix A4)."
     exit 1
 fi
 if ! python3 -c "import venv, ensurepip" 2>/dev/null; then

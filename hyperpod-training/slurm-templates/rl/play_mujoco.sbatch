@@ -7,7 +7,7 @@
 #SBATCH --output=/fsx/scratch/logs/mujoco-play-%j.out
 #SBATCH --error=/fsx/scratch/logs/mujoco-play-%j.err
 
-# Evaluate a trained SO-101 MuJoCo policy and record it as mp4/gif on a CPU node (module 9B)
+# Evaluate a trained SO-101 MuJoCo policy and record it as mp4/gif on a CPU node (appendix A4)
 #
 # Runs play_mujoco.py: a few deterministic episodes → success rate / final distance, plus an
 # offscreen-rendered video written next to the checkpoint (synced to S3 by the FSx data

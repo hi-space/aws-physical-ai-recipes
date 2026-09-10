@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate a trained SO-101 MuJoCo policy and record it as mp4/gif — no GPU or display needed.
 
-CPU counterpart of ``play_isaaclab.py --video`` (module 10). Runs the policy for a few
+CPU counterpart of ``play_isaaclab.py --video`` (module 10 GPU extension, appendix A5). Runs the policy for a few
 episodes, prints success rate / final distance, and renders every frame offscreen with
 MuJoCo's software renderer so the result can be watched from S3 or code-server.
 
