@@ -125,7 +125,7 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 # DCV 디버그 노드 (시각화 검증)
 ./scripts/scale-cluster.sh debug 1 --wait
 
-# MuJoCo RL 용 CPU 노드 (Slurm 경로, 워크숍 부록 E3)
+# MuJoCo RL 용 CPU 노드 (Slurm 경로, Slurm 경로 S3)
 ./scripts/scale-cluster.sh cpu-c5-4x 1 --wait
 ```
 
@@ -135,7 +135,7 @@ GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비
 > `-c gpuCount=1` 재배포 방식도 유효합니다(이때 기존 배포에 사용한 다른 context
 > 값들을 반드시 함께 지정).
 
-## MuJoCo (CPU) RL — GPU 노드 없이 학습·검증 (워크숍 부록 E3)
+## MuJoCo (CPU) RL — GPU 노드 없이 학습·검증 (Slurm 경로 S3)
 
 `ml.g5.*` cluster 쿼터가 0인 계정(Workshop Studio 이벤트 계정 등)을 위한 경로. CPU 그룹
 (`cpu-c5-4x`, 16 vCPU)에서 SO-101 Reach 태스크를 MuJoCo + Stable-Baselines3(PPO)로 학습하고,
@@ -271,7 +271,7 @@ kubectl get workloads -A
 |---|---|
 | `k8s-templates/render.sh` | `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` 등 치환 + `--apply`. 기본 네임스페이스 `rl`(없으면 생성), `hyperpod-ns-*` 를 주면 Kueue 라벨을 채우고 그 외에는 라벨 줄을 제거 |
 | `k8s-templates/fsx-pvc.yaml` | 네임스페이스용 FSx PV+PVC (정적 PV는 PVC 하나에만 바인딩되므로 네임스페이스마다 한 쌍) |
-| `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm 부록 E2 §E2.3 대응) |
+| `k8s-templates/setup/workshop-setup-job.yaml` | 레시피 clone + Isaac Lab 태스크 패키지 배치 (Slurm Slurm 경로 S2 §S2.3 대응) |
 | `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue 라벨 (finetune_isaaclab.sbatch 대응) |
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응), 정책 검증 영상 (play_mujoco.sbatch 대응) |
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |

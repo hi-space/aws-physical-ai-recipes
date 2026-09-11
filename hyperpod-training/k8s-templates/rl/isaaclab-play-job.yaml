@@ -1,5 +1,5 @@
 # Isaac Lab 정책 재생 Job — HyperPod GPU 노드의 DCV 데스크톱에 Isaac Sim 창을 띄운다 (모듈 10 §10.7 방법 B).
-# Slurm 경로 부록 E4 의 "enroot start ... play_isaaclab.py" 에 해당한다.
+# Slurm 경로 S4 의 "enroot start ... play_isaaclab.py" 에 해당한다.
 #
 # - GPU 노드(gpu-g5-8x)에는 lifecycle 스크립트(on_create_eks.sh → setup_dcv.sh)가 GNOME 데스크톱과 DCV 서버,
 #   'workspace' 가상 세션을 만들어 둔다. 이 Job 은 노드의 X 소켓 디렉터리(/tmp/.X11-unix)를 hostPath 로 마운트해

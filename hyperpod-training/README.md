@@ -135,7 +135,7 @@ right before training and back down to 0 when done. Use the script that wraps
 > redeploying with `-c gpuCount=1` also works (in that case, be sure to also specify the other
 > context values used in the existing deployment).
 
-## MuJoCo (CPU) RL — Train and Verify Without a GPU Node (Workshop Appendix E3)
+## MuJoCo (CPU) RL — Train and Verify Without a GPU Node (Workshop Slurm Path S3)
 
 A path for accounts where the `ml.g5.*` cluster quota is 0 (e.g. Workshop Studio event accounts). CPU group
 (`cpu-c5-4x`, 16 vCPU) trains the SO-101 Reach task with MuJoCo + Stable-Baselines3(PPO), then
@@ -271,7 +271,7 @@ kubectl get workloads -A
 |---|---|
 | `k8s-templates/render.sh` | Substitutes `${NAMESPACE}` `${QUEUE}` `${PRIORITY}` `${TASK}` and others + `--apply`. Default namespace `rl` (created if absent); given `hyperpod-ns-*` it fills in the Kueue labels, otherwise it strips the label lines |
 | `k8s-templates/fsx-pvc.yaml` | FSx PV+PVC for a namespace (a static PV binds to only one PVC, so each namespace needs its own pair) |
-| `k8s-templates/setup/workshop-setup-job.yaml` | Clones the recipe + places the Isaac Lab task package (corresponds to Slurm appendix E2 §E2.3) |
+| `k8s-templates/setup/workshop-setup-job.yaml` | Clones the recipe + places the Isaac Lab task package (corresponds to Slurm appendix E2 §S2.3) |
 | `k8s-templates/rl/isaaclab-train-job.yaml` | `nvcr.io/nvidia/isaac-lab:2.3.0`, `nvidia.com/gpu: 1`, Kueue labels (corresponds to finetune_isaaclab.sbatch) |
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (corresponds to train_mujoco.sbatch), policy verification video (corresponds to play_mujoco.sbatch) |
 | `k8s-templates/governance/*.json` | Inputs for cluster policy, team-a/team-b compute quota |
