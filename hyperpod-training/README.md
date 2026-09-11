@@ -200,7 +200,7 @@ actual use the two operational pillars that the Slurm path only introduced.
 ```
 
 Both profiles can be deployed. `profile=workshop-studio` (event account) has a GPU cluster quota of 0, so it leaves the GPU group at 0 and
-trains/verifies through the MuJoCo CPU path (modules 9-10) on the single always-on system node cpu-c5-4x (ml.c5.4xlarge), then scales it to 2 in module 11 for the governance/observability exercises. At events, the provisioner
+trains/verifies through the MuJoCo CPU path (module 9) on the single always-on system node cpu-c5-4x (ml.c5.4xlarge), then scales it to 2 in module 11 for the governance/observability exercises. At events, the provisioner
 template (`physical-ai-on-aws/static/e2e-workshop-provisioner.yaml`)'s `DeployHyperPodEks=true` pre-deploys this stack.
 
 ### Deploy
@@ -238,7 +238,7 @@ kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | bas
 
 ### Submitting Jobs (k8s-templates)
 
-Modules 9-10 (train / verify): plain namespace `rl`, scheduled straight onto the always-on system node without Kueue
+Module 9 (train / verify): plain namespace `rl`, scheduled straight onto the always-on system node without Kueue
 
 ```bash
 cd hyperpod-training/k8s-templates
@@ -250,7 +250,7 @@ kubectl get jobs,pods -n rl
 kubectl logs -n rl -l app=mujoco-rl -f
 ./render.sh rl/mujoco-render-job.yaml --apply                      # policy verification: success rate + mp4/gif (OSMesa, ~5 min)
 
-# For accounts with a GPU quota (module 9 §9.5): Isaac Lab
+# For accounts with a GPU quota (module 10): Isaac Lab
 ../scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU)
 ```

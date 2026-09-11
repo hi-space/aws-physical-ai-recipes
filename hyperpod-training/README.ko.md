@@ -200,7 +200,7 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 ```
 
 두 프로필 모두 배포할 수 있다. `profile=workshop-studio`(이벤트 계정)는 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
-상시 시스템 그룹 cpu-c5-4x(ml.c5.4xlarge) 1대에서 MuJoCo CPU 경로(모듈 9~10)로 학습·검증하고, 모듈 11에서 2대로 올려 거버넌스·관측 실습을 진행한다. 이벤트에서는 프로비저너
+상시 시스템 그룹 cpu-c5-4x(ml.c5.4xlarge) 1대에서 MuJoCo CPU 경로(모듈 9)로 학습·검증하고, 모듈 11에서 2대로 올려 거버넌스·관측 실습을 진행한다. 이벤트에서는 프로비저너
 템플릿(`physical-ai-on-aws/static/e2e-workshop-provisioner.yaml`)의 `DeployHyperPodEks=true`가 이 스택을 미리 배포한다.
 
 ### 배포
@@ -238,7 +238,7 @@ kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | bas
 
 ### Job 제출 (k8s-templates)
 
-모듈 9~10 (학습·검증): 일반 네임스페이스 `rl`, Kueue 없이 상시 시스템 노드에서 바로 스케줄
+모듈 9 (학습·검증): 일반 네임스페이스 `rl`, Kueue 없이 상시 시스템 노드에서 바로 스케줄
 
 ```bash
 cd hyperpod-training/k8s-templates
@@ -250,7 +250,7 @@ kubectl get jobs,pods -n rl
 kubectl logs -n rl -l app=mujoco-rl -f
 ./render.sh rl/mujoco-render-job.yaml --apply                      # 정책 검증: 성공률 + mp4/gif (OSMesa, ~5분)
 
-# GPU 쿼터가 있는 계정(모듈 9B): Isaac Lab
+# GPU 쿼터가 있는 계정(모듈 10): Isaac Lab
 ../scripts/scale-cluster.sh gpu-g5-8x 1 --wait --cluster hyperpod-eks-<ACCOUNT_ID>
 MAX_ITERATIONS=50 ./render.sh rl/isaaclab-train-job.yaml --apply   # Isaac Lab SO-101 Reach (GPU)
 ```
