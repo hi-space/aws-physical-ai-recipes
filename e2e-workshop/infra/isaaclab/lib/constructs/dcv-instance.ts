@@ -51,7 +51,7 @@ export interface DcvInstanceProps {
    * 워크스테이션 모드 (기본 gpu).
    * cpu: GPU가 없는 인스턴스. UserData에서 nvidia-driver.sh 단계만 생략한다.
    *      common.sh(데스크톱·DCV·ROS2), isaac-lab.sh(Docker 이미지 빌드),
-   *      models-download.sh, fsx-mount.sh, code-server.sh, dcv-proxy-bridge.sh는
+   *      models-download.sh, fsx-mount.sh, s3files-client.sh, code-server.sh, dcv-proxy-bridge.sh는
    *      GPU 모드와 동일하게 실행되어
    *      파일·이미지·경로가 같아진다.
    */
@@ -113,6 +113,9 @@ export class DcvInstanceConstruct extends Construct {
       },
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/AmazonS3FullAccess',
+        // S3 Files 마운트 헬퍼(mount.s3files)가 마운트 타깃에 IAM 인증으로 붙기 위한 권한.
+        // GrootFinetune 스택의 아티팩트 버킷 파일시스템을 /mnt/s3/groot 로 마운트한다.
+        'arn:aws:iam::aws:policy/AmazonS3FilesClientFullAccess',
         'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
         'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
         'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess',
@@ -460,6 +463,10 @@ export class DcvInstanceConstruct extends Construct {
       'echo "===== [$(date)] STAGE: fsx-mount.sh ====="',
       '# FSx는 옵션(enableFsx). FSX_* 가 비어 있으면 스크립트가 건너뛰고, 마운트 실패도 [WARN]으로만 남긴다.',
       'source /tmp/userdata-scripts/fsx-mount.sh || echo "[WARN] fsx-mount.sh failed"',
+      'echo "===== [$(date)] STAGE: s3files-client.sh ====="',
+      '# S3 Files 클라이언트(amazon-efs-utils) + 마운트 헬퍼(s3files-mount) 설치. 파일시스템 자체는',
+      '# GrootFinetune 스택이 만들므로 여기서는 마운트하지 않는다. 실패는 [WARN]으로만 남긴다.',
+      'source /tmp/userdata-scripts/s3files-client.sh || echo "[WARN] s3files-client.sh failed"',
       ...((props.enableCodeServer ?? true)
         ? [
             'source /tmp/userdata-scripts/code-server.sh || { echo "[FAIL] code-server.sh failed"; USERDATA_EXIT=1; }',

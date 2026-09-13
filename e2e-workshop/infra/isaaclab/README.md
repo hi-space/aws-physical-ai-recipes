@@ -654,6 +654,7 @@ Each module's `START`/`END` markers let you identify the current stage:
 ===== [date] STAGE: isaac-lab.sh (background) =====      ← Isaac Lab Docker build (background, takes the longest)
 ===== [date] STAGE: models-download.sh (background) ===== ← Model weight download (background)
 ===== [date] STAGE: fsx-mount.sh =====      ← Shared FSx mount (/fsx). SKIPPED if enableFsx=false (default)
+===== [date] STAGE: s3files-client.sh ===== ← S3 Files client (amazon-efs-utils) + s3files-mount helper install
 ===== [date] STAGE: waiting for background jobs ... ===== ← Waiting for background jobs to finish
 ```
 
@@ -677,6 +678,17 @@ If the stack is in CREATE_FAILED:
 ===== [date] START: nvidia-driver.sh =====
 # If it stops here, the failure is in nvidia-driver.sh
 ```
+
+### S3 Files Mount (artifacts bucket, default path)
+
+`s3files-client.sh` installs the Amazon S3 Files client (`amazon-efs-utils` >= 3.0, `mount.s3files`) and the mount helper `/usr/local/bin/s3files-mount`. The file system itself is created over the artifacts bucket by the [`infra/groot/`](../groot/) stack (on by default), so after the GrootFinetune stack is deployed you mount it on the DCV instance with one line:
+
+```bash
+sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot     # reads the S3FilesFileSystemId stack Output and mounts it
+ls /mnt/s3/groot/models/groot-sm/                               # SageMaker-exported checkpoints appear directly
+```
+
+The helper registers the mount in `/etc/fstab` with `_netdev,nofail`, so it remounts after a reboot (verified 2026-09-13, us-west-2, g6.4xlarge). S3 objects appear as root-owned `644/755`, so the `ubuntu` user can read but writing needs `sudo`. Reads of 1 MiB or more stream straight from S3 (about 140 MB/s single stream, about 760 MB/s with 8 parallel readers); the Policy Server loads the 6.5 GB GR00T checkpoint in about 35 s. Files written through the mount show up in S3 after roughly 60 s. If the client install fails, only a `[WARN]` is logged and the deployment continues; checkpoints can still be pulled with `aws s3 sync`.
 
 ### FSx Mount (when `enableFsx=true`)
 
@@ -705,7 +717,8 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - NVIDIA driver: nvidia-driver.sh automatically detects the driver version pre-installed on the DLAMI and replaces it with the profile-specified version (570). Both stable (DLAMI 550→570 upgrade) and latest (DLAMI 580→570 replacement) are handled automatically. xorg.conf is generated based on lspci, independent of kernel module state
 - DCV GL: DCV GL (`nice-dcv-gl`) is not included on the DLAMI. `common.sh` installs DCV GL together when installing DCV and runs `dcvgladmin enable`
 - xorg.conf: `nvidia-xconfig --enable-all-gpus` creates 4 Screens in a multi-GPU environment, which conflicts with DCV. An xorg.conf must be generated directly with a single-GPU + `Virtual 4096 2160` + `HardDPMS false` configuration. Do not use `nvidia-xconfig`
-- FSx (optional, `enableFsx=true`): automatically registered in `/etc/fstab` so it remounts automatically after a reboot. The default is no FSx, using S3 → `aws s3 sync` instead
+- S3 Files (default): the `s3files-mount` helper registers the mount in `/etc/fstab` so it remounts after a reboot. It is NFS, so the `ubuntu` user is read-only (write with `sudo`)
+- FSx (optional, `enableFsx=true`): automatically registered in `/etc/fstab` so it remounts automatically after a reboot. The default has no FSx: S3 Files mount (or `aws s3 sync`)
 - Single-AZ structure: only one private subnet (and, if `enableFsx=true`, one FSx filesystem) is created in the single AZ chosen by the AZ Selector. This is not a problem because the DCV instance checks capacity at deployment time. It could be made to span multiple AZs, but the current design prioritizes the simplicity of one-click deployment and keeps a single-AZ structure.
 - CreationPolicy timeout: set to 120 minutes. Using the DLAMI, with the driver/Docker pre-installed, shortens UserData execution time. On error, cfn-signal reports failure immediately
 - latest (Ubuntu 24.04) CDK deployment: the AWS CLI missing issue has been resolved by switching to the DLAMI
@@ -740,6 +753,7 @@ isaac-lab-golden-template/
 │   │   ├── isaac-lab.sh           # Isaac Lab Docker build
 │   │   ├── models-download.sh     # Model weight download to local disk
 │   │   ├── fsx-mount.sh           # Shared FSx for Lustre mount (/fsx, when enableFsx=true)
+│   │   ├── s3files-client.sh      # S3 Files client + s3files-mount helper install (mount happens after GrootFinetune deploy)
 │   │   └── code-server.sh         # code-server + Claude Code installation (optional)
 │   └── workshop/
 │       ├── Dockerfile             # For building the Isaac Lab Docker image

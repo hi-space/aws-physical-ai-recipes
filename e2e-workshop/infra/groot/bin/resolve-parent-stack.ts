@@ -10,7 +10,7 @@ import {
   CloudFormationClient,
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
-import { EC2Client, DescribeSubnetsCommand } from '@aws-sdk/client-ec2';
+import { EC2Client, DescribeSubnetsCommand, DescribeVpcsCommand } from '@aws-sdk/client-ec2';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -18,6 +18,8 @@ export interface ParentStackParams {
   vpcId: string;
   privateSubnetId: string;
   availabilityZone: string;
+  /** VPC CIDR (S3 Files 마운트 타깃 SG 인바운드 소스). */
+  vpcCidr: string;
   /** 공유 FSx for Lustre ID. 부모 스택이 -c enableFsx=true 로 배포된 경우에만 존재한다. */
   fsxFileSystemId?: string;
 }
@@ -68,7 +70,10 @@ export async function resolveParentStack(accountId: string, region: string): Pro
   const vpcId = Subnets[0].VpcId!;
   const availabilityZone = Subnets[0].AvailabilityZone!;
 
-  return { vpcId, privateSubnetId, availabilityZone, fsxFileSystemId };
+  const { Vpcs } = await ec2.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }));
+  const vpcCidr = Vpcs?.[0]?.CidrBlock ?? '10.0.0.0/16';
+
+  return { vpcId, privateSubnetId, availabilityZone, vpcCidr, fsxFileSystemId };
 }
 
 export function saveToContext(values: Record<string, string>): void {
@@ -97,6 +102,7 @@ if (require.main === module) {
       console.log(`  vpcId:              ${params.vpcId}`);
       console.log(`  privateSubnetId:    ${params.privateSubnetId}`);
       console.log(`  availabilityZone:   ${params.availabilityZone}`);
+      console.log(`  vpcCidr:            ${params.vpcCidr}`);
       console.log(`  fsxFileSystemId:    ${params.fsxFileSystemId ?? '(없음 — 부모 스택 enableFsx=false, DRA 생략)'}`);
     })
     .catch((err) => {

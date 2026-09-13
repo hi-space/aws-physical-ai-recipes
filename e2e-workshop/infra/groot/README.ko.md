@@ -6,13 +6,13 @@ NVIDIA GR00T VLA 모델을 AWS에서 fine-tuning하기 위한 인프라를 한 �
 
 ## Overview
 
-상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. SageMaker 학습 잡이 압축 해제된 체크포인트를 S3 아티팩트 버킷으로 export하고, IsaacLab DCV 인스턴스에서 `aws s3 sync` 한 번으로 받아 시뮬레이션에서 바로 검증합니다. 부모 스택이 `-c enableFsx=true`로 배포된 경우에는 그 FSx에 DRA를 걸어 `/fsx/groot/...`에 자동으로 나타나게 합니다.
+상위 [`infra/isaaclab/`](../isaaclab/)이 만든 VPC를 그대로 가져와서, 그 위에 GR00T 학습·추론에 필요한 자원을 추가로 올립니다. SageMaker 학습 잡이 압축 해제된 체크포인트를 S3 아티팩트 버킷으로 export하고, IsaacLab DCV 인스턴스는 그 버킷을 Amazon S3 Files 파일시스템으로 `/mnt/s3/groot`에 마운트해(`sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot`) 다운로드 없이 시뮬레이션에서 바로 검증합니다(`aws s3 sync`로 받아도 됩니다). 부모 스택이 `-c enableFsx=true`로 배포된 경우에는 그 FSx에 DRA를 걸어 `/fsx/groot/...`에 자동으로 나타나게 합니다.
 
 1인 1계정 전제의 **단일 스택**입니다.
 
 | 스택 | 리소스 |
 |------|--------|
-| **GrootFinetune-`<ACCOUNT_ID>`** | ECR 레포지토리 2개(GR00T 런타임 `groot-runtime` + SageMaker 학습 `groot-sm-training`), 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개(`groot-runtime-build`, `groot-sm-training-build`), SageMaker Studio Domain + UserProfile, S3 아티팩트 버킷(`groot-sm-artifacts-<ACCOUNT_ID>`), 공유 FSx DRA, IAM 역할들, MLflow tracking server |
+| **GrootFinetune-`<ACCOUNT_ID>`** | ECR 레포지토리 2개(GR00T 런타임 `groot-runtime` + SageMaker 학습 `groot-sm-training`), 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개(`groot-runtime-build`, `groot-sm-training-build`), SageMaker Studio Domain + UserProfile, S3 아티팩트 버킷(`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), 그 버킷 위의 S3 Files 파일시스템 + 마운트 타깃(NFS 2049 SG, 서비스 역할 `GR00TS3FilesRole-*`), (옵션) 공유 FSx DRA, IAM 역할들, MLflow tracking server |
 
 ## Prerequisites
 
@@ -48,9 +48,10 @@ npx ts-node bin/update-config.ts --region us-east-1
 | `useStableGroot` | `true` | 검증된 릴리스 커밋 사용 (`false`면 최신) |
 | `bucketName` | `groot-sm-artifacts-<ACCOUNT_ID>` | SageMaker 아티팩트 버킷 이름 |
 | `mlflowSize` | `Small` | MLflow tracking server 사이즈 |
-| `vpcId` / `privateSubnetId` / `availabilityZone` / `fsxFileSystemId` | (자동 탐색) | 부모 스택 자동 탐색을 건너뛰는 수동 오버라이드 |
+| `enableS3Files` | `true` | 아티팩트 버킷을 S3 Files 파일시스템으로 노출하고 부모 프라이빗 서브넷에 마운트 타깃을 만든다. Output `S3FilesFileSystemId`, `S3FilesMountCommand` 제공. `false`면 생략(체크포인트는 `aws s3 sync`) |
+| `vpcId` / `privateSubnetId` / `availabilityZone` / `vpcCidr` / `fsxFileSystemId` | (자동 탐색) | 부모 스택 자동 탐색을 건너뛰는 수동 오버라이드 (`vpcCidr`는 S3 Files 마운트 타깃 SG 의 NFS 인바운드 소스) |
 
-`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<ACCOUNT_ID>` 스택의 outputs에서 VPC ID, Private Subnet, (있으면) 공유 FSx ID를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다 — 부모 스택의 FSx를 없앤 뒤 재배포할 때는 `cdk.context.json`의 `fsxFileSystemId`를 지워야 DRA가 생성되지 않습니다. 부모 IsaacLab 스택이 없으면 배포가 실패하므로, 반드시 IsaacLab 스택을 먼저 배포하세요.
+`bin/groot-finetune-app.ts`가 `IsaacLab-<Profile>-<ACCOUNT_ID>` 스택의 outputs에서 VPC ID, Private Subnet, VPC CIDR, (있으면) 공유 FSx ID를 자동으로 가져와 사용합니다. 결과는 `cdk.context.json`에 캐시되어 다음 배포에서 재사용됩니다 — 부모 스택의 FSx를 없앤 뒤 재배포할 때는 `cdk.context.json`의 `fsxFileSystemId`를 지워야 DRA가 생성되지 않습니다. 부모 IsaacLab 스택이 없으면 배포가 실패하므로, 반드시 IsaacLab 스택을 먼저 배포하세요.
 
 ## Project Structure
 

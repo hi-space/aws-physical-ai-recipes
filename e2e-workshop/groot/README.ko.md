@@ -13,7 +13,7 @@ GR00T는 카메라 영상과 자연어 명령("오렌지를 집어라")을 입�
 ```
 HF 데이터셋 ID → pipeline/ (TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel)
                    ├─→ s3://<bucket>/<model.s3_prefix>/<execution-id>/  (train.py가 source에서 직접 export)
-                   │       └─→ DCV 인스턴스에서 aws s3 sync → IsaacSim에서 로드
+                   │       └─→ DCV 인스턴스의 S3 Files 마운트(/mnt/s3/groot) → IsaacSim에서 로드
                    └─→ Model Registry (SmokeGate 통과 시 Approved 등록)
 ```
 
@@ -112,7 +112,7 @@ groot/
 
 | 경로 | 언제 쓰나 |
 |--------|-----------|
-| `aws s3 sync` → IsaacSim | 학습 잡이 source에서 직접 업로드한 압축되지 않은 S3 prefix를 DCV 인스턴스 로컬 디스크로 받아 IsaacSim에서 모델을 바로 로드 (기본 경로) |
+| S3 Files 마운트 → IsaacSim | DCV 인스턴스가 아티팩트 버킷을 `/mnt/s3/groot`에 마운트하므로 학습 잡이 업로드한 압축되지 않은 prefix가 그대로 보이고 IsaacSim에서 바로 로드 (기본 경로; 로컬 디스크로 `aws s3 sync`는 대안) |
 | [`inference/batch-zmq/`](./inference/batch-zmq/) | DCV 인스턴스에서 GR00T Policy Server를 빠르게 ping해 서버가 살아있는지 확인. Isaac Sim과 closed-loop 연결 가능 |
 
 ## Custom Robot

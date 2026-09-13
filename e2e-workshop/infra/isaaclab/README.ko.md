@@ -654,6 +654,7 @@ sudo tail -f /var/log/user-data.log
 ===== [날짜] STAGE: isaac-lab.sh (background) =====      ← Isaac Lab Docker 빌드 (백그라운드, 가장 오래 걸림)
 ===== [날짜] STAGE: models-download.sh (background) ===== ← 모델 가중치 다운로드 (백그라운드)
 ===== [날짜] STAGE: fsx-mount.sh =====      ← 공유 FSx 마운트 (/fsx). enableFsx=false(기본)면 SKIPPED
+===== [날짜] STAGE: s3files-client.sh ===== ← S3 Files 클라이언트(amazon-efs-utils) + s3files-mount 헬퍼 설치
 ===== [날짜] STAGE: waiting for background jobs ... ===== ← 백그라운드 작업 완료 대기
 ```
 
@@ -677,6 +678,17 @@ UserData 실행 중 에러가 발생하면 `trap ERR`에 의해 자동 감지되
 ===== [날짜] START: nvidia-driver.sh =====
 # 여기서 멈추면 nvidia-driver.sh에서 실패
 ```
+
+### S3 Files 마운트 (아티팩트 버킷, 기본 경로)
+
+`s3files-client.sh`가 Amazon S3 Files 클라이언트(`amazon-efs-utils` ≥ 3.0, `mount.s3files`)와 마운트 헬퍼 `/usr/local/bin/s3files-mount`를 설치한다. 파일시스템 자체는 [`infra/groot/`](../groot/) 스택이 아티팩트 버킷 위에 만들므로(기본 on), GrootFinetune 스택 배포 후 DCV 인스턴스에서 한 줄로 마운트한다:
+
+```bash
+sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot     # 스택 Output S3FilesFileSystemId 를 읽어 마운트
+ls /mnt/s3/groot/models/groot-sm/                               # SageMaker export 체크포인트가 바로 보인다
+```
+
+헬퍼는 `/etc/fstab`에 `_netdev,nofail`로 등록해 reboot 후에도 자동 재마운트한다(검증: 2026-09-13, us-west-2, g6.4xlarge). S3 객체는 root 소유 `644/755`로 보이므로 `ubuntu` 사용자는 읽기만 가능하고 쓰기는 `sudo`가 필요하다. 1MiB 이상 읽기는 S3에서 직접 스트리밍되며(단일 스트림 약 140MB/s, 8개 병렬 약 760MB/s), 6.5GB GR00T 체크포인트를 Policy Server가 로드하는 데 약 35초가 걸린다. 파일시스템에 쓴 내용은 약 60초 뒤 S3에 반영된다. 클라이언트 설치가 실패하면 `[WARN]`만 남고 배포는 계속되며, 체크포인트는 `aws s3 sync`로 받아도 된다.
 
 ### FSx 마운트 (`enableFsx=true`인 경우)
 
@@ -705,7 +717,8 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 - NVIDIA 드라이버: nvidia-driver.sh가 DLAMI에 사전 설치된 드라이버 버전을 자동 감지하여 프로필 지정 버전(570)으로 교체. stable(DLAMI 550→570 업그레이드), latest(DLAMI 580→570 교체) 모두 자동 처리. xorg.conf는 lspci 기반으로 생성하여 커널 모듈 상태에 무관
 - DCV GL: DLAMI에 DCV GL(`nice-dcv-gl`)이 포함되지 않음. `common.sh`에서 DCV 설치 시 DCV GL도 함께 설치하고 `dcvgladmin enable` 실행 필요
 - xorg.conf: `nvidia-xconfig --enable-all-gpus`가 멀티 GPU 환경에서 4개 Screen을 생성하여 DCV와 충돌. 단일 GPU + `Virtual 4096 2160` + `HardDPMS false` 설정의 xorg.conf를 직접 생성해야 함. `nvidia-xconfig` 사용 금지
-- FSx(옵션, `enableFsx=true`): `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨. 기본은 FSx 없이 S3 → `aws s3 sync`
+- S3 Files(기본): `s3files-mount` 헬퍼가 `/etc/fstab`에 등록해 reboot 후에도 자동 재마운트됨. NFS 위 마운트라 `ubuntu` 사용자는 읽기 전용(쓰기는 `sudo`)
+- FSx(옵션, `enableFsx=true`): `/etc/fstab`에 자동 등록되어 reboot 후에도 자동 재마운트됨. 기본은 FSx 없이 S3 Files 마운트(또는 `aws s3 sync`)
 - 단일 AZ 구조: AZ Selector가 선택한 단일 AZ에 프라이빗 서브넷(과 `enableFsx=true`면 FSx 파일시스템)이 1개씩만 생성된다. DCV 인스턴스는 배포 시점에 capacity를 확인하므로 문제없다. 여러 AZ에 걸치도록 만들 수도 있으나, 현재는 원클릭 배포 단순성을 우선하여 단일 AZ 구조를 유지한다.
 - CreationPolicy 타임아웃: 120분으로 설정. DLAMI 사용으로 드라이버/Docker 사전 설치되어 UserData 실행 시간 단축. 에러 발생 시 cfn-signal이 즉시 실패 보고
 - latest (Ubuntu 24.04) CDK 배포: DLAMI 전환으로 AWS CLI 미설치 이슈 해결됨
@@ -740,6 +753,7 @@ isaac-lab-golden-template/
 │   │   ├── isaac-lab.sh           # Isaac Lab Docker 빌드
 │   │   ├── models-download.sh     # 모델 가중치 로컬 디스크 다운로드
 │   │   ├── fsx-mount.sh           # 공유 FSx for Lustre 마운트 (/fsx, enableFsx=true 시)
+│   │   ├── s3files-client.sh      # S3 Files 클라이언트 + s3files-mount 헬퍼 설치 (마운트는 GrootFinetune 배포 후)
 │   │   └── code-server.sh         # code-server + Claude Code 설치 (옵션)
 │   └── workshop/
 │       ├── Dockerfile             # Isaac Lab Docker 이미지 빌드용

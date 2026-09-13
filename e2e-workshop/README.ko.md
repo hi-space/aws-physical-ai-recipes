@@ -27,7 +27,7 @@ AWS 위에서 **로봇 AI 모델을 학습부터 배포·평가까지** 한 번�
 - **1인 1계정 모델** — 스택·리소스 식별자에 계정 ID를 자동 사용, 별도 인자 없이 이름이 항상 확정
 - **자동 fallback** — GPU 인스턴스 capacity가 부족한 AZ는 Lambda가 자동 탐지해 가용한 곳에 배포
 - **MLOps 통합** — 학습 잡이 끝에 source에서 압축 해제된 모델을 S3로 직접 업로드하는 단일-스텝 SageMaker Pipeline, 모델 버전·지표는 MLflow로 추적
-- **비압축 export 소비** — export한 S3 prefix를 `aws s3 sync`로 받아 IsaacSim(EC2)에서 tar 해제 없이 바로 로드
+- **비압축 export 소비** — DCV 인스턴스가 아티팩트 버킷을 Amazon S3 Files 파일시스템(`/mnt/s3/groot`)으로 마운트해 export된 prefix를 다운로드·tar 해제 없이 IsaacSim(EC2)에서 바로 로드(`aws s3 sync`도 가능)
 - **Fleet 모니터링** — 분산 학습 워커들의 Rerun 3D 뷰어와 TensorBoard를 한 화면에서 확인하는 Next.js 대시보드
 
 ## Prerequisites
@@ -94,7 +94,7 @@ npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
 # code-server에서 notebooks/02_sagemaker_pipeline.ipynb를 열어 순서대로 실행
 ```
 
-완료 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/` 에 압축되지 않은 모델이 생성됩니다. DCV 인스턴스에서 이 prefix를 `aws s3 sync`로 받아 IsaacSim에서 로드합니다.
+완료 후 `s3://<bucket>/<model.s3_prefix>/<execution-id>/` 에 압축되지 않은 모델이 생성됩니다. DCV 인스턴스에서는 S3 Files 마운트(`sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot`)를 통해 `/mnt/s3/groot/<model.s3_prefix>/<execution-id>/`로 바로 보이며, 거기서 IsaacSim에 로드합니다(`aws s3 sync`로 받아도 됩니다).
 
 ## Project Structure
 

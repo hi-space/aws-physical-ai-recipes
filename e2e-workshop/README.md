@@ -27,7 +27,7 @@ Both tracks share the same underlying infrastructure (VPC · GPU EC2).
 - **One-account-per-person model** — stack and resource identifiers automatically use the account ID, so names are always deterministic with no extra arguments
 - **Automatic fallback** — if an AZ lacks capacity for the GPU instance, a Lambda automatically detects it and deploys to an available one instead
 - **MLOps integration** — a single-step SageMaker Pipeline in which the training job uploads the unpacked model straight to S3 from the source at the end; model versions and metrics are tracked in MLflow
-- **Consuming uncompressed exports** — pull the exported S3 prefix with `aws s3 sync` and load it directly in IsaacSim (EC2) without untarring
+- **Consuming uncompressed exports** — the DCV instance mounts the artifacts bucket as an Amazon S3 Files file system (`/mnt/s3/groot`) and loads the exported prefix directly in IsaacSim (EC2) with no download or untarring (`aws s3 sync` remains a fallback)
 - **Fleet monitoring** — a Next.js dashboard that shows the Rerun 3D viewer and TensorBoard for distributed training workers on one screen
 
 ## Prerequisites
@@ -94,7 +94,7 @@ npx --prefix ../infra/groot ts-node ../infra/groot/bin/update-config.ts \
 # Open notebooks/02_sagemaker_pipeline.ipynb in code-server and run the cells in order
 ```
 
-Once complete, an uncompressed model is produced at `s3://<bucket>/<model.s3_prefix>/<execution-id>/`. Pull this prefix on the DCV instance with `aws s3 sync` and load it in IsaacSim.
+Once complete, an uncompressed model is produced at `s3://<bucket>/<model.s3_prefix>/<execution-id>/`. On the DCV instance it appears at `/mnt/s3/groot/<model.s3_prefix>/<execution-id>/` through the S3 Files mount (`sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot`); load it in IsaacSim from there, or pull it with `aws s3 sync`.
 
 ## Project Structure
 

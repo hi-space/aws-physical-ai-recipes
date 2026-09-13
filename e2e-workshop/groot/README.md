@@ -13,7 +13,7 @@ The three directories connect in the following flow.
 ```
 HF dataset ID → pipeline/ (TransformDataset → GR00TFinetune → SmokeEval → SmokeGate → RegisterModel)
                    ├─→ s3://<bucket>/<model.s3_prefix>/<execution-id>/  (train.py exports directly from source)
-                   │       └─→ aws s3 sync on the DCV instance → load in IsaacSim
+                   │       └─→ S3 Files mount (/mnt/s3/groot) on the DCV instance → load in IsaacSim
                    └─→ Model Registry (registered as Approved if it passes SmokeGate)
 ```
 
@@ -112,7 +112,7 @@ groot/
 
 | Path | When to use it |
 |--------|-----------|
-| `aws s3 sync` → IsaacSim | Pull the uncompressed S3 prefix that the training job uploaded directly from source to the DCV instance's local disk, and load the model directly in IsaacSim (default path) |
+| S3 Files mount → IsaacSim | The DCV instance mounts the artifacts bucket at `/mnt/s3/groot`, so the uncompressed prefix the training job uploaded appears in place and loads directly in IsaacSim (default path; `aws s3 sync` to local disk is the fallback) |
 | [`inference/batch-zmq/`](./inference/batch-zmq/) | Quickly ping the GR00T Policy Server from the DCV instance to check it's alive. Can connect closed-loop with Isaac Sim |
 
 ## Custom Robot

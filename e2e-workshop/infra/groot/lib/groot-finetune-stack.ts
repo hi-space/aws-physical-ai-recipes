@@ -12,6 +12,7 @@ import { SmContainerBuildProjects } from './constructs/sm-codebuild-projects';
 import { NotebookRole } from './constructs/notebook-role';
 import { StudioDomain } from './constructs/studio-domain';
 import { ArtifactsBucket } from './constructs/artifacts-bucket';
+import { S3FilesMount } from './constructs/s3-files';
 import { SageMakerExecutionRole } from './constructs/sagemaker-role';
 import { DeploymentProfile } from './deployment-profile';
 
@@ -37,6 +38,14 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
    * 기본 흐름은 DCV 인스턴스에서 aws s3 sync 로 받는 것이라 없어도 된다.
    */
   fsxFileSystemId?: string;
+  /**
+   * 아티팩트 버킷을 Amazon S3 Files 파일시스템으로 노출할지 (기본 true).
+   * DCV 인스턴스가 `sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot` 로 마운트하면
+   * SageMaker 가 export 한 체크포인트를 aws s3 sync 없이 바로 읽는다.
+   */
+  enableS3Files?: boolean;
+  /** 부모 VPC CIDR (S3 Files 마운트 타깃 SG 의 NFS 2049 인바운드 소스). 기본 10.0.0.0/16. */
+  vpcCidr?: string;
   useStableGroot?: boolean;
   grootVersion?: string;
   /** SageMaker CodeBuild GitHub source. 비워두면 NO_SOURCE. */
@@ -55,6 +64,7 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
  *   - SageMaker training ECR + CodeBuild (trigger_build.py가 소스 zip 업로드 후 빌드)
  *   - SageMaker Studio Domain + UserProfile (실행 역할은 단일 Notebook role)
  *   - S3 아티팩트 버킷 (+ 부모 FSx가 있을 때만 DRA /groot ↔ s3://<bucket>)
+ *   - S3 Files 파일시스템 + 마운트 타깃 (기본 on; DCV 가 /mnt/s3/groot 로 NFS 마운트)
  *   - SageMaker 실행 역할, CloudWatch Log Group, MLflow tracking server
  *   - SSM Parameter `/groot-finetune/studio-domain-id` (스크립트/노트북이 lookup)
  */
@@ -125,6 +135,22 @@ export class GrootFinetuneStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'FsxGrootPath', {
         value: '/fsx/groot',
         description: 'FSx path mirroring the artifacts bucket (auto import/export)',
+      });
+    }
+
+    // ---------- [3.6] 아티팩트 버킷 S3 Files 파일시스템 (기본 on, -c enableS3Files=false 로 끔) ----------
+    // DCV 인스턴스가 NFS 로 마운트해 SageMaker export 체크포인트를 aws s3 sync 없이 읽는다.
+    // 마운트 타깃은 부모 프라이빗 서브넷(DCV 와 같은 AZ). 헬퍼(s3files-mount)는 isaaclab
+    // userdata(s3files-client.sh)가 설치하며, 마운트 명령은 Output S3FilesMountCommand 로 준다.
+    let s3FilesMount: S3FilesMount | undefined;
+    if (props.enableS3Files ?? true) {
+      s3FilesMount = new S3FilesMount(this, 'S3Files', {
+        bucket: artifactsBucket.bucket,
+        vpcId: props.vpcId,
+        subnetId: props.subnetIds[0],
+        vpcCidr: props.vpcCidr,
+        roleName: namedGlobal('GR00TS3FilesRole'),
+        nameTag: named('groot-s3files'),
       });
     }
 
@@ -240,6 +266,21 @@ export class GrootFinetuneStack extends cdk.Stack {
       value: named('groot-mlflow'),
       description: 'MLflow tracking server name',
     });
+    if (s3FilesMount) {
+      new cdk.CfnOutput(this, 'S3FilesFileSystemId', {
+        value: s3FilesMount.fileSystem.attrFileSystemId,
+        description: 'S3 Files file system over the artifacts bucket (NFS mount on the DCV instance)',
+        exportName: `${this.stackName}-S3FilesFileSystemId`,
+      });
+      new cdk.CfnOutput(this, 'S3FilesMountTargetId', {
+        value: s3FilesMount.mountTarget.ref,
+        description: 'S3 Files mount target (private subnet, NFS 2049)',
+      });
+      new cdk.CfnOutput(this, 'S3FilesMountCommand', {
+        value: `sudo s3files-mount ${this.stackName} /mnt/s3/groot`,
+        description: 'Run on the DCV instance (code-server terminal) to mount the artifacts bucket at /mnt/s3/groot',
+      });
+    }
     new cdk.CfnOutput(this, 'UserId', {
       value: accountId,
       description: 'Deployment identifier (AWS account ID)',

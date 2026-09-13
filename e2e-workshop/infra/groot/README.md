@@ -6,13 +6,13 @@ A CDK TypeScript project that deploys, in a single shot, the AWS infrastructure 
 
 ## Overview
 
-This project takes the VPC created by the parent [`infra/isaaclab/`](../isaaclab/) stack as-is, and layers on top of it the resources required for GR00T training and inference. A SageMaker training job exports its decompressed checkpoint to an S3 artifact bucket, and the IsaacLab DCV instance pulls it down with a single `aws s3 sync`, letting you validate it in simulation right away. If the parent stack was deployed with `-c enableFsx=true`, a DRA (Data Repository Association) is attached to that FSx so the checkpoint automatically shows up under `/fsx/groot/...`.
+This project takes the VPC created by the parent [`infra/isaaclab/`](../isaaclab/) stack as-is, and layers on top of it the resources required for GR00T training and inference. A SageMaker training job exports its decompressed checkpoint to an S3 artifact bucket, and the IsaacLab DCV instance mounts that bucket as an Amazon S3 Files file system at `/mnt/s3/groot` (`sudo s3files-mount GrootFinetune-<ACCOUNT_ID> /mnt/s3/groot`) to validate it in simulation with no download (`aws s3 sync` still works as a fallback). If the parent stack was deployed with `-c enableFsx=true`, a DRA (Data Repository Association) is attached to that FSx so the checkpoint automatically shows up under `/fsx/groot/...`.
 
 This is a **single stack**, built on the assumption of one account per person.
 
 | Stack | Resources |
 |------|--------|
-| **GrootFinetune-`<ACCOUNT_ID>`** | 2 ECR repositories (GR00T runtime `groot-runtime` + SageMaker training `groot-sm-training`), 2 CodeBuild projects that build the container images (`groot-runtime-build`, `groot-sm-training-build`), a SageMaker Studio Domain + UserProfile, an S3 artifact bucket (`groot-sm-artifacts-<ACCOUNT_ID>`), a shared FSx DRA, IAM roles, and an MLflow tracking server |
+| **GrootFinetune-`<ACCOUNT_ID>`** | 2 ECR repositories (GR00T runtime `groot-runtime` + SageMaker training `groot-sm-training`), 2 CodeBuild projects that build the container images (`groot-runtime-build`, `groot-sm-training-build`), a SageMaker Studio Domain + UserProfile, an S3 artifact bucket (`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), an S3 Files file system + mount target over that bucket (NFS 2049 SG, service role `GR00TS3FilesRole-*`), an optional shared FSx DRA, IAM roles, and an MLflow tracking server |
 
 ## Prerequisites
 
@@ -48,9 +48,10 @@ Pass values via `cdk deploy -c key=value` or through `cdk.context.json`.
 | `useStableGroot` | `true` | Use a verified release commit (`false` uses the latest) |
 | `bucketName` | `groot-sm-artifacts-<ACCOUNT_ID>` | SageMaker artifact bucket name |
 | `mlflowSize` | `Small` | MLflow tracking server size |
-| `vpcId` / `privateSubnetId` / `availabilityZone` / `fsxFileSystemId` | (auto-discovered) | Manual overrides that skip parent stack auto-discovery |
+| `enableS3Files` | `true` | Expose the artifacts bucket as an S3 Files file system with a mount target in the parent private subnet. Emits the `S3FilesFileSystemId` and `S3FilesMountCommand` Outputs. `false` skips it (checkpoints via `aws s3 sync`) |
+| `vpcId` / `privateSubnetId` / `availabilityZone` / `vpcCidr` / `fsxFileSystemId` | (auto-discovered) | Manual overrides that skip parent stack auto-discovery (`vpcCidr` is the NFS inbound source for the S3 Files mount target SG) |
 
-`bin/groot-finetune-app.ts` automatically pulls the VPC ID, private subnet, and (if present) the shared FSx ID from the outputs of the `IsaacLab-<Profile>-<ACCOUNT_ID>` stack. The result is cached in `cdk.context.json` and reused on the next deployment — if you remove the parent stack's FSx and redeploy, you must clear `fsxFileSystemId` from `cdk.context.json` so the DRA is not created. Deployment fails if there is no parent IsaacLab stack, so be sure to deploy the IsaacLab stack first.
+`bin/groot-finetune-app.ts` automatically pulls the VPC ID, private subnet, VPC CIDR, and (if present) the shared FSx ID from the outputs of the `IsaacLab-<Profile>-<ACCOUNT_ID>` stack. The result is cached in `cdk.context.json` and reused on the next deployment — if you remove the parent stack's FSx and redeploy, you must clear `fsxFileSystemId` from `cdk.context.json` so the DRA is not created. Deployment fails if there is no parent IsaacLab stack, so be sure to deploy the IsaacLab stack first.
 
 ## Project Structure
 

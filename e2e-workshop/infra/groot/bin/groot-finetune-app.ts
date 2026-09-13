@@ -12,6 +12,7 @@
  *   npm run deploy                        # GrootFinetune-<ACCOUNT_ID> 배포
  *   npx cdk deploy -c grootVersion=n1.7   # GR00T N1.7 런타임 이미지
  *   npx cdk deploy -c profile=workshop-studio   # Workshop Studio 계정
+ *   npx cdk deploy -c enableS3Files=false       # 아티팩트 버킷 S3 Files 마운트 생략
  */
 import * as cdk from 'aws-cdk-lib';
 import { GrootFinetuneStack } from '../lib/groot-finetune-stack';
@@ -36,6 +37,8 @@ async function main() {
   const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
   const repositoryUrl = app.node.tryGetContext('repositoryUrl') ?? '';
   const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
+  // 아티팩트 버킷 S3 Files 파일시스템 (기본 on). DCV 가 /mnt/s3/groot 로 마운트한다.
+  const enableS3Files = (app.node.tryGetContext('enableS3Files') ?? 'true') === 'true';
 
   // ---- 부모 IsaacLab 스택에서 VPC/EFS/FSx 자동 탐색 ----
   // context로 직접 지정하면(수동 오버라이드) 탐색을 건너뛴다.
@@ -43,14 +46,15 @@ async function main() {
   let privateSubnetId = app.node.tryGetContext('privateSubnetId') as string | undefined;
   let availabilityZone = app.node.tryGetContext('availabilityZone') as string | undefined;
   let fsxFileSystemId = app.node.tryGetContext('fsxFileSystemId') as string | undefined;
+  let vpcCidr = app.node.tryGetContext('vpcCidr') as string | undefined;
 
-  if (!vpcId || !privateSubnetId || !availabilityZone) {
+  if (!vpcId || !privateSubnetId || !availabilityZone || !vpcCidr) {
     console.error(`[GrootFinetune] Resolving parent IsaacLab stack (account ${accountId}) in ${region}...`);
     const params = await resolveParentStack(accountId, region);
     saveToContext({ ...params, region });
-    ({ vpcId, privateSubnetId, availabilityZone } = params);
+    ({ vpcId, privateSubnetId, availabilityZone, vpcCidr } = params);
     fsxFileSystemId = fsxFileSystemId ?? params.fsxFileSystemId;
-    console.error(`[GrootFinetune] Resolved: vpc=${vpcId}, subnet=${privateSubnetId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
+    console.error(`[GrootFinetune] Resolved: vpc=${vpcId} (${vpcCidr}), subnet=${privateSubnetId}, fsx=${fsxFileSystemId ?? '(none)'}, az=${availabilityZone}`);
   }
 
   new GrootFinetuneStack(app, 'GrootFinetune', {
@@ -66,6 +70,8 @@ async function main() {
     availabilityZone,
     mlflowSize: app.node.tryGetContext('mlflowSize') ?? 'Small',
     fsxFileSystemId,
+    enableS3Files,
+    vpcCidr,
     useStableGroot,
     grootVersion,
     repositoryUrl,
