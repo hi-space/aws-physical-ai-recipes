@@ -70,10 +70,29 @@ export async function resolveParentStack(accountId: string, region: string): Pro
   const vpcId = Subnets[0].VpcId!;
   const availabilityZone = Subnets[0].AvailabilityZone!;
 
-  const { Vpcs } = await ec2.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }));
-  const vpcCidr = Vpcs?.[0]?.CidrBlock ?? '10.0.0.0/16';
+  const vpcCidr = await resolveVpcCidr(vpcId, region);
 
   return { vpcId, privateSubnetId, availabilityZone, vpcCidr, fsxFileSystemId };
+}
+
+/**
+ * VPC CIDR 조회 (S3 Files 마운트 타깃 SG 의 NFS 인바운드 소스).
+ * 부모 스택 Outputs 와 무관하게 VPC ID 만으로 동작하므로, 프로비저너가 IsaacLab 스택 생성 중에
+ * `-c vpcId/privateSubnetId/availabilityZone` 을 직접 넘겨 groot 를 먼저 시작하는 경우에도 쓸 수 있다
+ * (그 시점에는 스택 Outputs 가 아직 없다). 조회 실패 시 isaaclab 기본 CIDR 로 폴백한다.
+ */
+export async function resolveVpcCidr(vpcId: string, region: string): Promise<string> {
+  const fallback = '10.0.0.0/16';
+  try {
+    const ec2 = new EC2Client({ region });
+    const { Vpcs } = await ec2.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }));
+    const cidr = Vpcs?.[0]?.CidrBlock;
+    if (cidr) return cidr;
+    console.error(`[GrootFinetune] VPC ${vpcId} has no CidrBlock — falling back to ${fallback}`);
+  } catch (err) {
+    console.error(`[GrootFinetune] DescribeVpcs(${vpcId}) failed (${(err as Error).message}) — falling back to ${fallback}`);
+  }
+  return fallback;
 }
 
 export function saveToContext(values: Record<string, string>): void {
