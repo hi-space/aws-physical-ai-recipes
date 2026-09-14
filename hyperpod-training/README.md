@@ -109,6 +109,20 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs"
 ```
 
+## Connecting to the Head Node (head-node.sh)
+
+HyperPod nodes sit in a private subnet and their SSM target has the form
+`sagemaker-cluster:<CLUSTER_ID>_head-<INSTANCE_ID>`. The script looks both IDs up and opens the
+session directly as the `ubuntu` user (`AWS-StartInteractiveCommand` + `sudo -iu ubuntu`), so no
+`sudo su - ubuntu` after login:
+
+```bash
+./scripts/head-node.sh                  # ubuntu shell on the head node (uses $REGION, hyperpod-<ACCOUNT_ID>)
+./scripts/head-node.sh --print-target   # just print the SSM target (for port forwarding etc.)
+./scripts/head-node.sh --root           # plain root session
+./scripts/head-node.sh --cluster hyperpod-eks-<ACCOUNT_ID> --region us-west-2
+```
+
 ## Scaling GPU Nodes Up/Down (scale-cluster.sh)
 
 GPU instance groups start at node count 0 right after deployment (zero cost). Scale nodes up

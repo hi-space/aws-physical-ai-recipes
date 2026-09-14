@@ -109,6 +109,20 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs"
 ```
 
+## head node 접속 (head-node.sh)
+
+HyperPod 노드는 private subnet에 있고 SSM target 형식이
+`sagemaker-cluster:<CLUSTER_ID>_head-<INSTANCE_ID>`입니다. 스크립트가 두 ID를 조회해 target을 조립하고,
+`AWS-StartInteractiveCommand` + `sudo -iu ubuntu`로 세션을 곧바로 `ubuntu` 사용자 셸로 열어 접속 후
+`sudo su - ubuntu`가 필요 없습니다:
+
+```bash
+./scripts/head-node.sh                  # head node 에 ubuntu 로 접속 ($REGION, hyperpod-<ACCOUNT_ID> 사용)
+./scripts/head-node.sh --print-target   # 접속하지 않고 SSM target 만 출력 (포트포워딩 등에 사용)
+./scripts/head-node.sh --root           # root 세션
+./scripts/head-node.sh --cluster hyperpod-eks-<ACCOUNT_ID> --region us-west-2
+```
+
 ## GPU 노드 스케일 업/다운 (scale-cluster.sh)
 
 GPU 인스턴스 그룹은 배포 직후 노드 수 0으로 시작합니다 (비용 0). 학습 직전에
