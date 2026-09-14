@@ -143,7 +143,8 @@ echo "[on_create] post_provision_watcher started (FSx mount retry + Slurm daemon
 # crashes the RTX renderer; install the known-good 580.173.02 (open kernel module kept).
 bash "${SCRIPT_DIR}/setup_nvidia_driver.sh" || echo "[on_create] NVIDIA driver setup skipped or failed (non-fatal)."
 
-# Setup DCV for remote desktop (GPU nodes only, runs after Slurm is up)
+# Setup DCV for remote desktop: GPU nodes get GNOME + NVIDIA toolkit (Isaac Sim, S4),
+# CPU nodes get xfce + Mesa for the MuJoCo viewer (S3.10). Head node is skipped inside.
 bash "${SCRIPT_DIR}/setup_dcv.sh" || echo "[on_create] DCV setup skipped or failed (non-fatal)."
 
 echo "[on_create] Node initialization complete."

@@ -156,6 +156,10 @@ slurm-templates/rl/run_mujoco.sh --steps 3000000        # wrapper
 sbatch slurm-templates/rl/play_mujoco.sbatch           # CHECKPOINT / EPISODES / MUJOCO_GL
 CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   # pre-training comparison video (videos/untrained.gif)
 
+# [head node] watch the policy live instead: DCV desktop on the CPU node (xfce + Mesa, no GPU), then
+# inside it: python examples/rl/play_mujoco.py --viewer --checkpoint <model.zip>
+sbatch slurm-templates/debug/dcv_session_cpu.sbatch  # prints the SSM port-forward + viewer commands
+
 # [code-server] scale back to 0 when done
 ./scripts/scale-cluster.sh cpu-c5-4x 0
 ```
@@ -165,8 +169,9 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 | `mujoco-workshop/` | `Workshop-SO101-Reach-MuJoCo-v0` Gymnasium task package (`so101_reach.py`) |
 | `scripts/setup_mujoco_env.sh` | Creates the FSx venv, sparse-checks-out the pinned menagerie commit, installs the package, runs the smoke test (executed on the head node) |
 | `examples/rl/train_mujoco.py` | SB3 PPO + SubprocVecEnv(1 process per vCPU) + VecNormalize, selects model_best.zip, TensorBoard `reward_terms/` |
-| `examples/rl/play_mujoco.py` | Deterministic evaluation (success rate / final distance) + `MUJOCO_GL=egl` offscreen mp4/gif, `--untrained` for a pre-training comparison video |
+| `examples/rl/play_mujoco.py` | Deterministic evaluation (success rate / final distance) + `MUJOCO_GL=egl` offscreen mp4/gif, `--untrained` for a pre-training comparison video, `--viewer` for a live MuJoCo window on the DCV desktop |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm templates |
+| `slurm-templates/debug/dcv_session_cpu.sbatch` | DCV session on a CPU node (setup_dcv.sh installs xfce + DCV there too); prints the SSM target and the `--viewer` command |
 
 ## EKS Orchestration Path — Observability / Task Governance (Workshop Modules 8-11, main path for the RL track)
 

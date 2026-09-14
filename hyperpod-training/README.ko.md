@@ -156,6 +156,10 @@ slurm-templates/rl/run_mujoco.sh --steps 3000000        # 래퍼
 sbatch slurm-templates/rl/play_mujoco.sbatch           # CHECKPOINT / EPISODES / MUJOCO_GL
 CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   # 학습 전 비교 영상 (videos/untrained.gif)
 
+# [head node] 영상 대신 실시간으로: CPU 노드의 DCV 데스크톱(xfce + Mesa, GPU 없음)에 접속한 뒤
+# 그 안에서 python examples/rl/play_mujoco.py --viewer --checkpoint <model.zip>
+sbatch slurm-templates/debug/dcv_session_cpu.sbatch  # SSM 포트포워딩 + 뷰어 명령을 로그로 출력
+
 # [code-server] 끝나면 0으로
 ./scripts/scale-cluster.sh cpu-c5-4x 0
 ```
@@ -165,8 +169,9 @@ CHECKPOINT=untrained EPISODES=2 sbatch slurm-templates/rl/play_mujoco.sbatch   #
 | `mujoco-workshop/` | `Workshop-SO101-Reach-MuJoCo-v0` Gymnasium 태스크 패키지 (`so101_reach.py`) |
 | `scripts/setup_mujoco_env.sh` | FSx venv 생성, menagerie 고정 커밋 sparse checkout, 패키지 설치, smoke test (head node에서 실행) |
 | `examples/rl/train_mujoco.py` | SB3 PPO + SubprocVecEnv(vCPU당 1 프로세스) + VecNormalize, model_best.zip 선택, TensorBoard `reward_terms/` |
-| `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상 |
+| `examples/rl/play_mujoco.py` | 결정적 평가(성공률·최종 거리) + `MUJOCO_GL=egl` 오프스크린 mp4/gif, `--untrained`로 학습 전 비교 영상, `--viewer`로 DCV 데스크톱에 실시간 MuJoCo 창 |
 | `slurm-templates/rl/train_mujoco.sbatch`, `play_mujoco.sbatch`, `run_mujoco.sh` | `--partition=cpu` Slurm 템플릿 |
+| `slurm-templates/debug/dcv_session_cpu.sbatch` | CPU 노드 DCV 세션(setup_dcv.sh가 CPU 노드에도 xfce + DCV 설치); SSM target과 `--viewer` 명령을 출력 |
 
 ## EKS 오케스트레이션 경로 — observability · task governance (워크숍 모듈 8~11, RL 트랙 메인 경로)
 

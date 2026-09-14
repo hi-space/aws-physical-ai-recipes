@@ -14,18 +14,28 @@ Usage:
     # "before training" reference: a freshly initialised policy, exploration noise included
     MUJOCO_GL=egl python play_mujoco.py --untrained --episodes 2 --video_dir <dir>   # -> untrained.{mp4,gif}
 
-MUJOCO_GL selects the offscreen OpenGL backend and must be set before MuJoCo is imported:
-``egl`` (Mesa llvmpipe, package libegl1 + libgl1-mesa-dri) or ``osmesa`` (package libosmesa6).
+    # live window instead of a file: run from a terminal inside the DCV desktop of a CPU node (S3.10)
+    python play_mujoco.py --viewer --checkpoint <model.zip> --episodes 5
+
+MUJOCO_GL selects the OpenGL backend and must be set before MuJoCo is imported: ``egl`` (Mesa
+llvmpipe, package libegl1 + libgl1-mesa-dri) or ``osmesa`` (package libosmesa6) for offscreen video;
+``--viewer`` forces ``glfw`` (a window on $DISPLAY, software-rendered by Mesa on a CPU node).
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import sys
+import time
 from pathlib import Path
 
-# Must be decided before `import mujoco`; default to EGL which works headless with Mesa.
-os.environ.setdefault("MUJOCO_GL", "egl")
+# Must be decided before `import mujoco`. Offscreen video: EGL (Mesa llvmpipe, works headless).
+# --viewer: a GLFW window on the X display of the DCV desktop; Mesa renders it in software on a CPU node.
+if "--viewer" in sys.argv:
+    os.environ["MUJOCO_GL"] = "glfw"
+else:
+    os.environ.setdefault("MUJOCO_GL", "egl")
 
 import gymnasium as gym  # noqa: E402
 import numpy as np  # noqa: E402
@@ -33,6 +43,36 @@ from stable_baselines3 import PPO  # noqa: E402
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize  # noqa: E402
 
 import mujoco_workshop  # noqa: E402,F401
+
+TARGET_RGBA = np.array([0.1, 0.9, 0.1, 0.8], dtype=np.float32)
+
+
+def _open_viewer(core):
+    """Passive MuJoCo window over the env's own model/data, framed like the offscreen camera in so101_reach.py."""
+    import mujoco
+    import mujoco.viewer
+
+    v = mujoco.viewer.launch_passive(core.model, core.data, show_left_ui=False, show_right_ui=False)
+    v.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+    v.cam.lookat[:] = (0.22, 0.0, 0.18)
+    v.cam.distance = getattr(core, "_camera_distance", 0.85)
+    v.cam.azimuth, v.cam.elevation = 150.0, -20.0
+    return v
+
+
+def _sync_viewer(v, target: np.ndarray) -> None:
+    """Redraw the window. The target is not a body in the MJCF, so add it as a green sphere (as render() does)."""
+    import mujoco
+
+    scn = v.user_scn
+    scn.ngeom = 0
+    if scn.maxgeom > 0:
+        mujoco.mjv_initGeom(
+            scn.geoms[0], mujoco.mjtGeom.mjGEOM_SPHERE, np.array([0.015, 0, 0]),
+            np.asarray(target, dtype=np.float64), np.eye(3).flatten(), TARGET_RGBA,
+        )
+        scn.ngeom = 1
+    v.sync()
 
 
 def main() -> None:
@@ -48,7 +88,13 @@ def main() -> None:
     parser.add_argument("--gif_every", type=int, default=2, help="keep every Nth frame in the gif (smaller file)")
     parser.add_argument("--gif_scale", type=int, default=2, help="downscale the gif by this integer factor (2 → 320x240)")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--viewer", action="store_true",
+                        help="open an interactive MuJoCo window instead of recording a file (needs a display: "
+                             "run it from a terminal inside the DCV desktop)")
+    parser.add_argument("--speed", type=float, default=1.0, help="--viewer playback speed, 1.0 = real time")
     args = parser.parse_args()
+    if args.viewer:
+        args.no_video = True  # the window is the output
 
     if bool(args.checkpoint) == args.untrained:
         raise SystemExit("Give exactly one of --checkpoint <model.zip> or --untrained")
@@ -80,15 +126,23 @@ def main() -> None:
             normalizer.training = False
         print(f"Loaded {ckpt}")
         print(f"Observation normalisation: {'on (' + stats_path.name + ')' if normalizer else 'off'}")
-    print(f"Task: {args.task}  episodes: {args.episodes}  video: {'off' if args.no_video else video_dir}")
+    output = "viewer window" if args.viewer else ("off" if args.no_video else video_dir)
+    print(f"Task: {args.task}  episodes: {args.episodes}  video: {output}")
     print(f"MUJOCO_GL={os.environ['MUJOCO_GL']}", flush=True)
+
+    core = env.unwrapped  # So101ReachEnv: .model / .data / .target / .dt
+    viewer = _open_viewer(core) if args.viewer else None
 
     frames: list[np.ndarray] = []
     returns, final_dists, successes = [], [], []
     for ep in range(args.episodes):
         obs, info = env.reset(seed=args.seed + ep)
-        done, ep_ret = False, 0.0
+        if viewer is not None:
+            _sync_viewer(viewer, core.target)
+            time.sleep(0.5)  # hold the home pose for a beat so the new target is visible before the arm moves
+        done, ep_ret, aborted = False, 0.0, False
         while not done:
+            t0 = time.perf_counter()
             policy_obs = normalizer.normalize_obs(obs) if normalizer else obs
             action, _ = model.predict(policy_obs, deterministic=deterministic)
             obs, r, term, trunc, info = env.step(action)
@@ -96,12 +150,28 @@ def main() -> None:
             done = term or trunc
             if not args.no_video:
                 frames.append(env.render())
+            if viewer is not None:
+                if not viewer.is_running():
+                    aborted = True
+                    break
+                _sync_viewer(viewer, core.target)
+                # Pace the loop to the control period (dt = 50 ms) so the arm moves at real speed.
+                time.sleep(max(0.0, core.dt / args.speed - (time.perf_counter() - t0)))
+        if aborted:
+            print("Viewer window closed, stopping.")
+            break
         returns.append(ep_ret)
         final_dists.append(info.get("distance", float("nan")))
         successes.append(bool(info.get("is_success", False)))
         print(f"  episode {ep + 1}: return {ep_ret:8.2f}  final distance {final_dists[-1] * 100:5.1f} cm  "
               f"{'SUCCESS' if successes[-1] else 'miss'}", flush=True)
 
+    if not returns:
+        print("No completed episodes.")
+        if viewer is not None:
+            viewer.close()
+        env.close()
+        return
     print("=== Evaluation summary ===")
     print(f"  success rate:        {np.mean(successes):.2f} ({sum(successes)}/{len(successes)})")
     print(f"  mean final distance: {np.mean(final_dists) * 100:.1f} cm")
@@ -120,6 +190,12 @@ def main() -> None:
         imageio.mimwrite(gif, [f[::k, ::k] for f in frames[:: args.gif_every]], duration=args.gif_every / fps, loop=0)
         print(f"  MP4: {mp4}")
         print(f"  GIF: {gif}")
+    if viewer is not None:
+        if viewer.is_running():
+            print("Done. Close the viewer window to exit.", flush=True)
+            while viewer.is_running():
+                time.sleep(0.2)
+        viewer.close()
     env.close()
 
 
