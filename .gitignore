@@ -235,3 +235,6 @@ logs/
 
 # Source slide archives for training material
 osmo-on-aws.zip
+
+# Customer-specific review drafts and their pinned repo asset copies
+/lge-qa/
