@@ -32,10 +32,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 # *_VAR_FILE vars at the matching terraform.<region>.tfvars.
 # ---------------------------------------------------------------------------
 
-require_cmds aws kubectl terraform
+require_cmds aws kubectl terraform jq
 
 COGNITO_TF_DIR="${COGNITO_TF_DIR:-${ROOT_DIR}/infra/cognito}"
 CLOUDFRONT_TF_DIR="${CLOUDFRONT_TF_DIR:-${ROOT_DIR}/infra/cloudfront}"
+CORE_TF_DIR="${CORE_TF_DIR:-${ROOT_DIR}/infra/core}"
 DEPLOY_OSMO="${DEPLOY_OSMO:-${ROOT_DIR}/scripts/deploy-osmo.sh}"
 
 # var-files default to each root's terraform.tfvars; override for other regions.
@@ -62,6 +63,22 @@ tf_apply() {
 
 tf_output_from() {
   terraform -chdir="$1" output -raw "$2" 2>/dev/null || true
+}
+
+# `osmo workflow port-forward` relays through the public CloudFront router
+# address and BOTH ends dial it: the operator's CLI and the osmo-ctrl sidecar
+# inside the workload pod. The pod egresses via NAT, so the NAT EIPs have to be
+# in the CloudFront WAF allow list or the sidecar gets a 403 and the CLI shows a
+# silent reconnect loop that never carries data. Emit a Terraform list literal
+# ("[]" when the output is missing) so infra/cloudfront can append the /32s.
+cluster_nat_ips_var() {
+  local json
+  json="$(terraform -chdir="${CORE_TF_DIR}" output -json nat_public_ips 2>/dev/null | jq -c '.' 2>/dev/null || true)"
+  if [[ -z "${json}" || "${json}" == "null" ]]; then
+    log "WARNING: infra/core has no nat_public_ips output; osmo workflow port-forward will be blocked by the CloudFront WAF until the NAT EIPs are allowed"
+    json="[]"
+  fi
+  printf '%s' "${json}"
 }
 
 cognito_var_file_args() {
@@ -112,7 +129,8 @@ log "step 3/4: applying infra/cloudfront with the gateway LB as origin"
 # shellcheck disable=SC2046
 tf_apply "${CLOUDFRONT_TF_DIR}" $(cloudfront_var_file_args) \
   -var "osmo_alb_dns_name=${GATEWAY_LB}" \
-  -var "grafana_alb_dns_name=${GRAFANA_ALB}"
+  -var "grafana_alb_dns_name=${GRAFANA_ALB}" \
+  -var "cluster_nat_public_ips=$(cluster_nat_ips_var)"
 
 OSMO_UI_DOMAIN="$(tf_output_from "${CLOUDFRONT_TF_DIR}" osmo_ui_cloudfront_domain)"
 [[ -n "${OSMO_UI_DOMAIN}" ]] ||

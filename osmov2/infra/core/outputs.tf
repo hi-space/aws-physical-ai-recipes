@@ -43,6 +43,14 @@ output "node_security_group_id" {
   value       = module.eks.node_security_group_id
 }
 
+# Feeds infra/cloudfront's cluster_nat_public_ips. Workload pods egress through
+# these, and `osmo workflow port-forward` only works if the CloudFront WAF lets
+# them in — the in-pod osmo-ctrl sidecar dials the public router address too.
+output "nat_public_ips" {
+  description = "Public IPv4 addresses of the VPC NAT gateways (pod egress addresses)."
+  value       = module.vpc.nat_public_ips
+}
+
 output "osmo_namespace" {
   description = "Kubernetes namespace for OSMO services."
   value       = var.osmo_namespace

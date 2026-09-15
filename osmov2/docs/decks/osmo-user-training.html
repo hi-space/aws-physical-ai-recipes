@@ -1335,6 +1335,12 @@ platform: g6e-l40s</code></pre>
     96GB)으로 바꿉니다 — 큰 배치 학습, 고해상도 영상 증강에서 필요합니다.
     <b>요청량은 그대로 두고 이름표만 바꿉니다.</b></p>
   </div>
+  <p class="dim" style="font-size:15px">관리자가 세 번째 이름표
+  <code>g6-l4</code>(NVIDIA L4, 그래픽 메모리 24GB)를 등록해 둔 클러스터도 있습니다.
+  GPU 재고가 가장 잘 남는 계층이지만 그래픽 메모리가 작아 <b>4단계 평가와 시뮬레이터
+  스트리밍까지만</b> 쓸 수 있습니다 — 3단계 미세조정을 이 이름표로 보내면 제출은 되고
+  실행 중에 그래픽 메모리 부족으로 실패합니다.
+  <code>osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml --set platform=g6-l4</code></p>
 </section>
 
 <section class="slide" data-t="입력·출력 데이터셋 이름">

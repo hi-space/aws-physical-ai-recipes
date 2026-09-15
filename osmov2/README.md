@@ -511,10 +511,18 @@ GPU_PREWARM_INSTANCE_TYPE=g6.4xlarge \
 ```
 
 Defaults live in `versions.yaml`: `karpenter_g6_nodepool_name` (default
-`aws-osmo-g6`), `g6_instance_types` (default
-`g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge`). The AZ defaults to the deploy
-region's first AZ (e.g. `us-west-2a`) and can be overridden with
-`KARPENTER_G6_ZONE`.
+`aws-osmo-g6`), `g6_instance_types` (default `g6.2xlarge` through
+`g6.24xlarge`). The AZ defaults to the alphabetically first AZ that has a private
+subnet in `infra/core` and can be overridden with `KARPENTER_G6_ZONE`. The pool
+ceilings are `KARPENTER_G6_NODEPOOL_CPU_LIMIT` (default 96) and
+`KARPENTER_G6_NODEPOOL_MEMORY_LIMIT` (default `768Gi`), which admit every size in
+the default type list.
+
+G6 is the deepest capacity tier, not just another fallback: on 2026-09-15 every
+g7e size and every g6e size returned `InsufficientInstanceCapacity` in both
+reachable `us-east-1` AZs while `g6.2xlarge` launched on the first attempt. See
+[docs/gpu-capacity.md](docs/gpu-capacity.md) "Capacity tiers" for the escalation
+order and how to submit a workload to the pool.
 
 Example workflows validated on G6 nodes:
 
@@ -530,6 +538,9 @@ Example workflows validated on G6 nodes:
 - `examples/gr00t-finetune/workflow-g6.yaml` — GR00T fine-tune (resources and
   tuning scope reduced for L4).
 - `examples/gpu-smoke/workflow-g6.yaml` — CUDA burn-in GPU smoke (L4).
+- `examples/isaacsim-livestream/workflow-g6.yaml` — Isaac Sim livestream on 4.5.0,
+  and `workflow-g6-5.1-pubep.yaml` for 5.1.0. Both fit L4: idle GPU memory
+  measured 2026-09-15 was 577MiB on 4.5.0 and 2032MiB on 5.1.0.
 
 Note: L4 (24GB) is sufficient for inference (VLM) workloads such as Cosmos
 Reason2, but is not suitable for Cosmos Predict/Transfer diffusion generation
@@ -555,9 +566,14 @@ GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge \
 ```
 
 Defaults: `karpenter_g6e_nodepool_name` (default `aws-osmo-g6e`),
-`g6e_instance_types` (default `g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge`).
-Override the AZ with `KARPENTER_G6E_ZONE`. The GPU smoke validation workflow is
-`examples/gpu-smoke/workflow-g6e.yaml` (platform `g6e-l40s`).
+`g6e_instance_types` (default `g6e.2xlarge` through `g6e.48xlarge` — see
+`versions.yaml`). Override the AZ with `KARPENTER_G6E_ZONE`. The pool also has its
+own ceilings, `KARPENTER_G6E_NODEPOOL_CPU_LIMIT` (default 192) and
+`KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT` (default `1536Gi`); a size larger than those
+is never provisioned even when it is in the type list, so raise them together when
+adding bigger sizes. Validation workflows: `examples/gpu-smoke/workflow-g6e.yaml`
+for a GPU smoke test and `examples/isaacsim-livestream/workflow-g6e.yaml` for an
+Isaac Sim livestream session (both platform `g6e-l40s`).
 
 ## Troubleshooting
 

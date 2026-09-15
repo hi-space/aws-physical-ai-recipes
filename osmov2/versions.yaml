@@ -94,10 +94,22 @@ aws:
   eks_cluster_version: "1.35"
   eks_al2023_nvidia_ami_release: "amazon-eks-node-al2023-x86_64-nvidia-1.35-v20260423"
   g7e_smoke_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge"
-  g7e_nut_pouring_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge,g7e.12xlarge,g7e.24xlarge"
-  # G6 (NVIDIA L4, 24GB) fallback sizes. Single-AZ to match g7e AZ pinning.
-  # 16xlarge (single L4, 64 vCPU) and 24xlarge (4x L4) added for larger CPU/RAM
-  # headroom; all offered in the four target regions (verified 2026-07-28).
+  # g7e has no 16xlarge: the family is 2xl/4xl/8xl/12xl/24xl/48xl (verified with
+  # describe-instance-types 2026-09-15). 48xlarge (8x RTX PRO 6000, 192 vCPU) is
+  # listed so Karpenter has one more size to try under InsufficientInstanceCapacity,
+  # but it exceeds this NodePool's default 120 vCPU limit, so raise
+  # KARPENTER_NODEPOOL_CPU_LIMIT/KARPENTER_NODEPOOL_MEMORY_LIMIT to reach it.
+  g7e_nut_pouring_instance_types: "g7e.2xlarge,g7e.4xlarge,g7e.8xlarge,g7e.12xlarge,g7e.24xlarge,g7e.48xlarge"
+  # G6 (NVIDIA L4, 24GB) fallback sizes. 16xlarge (single L4, 64 vCPU) and
+  # 24xlarge (4x L4) added for larger CPU/RAM headroom; all offered in the four
+  # target regions (verified 2026-07-28).
+  # G6 is the deepest capacity tier: on 2026-09-15 every g7e size (2xl-48xl) and
+  # every g6e size (2xl-24xl) returned InsufficientInstanceCapacity in both
+  # reachable us-east-1 AZs, while g6.2xlarge launched on the first attempt.
+  # L4 has 24GB VRAM, enough for Isaac Sim livestream (577MiB idle on 4.5.0,
+  # 2032MiB on 5.1.0, measured 2026-09-15) but not for GR00T VLA fine-tuning, so
+  # it is a streaming/eval fallback, not a training one. See docs/gpu-capacity.md
+  # "Capacity tiers".
   g6_instance_types: "g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge,g6.16xlarge,g6.24xlarge"
   # G6e (NVIDIA L40S, 48GB) fallback sizes. Larger GPU than g6/L4 for models
   # that need more VRAM but still cannot get g7e capacity. Single-AZ.
@@ -108,7 +120,10 @@ aws:
   # in the four target regions (verified 2026-07-28). Note: us-east-2 quota is 64
   # vCPU, so 24xlarge there needs an L-DB2E81BA increase (see docs/gpu-capacity.md).
   # See e2e-pipeline-examples/README.md "Recommended GPU" for the per-stage sizes.
-  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge,g6e.16xlarge,g6e.24xlarge"
+  # 48xlarge (8x L40S, 192 vCPU) widens the pool when the smaller sizes hit ICE.
+  # Reaching it is why KARPENTER_G6E_NODEPOOL_CPU_LIMIT now defaults to 192 —
+  # the pool limit gates size selection, not just total spend.
+  g6e_instance_types: "g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge,g6e.16xlarge,g6e.24xlarge,g6e.48xlarge"
 
 terraform:
   cli: ">= 1.5.0, < 2.0.0"

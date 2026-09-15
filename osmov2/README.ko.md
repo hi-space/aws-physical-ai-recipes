@@ -494,7 +494,9 @@ GPU_PREWARM_INSTANCE_TYPE=g6.4xlarge \
   scripts/prewarm-gpu-node.sh
 ```
 
-관련 기본값은 `versions.yaml`에 있습니다: `karpenter_g6_nodepool_name`(기본 `aws-osmo-g6`), `g6_instance_types`(기본 `g6.2xlarge,g6.4xlarge,g6.8xlarge,g6.12xlarge`). AZ는 기본적으로 배포 리전의 첫 번째 AZ(예: `us-west-2a`)로 자동 설정되며, `KARPENTER_G6_ZONE`으로 오버라이드할 수 있습니다.
+관련 기본값은 `versions.yaml`에 있습니다: `karpenter_g6_nodepool_name`(기본 `aws-osmo-g6`), `g6_instance_types`(기본 `g6.2xlarge`부터 `g6.24xlarge`까지). AZ는 기본적으로 `infra/core`에서 private 서브넷이 있는 알파벳순 첫 AZ로 자동 설정되며, `KARPENTER_G6_ZONE`으로 오버라이드할 수 있습니다. 풀 자체 상한은 `KARPENTER_G6_NODEPOOL_CPU_LIMIT`(기본 96)과 `KARPENTER_G6_NODEPOOL_MEMORY_LIMIT`(기본 `768Gi`)이고, 기본 타입 목록의 모든 크기를 허용합니다.
+
+G6는 단순한 폴백이 아니라 가장 깊은 용량 계층입니다. 2026-09-15 `us-east-1`에서는 닿을 수 있는 두 AZ 모두에서 g7e 전 크기와 g6e 전 크기가 `InsufficientInstanceCapacity`를 반환하는 동안 `g6.2xlarge`가 첫 시도에 떴습니다. 에스컬레이션 순서와 이 풀에 워크로드를 제출하는 방법은 [docs/gpu-capacity.ko.md](docs/gpu-capacity.ko.md)의 "용량 계층" 절을 참고하십시오.
 
 G6 노드에서 검증된 예제 워크플로:
 
@@ -503,6 +505,7 @@ G6 노드에서 검증된 예제 워크플로:
 - `examples/isaaclab-rsl-rl-video/workflow-g6-video.yaml` — 위와 동일하되 영상 렌더링 활성. play.py에 `--enable_cameras`를 추가해 headless 환경에서도 오프스크린 비디오 녹화가 되도록 했습니다.
 - `examples/gr00t-finetune/workflow-g6.yaml` — GR00T 파인튜닝(L4에 맞춰 리소스·튜닝 범위 축소).
 - `examples/gpu-smoke/workflow-g6.yaml` — CUDA 번-인 GPU 스모크(L4).
+- `examples/isaacsim-livestream/workflow-g6.yaml` — Isaac Sim 라이브스트림(4.5.0). 5.1.0은 `workflow-g6-5.1-pubep.yaml`을 씁니다. 2026-09-15 L4 실측 유휴 GPU 메모리는 4.5.0이 577MiB, 5.1.0이 2032MiB로 둘 다 L4에 들어갑니다.
 
 참고: L4(24GB)는 Cosmos Reason2 같은 추론(VLM) 워크로드에는 충분하지만, Cosmos Predict/Transfer 계열의 diffusion 생성 워크로드에는 부적합합니다(A100/H100/G7e 필요).
 
@@ -523,7 +526,7 @@ GPU_PREWARM_INSTANCE_TYPE=g6e.4xlarge \
   scripts/prewarm-gpu-node.sh
 ```
 
-관련 기본값: `karpenter_g6e_nodepool_name`(기본 `aws-osmo-g6e`), `g6e_instance_types`(기본 `g6e.2xlarge,g6e.4xlarge,g6e.8xlarge,g6e.12xlarge`). AZ는 `KARPENTER_G6E_ZONE`으로 오버라이드합니다. GPU 스모크 검증용 워크플로는 `examples/gpu-smoke/workflow-g6e.yaml`(플랫폼 `g6e-l40s`)입니다.
+관련 기본값: `karpenter_g6e_nodepool_name`(기본 `aws-osmo-g6e`), `g6e_instance_types`(기본 `g6e.2xlarge`부터 `g6e.48xlarge`까지, `versions.yaml` 참고). AZ는 `KARPENTER_G6E_ZONE`으로 오버라이드합니다. 풀 자체 상한인 `KARPENTER_G6E_NODEPOOL_CPU_LIMIT`(기본 192)과 `KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT`(기본 `1536Gi`)도 함께 봐야 합니다. 이 상한보다 큰 크기는 타입 목록에 있어도 생성되지 않으므로, 더 큰 크기를 추가할 때는 상한도 같이 올려야 합니다. 검증용 워크플로는 GPU 스모크가 `examples/gpu-smoke/workflow-g6e.yaml`, Isaac Sim 라이브스트림이 `examples/isaacsim-livestream/workflow-g6e.yaml`입니다(둘 다 플랫폼 `g6e-l40s`).
 
 ## 트러블슈팅
 

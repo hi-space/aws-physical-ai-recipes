@@ -9,6 +9,14 @@ allowed_cidrs = [
   "203.0.113.0/32"
 ]
 
+# Required for `osmo workflow port-forward`: the osmo-ctrl sidecar inside the
+# workload pod dials the same CloudFront router address the CLI does, so the
+# cluster's NAT egress has to be allowed too. Bare IPv4, no /prefix. Read with:
+#   terraform -chdir=../core output nat_public_ips
+cluster_nat_public_ips = [
+  "198.51.100.10"
+]
+
 tags = {
   Project     = "aws-osmo"
   Environment = "dev-repro"

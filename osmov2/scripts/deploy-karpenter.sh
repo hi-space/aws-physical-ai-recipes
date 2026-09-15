@@ -22,11 +22,17 @@ KARPENTER_NODE_EXPIRE_AFTER="${KARPENTER_NODE_EXPIRE_AFTER:-24h}"
 KARPENTER_CONSOLIDATION_POLICY="${KARPENTER_CONSOLIDATION_POLICY:-WhenEmptyOrUnderutilized}"
 KARPENTER_CONSOLIDATE_AFTER="${KARPENTER_CONSOLIDATE_AFTER:-5m}"
 
-# G6 (NVIDIA L4) capacity-fallback NodePool. Set DEPLOY_G6_NODEPOOL=true to also
-# create a g6 NodePool alongside g7e (for when g7e RTX PRO 6000 capacity is
-# unavailable). Reuses the g7e EC2NodeClass. Pinned to a single AZ to match the
-# g7e AZ strategy and keep GPU workloads co-located. KARPENTER_G6_ZONE defaults
-# to the first AZ of the deploy region (see the AWS_REGION-based fallback below).
+# G6 (NVIDIA L4, 24GB) capacity-fallback NodePool, the deepest capacity tier: on
+# 2026-09-15 every g7e and g6e size was short in both reachable us-east-1 AZs while
+# g6.2xlarge launched immediately. L4 only fits streaming/eval workloads, not VLA
+# fine-tuning. Set DEPLOY_G6_NODEPOOL=true to create it. Reuses the g7e
+# EC2NodeClass. Pinned to a single AZ to keep GPU nodes co-located with the rest of
+# the workload (cross-AZ transfer cost, and EBS cannot cross an AZ); note the g7e
+# pool carries no zone requirement, so g6/g6e are the narrower pools under a
+# zone-local stock-out. KARPENTER_G6_ZONE defaults to the first AZ that has a
+# private subnet (see the subnet-derived default below).
+# 96 vCPU / 768Gi admits every size in g6_instance_types (the widest, g6.24xlarge,
+# is 96 vCPU), so unlike g6e the limit is not what gates size selection here.
 DEPLOY_G6_NODEPOOL="${DEPLOY_G6_NODEPOOL:-false}"
 KARPENTER_G6_NODEPOOL_NAME="${KARPENTER_G6_NODEPOOL_NAME:-$(version_value karpenter_g6_nodepool_name)}"
 KARPENTER_G6_INSTANCE_TYPES="${KARPENTER_G6_INSTANCE_TYPES:-$(version_value g6_instance_types)}"
@@ -37,12 +43,17 @@ KARPENTER_G6_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6_NODEPOOL_MEMORY_LIMIT:-768Gi}
 # G6e (NVIDIA L40S, 48GB) capacity-fallback NodePool. Same idea as g6 but a
 # bigger GPU. Set DEPLOY_G6E_NODEPOOL=true to create it. KARPENTER_G6E_ZONE
 # defaults to the first AZ of the deploy region as well.
+# The pool limits are a vCPU/memory ceiling for the whole pool, so they also decide
+# which sizes are reachable: a size larger than the limit can never be provisioned
+# even when it is listed in KARPENTER_G6E_INSTANCE_TYPES. 192 vCPU / 1536Gi admits
+# one g6e.48xlarge (8x L40S), the widest size, which matters when the smaller sizes
+# keep returning InsufficientInstanceCapacity. Lower both to cap g6e spend.
 DEPLOY_G6E_NODEPOOL="${DEPLOY_G6E_NODEPOOL:-false}"
 KARPENTER_G6E_NODEPOOL_NAME="${KARPENTER_G6E_NODEPOOL_NAME:-$(version_value karpenter_g6e_nodepool_name)}"
 KARPENTER_G6E_INSTANCE_TYPES="${KARPENTER_G6E_INSTANCE_TYPES:-$(version_value g6e_instance_types)}"
 KARPENTER_G6E_ZONE="${KARPENTER_G6E_ZONE:-}"
-KARPENTER_G6E_NODEPOOL_CPU_LIMIT="${KARPENTER_G6E_NODEPOOL_CPU_LIMIT:-96}"
-KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT:-768Gi}"
+KARPENTER_G6E_NODEPOOL_CPU_LIMIT="${KARPENTER_G6E_NODEPOOL_CPU_LIMIT:-192}"
+KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT="${KARPENTER_G6E_NODEPOOL_MEMORY_LIMIT:-1536Gi}"
 
 comma_values_to_yaml() {
   local csv="$1"
@@ -57,11 +68,28 @@ comma_values_to_yaml() {
 configure_kubectl
 
 AWS_REGION="$(terraform_output aws_region)"
-# G6/G6e NodePools pin to a single AZ. Default to the region's first AZ so a
-# non-default region (e.g. us-west-2) does not silently keep the ap-northeast-2
-# zone; callers can still override KARPENTER_G6_ZONE / KARPENTER_G6E_ZONE.
-KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-${AWS_REGION}a}"
-KARPENTER_G6E_ZONE="${KARPENTER_G6E_ZONE:-${AWS_REGION}a}"
+# G6/G6e NodePools pin to a single AZ. Derive the default from a VPC private
+# subnet instead of assuming "${AWS_REGION}a": infra/core only builds subnets in
+# the region's g7e-capable AZs, and that excludes zone "a" in us-east-1. Pinning
+# to an AZ with no subnet makes Karpenter reject every instance type in the pool
+# ("skipping, nodepool requirements filtered out all instance types") and no node
+# is ever created. Callers can still override KARPENTER_G6_ZONE/KARPENTER_G6E_ZONE.
+default_gpu_fallback_zone() {
+  local subnet_ids
+  subnet_ids="$(terraform -chdir="${TF_DIR}" output -json private_subnet_ids 2>/dev/null \
+    | jq -r '.[]' 2>/dev/null | tr '\n' ' ')" || return 1
+  [[ -n "${subnet_ids// /}" ]] || return 1
+  # shellcheck disable=SC2086
+  aws ec2 describe-subnets --region "${AWS_REGION}" --subnet-ids ${subnet_ids} \
+    --query 'sort_by(Subnets,&AvailabilityZone)[0].AvailabilityZone' --output text 2>/dev/null
+}
+DEFAULT_GPU_FALLBACK_ZONE="$(default_gpu_fallback_zone || true)"
+if [[ -z "${DEFAULT_GPU_FALLBACK_ZONE}" || "${DEFAULT_GPU_FALLBACK_ZONE}" == "None" ]]; then
+  DEFAULT_GPU_FALLBACK_ZONE="${AWS_REGION}a"
+  log "WARNING: could not read private subnet AZs; defaulting g6/g6e zone to ${DEFAULT_GPU_FALLBACK_ZONE}"
+fi
+KARPENTER_G6_ZONE="${KARPENTER_G6_ZONE:-${DEFAULT_GPU_FALLBACK_ZONE}}"
+KARPENTER_G6E_ZONE="${KARPENTER_G6E_ZONE:-${DEFAULT_GPU_FALLBACK_ZONE}}"
 CLUSTER_NAME="$(terraform_output cluster_name)"
 CLUSTER_ENDPOINT="$(terraform_output cluster_endpoint)"
 KARPENTER_QUEUE_NAME="$(terraform_output karpenter_interruption_queue_name)"

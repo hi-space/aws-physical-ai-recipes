@@ -1369,8 +1369,8 @@ Karpenter가 감지  ──▶  NodePool 규칙과 대조  ──▶  Amazon EC2
       <table>
         <tr><th>NodePool 이름</th><th>GPU 종류</th><th>생성 조건</th></tr>
         <tr><td><code>aws-osmo-g7e</code></td><td>RTX PRO 6000<br><span class="dim">최신 세대</span></td><td><b>기본 생성</b></td></tr>
-        <tr><td><code>aws-osmo-g6</code></td><td>L4 (24GB)</td><td>스위치를 켤 때만</td></tr>
         <tr><td><code>aws-osmo-g6e</code></td><td>L40S (48GB)</td><td>스위치를 켤 때만</td></tr>
+        <tr><td><code>aws-osmo-g6</code></td><td>L4 (24GB)<br><span class="dim">재고가 가장 잘 남는 계층</span></td><td>스위치를 켤 때만</td></tr>
       </table>
       <p><b>세 개를 두는 이유</b> — 최신 GPU 재고가 없는 경우에 사용할
       <b>대체 선택지</b>를 미리 정의해 두기 위한 것입니다.</p>
@@ -1554,20 +1554,51 @@ KARPENTER_NODEPOOL_NAME=aws-osmo-g6e \
 </section>
 
 <section class="slide" data-t="GPU 용량 (1)">
-  <h2>GPU 용량 — 기본 풀과 폴백</h2>
+  <h2>GPU 용량 — 세 개의 용량 계층</h2>
   <p>기본 GPU 풀은 <code>g7e-rtx-pro-6000</code>(NVIDIA RTX PRO 6000, 그래픽 메모리 약
-  96GB)입니다.
-  Amazon EC2 G7e 는 신형 인스턴스 패밀리라 리전·가용 영역별 재고 편차가 큽니다. 못 구하면
-  <code>g6e-l40s</code>(NVIDIA L40S, 그래픽 메모리 48GB)로 대체(fallback)합니다.</p>
-  <h3>대체 경로를 켜는 방법 — 스위치 2개를 함께</h3>
-  <pre><code>DEPLOY_G6E_NODEPOOL=true \
-OSMO_CONFIGURE_G6E_PLATFORM=true \
-  scripts/deploy-all.sh</code></pre>
+  96GB)입니다. Amazon EC2 G7e 는 신형 인스턴스 패밀리라 리전·가용 영역별 재고 편차가
+  큽니다. 못 구하면 <b>그래픽 메모리가 큰 쪽에서 재고를 구하기 쉬운 쪽으로</b> 내려갑니다.</p>
+  <table>
+    <tr><th style="width:180px">플랫폼 이름</th><th style="width:170px">GPU</th><th style="width:130px">그래픽 메모리</th><th>용도</th></tr>
+    <tr><td><code>g7e-rtx-pro-6000</code></td><td>RTX PRO 6000</td><td>약 96GB</td><td>기본값 — 전 단계</td></tr>
+    <tr><td><code>g6e-l40s</code></td><td>L40S</td><td>약 45GB</td><td>미세조정·강화학습·평가</td></tr>
+    <tr><td><code>g6-l4</code></td><td>L4</td><td>24GB</td><td>시뮬레이터 스트리밍·평가 <b>전용</b></td></tr>
+  </table>
+  <div class="note">
+    <p><b>가장 깊은 계층은 <code>g6-l4</code>입니다.</b> 2026-09-15 <code>us-east-1</code>
+    실측에서 닿을 수 있는 두 가용 영역 모두에서 g7e 전 크기와 g6e 전 크기가 용량 부족을
+    반환하는 동안 <code>g6.2xlarge</code>는 첫 시도에 확보됐습니다. 리전을 옮기기 전
+    마지막 선택지입니다.</p>
+  </div>
+  <div class="warn">
+    <p>다만 L4 는 그래픽 메모리 24GB 라 <b>미세조정 학습에는 쓸 수 없습니다</b>. 시뮬레이터
+    라이브스트림과 평가까지가 한계입니다. 시뮬레이터 자체는 가볍습니다 — 2026-09-15 L4 실측
+    유휴 메모리가 Isaac Sim 4.5.0 577MiB, 5.1.0 2032MiB 로 두 버전 다 올라갑니다. 한계를
+    정하는 것은 시뮬레이터가 아니라 불러오는 장면입니다.</p>
+  </div>
+</section>
+
+<section class="slide" data-t="GPU 용량 (2) 제출">
+  <h2>대체 계층을 켜고 워크로드를 보내는 방법</h2>
+  <h3>스위치 2개를 함께 — 계층마다 한 쌍</h3>
+  <pre><code># L40S 계층
+DEPLOY_G6E_NODEPOOL=true OSMO_CONFIGURE_G6E_PLATFORM=true scripts/deploy-all.sh
+
+# L4 계층
+DEPLOY_G6_NODEPOOL=true OSMO_CONFIGURE_G6_PLATFORM=true scripts/deploy-all.sh</code></pre>
   <p class="dim">GPU 노드를 만드는 쪽(Karpenter NodePool)과 OSMO가 그 노드를 인식하는
-  쪽(OSMO 플랫폼)을 <b>둘 다</b> 설정해야 합니다. 하나만 켜면 노드는 뜨는데 OSMO가
-  인식하지 못하거나, OSMO는 인식하지만 노드가 생성되지 않습니다.</p>
+  쪽(OSMO 플랫폼)을 <b>둘 다</b> 설정해야 합니다. 이미 돌고 있는 클러스터라면
+  <code>deploy-karpenter.sh</code> → <code>deploy-osmo.sh</code> 순서로 두 스크립트만
+  실행합니다. 순서가 중요합니다 — 플랫폼이 NodePool 이름을 가리키므로 NodePool 이 먼저
+  있어야 합니다.</p>
   <h3>워크플로에서 플랫폼 지정</h3>
-  <pre><code>osmo workflow submit &lt;workflow.yaml&gt; --set platform=g6e-l40s</code></pre>
+  <pre><code># platform 이 템플릿 변수인 워크플로
+osmo workflow submit e2e-pipeline-examples/04-closeloop/workflow.yaml --set platform=g6-l4
+
+# platform 이 고정값인 워크플로 — 전용 파일을 제출
+osmo workflow submit examples/isaacsim-livestream/workflow-g6.yaml</code></pre>
+  <p class="dim">어느 경우인지는 제출 전에 <code>grep -n 'platform:' &lt;workflow.yaml&gt;</code>로
+  확인합니다. 값이 그대로 적혀 있으면 <code>--set</code>으로 바뀌지 않습니다.</p>
   <div class="warn">
     <p>OSMO 명령줄 도구 버그: <code>--set</code>을 여러 번 쓰면 <b>마지막 것만 적용</b>됩니다.
     여러 값을 전달할 때는 하나의 <code>--set</code>에 공백으로 이어서 지정합니다.</p>
@@ -1579,7 +1610,7 @@ OSMO_CONFIGURE_G6E_PLATFORM=true \
   </div>
 </section>
 
-<section class="slide" data-t="GPU 용량 (2)">
+<section class="slide" data-t="GPU 용량 (3) 사전 확인">
   <h2>배포 전 용량 확인 — 그리고 그 한계</h2>
   <pre><code># 이 리전에서 g6e 를 어느 가용 영역(Availability Zone)에 파는가
 aws ec2 describe-instance-type-offerings --region "$AWS_REGION" \
@@ -1633,6 +1664,10 @@ spec:
         limits:
           nvidia.com/gpu: "1"
 YAML</code></pre>
+  <p class="dim"><code>nodeSelector</code>의 NodePool 이름만 바꿔 계층을 순서대로 찔러
+  봅니다: <code>aws-osmo-g7e</code>(가용 영역 제약이 없어 영역까지 옮겨 다닙니다) →
+  <code>aws-osmo-g6e</code> → <code>aws-osmo-g6</code>. 확보한 노드는 워크플로를 제출한
+  뒤 대기용 파드를 삭제해 놓아줍니다.</p>
 </section>
 
 <section class="slide" data-t="용량 부족 대응 (2)">

@@ -1,0 +1,60 @@
+workflow:
+  name: aws-isaacsim-livestream-g6-51-pubep
+  timeout:
+    exec_timeout: 2h
+    queue_timeout: 30m
+  resources:
+    sim:
+      cpu: 4
+      gpu: 1
+      memory: 32Gi
+      storage: 40Gi
+      platform: g6-l4
+  tasks:
+  - name: stream
+    resource: sim
+    image: {{ isaac_sim_image }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+        export ACCEPT_EULA=Y
+
+        nvidia-smi
+
+        echo "=== livestream setting keys present in this image ==="
+        for so in /isaac-sim/extscache/omni.kit.streamsdk.plugins-*/bin/libcarb.livestream-rtc.plugin.so; do
+          echo "-- ${so}"
+          grep -aoE "/app/livestream/[A-Za-z0-9_]+" "${so}" | sort -u || true
+        done
+        echo "=== end setting keys ==="
+
+        cd /isaac-sim
+        ls -1 runheadless* || true
+
+        echo "Starting Isaac Sim 5.1.0, SDP endpoint pinned to {{ public_endpoint_address }}"
+        ./runheadless.sh \
+          --/app/livestream/enabled=true \
+          --/app/livestream/publicEndpointAddress={{ public_endpoint_address }} \
+          --/app/livestream/port=49100 \
+          --/app/livestream/fixedHostPort=47998
+
+# Probe workflow for the ICE candidate address problem. Isaac Sim offers only host
+# candidates, so by default the SDP carries the pod's VPC address and a port
+# forwarder can never satisfy ICE. `publicEndpointAddress` overrides the address
+# Isaac Sim advertises; `fixedHostPort` pins the media port so a single UDP port
+# needs forwarding instead of a range. Both are documented for 5.1 only and are
+# absent from the 4.5.0 image, which is why this variant exists.
+#
+# Set public_endpoint_address to 127.0.0.1 when reaching the sim through
+# `osmo workflow port-forward`, or to the pod IP when the client routes into the
+# VPC directly.
+#
+# L4 has 24GB VRAM and 5.1.0 idles near 18GB, so this leaves little scene
+# headroom. Acceptable for verifying the address negotiation, not for real work.
+default-values:
+  isaac_sim_image: nvcr.io/nvidia/isaac-sim:5.1.0
+  public_endpoint_address: 127.0.0.1

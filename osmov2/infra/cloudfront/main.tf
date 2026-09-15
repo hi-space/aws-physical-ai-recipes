@@ -31,7 +31,14 @@ resource "aws_wafv2_ip_set" "allowed" {
   name               = "${var.name_prefix}-allowed-ips"
   scope              = "CLOUDFRONT"
   ip_address_version = "IPV4"
-  addresses          = var.allowed_cidrs
+
+  # Operator browsers/CLIs plus the cluster's own NAT egress. The latter is what
+  # lets the in-pod osmo-ctrl sidecar complete the port-forward relay handshake;
+  # see the cluster_nat_public_ips comment in variables.tf.
+  addresses = distinct(concat(
+    var.allowed_cidrs,
+    [for ip in var.cluster_nat_public_ips : "${ip}/32"],
+  ))
 }
 
 resource "aws_wafv2_web_acl" "this" {
