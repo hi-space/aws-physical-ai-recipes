@@ -12,9 +12,17 @@ import { parseWorkflowYaml } from './template';
 const RECIPES = '/fsx/scratch/aws-physical-ai-recipes';
 const HP = `${RECIPES}/hyperpod-training`;
 const GROOT_DIR = `${RECIPES}/e2e-workshop/groot`;
-/** Defaults discovered from the GrootFinetune stack (empty in dev without env). */
-const GROOT_IMAGE = config().groot?.trainingImageUri ?? `${config().accountId || '<account>'}.dkr.ecr.${config().region}.amazonaws.com/groot-sm-training:latest`;
-const GROOT_BUCKET = config().groot?.artifactsBucket ?? config().eks?.dataBucket ?? '';
+/** Defaults discovered from the GrootFinetune stack. `next build` evaluates this module without the
+ *  runtime env, so a missing/invalid config degrades to placeholders instead of failing the build. */
+const cfg = (() => {
+  try {
+    return config();
+  } catch {
+    return undefined;
+  }
+})();
+const GROOT_IMAGE = cfg?.groot?.trainingImageUri ?? `${cfg?.accountId || '<account>'}.dkr.ecr.${cfg?.region ?? 'us-east-1'}.amazonaws.com/groot-sm-training:latest`;
+const GROOT_BUCKET = cfg?.groot?.artifactsBucket ?? cfg?.eks?.dataBucket ?? '';
 
 /** Indent a multi-line script for a YAML block scalar. */
 const block = (text: string, spaces: number) => text.split('\n').map((l) => (l ? ' '.repeat(spaces) + l : l)).join('\n');
