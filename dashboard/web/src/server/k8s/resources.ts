@@ -117,6 +117,13 @@ export async function ensureFsxPvc(ns: string): Promise<void> {
   await k8sJson(`/api/v1/namespaces/${ns}/persistentvolumeclaims`, { method: 'POST', body: pvc });
 }
 
+/** Create the workflow ServiceAccount when missing. EKS Pod Identity associations (CDK) bind it to the workflow-pods IAM role. */
+export async function ensureServiceAccount(ns: string, name: string): Promise<void> {
+  assertWritableNamespace(ns);
+  if (await k8sGetOrNull(`/api/v1/namespaces/${ns}/serviceaccounts/${name}`)) return;
+  await k8sJson(`/api/v1/namespaces/${ns}/serviceaccounts`, { method: 'POST', body: { apiVersion: 'v1', kind: 'ServiceAccount', metadata: { name, namespace: ns, labels: managedLabels() } } });
+}
+
 export async function createJob(ns: string, job: unknown): Promise<Job> {
   assertWritableNamespace(ns);
   return k8sJson<Job>(`/apis/batch/v1/namespaces/${ns}/jobs`, { method: 'POST', body: job });
