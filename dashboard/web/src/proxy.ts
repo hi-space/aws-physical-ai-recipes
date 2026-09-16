@@ -3,7 +3,7 @@ import { readGroupsFromAccessToken, verifyAlbOidcData } from '@/server/auth/alb-
 import { roleFromGroups } from '@/server/auth/rbac';
 import { SESSION_HEADERS } from '@/server/auth/session';
 
-const PUBLIC_PATHS = ['/api/health'];
+const PUBLIC_PATHS = ['/api/health', '/api/logout'];
 
 /**
  * Next.js 16 request boundary. Turns the ALB's Cognito identity headers into
@@ -43,10 +43,11 @@ export default async function proxy(req: NextRequest) {
 }
 
 function deny(req: NextRequest, message: string) {
+  console.warn(`[auth] denied ${req.method} ${req.nextUrl.pathname}: ${message} (oidc-data=${req.headers.has('x-amzn-oidc-data')}, access-token=${req.headers.has('x-amzn-oidc-accesstoken')})`);
   if (req.nextUrl.pathname.startsWith('/api/')) {
     return NextResponse.json({ error: message, code: 'unauthorized' }, { status: 401 });
   }
-  return new NextResponse(`<!doctype html><title>Unauthorized</title><body style="font-family:system-ui;padding:2rem"><h1>401</h1><p>${message}</p></body>`, {
+  return new NextResponse(`<!doctype html><title>Unauthorized</title><body style="font-family:system-ui;padding:2rem"><h1>401</h1><p>${message}</p><p><a href="/api/logout">Sign out and sign in again</a></p></body>`, {
     status: 401,
     headers: { 'content-type': 'text/html' },
   });
