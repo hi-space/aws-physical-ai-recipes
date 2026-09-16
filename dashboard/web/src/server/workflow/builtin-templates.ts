@@ -3,12 +3,21 @@
  * hyperpod-training/k8s-templates as a declarative workflow so researchers
  * never type kubectl. `default-values` become the form in the UI (`params`).
  */
+import { config } from '../config';
 import { getRepo } from '../store/repo';
 import type { Template, TemplateParam } from '../store/types';
+import { GR00T_EVAL_PY, GR00T_REGISTER_PY } from './gr00t-scripts';
 import { parseWorkflowYaml } from './template';
 
 const RECIPES = '/fsx/scratch/aws-physical-ai-recipes';
 const HP = `${RECIPES}/hyperpod-training`;
+const GROOT_DIR = `${RECIPES}/e2e-workshop/groot`;
+/** Defaults discovered from the GrootFinetune stack (empty in dev without env). */
+const GROOT_IMAGE = config().groot?.trainingImageUri ?? `${config().accountId || '<account>'}.dkr.ecr.${config().region}.amazonaws.com/groot-sm-training:latest`;
+const GROOT_BUCKET = config().groot?.artifactsBucket ?? config().eks?.dataBucket ?? '';
+
+/** Indent a multi-line script for a YAML block scalar. */
+const block = (text: string, spaces: number) => text.split('\n').map((l) => (l ? ' '.repeat(spaces) + l : l)).join('\n');
 
 const P = (name: string, label: string, type: TemplateParam['type'], def: string, extra: Partial<TemplateParam> = {}): TemplateParam => ({ name, label, type, default: def, ...extra });
 
@@ -352,11 +361,11 @@ default-values:
 const grootFinetune = `
 workflow:
   name: gr00t-finetune
-  description: Fine-tune GR00T N1.6 on a LeRobot dataset with the gr00t-train image from ECR (1 GPU). Requires the image built with hyperpod-training/container.
+  description: Fine-tune GR00T N1.6 on a registered LeRobot dataset with the groot-sm-training image (1 GPU). Same launch_finetune call as the SageMaker container.
   mlflow: true
   timeout: { exec_timeout: 12h, queue_timeout: 2h }
   resources:
-    gpu1: { cpu: 12, memory: 48Gi, gpu: 1, platform: ml.g5.8xlarge, shm_size: 16Gi }
+    gpu1: { cpu: 12, memory: 100Gi, gpu: 1, platform: ml.g5.8xlarge, shm_size: 16Gi }
   tasks:
     - name: finetune
       resource: gpu1
@@ -364,33 +373,174 @@ workflow:
       command: [bash, -ceu]
       args:
         - |
-          cd /workspace/gr00t
-          source .venv/bin/activate 2>/dev/null || true
+          cd /opt/gr00t
           export HF_HOME=/fsx/scratch/hf-home
-          python -m gr00t.experiment.launch_finetune \\
-            --base-model-path "{{ base_model }}" \\
-            --dataset-path "{{input:0}}" \\
-            --embodiment-tag "{{ embodiment_tag }}" \\
-            --modality-config-path "{{ modality_config }}" \\
-            --output-dir "{{output}}" \\
-            --max-steps "{{ max_steps }}" --save-steps "{{ save_steps }}" \\
-            --global-batch-size "{{ global_batch_size }}" --num-gpus 1
+          mkdir -p /opt/ml/code && cp ${GROOT_DIR}/training/container/sitecustomize.py /opt/ml/code/sitecustomize.py 2>/dev/null || true
+          nvidia-smi --query-gpu=name,memory.total --format=csv || { echo "no GPU visible"; exit 1; }
+          DIFFUSION=--no-tune-diffusion-model; [ "{{ tune_diffusion_model }}" = "true" ] && DIFFUSION=--tune-diffusion-model
+          [ -f /data/modality_config.py ] || cp ${GROOT_DIR}/training/data/configs/so101_modality_config.py /tmp/modality_config.py
+          MODALITY=/data/modality_config.py; [ -f "$MODALITY" ] || MODALITY=/tmp/modality_config.py
+          python gr00t/experiment/launch_finetune.py \\
+            --base_model_path "{{ base_model }}" --dataset_path /data --embodiment_tag {{ embodiment_tag }} \\
+            --modality_config_path "$MODALITY" --output_dir "{{output}}" \\
+            --max_steps {{ max_steps }} --save_steps {{ save_steps }} --save_total_limit 2 \\
+            --global_batch_size {{ global_batch_size }} --gradient_accumulation_steps {{ grad_accum }} \\
+            --dataloader_num_workers 4 --num_gpus 1 $DIFFUSION
+      environment:
+        MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "true"
       inputs:
         - dataset: { name: "{{ dataset_name }}", version: latest, path: /data }
-      credentials:
-        huggingface: { HF_TOKEN: /groot/hf-token }
       outputs:
-        - dataset: { name: "{{ output_dataset }}", path: "{{output}}", note: "GR00T N1.6 fine-tuned checkpoint" }
+        - dataset: { name: "{{ output_dataset }}", path: "{{output}}", note: "GR00T N1.6 fine-tuned checkpoint ({{ max_steps }} steps)" }
 default-values:
-  image: "913524902871.dkr.ecr.us-east-1.amazonaws.com/gr00t-train:latest"
+  image: "${GROOT_IMAGE}"
   dataset_name: leisaac-pick-orange
   base_model: nvidia/GR00T-N1.6-3B
-  embodiment_tag: new_embodiment
-  modality_config: ${HP}/configs/so101_modality.py
+  embodiment_tag: NEW_EMBODIMENT
   max_steps: "1000"
   save_steps: "500"
-  global_batch_size: "32"
+  global_batch_size: "16"
+  grad_accum: "2"
+  tune_diffusion_model: "false"
   output_dataset: gr00t-n16-so101-ckpt
+`;
+
+const grootPipeline = `
+workflow:
+  name: gr00t-pipeline
+  description: "GR00T N1.6 VLA pipeline (workshop guide on EKS): HF dataset -> LeRobot v2.1 staging + validation -> single-GPU fine-tune (MLflow) -> open-loop evaluation gate -> uncompressed S3 export + MLflow model registration"
+  mlflow: true
+  timeout: { exec_timeout: 8h, queue_timeout: 3h }
+  resources:
+    cpu_small: { cpu: 4, memory: 8Gi, platform: ml.c5.4xlarge }
+    gpu1: { cpu: 12, memory: 100Gi, gpu: 1, platform: ml.g5.8xlarge, shm_size: 16Gi }
+  tasks:
+    - name: prepare-data
+      resource: cpu_small
+      image: public.ecr.aws/docker/library/python:3.11
+      timeout: 2h
+      command: [bash, -ceu]
+      args:
+        - |
+          export DEBIAN_FRONTEND=noninteractive HF_HOME=/fsx/scratch/hf-home
+          apt-get update -qq && apt-get install -y -qq git git-lfs ffmpeg >/dev/null
+          pip install -q "huggingface_hub>=0.24" pyyaml boto3 pyarrow numpy
+          REPO=${RECIPES}
+          mkdir -p /fsx/scratch /fsx/datasets /fsx/checkpoints
+          if [ -d "$REPO/.git" ]; then git -C "$REPO" fetch -q --depth 1 origin "{{ recipes_ref }}" && git -C "$REPO" reset -q --hard FETCH_HEAD;
+          else git clone -q --depth 1 -b "{{ recipes_ref }}" https://github.com/hi-space/aws-physical-ai-recipes.git "$REPO"; fi
+          cd ${GROOT_DIR}/training/data
+          echo "[prepare-data] TransformDataset: download {{ hf_dataset_id }}, convert v3->v2.1 if needed, validate, stage with manifest"
+          python transform_dataset.py --hf-dataset-id "{{ hf_dataset_id }}" --output-dir "{{output}}"
+          echo "[prepare-data] modality files for {{ embodiment_tag }} ({{ modality_profile }})"
+          [ -f "{{output}}/modality_config.py" ] || cp configs/{{ modality_profile }}_modality_config.py "{{output}}/modality_config.py"
+          [ -f "{{output}}/meta/modality.json" ] || cp configs/{{ modality_profile }}_modality.json "{{output}}/meta/modality.json"
+          python - "{{output}}" <<'PY'
+          import json, sys, pathlib
+          root = pathlib.Path(sys.argv[1]); info = json.loads((root / "meta" / "info.json").read_text())
+          summary = {k: info.get(k) for k in ("codebase_version", "robot_type", "fps", "total_episodes", "total_frames", "total_videos")}
+          summary["features"] = sorted(info.get("features", {}).keys()); summary["modality"] = json.loads((root / "meta" / "modality.json").read_text())
+          (root / "dataset_summary.json").write_text(json.dumps(summary, indent=2)); print("DATASET SUMMARY:", json.dumps(summary))
+          PY
+      outputs:
+        - dataset: { name: "{{ dataset_name }}", path: "{{output}}", note: "LeRobot v2.1 from Hugging Face {{ hf_dataset_id }} (validated, with {{ modality_profile }} modality config)" }
+    - name: finetune
+      resource: gpu1
+      image: "{{ image }}"
+      inputs: [{ task: prepare-data }]
+      timeout: 5h
+      command: [bash, -ceu]
+      args:
+        - |
+          cd /opt/gr00t
+          export HF_HOME=/fsx/scratch/hf-home
+          mkdir -p /opt/ml/code && cp ${GROOT_DIR}/training/container/sitecustomize.py /opt/ml/code/sitecustomize.py
+          pip install -q nvidia-ml-py 2>/dev/null || true
+          nvidia-smi --query-gpu=name,memory.total --format=csv || { echo "no GPU visible on this node"; exit 1; }
+          DIFFUSION=--no-tune-diffusion-model; [ "{{ tune_diffusion_model }}" = "true" ] && DIFFUSION=--tune-diffusion-model
+          echo "[finetune] {{ base_model }} on {{input:0}} -> {{output}} ({{ max_steps }} steps, batch {{ global_batch_size }} x accum {{ grad_accum }}, $DIFFUSION)"
+          python gr00t/experiment/launch_finetune.py \\
+            --base_model_path "{{ base_model }}" --dataset_path "{{input:0}}" --embodiment_tag {{ embodiment_tag }} \\
+            --modality_config_path "{{input:0}}/modality_config.py" --output_dir "{{output}}" \\
+            --max_steps {{ max_steps }} --save_steps {{ save_steps }} --save_total_limit 2 \\
+            --global_batch_size {{ global_batch_size }} --gradient_accumulation_steps {{ grad_accum }} \\
+            --dataloader_num_workers 4 --num_gpus 1 $DIFFUSION
+          python - "{{output}}" "{{ embodiment_tag }}" <<'PY'
+          import glob, json, os, sys, pathlib
+          out = pathlib.Path(sys.argv[1]); tag = sys.argv[2]
+          states = sorted(glob.glob(str(out / "**" / "trainer_state.json"), recursive=True), key=os.path.getmtime)
+          summary = {"embodiment_tag": tag, "output_dir": str(out)}
+          if states:
+              st = json.loads(pathlib.Path(states[-1]).read_text()); hist = [h for h in st.get("log_history", []) if "loss" in h]
+              summary.update({"global_step": st.get("global_step"), "max_steps": st.get("max_steps"), "final_loss": hist[-1]["loss"] if hist else None, "first_loss": hist[0]["loss"] if hist else None, "epoch": st.get("epoch")})
+          (out / "training_summary.json").write_text(json.dumps(summary, indent=2))
+          meta = out / "inference_metadata.json"
+          if not meta.exists(): meta.write_text(json.dumps({"embodiment_tag": tag}, indent=2))
+          print("TRAINING SUMMARY:", json.dumps(summary))
+          PY
+      environment:
+        MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "true"
+      outputs:
+        - dataset: { name: "{{ output_dataset }}", path: "{{output}}", note: "GR00T N1.6 fine-tune output ({{ max_steps }} steps on {{ dataset_name }})" }
+    - name: evaluate
+      resource: gpu1
+      image: "{{ image }}"
+      inputs: [{ task: finetune }, { task: prepare-data }]
+      timeout: 1h
+      files:
+        - path: /pai/eval_gr00t.py
+          contents: |
+${block(GR00T_EVAL_PY, 12)}
+      command: [bash, -ceu]
+      args:
+        - |
+          cd /opt/gr00t
+          python -c "import matplotlib, pandas" 2>/dev/null || pip install -q matplotlib pandas
+          echo "[evaluate] smoke + open-loop MSE on {{ eval_trajectories }} trajectories ({{ eval_steps }} steps each), gate max_mse={{ max_mse }}"
+          python /pai/eval_gr00t.py --model-root "{{input:0}}" --dataset "{{input:1}}" --output "{{output}}" \\
+            --embodiment-tag {{ embodiment_tag }} --trajectories {{ eval_trajectories }} --steps {{ eval_steps }} --max-mse {{ max_mse }}
+      outputs:
+        - dataset: { name: "{{ output_dataset }}-eval", path: "{{output}}", note: "evaluation.json + open-loop plots for {{ output_dataset }}" }
+    - name: register
+      resource: cpu_small
+      image: public.ecr.aws/docker/library/python:3.11
+      inputs: [{ task: finetune }, { task: evaluate }, { task: prepare-data }]
+      timeout: 1h
+      files:
+        - path: /pai/register_gr00t.py
+          contents: |
+${block(GR00T_REGISTER_PY, 12)}
+      command: [bash, -ceu]
+      args:
+        - |
+          pip install -q boto3 "mlflow>=3,<4" sagemaker-mlflow
+          echo "[register] export -> s3://{{ artifacts_bucket }}/{{ s3_prefix }}/wf-{{workflow_id}}/ and MLflow model {{ model_name }} (alias {{ alias }})"
+          python /pai/register_gr00t.py --model-root "{{input:0}}" --eval-dir "{{input:1}}" --dataset-dir "{{input:2}}" --output "{{output}}" \\
+            --bucket "{{ artifacts_bucket }}" --prefix "{{ s3_prefix }}/wf-{{workflow_id}}" --model-name "{{ model_name }}" --alias "{{ alias }}" \\
+            --workflow-id "{{workflow_id}}" --base-model "{{ base_model }}" --dataset-name "{{ dataset_name }}" --hf-dataset-id "{{ hf_dataset_id }}" --embodiment-tag {{ embodiment_tag }}
+      outputs:
+        - dataset: { name: "{{ model_name }}", path: "{{output}}/model", note: "Inference-only GR00T export (gate passed); mirrored to s3://{{ artifacts_bucket }}/{{ s3_prefix }}/" }
+default-values:
+  recipes_ref: feat/e2e-workshop
+  hf_dataset_id: LightwheelAI/leisaac-pick-orange
+  dataset_name: leisaac-pick-orange
+  modality_profile: so101
+  image: "${GROOT_IMAGE}"
+  base_model: nvidia/GR00T-N1.6-3B
+  embodiment_tag: NEW_EMBODIMENT
+  max_steps: "300"
+  save_steps: "100"
+  global_batch_size: "16"
+  grad_accum: "2"
+  tune_diffusion_model: "false"
+  output_dataset: gr00t-n16-so101-ckpt
+  eval_trajectories: "3"
+  eval_steps: "150"
+  max_mse: "0"
+  artifacts_bucket: "${GROOT_BUCKET}"
+  s3_prefix: models/groot-sm
+  model_name: gr00t-n16-so101
+  alias: candidate
 `;
 
 const custom = `
@@ -554,19 +704,52 @@ export const BUILTIN_TEMPLATES: Template[] = [
   {
     id: 'gr00t-finetune',
     title: 'GR00T N1.6 fine-tune (GPU, EKS)',
-    description: 'launch_finetune from the gr00t-train ECR image against a registered LeRobot dataset. Logs to MLflow.',
+    description: 'launch_finetune from the groot-sm-training ECR image against a registered LeRobot dataset. Logs to MLflow. Projector-only by default so it fits one 24 GB GPU.',
     category: 'training',
     builtin: true,
     yaml: grootFinetune,
     params: [
-      P('image', 'Training image', 'string', '913524902871.dkr.ecr.us-east-1.amazonaws.com/gr00t-train:latest'),
+      P('image', 'Training image', 'string', GROOT_IMAGE),
       P('dataset_name', 'Registered dataset', 'string', 'leisaac-pick-orange'),
       P('base_model', 'Base model', 'select', 'nvidia/GR00T-N1.6-3B', { options: ['nvidia/GR00T-N1.6-3B', 'nvidia/GR00T-N1.7-3B'] }),
-      P('embodiment_tag', 'Embodiment tag', 'string', 'new_embodiment'),
+      P('embodiment_tag', 'Embodiment tag', 'string', 'NEW_EMBODIMENT'),
       P('max_steps', 'Max steps', 'number', '1000'),
       P('save_steps', 'Save steps', 'number', '500'),
-      P('global_batch_size', 'Global batch size', 'number', '32'),
+      P('global_batch_size', 'Global batch size', 'number', '16'),
+      P('grad_accum', 'Gradient accumulation steps', 'number', '2'),
+      P('tune_diffusion_model', 'Tune diffusion head', 'select', 'false', { options: ['false', 'true'], help: 'true needs >24 GB GPU memory (ml.g5.12xlarge / g6e); false trains the projector only' }),
       P('output_dataset', 'Publish checkpoint as dataset', 'string', 'gr00t-n16-so101-ckpt'),
+    ],
+    requires: ['fsx', 'gpu', 'mlflow'],
+    createdAt: '2026-09-16T00:00:00Z',
+  },
+  {
+    id: 'gr00t-pipeline',
+    title: 'GR00T VLA end-to-end pipeline (GPU DAG)',
+    description: 'The workshop pipeline on EKS: prepare-data (HF download, v3→v2.1, validation) → finetune (1 GPU, MLflow) → evaluate (smoke + open-loop MSE gate) → register (uncompressed S3 export for IsaacSim, MLflow model version).',
+    category: 'training',
+    builtin: true,
+    yaml: grootPipeline,
+    params: [
+      P('hf_dataset_id', 'HF dataset id', 'string', 'LightwheelAI/leisaac-pick-orange'),
+      P('dataset_name', 'Dataset name', 'string', 'leisaac-pick-orange'),
+      P('modality_profile', 'Modality config', 'select', 'so101', { options: ['so101', 'aloha'], help: 'copied next to the data when the dataset has no modality_config.py' }),
+      P('base_model', 'Base model', 'select', 'nvidia/GR00T-N1.6-3B', { options: ['nvidia/GR00T-N1.6-3B', 'nvidia/GR00T-N1.7-3B'] }),
+      P('max_steps', 'Training steps', 'number', '300'),
+      P('save_steps', 'Save every N steps', 'number', '100'),
+      P('global_batch_size', 'Global batch size', 'number', '16'),
+      P('grad_accum', 'Gradient accumulation steps', 'number', '2'),
+      P('tune_diffusion_model', 'Tune diffusion head', 'select', 'false', { options: ['false', 'true'], help: 'true needs >24 GB GPU memory; false = projector only (fits ml.g5.8xlarge)' }),
+      P('eval_trajectories', 'Eval trajectories', 'number', '3'),
+      P('eval_steps', 'Eval steps per trajectory', 'number', '150'),
+      P('max_mse', 'Gate: max open-loop MSE (0 = record only)', 'number', '0'),
+      P('model_name', 'MLflow registered model', 'string', 'gr00t-n16-so101'),
+      P('alias', 'Model alias on pass', 'string', 'candidate'),
+      P('artifacts_bucket', 'Export bucket', 'string', GROOT_BUCKET),
+      P('s3_prefix', 'Export prefix', 'string', 'models/groot-sm', { help: 'the DCV workstation mounts this bucket at /mnt/s3/groot' }),
+      P('output_dataset', 'Publish checkpoint as dataset', 'string', 'gr00t-n16-so101-ckpt'),
+      P('image', 'Training image', 'string', GROOT_IMAGE),
+      P('recipes_ref', 'Recipes git ref', 'string', 'feat/e2e-workshop'),
     ],
     requires: ['fsx', 'gpu', 'mlflow'],
     createdAt: '2026-09-16T00:00:00Z',

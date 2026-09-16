@@ -27,7 +27,14 @@ export interface DashboardStackProps extends cdk.StackProps {
   buckets: string[];
   /** EKS cluster security group (control-plane ENIs); the service SG is allowed in on 443. */
   eksClusterSecurityGroupId?: string;
+  /** Namespaces whose `pai-workflow` ServiceAccount is bound to the workflow-pods IAM role (EKS Pod Identity). */
+  workflowNamespaces: string[];
+  /** MLflow tracking servers the workflow pods may log to (ARNs); defaults to every server in the account. */
+  mlflowTrackingServerArns?: string[];
 }
+
+/** ServiceAccount name the controller attaches to every workflow Job. */
+export const WORKFLOW_SERVICE_ACCOUNT = 'pai-workflow';
 
 export class DashboardStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DashboardStackProps) {
@@ -54,7 +61,11 @@ export class DashboardStack extends cdk.Stack {
 
     const auth = new AuthConstruct(this, 'Auth', { accountId: props.accountId, domainName: props.domainName, adminUsername: props.adminUsername, adminEmail: props.adminEmail });
 
-    const environment = buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn });
+    const environment = buildEnv(d, {
+      TABLE_NAME: table.table.tableName,
+      SNS_TOPIC_ARN: topic.topicArn,
+      WORKFLOW_SERVICE_ACCOUNT: d.hyperPodEks?.EksClusterName ? WORKFLOW_SERVICE_ACCOUNT : undefined,
+    });
 
     const svc = new ServiceConstruct(this, 'Web', {
       vpc,
@@ -208,6 +219,46 @@ export class DashboardStack extends cdk.Stack {
         description: 'Physical AI Dashboard to EKS API private endpoint',
       });
     }
+    // ------------------------------------------------------------------ Workflow pods identity
+    // HyperPod EKS nodes block IMDS from pods and the cluster ships the eks-pod-identity-agent addon, so the
+    // only way a training/eval/register step can reach S3 or MLflow is a Pod Identity association. The
+    // controller creates the `pai-workflow` ServiceAccount in each workflow namespace and sets it on every Job.
+    if (d.hyperPodEks?.EksClusterName) {
+      const podRole = new iam.Role(this, 'WorkflowPodRole', {
+        roleName: `${prefix}-workflow-pods`,
+        assumedBy: new iam.ServicePrincipal('pods.eks.amazonaws.com').withSessionTags(),
+        description: 'Physical AI Dashboard workflow pods (EKS Pod Identity): dataset/model S3 export, MLflow logging, SSM credentials',
+      });
+      podRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'MlflowTracking',
+          actions: ['sagemaker-mlflow:*'],
+          resources: props.mlflowTrackingServerArns?.length ? props.mlflowTrackingServerArns : [`arn:aws:sagemaker:${props.region}:${props.accountId}:mlflow-tracking-server/*`],
+        }),
+      );
+      if (props.buckets.length) {
+        podRole.addToPolicy(new iam.PolicyStatement({ sid: 'S3Buckets', actions: ['s3:ListBucket', 's3:GetBucketLocation'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}`) }));
+        podRole.addToPolicy(new iam.PolicyStatement({ sid: 'S3Objects', actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload', 's3:ListMultipartUploadParts'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}/*`) }));
+      }
+      podRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'SsmCredentialParameters',
+          actions: ['ssm:GetParameter'],
+          resources: [`arn:aws:ssm:${props.region}:${props.accountId}:parameter/groot/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/physical-ai/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/pai/*`],
+        }),
+      );
+      podRole.addToPolicy(new iam.PolicyStatement({ sid: 'KmsForSecureStrings', actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } } }));
+      for (const ns of props.workflowNamespaces) {
+        new eks.CfnPodIdentityAssociation(this, `PodIdentity-${ns}`, {
+          clusterName: d.hyperPodEks.EksClusterName,
+          namespace: ns,
+          serviceAccount: WORKFLOW_SERVICE_ACCOUNT,
+          roleArn: podRole.roleArn,
+        });
+      }
+      new cdk.CfnOutput(this, 'WorkflowPodRoleArn', { value: podRole.roleArn, description: `IAM role assumed by workflow pods via ServiceAccount ${WORKFLOW_SERVICE_ACCOUNT}` });
+    }
+
     if (d.hyperPodEks?.EksClusterName) {
       const entry = new eks.CfnAccessEntry(this, 'EksAccessEntry', {
         clusterName: d.hyperPodEks.EksClusterName,

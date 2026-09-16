@@ -16,6 +16,8 @@ export interface DashboardConfig {
   authMode: AuthMode;
   controllerEnabled: boolean;
   defaultNamespace: string;
+  /** ServiceAccount attached to workflow Jobs (EKS Pod Identity → IAM role for S3/MLflow); undefined = namespace default. */
+  workflowServiceAccount?: string;
   tableName: string;
   snsTopicArn?: string;
   cognitoUserPoolId?: string;
@@ -68,6 +70,7 @@ export const ENV_KEYS = [
   'AUTH_MODE',
   'WORKFLOW_CONTROLLER',
   'DEFAULT_NAMESPACE',
+  'WORKFLOW_SERVICE_ACCOUNT',
   'TABLE_NAME',
   'SNS_TOPIC_ARN',
   'COGNITO_USER_POOL_ID',
@@ -167,6 +170,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
     authMode,
     controllerEnabled: (opt(env, 'WORKFLOW_CONTROLLER') ?? '0') === '1',
     defaultNamespace: opt(env, 'DEFAULT_NAMESPACE') ?? 'rl',
+    workflowServiceAccount: opt(env, 'WORKFLOW_SERVICE_ACCOUNT'),
     tableName: tableName ?? 'physical-ai-dashboard-dev',
     snsTopicArn: opt(env, 'SNS_TOPIC_ARN'),
     cognitoUserPoolId: opt(env, 'COGNITO_USER_POOL_ID'),

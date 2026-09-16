@@ -17,6 +17,8 @@ export interface CompileContext {
   /** credential name → {ENV: value} resolved from SSM */
   credentialValues: Record<string, Record<string, string>>;
   mlflowTrackingUri?: string;
+  /** ServiceAccount bound to the workflow-pods IAM role via EKS Pod Identity (S3 export, MLflow logging). */
+  serviceAccountName?: string;
 }
 
 export interface CompiledTask {
@@ -171,6 +173,7 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
         metadata: { labels: { ...labels, ...kueueLabels } },
         spec: {
           restartPolicy: 'Never',
+          ...(ctx.serviceAccountName ? { serviceAccountName: ctx.serviceAccountName } : {}),
           nodeSelector,
           tolerations,
           volumes,

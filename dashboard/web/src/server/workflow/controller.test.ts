@@ -36,6 +36,7 @@ class FakeK8s implements K8sPort {
   async deleteByLabel() {}
   async ensureNamespace() {}
   async ensureFsxPvc() {}
+  async ensureServiceAccount() {}
   async queueState(_ns: string, job: string) {
     return this.queue.get(job) ?? 'unknown';
   }

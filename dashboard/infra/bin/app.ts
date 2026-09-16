@@ -15,6 +15,7 @@
  *   -c notifyEmail=you@example.com          (optional SNS subscription)
  *   -c region=us-east-1                     (default CDK_DEFAULT_REGION)
  *   -c vpcId=vpc-...                        (optional override; default: HyperPodEks VPC)
+ *   -c workflowNamespaces=rl,hyperpod-ns-team-a,hyperpod-ns-team-b   (namespaces whose pai-workflow SA gets the pod role)
  */
 import 'source-map-support/register';
 import * as path from 'node:path';
@@ -112,6 +113,8 @@ async function main() {
     webAppPath: path.resolve(__dirname, '..', '..', 'web'),
     buckets,
     eksClusterSecurityGroupId,
+    workflowNamespaces: ((app.node.tryGetContext('workflowNamespaces') as string | undefined) ?? 'rl,hyperpod-ns-team-a,hyperpod-ns-team-b').split(',').map((s) => s.trim()).filter(Boolean),
+    mlflowTrackingServerArns: [groot?.MlflowTrackingServerArn, hyperPodEks?.MlflowTrackingArn].filter(Boolean) as string[],
   });
   app.synth();
 }

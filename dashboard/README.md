@@ -82,8 +82,18 @@ and dataset registry) and Cognito user pool.
 
 ### Optional wiring
 
-- **MLflow from EKS jobs** — templates with `mlflow: true` inject `MLFLOW_TRACKING_URI`; the container
-  needs the `sagemaker-mlflow` plugin and the HyperPod execution role needs `sagemaker-mlflow:*`.
+- **Workflow pod identity** — HyperPod EKS nodes block IMDS from pods, so the stack creates the
+  `physical-ai-dashboard-<acct>-workflow-pods` IAM role (S3 on the discovered buckets, `sagemaker-mlflow:*`,
+  SSM credential prefixes) and EKS Pod Identity associations for the `pai-workflow` ServiceAccount in
+  `-c workflowNamespaces` (default `rl,hyperpod-ns-team-a,hyperpod-ns-team-b`). The controller creates that
+  ServiceAccount and sets it on every Job; templates with `mlflow: true` also get `MLFLOW_TRACKING_URI`
+  (the container needs the `sagemaker-mlflow` plugin).
+- **GR00T pipeline** — the `gr00t-pipeline` template is the workshop's SageMaker pipeline
+  (`e2e-workshop/groot/pipeline`) on EKS: `prepare-data` (HF download, v3→v2.1, validation, modality config)
+  → `finetune` (groot-sm-training image, 1 GPU, HF Trainer → MLflow) → `evaluate` (smoke check + upstream
+  open-loop MSE, `evaluation.json` + plots, exit code = gate) → `register` (inference-only export to
+  `s3://<artifacts>/models/groot-sm/wf-<id>/` for IsaacSim/DCV, MLflow model version + alias). Each stage
+  publishes a dataset version, so lineage runs from the HF dataset to the registered model.
 - **Credentials** — put tokens in SSM SecureString parameters under `/groot/`, `/physical-ai/` or `/pai/`
   (e.g. `aws ssm put-parameter --name /groot/hf-token --type SecureString --value hf_...`) and reference
   the path in `credentials:`.

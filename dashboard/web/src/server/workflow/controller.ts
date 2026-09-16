@@ -31,6 +31,7 @@ export interface K8sPort {
   deleteByLabel(ns: string, kind: 'configmaps' | 'secrets', selector: string): Promise<void>;
   ensureNamespace(ns: string): Promise<void>;
   ensureFsxPvc(ns: string): Promise<void>;
+  ensureServiceAccount(ns: string, name: string): Promise<void>;
   queueState(ns: string, jobName: string): Promise<'admitted' | 'pending' | 'evicted' | 'finished' | 'unknown'>;
 }
 
@@ -54,6 +55,7 @@ export const realK8s: K8sPort = {
   deleteByLabel: (ns, kind, sel) => k8sRes.deleteByLabel(ns, kind, sel),
   ensureNamespace: k8sRes.ensureNamespace,
   ensureFsxPvc: k8sRes.ensureFsxPvc,
+  ensureServiceAccount: k8sRes.ensureServiceAccount,
   queueState: async (ns, job) => workloadState(await workloadForJob(ns, job)),
 };
 
@@ -106,6 +108,7 @@ export async function submitWorkflow(input: SubmitInput, deps: ControllerDeps = 
   spec.workflow.namespace = namespace;
   await deps.k8s.ensureNamespace(namespace);
   await deps.k8s.ensureFsxPvc(namespace);
+  if (config().workflowServiceAccount) await deps.k8s.ensureServiceAccount(namespace, config().workflowServiceAccount!);
 
   // Resolve dataset inputs and check credential refs up front so problems fail at submit time.
   for (const t of spec.workflow.tasks) {
@@ -249,6 +252,7 @@ async function launchTask(wf: Workflow, task: TaskSpec, tasks: Task[], deps: Con
     datasetPaths,
     credentialValues,
     mlflowTrackingUri: spec.workflow.mlflow ? deps.mlflowTrackingUri : undefined,
+    serviceAccountName: config().workflowServiceAccount,
   };
   const compiled = compileTask(spec, task, ctx);
   const labels = { [LABEL_WF]: wf.id, 'pai.aws/task': task.name };
