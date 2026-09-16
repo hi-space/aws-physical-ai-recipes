@@ -226,6 +226,7 @@ VERIFICATION_NOTES.md
 docs/superpowers/
 workshop-audit-*.html
 dashboard/web/e2e/.results/
+!docs/reports/evidence/**/*.log
 
 # Training logs & model files
 logs/

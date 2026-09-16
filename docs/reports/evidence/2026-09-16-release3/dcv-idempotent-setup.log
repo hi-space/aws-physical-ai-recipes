@@ -1,0 +1,9 @@
+
+Running 1 test using 1 worker
+
+(node:2755183) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[dcv-setup] configured=true initialActivation=false serviceIdentityUnchanged=true
+  ✓  1 ../../../../../../tmp/physical-ai-release3-probes/dcv-setup-idempotent.spec.ts:5:5 › deployed DCV setup is idempotent and preserves the running service (8.5s)
+
+  1 passed (15.5s)

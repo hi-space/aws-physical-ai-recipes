@@ -1,0 +1,9 @@
+
+Running 1 test using 1 worker
+
+(node:2746499) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[ros2] run=05839fe0398ce352
+  ✓  1 e2e/ros2.spec.ts:9:5 › ROS 2 discovery and payload delivery produce a verified run-scoped READY artifact (57.9s)
+
+  1 passed (1.1m)

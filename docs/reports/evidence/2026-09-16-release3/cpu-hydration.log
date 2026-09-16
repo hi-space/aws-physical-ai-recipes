@@ -1,0 +1,33 @@
+
+Running 2 tests using 1 worker
+
+(node:2707851) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 e2e/researcher.spec.ts:37:5 › CPU custom workflow applies COMPLETE to raw exit 7 and publishes real READY artifact bytes (1.1s)
+(node:2707996) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[researcher] run=5b740b38400aab04 workflow=e2e-hydrate-c686f7e58e44 project=workshop
+  ✓  2 e2e/researcher.spec.ts:51:5 › dataset upload transitions PENDING to READY and a consumer run proves real input hydration (58.9s)
+
+
+  1) e2e/researcher.spec.ts:37:5 › CPU custom workflow applies COMPLETE to raw exit 7 and publishes real READY artifact bytes
+
+    Error: Hosted login failed; verify the parent-injected auth environment and deployed HTTPS origin (details redacted)
+
+       at researcher-helpers/fixture.ts:90
+
+      88 |     // Playwright locator/navigation errors can otherwise include passwords or
+      89 |     // identity-provider query strings. Never attach the original error.
+    > 90 |     throw new Error('Hosted login failed; verify the parent-injected auth environment and deployed HTTPS origin (details redacted)');
+         |           ^
+      91 |   }
+      92 |   const principal = await jsonRequest<Principal>(page, dashboard.origin, undefined, 'GET', '/api/me');
+      93 |   requireCondition(principal.subject && principal.user && ['researcher', 'admin'].includes(principal.role),
+        at authenticate (/home/ubuntu/workspace/aws-physical-ai-dashboard-implementation/dashboard/web/e2e/researcher-helpers/fixture.ts:90:11)
+        at Object.exports.test._test.test.extend.researcher.timeout (/home/ubuntu/workspace/aws-physical-ai-dashboard-implementation/dashboard/web/e2e/researcher-helpers/fixture.ts:340:44)
+
+    Error Context: ../../../../../../tmp/physical-ai-release3-researcher/researcher-CPU-custom-work-91b77-s-real-READY-artifact-bytes/error-context.md
+
+  1 failed
+    e2e/researcher.spec.ts:37:5 › CPU custom workflow applies COMPLETE to raw exit 7 and publishes real READY artifact bytes
+  1 passed (1.1m)

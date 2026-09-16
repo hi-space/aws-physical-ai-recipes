@@ -1,0 +1,8 @@
+
+Running 1 test using 1 worker
+
+(node:2745087) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/distributed.spec.ts:34:5 › two CPU nodes run real Torch/Gloo collectives and publish matching trained weights in READY artifacts (1.5m)
+
+  1 passed (1.6m)
