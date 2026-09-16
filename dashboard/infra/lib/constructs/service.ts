@@ -155,6 +155,8 @@ export class ServiceConstruct extends Construct {
       }),
     });
     https.addAction('Health', { priority: 1, conditions: [elbv2.ListenerCondition.pathPatterns(['/api/health'])], action: elbv2.ListenerAction.forward([targetGroup]) });
+    // Logout must bypass authenticate-cognito, otherwise the ALB just starts a new login instead of clearing the session.
+    https.addAction('Logout', { priority: 2, conditions: [elbv2.ListenerCondition.pathPatterns(['/api/logout'])], action: elbv2.ListenerAction.forward([targetGroup]) });
     this.loadBalancer.addListener('Http', { port: 80, defaultAction: elbv2.ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }) });
 
     // The ALB must be able to reach Cognito (token endpoint) — allowAllOutbound covers it.
