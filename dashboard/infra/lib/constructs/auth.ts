@@ -31,7 +31,7 @@ export class AuthConstruct extends Construct {
       signInAliases: { username: true, email: true },
       autoVerify: { email: true },
       standardAttributes: { email: { required: true, mutable: true } },
-      passwordPolicy: { minLength: 12, requireLowercase: true, requireUppercase: true, requireDigits: true, requireSymbols: false, tempPasswordValidity: cdk.Duration.days(7) },
+      passwordPolicy: { minLength: 8, requireLowercase: true, requireUppercase: true, requireDigits: true, requireSymbols: false, tempPasswordValidity: cdk.Duration.days(7) },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       deletionProtection: false,
