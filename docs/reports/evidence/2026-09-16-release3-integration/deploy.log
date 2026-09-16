@@ -1,0 +1,363 @@
+AI agent detected, using --progress "errors-only" (set --progress or the "progress" key in cdk.json to change)
+WARNING No routeTableId was provided to the subnet 'subnet-04c904405dcaac015'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) (Construct Annotations)
+   PhysicalAiDashboard/Vpc/PublicSubnet1
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-ec2:noSubnetRouteTableId'
+
+WARNING No routeTableId was provided to the subnet 'subnet-0b5fb3f2bd7ea0fe3'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) (Construct Annotations)
+   PhysicalAiDashboard/Vpc/PublicSubnet2
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-ec2:noSubnetRouteTableId'
+
+WARNING No routeTableId was provided to the subnet 'subnet-04e633f222a8b4e6c'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) (Construct Annotations)
+   PhysicalAiDashboard/Vpc/PrivateSubnet1
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-ec2:noSubnetRouteTableId'
+
+WARNING No routeTableId was provided to the subnet 'subnet-07c1414e4173068cf'. Attempting to read its .routeTable.routeTableId will return null/undefined. (More info: https://github.com/aws/aws-cdk/pull/3171) (Construct Annotations)
+   PhysicalAiDashboard/Vpc/PrivateSubnet2
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-ec2:noSubnetRouteTableId'
+
+WARNING Ignoring Egress rule since 'allowAllOutbound' is set to true; To add customized rules, set allowAllOutbound=false on the SecurityGroup (Construct Annotations)
+   PhysicalAiDashboard/Web/AlbSg
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-ec2:ipv4IgnoreEgressRule'
+
+✨  Synthesis time: 0.01s
+
+PhysicalAiDashboard-913524902871: start: Building PhysicalAiDashboard-913524902871 Template
+PhysicalAiDashboard-913524902871: success: Built PhysicalAiDashboard-913524902871 Template
+PhysicalAiDashboard-913524902871: start: Building Web/Image
+PhysicalAiDashboard-913524902871: start: Publishing PhysicalAiDashboard-913524902871 Template (913524902871-us-east-1-e1385377)
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.41kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#2 DONE 1.0s
+PhysicalAiDashboard-913524902871: success: Published PhysicalAiDashboard-913524902871 Template (913524902871-us-east-1-e1385377)
+
+#3 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#3 CACHED
+
+#4 [internal] load metadata for public.ecr.aws/docker/library/node:22-slim
+#4 DONE 1.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 104B done
+#5 DONE 0.0s
+
+#6 [runner  4/11] ADD --checksum=sha256:67ddd12b963c28e44126f9732075caae333cc5f55e902623bd6a107ead2bcc56 https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.814.0/ubuntu_64bit/session-manager-plugin.deb /tmp/session-manager-plugin.deb
+#6 DONE 0.0s
+
+#7 [build 1/6] FROM public.ecr.aws/docker/library/node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 2.56MB 0.0s done
+#8 DONE 0.1s
+
+#9 [deps 4/4] RUN npm ci --no-audit --no-fund
+#9 CACHED
+
+#10 [build 2/6] WORKDIR /app
+#10 CACHED
+
+#11 [deps 3/4] COPY package.json package-lock.json ./
+#11 CACHED
+
+#12 [build 3/6] COPY --from=deps /app/node_modules ./node_modules
+#12 CACHED
+
+#13 [build 4/6] COPY . .
+#13 DONE 0.1s
+
+#14 [build 5/6] RUN npm run build
+#14 0.382
+#14 0.382 > physical-ai-dashboard@0.1.0 build
+#14 0.382 > next build
+#14 0.382
+#14 0.670 ▲ Next.js 16.3.5 (Turbopack)
+#14 0.694 ✓ Running next.config.ts took 23ms
+#14 0.704 - Experiments (use with caution):
+#14 0.704   · serverActions
+#14 0.704
+#14 0.735   Creating an optimized production build ...
+#14 10.62 ✓ Compiled successfully in 9.7s
+#14 10.62   Running TypeScript ...
+#14 23.19   Finished TypeScript in 12.6s ...
+#14 23.19   Collecting page data using 31 workers ...
+#14 24.60   Generating static pages using 31 workers (0/23) ...
+#14 24.82   Generating static pages using 31 workers (5/23)
+#14 24.97   Generating static pages using 31 workers (11/23)
+#14 25.06   Generating static pages using 31 workers (17/23)
+#14 25.06 ✓ Generating static pages using 31 workers (23/23) in 468ms
+#14 25.07   Finalizing page optimization ...
+#14 25.53
+#14 25.53 Route (app)
+#14 25.53 ┌ ○ /
+#14 25.53 ├ ○ /_not-found
+#14 25.53 ├ ƒ /absproxy/3000/[[...path]]
+#14 25.53 ├ ○ /access
+#14 25.53 ├ ○ /admin
+#14 25.53 ├ ƒ /api/admin/audit
+#14 25.53 ├ ƒ /api/admin/settings
+#14 25.53 ├ ƒ /api/admin/users
+#14 25.53 ├ ƒ /api/admin/users/[username]
+#14 25.53 ├ ƒ /api/auth/logout
+#14 25.53 ├ ƒ /api/backends
+#14 25.53 ├ ƒ /api/backends/[id]
+#14 25.53 ├ ƒ /api/backends/[id]/check
+#14 25.53 ├ ƒ /api/builds
+#14 25.53 ├ ƒ /api/clusters
+#14 25.53 ├ ƒ /api/clusters/[name]
+#14 25.53 ├ ƒ /api/clusters/[name]/events
+#14 25.53 ├ ƒ /api/clusters/[name]/nodes/[nodeId]
+#14 25.53 ├ ƒ /api/clusters/[name]/scale
+#14 25.53 ├ ƒ /api/cost
+#14 25.53 ├ ƒ /api/credentials
+#14 25.53 ├ ƒ /api/credentials/[id]
+#14 25.53 ├ ƒ /api/credentials/[id]/rotate
+#14 25.53 ├ ƒ /api/credentials/legacy
+#14 25.53 ├ ƒ /api/datasets
+#14 25.53 ├ ƒ /api/datasets/[name]
+#14 25.53 ├ ƒ /api/datasets/[name]/upload-url
+#14 25.53 ├ ƒ /api/datasets/[name]/versions
+#14 25.53 ├ ƒ /api/datasets/[name]/versions/[v]
+#14 25.53 ├ ƒ /api/datasets/[name]/versions/[v]/uploads
+#14 25.53 ├ ƒ /api/datasets/[name]/versions/[v]/uploads/[id]
+#14 25.53 ├ ƒ /api/edge
+#14 25.53 ├ ƒ /api/edge/deployments
+#14 25.53 ├ ƒ /api/edge/devices
+#14 25.53 ├ ƒ /api/edge/devices/[id]
+#14 25.53 ├ ƒ /api/edge/devices/[id]/benchmarks
+#14 25.53 ├ ƒ /api/edge/devices/[id]/lease
+#14 25.53 ├ ƒ /api/edge/devices/[id]/lease/[action]
+#14 25.53 ├ ƒ /api/edge/operations/[id]
+#14 25.53 ├ ƒ /api/edge/operations/[id]/rollback
+#14 25.53 ├ ƒ /api/edge/operations/[id]/submit
+#14 25.53 ├ ƒ /api/evaluations
+#14 25.53 ├ ƒ /api/evaluations/[id]
+#14 25.53 ├ ƒ /api/evaluations/[id]/artifact
+#14 25.53 ├ ƒ /api/fsx
+#14 25.53 ├ ƒ /api/fsx/tasks
+#14 25.53 ├ ƒ /api/health
+#14 25.53 ├ ƒ /api/image-profiles
+#14 25.53 ├ ƒ /api/image-profiles/[id]
+#14 25.53 ├ ƒ /api/image-profiles/preflight
+#14 25.53 ├ ƒ /api/image-profiles/seed
+#14 25.53 ├ ƒ /api/k8s/events
+#14 25.53 ├ ƒ /api/k8s/jobs
+#14 25.53 ├ ƒ /api/k8s/jobs/[ns]/[name]
+#14 25.53 ├ ƒ /api/k8s/namespaces
+#14 25.53 ├ ƒ /api/k8s/nodes
+#14 25.53 ├ ƒ /api/k8s/pods/[ns]/[name]/logs
+#14 25.53 ├ ƒ /api/logout
+#14 25.53 ├ ƒ /api/me
+#14 25.53 ├ ƒ /api/metrics/query
+#14 25.53 ├ ƒ /api/mlflow/experiments
+#14 25.53 ├ ƒ /api/mlflow/models
+#14 25.53 ├ ƒ /api/mlflow/runs
+#14 25.53 ├ ƒ /api/mlflow/runs/[id]
+#14 25.53 ├ ƒ /api/mlflow/runs/[id]/metrics
+#14 25.53 ├ ƒ /api/mlflow/ui-url
+#14 25.53 ├ ƒ /api/models
+#14 25.53 ├ ƒ /api/models/[id]
+#14 25.53 ├ ƒ /api/models/[id]/promotion
+#14 25.53 ├ ƒ /api/models/legacy
+#14 25.53 ├ ƒ /api/models/outputs/[dataset]/[version]
+#14 25.53 ├ ƒ /api/overview
+#14 25.53 ├ ƒ /api/pipelines
+#14 25.53 ├ ƒ /api/pipelines/executions
+#14 25.53 ├ ƒ /api/pipelines/executions/[arn]
+#14 25.53 ├ ƒ /api/pipelines/training-jobs
+#14 25.53 ├ ƒ /api/pipelines/training-jobs/[name]
+#14 25.53 ├ ƒ /api/projects
+#14 25.53 ├ ƒ /api/projects/[id]
+#14 25.53 ├ ƒ /api/queues
+#14 25.53 ├ ƒ /api/quotas
+#14 25.53 ├ ƒ /api/s3
+#14 25.53 ├ ƒ /api/s3/presign
+#14 25.53 ├ ƒ /api/sessions
+#14 25.53 ├ ƒ /api/sessions/[id]
+#14 25.53 ├ ƒ /api/sessions/[id]/launch
+#14 25.53 ├ ƒ /api/sessions/[id]/proxy/[[...path]]
+#14 25.53 ├ ƒ /api/sessions/connect
+#14 25.53 ├ ƒ /api/sessions/dcv
+#14 25.53 ├ ƒ /api/sessions/dcv/[action]
+#14 25.53 ├ ƒ /api/sessions/dcv/browser
+#14 25.53 ├ ƒ /api/sessions/dcv/browser/[id]
+#14 25.53 ├ ƒ /api/templates
+#14 25.53 ├ ƒ /api/templates/[id]
+#14 25.53 ├ ƒ /api/templates/[id]/versions
+#14 25.53 ├ ƒ /api/tokens
+#14 25.53 ├ ƒ /api/tokens/[id]
+#14 25.53 ├ ƒ /api/webhooks
+#14 25.53 ├ ƒ /api/webhooks/[id]
+#14 25.53 ├ ƒ /api/webhooks/[id]/deliveries
+#14 25.53 ├ ƒ /api/webhooks/[id]/deliveries/[deliveryId]/redrive
+#14 25.53 ├ ƒ /api/webhooks/[id]/rotate
+#14 25.53 ├ ƒ /api/workflows
+#14 25.53 ├ ƒ /api/workflows/[id]
+#14 25.53 ├ ƒ /api/workflows/[id]/cancel
+#14 25.53 ├ ƒ /api/workflows/[id]/events
+#14 25.53 ├ ƒ /api/workflows/[id]/export
+#14 25.53 ├ ƒ /api/workflows/[id]/metrics
+#14 25.53 ├ ƒ /api/workflows/[id]/retry
+#14 25.53 ├ ƒ /api/workflows/[id]/tasks/[task]/logs
+#14 25.53 ├ ƒ /api/workflows/bulk-cancel
+#14 25.53 ├ ƒ /api/workflows/validate
+#14 25.53 ├ ○ /backends
+#14 25.53 ├ ○ /builds
+#14 25.53 ├ ○ /compute
+#14 25.53 ├ ○ /datasets
+#14 25.53 ├ ƒ /datasets/[name]
+#14 25.53 ├ ○ /edge
+#14 25.53 ├ ○ /experiments
+#14 25.53 ├ ○ /image-profiles
+#14 25.53 ├ ○ /jobs
+#14 25.53 ├ ○ /metrics
+#14 25.53 ├ ○ /models
+#14 25.53 ├ ○ /pipelines
+#14 25.53 ├ ƒ /pipelines/[arn]
+#14 25.53 ├ ○ /projects
+#14 25.53 ├ ○ /queues
+#14 25.53 ├ ○ /sessions
+#14 25.53 ├ ○ /storage
+#14 25.53 ├ ○ /webhooks
+#14 25.53 ├ ○ /workflows
+#14 25.53 ├ ƒ /workflows/[id]
+#14 25.53 └ ○ /workflows/new
+#14 25.53
+#14 25.53
+#14 25.53 ƒ Proxy (Middleware)
+#14 25.53
+#14 25.53 ○  (Static)   prerendered as static content
+#14 25.53 ƒ  (Dynamic)  server-rendered on demand
+#14 25.53
+#14 25.57 npm notice
+#14 25.57 npm notice New major version of npm available! 10.9.8 -> 12.0.2
+#14 25.57 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+#14 25.57 npm notice To update run: npm install -g npm@12.0.2
+#14 25.57 npm notice
+#14 DONE 25.9s
+
+#15 [build 6/6] RUN npm run build:services
+#15 0.271
+#15 0.271 > physical-ai-dashboard@0.1.0 build:services
+#15 0.271 > node scripts/build-services.mjs
+#15 0.271
+#15 DONE 0.7s
+
+#16 [runner  6/11] RUN groupadd -r app && useradd -r -g app app
+#16 CACHED
+
+#17 [runner  3/11] RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates     && rm -rf /var/lib/apt/lists/*
+#17 CACHED
+
+#18 [runner  4/11] ADD --checksum=sha256:67ddd12b963c28e44126f9732075caae333cc5f55e902623bd6a107ead2bcc56 https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.814.0/ubuntu_64bit/session-manager-plugin.deb /tmp/session-manager-plugin.deb
+#18 CACHED
+
+#19 [runner  5/11] RUN dpkg -i /tmp/session-manager-plugin.deb && rm /tmp/session-manager-plugin.deb
+#19 CACHED
+
+#20 [runner  7/11] COPY --from=build --chown=app:app /app/public ./public
+#20 CACHED
+
+#21 [runner  8/11] COPY --from=build --chown=app:app /app/.next/standalone ./
+#21 DONE 0.3s
+
+#22 [runner  9/11] COPY --from=build --chown=app:app /app/.next/static ./.next/static
+#22 DONE 0.0s
+
+#23 [runner 10/11] COPY --from=build --chown=app:app /app/dist/services ./services
+#23 DONE 0.1s
+
+#24 [runner 11/11] COPY --from=build --chown=app:app /app/dist/gateway-assets ./services/gateway-assets
+#24 DONE 0.1s
+
+#25 exporting to image
+#25 exporting layers
+#25 exporting layers 0.4s done
+#25 writing image sha256:33f79fae0281ed8ebf0e677f000e804222ea6332795d94db28537f5ecfa5329e done
+#25 naming to docker.io/library/cdkasset-0a749d81e37dfcf6e5447784e26a045c6bfb4a5f61496fbff8bbe35fd5283981 done
+#25 DONE 0.4s
+PhysicalAiDashboard-913524902871: success: Built Web/Image
+PhysicalAiDashboard-913524902871: start: Publishing Web/Image (913524902871-us-east-1-b622bb6e)
+The push refers to repository [913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1]
+fbead478d747: Preparing
+71d548272659: Preparing
+f67c7a86c02e: Preparing
+e246730823cb: Preparing
+db775825759f: Preparing
+e87f58d83b48: Preparing
+41b88b7ac809: Preparing
+b0a3ca6ef209: Preparing
+c0d23d4153eb: Preparing
+a0886a8543bc: Preparing
+72d01f9cb322: Preparing
+baa7a8b2ed76: Preparing
+4a5c8e86ffd8: Preparing
+34a6e01aec8a: Preparing
+1d69a5fd3193: Preparing
+e87f58d83b48: Waiting
+41b88b7ac809: Waiting
+b0a3ca6ef209: Waiting
+c0d23d4153eb: Waiting
+34a6e01aec8a: Waiting
+1d69a5fd3193: Waiting
+a0886a8543bc: Waiting
+72d01f9cb322: Waiting
+baa7a8b2ed76: Waiting
+4a5c8e86ffd8: Waiting
+db775825759f: Layer already exists
+e87f58d83b48: Layer already exists
+41b88b7ac809: Layer already exists
+b0a3ca6ef209: Layer already exists
+c0d23d4153eb: Layer already exists
+fbead478d747: Pushed
+f67c7a86c02e: Pushed
+a0886a8543bc: Layer already exists
+72d01f9cb322: Layer already exists
+71d548272659: Pushed
+baa7a8b2ed76: Layer already exists
+4a5c8e86ffd8: Layer already exists
+34a6e01aec8a: Layer already exists
+1d69a5fd3193: Layer already exists
+e246730823cb: Pushed
+0a749d81e37dfcf6e5447784e26a045c6bfb4a5f61496fbff8bbe35fd5283981: digest: sha256:e9f1df13657f97c6162b268c212db2ff4a5fee2ffb229be0d35e52fd6efc3025 size: 3465
+PhysicalAiDashboard-913524902871: success: Published Web/Image (913524902871-us-east-1-b622bb6e)
+PhysicalAiDashboard-913524902871: creating CloudFormation changeset...
+PhysicalAiDashboard (PhysicalAiDashboard-913524902871): deploying... [1/1]
+
+✅  PhysicalAiDashboard (PhysicalAiDashboard-913524902871)
+
+✨  Deployment time: 394.78s
+
+Outputs:
+PhysicalAiDashboard.AdminCredentialsCommand = aws secretsmanager get-secret-value --secret-id physical-ai-dashboard/913524902871/admin --region us-east-1 --query SecretString --output text
+PhysicalAiDashboard.AdminCredentialsSecret = physical-ai-dashboard/913524902871/admin
+PhysicalAiDashboard.AlbDnsName = Physic-WebAl-k1i2L1uTQVsJ-1184244637.us-east-1.elb.amazonaws.com
+PhysicalAiDashboard.ArtifactBucketName = physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or
+PhysicalAiDashboard.ControllerRoleArn = arn:aws:iam::913524902871:role/PhysicalAiDashboard-91352-WebControllerRoleE828D939-oWkxqRMfpJEU
+PhysicalAiDashboard.ControllerServiceName = PhysicalAiDashboard-913524902871-WebControllerService9BC9A713-2nUkfQMC7miw
+PhysicalAiDashboard.DashboardUrl = https://physical-ai.hi-yoo.com/
+PhysicalAiDashboard.DiscoveredStacks = HyperPodEks, HyperPod, GrootFinetune, IsaacLab
+PhysicalAiDashboard.EcsClusterName = physical-ai-dashboard-913524902871
+PhysicalAiDashboard.EcsServiceName = PhysicalAiDashboard-913524902871-WebServiceD04B5F3E-CB0rRU6ETVDC
+PhysicalAiDashboard.GatewayServiceName = PhysicalAiDashboard-913524902871-WebGatewayServiceBF31E39B-qMBUDOKeRJ2F
+PhysicalAiDashboard.LogGroupName = /aws/ecs/physical-ai-dashboard-913524902871
+PhysicalAiDashboard.NotificationsTopicArn = arn:aws:sns:us-east-1:913524902871:physical-ai-dashboard-913524902871-notifications
+PhysicalAiDashboard.TableName = physical-ai-dashboard-913524902871-us-east-1
+PhysicalAiDashboard.TaskRoleArn = arn:aws:iam::913524902871:role/physical-ai-dashboard-913524902871-task
+PhysicalAiDashboard.UserPoolClientId = nlekm7190kdsb4eug7tmq923n
+PhysicalAiDashboard.UserPoolId = us-east-1_YpnKXG6LG
+PhysicalAiDashboard.WorkflowPodRoleArn = arn:aws:iam::913524902871:role/physical-ai-dashboard-913524902871-workflow-pods
+PhysicalAiDashboard.WorkflowStateMachineArn = arn:aws:states:us-east-1:913524902871:stateMachine:OrchestrationStateMachine4A805A55-iekcjTUYZZOL
+PhysicalAiDashboard.WorkloadImagesgrootImageFC3D975B = 913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:e6527320b0b7b71231dbc8e387019a97cd8993f16c8d5c1c72cf94f34ae74d82
+PhysicalAiDashboard.WorkloadImagesisaaclabImageC5CC142C = 913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:82a8aa7d09086490e9b3dcc0fbdffcc353642d5af199731ab57ad07706b378a9
+PhysicalAiDashboard.WorkloadImagesmujocoImage3FCD67DF = 913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:3ecdd4849f6363b7a345113ec62925f8e61c3433f54bcf5ef82fb222da1bb9b2
+PhysicalAiDashboard.WorkloadImagesopenpiImageA67E75E5 = 913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:7b4d6f842b7345acf96f3a5bb9872c930b4ac48c624d78eeaa91de4260536bb9
+PhysicalAiDashboard.WorkloadImagesros2ImageF01E966E = 913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:b12d3149b65454efbb01d7fd588642cdd85f1389ccf673030e0ec14194bf4e9d
+Stack ARN:
+arn:aws:cloudformation:us-east-1:913524902871:stack/PhysicalAiDashboard-913524902871/07b27b60-b17a-11f1-bd7e-0ec6625581b5
+
+✨  Total time: 469.77s

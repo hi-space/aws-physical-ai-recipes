@@ -1,6 +1,6 @@
 # Release 3 validation and stable handoff — 2026-09-16
 
-**The bounded core integration paths passed. The complete F01–F42 design remains partially supported.** See the [feature inventory](2026-09-16-feature-evidence.md) for the remaining software and external conditions. No commit or merge was performed by the coordinator.
+**The bounded core integration paths passed. The complete F01–F42 design remains partially supported.** See the [feature inventory](2026-09-16-feature-evidence.md) for the remaining software and external conditions. This is the historical coordinator handoff; the subsequent parent commit, original-branch integration and deployment are recorded in the [integration report](2026-09-16-release3-integration.md).
 
 ## Accepted deployment
 

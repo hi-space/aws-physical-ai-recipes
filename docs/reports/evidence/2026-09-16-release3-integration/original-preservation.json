@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-09-16T17:07:34.705907+00:00",
+  "head": "0390e2bcd19ce7a134eb77867af91f0f5bd245ef",
+  "expectedHead": "0390e2bcd19ce7a134eb77867af91f0f5bd245ef",
+  "headMatches": true,
+  "files": [
+    {
+      "path": "e2e-workshop/groot/config.yaml",
+      "sha256": "137ab7403d17accb0ae0e02ae1e5b27935c241d54278b81f4abe9eb0848fbd50",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/groot/training/container/Dockerfile",
+      "sha256": "8f22d6d5654e9dc9364e25eb2729b5c6a73d6e55d07f83766ab5536a98ff86d6",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/infra/isaaclab/assets/workshop/Dockerfile",
+      "sha256": "d2e3bda4a613649da0da5d776f2520f921d8b9b599e7eb59459575a989bb5af1",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/infra/isaaclab/lib/constructs/az-selector.ts",
+      "sha256": "b384c7fd539e6137b983dbeb0891908a74dc4d6f6b9e67b1f4830e1b5f35fd87",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/groot/training/container/Dockerfile.bak",
+      "sha256": "b7cdc678c1ea73e80658fd086454b1d3fae3a5e9a08f7048476066e30d8226ba",
+      "unchanged": true
+    }
+  ],
+  "status": [
+    " M e2e-workshop/groot/config.yaml",
+    " M e2e-workshop/groot/training/container/Dockerfile",
+    " M e2e-workshop/infra/isaaclab/assets/workshop/Dockerfile",
+    " M e2e-workshop/infra/isaaclab/lib/constructs/az-selector.ts",
+    "?? e2e-workshop/groot/training/container/Dockerfile.bak"
+  ]
+}

@@ -10,7 +10,7 @@
 
 **Spec:** [설계와 기능 대응표](../designs/2026-09-16-physical-ai-dashboard.md)
 
-**Status:** 검토용. 아직 구현 작업을 시작하지 않았다.
+**Status:** 승인 후 구현 진행 중. 핵심 AWS 경로의 배포·실측 검증과 원본 브랜치 통합을 마쳤다. [통합 검증 기록](../reports/2026-09-16-release3-integration.md)과 [기능별 남은 과제](../reports/2026-09-16-feature-evidence.md)를 기준으로 계속 보완한다.
 
 ## Global Constraints
 

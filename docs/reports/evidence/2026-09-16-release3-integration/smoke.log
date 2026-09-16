@@ -1,0 +1,12 @@
+
+Running 3 tests using 1 worker
+
+(node:2771965) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/access.spec.ts:5:5 › project API token uses live authorization, cannot elevate, and is revoked immediately (4.0s)
+(node:2772086) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 e2e/smoke.spec.ts:29:5 › login and visit every page (46.2s)
+  ✓  3 e2e/smoke.spec.ts:42:5 › api /me reflects the Cognito session (4.1s)
+
+  3 passed (1.0m)
