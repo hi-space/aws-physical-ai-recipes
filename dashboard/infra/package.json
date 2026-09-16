@@ -1,0 +1,29 @@
+{
+  "name": "physical-ai-dashboard-infra",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "physical-ai-dashboard-infra": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --require-approval never",
+    "destroy": "cdk destroy",
+    "diff": "cdk diff"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "aws-cdk": "^2.1141.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1133.0",
+    "@aws-sdk/client-ec2": "^3.1133.0",
+    "@aws-sdk/client-sts": "^3.1133.0",
+    "aws-cdk-lib": "^2.269.0",
+    "constructs": "^10.4.2",
+    "source-map-support": "^0.5.21"
+  }
+}

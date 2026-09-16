@@ -24,3 +24,9 @@ export function sessionFromHeaders(h: Headers): Session {
 export function requireRole(s: Session, required: Role): void {
   if (!hasRole(s.role, required)) throw forbidden(`Requires ${required} role`);
 }
+
+/** Destructive actions on user-owned resources require the owner or an admin. */
+export function assertOwner(s: Session, owner: string | undefined, what = 'resource'): void {
+  if (s.role === 'admin') return;
+  if (!owner || owner !== s.user) throw forbidden(`Only the owner of this ${what} (${owner ?? 'unknown'}) or an admin can do that`);
+}

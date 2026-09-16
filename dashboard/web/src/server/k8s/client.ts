@@ -92,9 +92,28 @@ export async function k8sGetOrNull<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Join URL path segments for a proxy target, rejecting traversal and encoded
+ * separators. Returns null when any segment is unsafe.
+ */
+export function sanitizeProxyPath(segments: string[]): string | null {
+  const out: string[] = [];
+  for (const raw of segments) {
+    if (raw === '' || raw === '.' || raw === '..') return null;
+    if (/%2f|%5c|%2e%2e/i.test(raw) || raw.includes('\\')) return null;
+    if (!/^[A-Za-z0-9._~!$&'()*+,;=:@%-]+$/.test(raw)) return null;
+    out.push(raw);
+  }
+  return out.join('/');
+}
+
 /** Proxy an HTTP request to an in-cluster Service through the API server. */
 export async function serviceProxy(namespace: string, service: string, port: number | string, subPath: string, init: { method?: string; headers?: Record<string, string>; body?: ArrayBuffer | string } = {}): Promise<Response> {
-  const path = `/api/v1/namespaces/${namespace}/services/${service}:${port}/proxy${subPath.startsWith('/') ? subPath : '/' + subPath}`;
+  if (!/^[a-z0-9-]+$/.test(namespace) || !/^[a-z0-9-]+$/.test(service)) throw badRequest('invalid proxy target');
+  const prefix = `/api/v1/namespaces/${namespace}/services/${service}:${port}/proxy`;
+  const path = `${prefix}${subPath.startsWith('/') ? subPath : '/' + subPath}`;
+  if (!path.startsWith(prefix + '/') && path !== prefix + '/') throw badRequest('invalid proxy path');
+  if (/\/\.\.(\/|$)/.test(path.split('?')[0])) throw badRequest('invalid proxy path');
   const ci = await clusterInfo();
   const { token } = await mintEksToken(ci.name, ci.region);
   const headers: Record<string, string> = { ...(init.headers ?? {}), authorization: `Bearer ${token}` };

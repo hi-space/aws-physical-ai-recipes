@@ -31,3 +31,15 @@ describe('fsxPvManifests', () => {
     expect(pvc.spec.storageClassName).toBe('fsx-sc');
   });
 });
+
+describe('sanitizeProxyPath', () => {
+  it('accepts normal segments and rejects traversal', async () => {
+    const { sanitizeProxyPath } = await import('./client');
+    expect(sanitizeProxyPath(['d', 'abc', 'x.js'])).toBe('d/abc/x.js');
+    expect(sanitizeProxyPath([])).toBe('');
+    expect(sanitizeProxyPath(['..', 'etc'])).toBeNull();
+    expect(sanitizeProxyPath(['a', '%2e%2e', 'b'])).toBeNull();
+    expect(sanitizeProxyPath(['a', 'b%2Fc'])).toBeNull();
+    expect(sanitizeProxyPath(['a', ''])).toBeNull();
+  });
+});

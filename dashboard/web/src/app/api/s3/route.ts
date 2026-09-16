@@ -7,7 +7,7 @@ export const GET = route('viewer', async ({ url }) => {
   if (!bucket) return { buckets: s3.allowedBuckets() };
   return s3.list(bucket, q(url, 'prefix') ?? '', q(url, 'token'));
 });
-export const DELETE = route('researcher', async ({ req }) => {
+export const DELETE = route('admin', async ({ req }) => {
   const b = await body(req, z.object({ bucket: z.string(), keys: z.array(z.string()).max(1000).optional(), prefix: z.string().min(1).optional() }));
   if (b.prefix) return { deleted: await s3.deletePrefix(b.bucket, b.prefix) };
   await s3.deleteKeys(b.bucket, b.keys ?? []);

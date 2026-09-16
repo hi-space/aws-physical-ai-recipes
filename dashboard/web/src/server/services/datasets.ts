@@ -2,6 +2,7 @@ import { config } from '../config';
 import { badRequest, notConfigured, notFound } from '../errors';
 import * as s3 from '../aws/s3';
 import { getRepo } from '../store/repo';
+import { assertOwner, type Session } from '../auth/session';
 import type { Dataset, DatasetVersion } from '../store/types';
 
 const NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -128,4 +129,11 @@ export async function lineage(name: string) {
     }
   }
   return { produced, consumers };
+}
+
+/** Datasets are writable by their owner or an admin; everyone can read. */
+export async function assertDatasetOwner(session: Session, name: string): Promise<void> {
+  const ds = await getRepo().getDataset(name);
+  if (!ds) throw notFound(`dataset ${name}`);
+  assertOwner(session, ds.owner, 'dataset');
 }
