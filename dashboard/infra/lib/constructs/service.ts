@@ -97,6 +97,7 @@ export class ServiceConstruct extends Construct {
         ALB_ARN: this.loadBalancer.loadBalancerArn,
         COGNITO_USER_POOL_ID: props.userPool.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClient.userPoolClientId,
+        APP_ORIGIN: `https://${props.domainName}`,
         PORT: '3000',
         HOSTNAME: '0.0.0.0',
       },
