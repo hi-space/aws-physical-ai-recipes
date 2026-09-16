@@ -5,12 +5,12 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
-  const { config } = await import('./src/server/config');
+  const { config } = await import('@/server/config');
   const c = config();
-  const { seedBuiltinTemplates } = await import('./src/server/workflow/builtin-templates');
+  const { seedBuiltinTemplates } = await import('@/server/workflow/builtin-templates');
   seedBuiltinTemplates().catch((e) => console.error('template seed failed', e));
   if (c.controllerEnabled) {
-    const { startController } = await import('./src/server/workflow/controller');
+    const { startController } = await import('@/server/workflow/controller');
     startController();
     console.log('[pai] workflow controller started');
   }

@@ -14,9 +14,9 @@ type Handler<P> = (ctx: Ctx<P>) => Promise<unknown>;
  * errors to JSON. Mutations (non-GET) are audited automatically.
  */
 export function route<P extends Record<string, string> = Record<string, string>>(minRole: Role, handler: Handler<P>, opts: { audit?: string } = {}) {
-  return async (req: NextRequest, ctx: { params: Promise<P> }): Promise<Response> => {
+  return async (req: NextRequest, ctx?: { params?: Promise<P> }): Promise<Response> => {
     let session: Session | undefined;
-    const params = await ctx.params;
+    const params = ((await ctx?.params) ?? {}) as P;
     const action = opts.audit ?? `${req.method} ${req.nextUrl.pathname}`;
     try {
       session = sessionFromHeaders(req.headers);

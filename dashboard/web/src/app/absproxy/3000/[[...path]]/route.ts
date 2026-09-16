@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { sessionFromHeaders } from '@/server/auth/session';
-import { serviceProxy } from '@/server/k8s/client';
+import { sanitizeProxyPath, serviceProxy } from '@/server/k8s/client';
 import { readSecret } from '@/server/k8s/resources';
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,9 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path?: string[]
     return new Response('unauthorized', { status: 401 });
   }
   const { path = [] } = await ctx.params;
-  const sub = `/${path.join('/')}${req.nextUrl.search}`;
+  const safePath = sanitizeProxyPath(path);
+  if (safePath === null) return new Response('bad path', { status: 400 });
+  const sub = `/${safePath}${req.nextUrl.search}`;
   const headers: Record<string, string> = {};
   req.headers.forEach((v, k) => {
     if (!['host', 'connection', 'content-length', 'accept-encoding', 'cookie', 'authorization'].includes(k) && !k.startsWith('x-amzn') && !k.startsWith('x-pai')) headers[k] = v;
