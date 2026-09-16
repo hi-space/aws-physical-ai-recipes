@@ -20,9 +20,17 @@ export function workloadContext(repositoryRoot: string): string {
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.cpSync(path.join(repositoryRoot, source), destination, {
       recursive: true,
-      filter: (file) => !['__pycache__', '.pytest_cache'].includes(path.basename(file)) && !file.endsWith('.pyc'),
+      filter: (file) => !['__pycache__', '.pytest_cache', '.venv', '.git', 'node_modules'].includes(path.basename(file)) &&
+        !file.endsWith('.egg-info') && !file.endsWith('.pyc'),
     });
   }
+  const normalize = (entry: string) => {
+    const stat = fs.lstatSync(entry);
+    if (stat.isSymbolicLink()) return;
+    fs.chmodSync(entry, stat.isDirectory() || (stat.mode & 0o111) !== 0 ? 0o755 : 0o644);
+    if (stat.isDirectory()) for (const name of fs.readdirSync(entry)) normalize(path.join(entry, name));
+  };
+  normalize(directory);
   return directory;
 }
 
