@@ -15,7 +15,7 @@
 | [g7e-efa-ddp-benchmark](g7e-efa-ddp-benchmark/README.md) | Kubernetes 네이티브 2-노드 G7e PyTorch DDP 학습 벤치마크로, EFA와 NCCL 소켓 네트워킹을 비교. | [validation.md](g7e-efa-ddp-benchmark/validation.md)에서 확인. |
 | [parallel-eval](parallel-eval/README.md) | OSMO `groups` 팬아웃/팬인 레퍼런스. | [validation.md](parallel-eval/validation.md)에서 확인. |
 | [sequential-policy](sequential-policy/README.md) | CPU 데이터셋 검사, GPU 정책 체크포인트 태스크, CPU 패키징 단계. | [validation.md](sequential-policy/validation.md)에서 확인. |
-| [isaacsim-livestream](isaacsim-livestream/README.md) | OSMO port-forward를 통한 라이브스트리밍이 포함된 대화형 Isaac Sim 세션. | 연결 절차는 README 참고. |
+| [isaacsim-livestream](isaacsim-livestream/README.md) | 클러스터 VPC 내부 클라이언트에서 보는 대화형 Isaac Sim WebRTC 세션. port-forward는 서버 기동 확인용이며 미디어를 실어 보내지 못합니다. | [validation.md](isaacsim-livestream/validation.md)에서 확인. |
 | [isaaclab-rsl-rl-video](isaaclab-rsl-rl-video/README.md) | 비디오와 TensorBoard 플롯이 포함된 Isaac Lab RSL-RL 학습. | [validation.md](isaaclab-rsl-rl-video/validation.md)에서 확인. |
 | [gr00t-finetune](gr00t-finetune/README.md) | PASK 정렬 GR00T 파인튜닝 워크플로우. | [validation.md](gr00t-finetune/validation.md)에서 E2E 및 10k 스텝 검증 확인. |
 | [openpi-libero-lora](openpi-libero-lora/README.md) | PASK 정렬 OpenPI LIBERO LoRA 워크플로우. | [validation.md](openpi-libero-lora/validation.md)에서 E2E 및 30k 스텝 검증 확인. |

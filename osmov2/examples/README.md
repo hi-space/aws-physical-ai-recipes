@@ -13,7 +13,7 @@ validation artifacts stay next to the example.
 | [g7e-efa-ddp-benchmark](g7e-efa-ddp-benchmark/README.md) | Kubernetes-native 2-node G7e PyTorch DDP training benchmark comparing EFA against NCCL socket networking. | Validation in [validation.md](g7e-efa-ddp-benchmark/validation.md). |
 | [parallel-eval](parallel-eval/README.md) | OSMO `groups` fan-out/fan-in reference. | Validation in [validation.md](parallel-eval/validation.md). |
 | [sequential-policy](sequential-policy/README.md) | CPU dataset inspect, GPU policy checkpoint task, CPU package step. | Validation in [validation.md](sequential-policy/validation.md). |
-| [isaacsim-livestream](isaacsim-livestream/README.md) | Interactive Isaac Sim session with livestreaming via OSMO port-forward. | See README for connection steps. |
+| [isaacsim-livestream](isaacsim-livestream/README.md) | Interactive Isaac Sim WebRTC session, viewed from a client inside the cluster VPC. Port-forward only proves the server is up; it cannot carry media. | Validation in [validation.md](isaacsim-livestream/validation.md). |
 | [isaaclab-rsl-rl-video](isaaclab-rsl-rl-video/README.md) | Isaac Lab RSL-RL training with videos and TensorBoard plots. | Validation in [validation.md](isaaclab-rsl-rl-video/validation.md). |
 | [gr00t-finetune](gr00t-finetune/README.md) | PASK-aligned GR00T fine-tune workflow. | E2E and 10k-step validation in [validation.md](gr00t-finetune/validation.md). |
 | [openpi-libero-lora](openpi-libero-lora/README.md) | PASK-aligned OpenPI LIBERO LoRA workflow. | E2E and 30k-step validation in [validation.md](openpi-libero-lora/validation.md). |

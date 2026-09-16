@@ -1,0 +1,153 @@
+workflow:
+  name: aws-isaacsim-livestream-g6-51-scene
+  timeout:
+    exec_timeout: 4h
+    queue_timeout: 30m
+  resources:
+    sim:
+      cpu: 4
+      gpu: 1
+      memory: 32Gi
+      storage: 40Gi
+      platform: g6-l4
+  tasks:
+  - name: stream
+    resource: sim
+    image: {{ isaac_sim_image }}
+    command: ["bash", "-lc"]
+    args:
+    - bash /tmp/entry.sh
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euo pipefail
+        export ACCEPT_EULA=Y
+
+        nvidia-smi
+
+        cd /isaac-sim
+        ./runheadless.sh \
+          --/app/livestream/enabled=true \
+          --/app/livestream/port=49100 \
+          --/app/livestream/fixedHostPort=47998 \
+          --/app/livestream/allowResize=true \
+          --/app/window/width={{ render_width }} \
+          --/app/window/height={{ render_height }} \
+          --/app/renderer/resolution/width={{ render_width }} \
+          --/app/renderer/resolution/height={{ render_height }} \
+          --exec /tmp/scene.py
+    - path: /tmp/scene.py
+      contents: |
+        import omni.kit.app
+        import omni.timeline
+        import omni.usd
+        from pxr import Gf, PhysxSchema, Sdf, UsdGeom, UsdLux, UsdPhysics
+
+        stage = omni.usd.get_context().get_stage()
+
+        UsdGeom.SetStageMetersPerUnit(stage, 1.0)
+        UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
+
+        scene = UsdPhysics.Scene.Define(stage, Sdf.Path("/World/physicsScene"))
+        scene.CreateGravityDirectionAttr().Set(Gf.Vec3f(0.0, 0.0, -1.0))
+        scene.CreateGravityMagnitudeAttr().Set(9.81)
+
+        light = UsdLux.DistantLight.Define(stage, Sdf.Path("/World/sun"))
+        light.CreateIntensityAttr(3000.0)
+
+        ground = UsdGeom.Cube.Define(stage, Sdf.Path("/World/ground"))
+        ground.CreateSizeAttr(1.0)
+        ground.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, -0.5))
+        ground.AddScaleOp().Set(Gf.Vec3f(14.0, 14.0, 1.0))
+        ground.CreateDisplayColorAttr([Gf.Vec3f(0.30, 0.33, 0.38)])
+        UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+
+        # Each dynamic prim keeps its spawn transform so the update loop can
+        # re-drop the pile once everything has settled.
+        spawns = []
+
+        def make_dynamic(prim, mass, translate_op, start):
+            UsdPhysics.CollisionAPI.Apply(prim)
+            UsdPhysics.RigidBodyAPI.Apply(prim)
+            UsdPhysics.MassAPI.Apply(prim).CreateMassAttr(mass)
+            PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+            rb = UsdPhysics.RigidBodyAPI(prim)
+            spawns.append((
+                translate_op,
+                start,
+                rb.CreateVelocityAttr(),
+                rb.CreateAngularVelocityAttr(),
+            ))
+
+        for i in range(24):
+            cube = UsdGeom.Cube.Define(stage, Sdf.Path(f"/World/cube_{i}"))
+            cube.CreateSizeAttr(1.0)
+            start = Gf.Vec3d(
+                0.6 * (i % 6) - 1.5,
+                0.6 * (i // 6) - 0.9,
+                2.0 + 0.5 * i,
+            )
+            op = cube.AddTranslateOp()
+            op.Set(start)
+            cube.AddScaleOp().Set(Gf.Vec3f(0.25, 0.25, 0.25))
+            cube.CreateDisplayColorAttr([
+                Gf.Vec3f(0.15 + 0.033 * i, 0.45, 0.95 - 0.033 * i)
+            ])
+            make_dynamic(cube.GetPrim(), 1.0, op, start)
+
+        for i in range(10):
+            ball = UsdGeom.Sphere.Define(stage, Sdf.Path(f"/World/ball_{i}"))
+            ball.CreateRadiusAttr(0.18)
+            start = Gf.Vec3d(0.7 * i - 3.0, 1.8, 4.0 + 0.7 * i)
+            op = ball.AddTranslateOp()
+            op.Set(start)
+            ball.CreateDisplayColorAttr([Gf.Vec3f(0.97, 0.5 + 0.04 * i, 0.10)])
+            make_dynamic(ball.GetPrim(), 0.5, op, start)
+
+        timeline = omni.timeline.get_timeline_interface()
+        timeline.play()
+
+        ZERO = Gf.Vec3f(0.0, 0.0, 0.0)
+        state = {"frames": 0}
+
+        def on_update(event):
+            state["frames"] += 1
+            if state["frames"] % {{ redrop_frames }}:
+                return
+            timeline.stop()
+            for op, start, velocity, angular in spawns:
+                op.Set(start)
+                velocity.Set(ZERO)
+                angular.Set(ZERO)
+            timeline.play()
+
+        sub = omni.kit.app.get_app().get_update_event_stream().create_subscription_to_pop(
+            on_update, name="redrop"
+        )
+
+        print("=== scene ready: 24 cubes, 10 spheres, physics playing ===")
+
+# Streams a scene with physics running, so the viewport shows moving geometry
+# instead of the empty stage a bare streaming app produces. An empty viewport is
+# indistinguishable from a broken stream, which makes it a poor thing to demo.
+#
+# The scene is loaded with `--exec` rather than a separate Python entrypoint.
+# `runheadless.sh` forwards unrecognised arguments to kit, so the scene runs
+# inside the streaming app that is already known to work. Building the scene with
+# `SimulationApp({"headless": True, "livestream": 2})` instead loads
+# `isaacsim.exp.base` on 5.1.0 and never opens port 49100 — the client cannot
+# connect at all. That kwarg is a 4.5-era pattern.
+#
+# Rigid bodies settle within seconds, after which the stream looks frozen even
+# though frames are still being encoded. The update subscription resets the
+# transforms every `redrop_frames` frames so a viewer arriving later still sees
+# motion.
+#
+# Render resolution is set explicitly because the 1280x720 default looks soft in
+# a larger client window — the client upscales rather than asking for a re-render.
+# Set the client's Resolution dropdown to the same value.
+default-values:
+  isaac_sim_image: nvcr.io/nvidia/isaac-sim:5.1.0
+  render_width: 1920
+  render_height: 1080
+  redrop_frames: 420
