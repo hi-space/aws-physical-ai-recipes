@@ -3,6 +3,7 @@ import type { Project } from '../auth/projects';
 import { HttpError } from '../errors';
 import { getRepo } from '../store/repo';
 import type { Workflow } from '../store/types';
+import type { Write } from '../store/atomic';
 import type { TaskSpec, WorkflowSpec } from '../workflow/schema';
 import { imageProfilesService, type ImagePreflight, type ImageProfile } from './image-profiles';
 
@@ -24,14 +25,20 @@ export function acceptedImagePins(preflight: ImagePreflight, acknowledged: boole
   return pins;
 }
 /** Queueing never preserves permission to launch an image after approval withdrawal. */
-export async function validateTaskImagePolicy(workflow: Workflow & { imagePins?: Record<string, ImagePin> }, task: TaskSpec) {
+export async function taskImagePolicyChecks(workflow: Workflow & { imagePins?: Record<string, ImagePin> }, task: TaskSpec): Promise<Write[]> {
   const pin = workflow.imagePins?.[task.name];
-  if (!pin) return; // Older accepted runs retain their original execution contract.
+  if (!pin) return []; // Older accepted runs retain their original execution contract.
   const pk = `PROJECT#${workflow.projectId}`;
   const head = await getRepo().kv.get(pk, `IMAGE_PROFILE#${pin.profileId}`);
   const revision = await getRepo().kv.get(pk, `IMAGE_PROFILE_REV#${pin.profileId}#${String(pin.profileVersion).padStart(8, '0')}`) as unknown as ImageProfile | undefined;
-  if (!head || head.enabled === false || Number(head.version) !== pin.profileVersion || !revision?.approved ||
-    revision.projectId !== workflow.projectId || revision.image.resolvedImage !== pin.image || task.image !== pin.image) {
+  if (!head || head.enabled !== true || Number(head.version) !== pin.profileVersion || !revision?.approved ||
+    head.contentHash !== revision.contentHash || revision.projectId !== workflow.projectId || revision.image.resolvedImage !== pin.image || task.image !== pin.image) {
     throw new HttpError(409, '이미지 승인이 변경되어 작업을 시작하지 않았습니다. 현재 프로필을 확인한 뒤 다시 제출하세요.', 'image_approval_changed');
   }
+  return [{ kind: 'check', pk, sk: `IMAGE_PROFILE#${pin.profileId}`, condition: { equals: {
+    enabled: true, version: pin.profileVersion, contentHash: revision.contentHash,
+  } } }];
+}
+export async function validateTaskImagePolicy(workflow: Workflow & { imagePins?: Record<string, ImagePin> }, task: TaskSpec): Promise<void> {
+  await taskImagePolicyChecks(workflow, task);
 }

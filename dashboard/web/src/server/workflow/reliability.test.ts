@@ -85,6 +85,37 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('durable execution', () => {
+  it('binds immutable attempt Secret UIDs into every JobSet child before creating the group', async () => {
+    let group: import('./ports').JobSet | null = null;
+    const captured: import('./ports').JobSet[] = [];
+    deps.runtimeCommand = '/runtime';
+    deps.runtimeEnvironment = () => ({ PAI_RUNTIME_TOKEN: 'original-runtime-capability' });
+    deps.groupRuntime = { observe: async () => ({ epoch: '', barrierReleased: false, tasks: {} }), fence: async () => {} };
+    deps.k8s.getJobSet = async () => group;
+    deps.k8s.createJobSet = async (_namespace, value) => { const saved = structuredClone(value) as import('./ports').JobSet; group = saved; captured.push(saved); };
+    deps.k8s.deleteJobSet = async () => { group = null; };
+    const secrets = vi.fn(async (_namespace: string, name: string) => ({ uid: `uid-${name}` }));
+    deps.k8s.ensureAttemptSecret = secrets;
+    const source = `workflow:
+  name: grouped-secret
+  namespace: rl
+  resources: {cpu: {cpu: 1}}
+  groups:
+    - name: pair
+      tasks:
+        - {name: lead, lead: true, resource: cpu, image: busybox, command: [echo, lead]}
+        - {name: peer, resource: cpu, image: busybox, command: [echo, peer]}
+`;
+    const workflow = await submitWorkflow({ yaml: source, owner: 'alice' }, deps);
+    expect(captured).toHaveLength(1);
+    expect(secrets).toHaveBeenCalledTimes(2);
+    for (const child of captured[0].spec.replicatedJobs) {
+      const name = `wf-${workflow.id}-${child.name}-creds`;
+      expect(child.template.spec.template.metadata?.annotations).toMatchObject({
+        'pai.aws/attempt-secret-name': name, 'pai.aws/attempt-secret-uid': `uid-${name}`,
+      });
+    }
+  });
   it('deduplicates simultaneous submissions and rejects changed spec with same scoped key', async () => {
     const input = {
       yaml,

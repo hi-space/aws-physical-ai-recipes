@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Repo } from '@/server/store/repo';
 import { MemoryKV } from '@/server/store/dynamo';
-import { createManagedSession, deleteSession, extendSession, launchSession, cleanupExpiredSessions, cancelRunSessions, listSessionsWithStatus, type SessionDeps } from '@/server/services/sessions';
+import { createManagedSession, deleteSession, extendSession, launchSession, cleanupExpiredSessions, cancelRunSessions, listSessionsWithStatus, taskConnectionOptions, type SessionDeps } from '@/server/services/sessions';
 import type { Session, Workflow } from '@/server/store/types';
 import type { Project } from '@/server/auth/projects';
 import { authorizeCookie, consumeTicket } from '@/server/gateway/auth';
@@ -218,6 +218,22 @@ describe('post-completion TensorBoard contract', () => {
 });
 
 describe('task attachments', () => {
+  it.each([[true, true], [true, false], [false, true]])('keeps exec but denies shared-host HTTP (pin=%s pod=%s)', async (pinHostNetwork, podHostNetwork) => {
+    const wf = await workflow();
+    await repo.kv.put({ ...(await repo.kv.get(`WF#${wf.id}`, 'META'))!, executionProfilePins: { train: { nodes: [{ name: 'node-b', uid: 'node-uid' }], policy: { hostNetwork: pinHostNetwork } } } });
+    const admin = { ...principal, role: 'admin' as const, authMethod: 'alb' as const };
+    deps.currentUser = async () => ({ enabled: true, username: principal.user, email: '', subject: principal.subject, groups: ['admins'] });
+    deps.validateExecutionProfile = async () => {};
+    await repo.kv.put({ pk: `WF#${wf.id}`, sk: 'RUNTIME#epoch-2#META', released: true });
+    await repo.kv.put({ pk: `WF#${wf.id}`, sk: 'RUNTIME#epoch-2#MEMBER#train#0', phase: 'RUNNING', processStarted: true, readyEver: true });
+    pods[0].spec.hostNetwork = podHostNetwork;
+    await expect(createManagedSession({ kind: 'terminal', workflowId: wf.id, taskName: 'train' }, principal, project, deps)).rejects.toMatchObject({ status: 403 });
+    const shell = await createManagedSession({ kind: 'terminal', workflowId: wf.id, taskName: 'train' }, admin, project, deps);
+    expect(shell).toMatchObject({ podUid: 'training-pod-uid', hostNetwork: true });
+    await expect(launchSession(shell.id, admin, deps)).resolves.toHaveProperty('url');
+    await expect(createManagedSession({ kind: 'port-forward', workflowId: wf.id, taskName: 'train', portName: 'metrics' }, principal, project, deps)).rejects.toMatchObject({ status: 403 });
+    expect((await taskConnectionOptions(wf.id, 'train', principal, project, deps)).replicas[0].ports).toEqual([]);
+  });
   it('binds owner, actual task labels, pod UID, epoch and registered port name', async () => {
     await workflow();
     const s = await createManagedSession({ kind: 'port-forward', workflowId: 'run-a', taskName: 'train', portName: 'metrics' }, principal, project, deps);

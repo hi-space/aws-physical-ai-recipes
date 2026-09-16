@@ -15,8 +15,10 @@ import { handleTrackingRequest } from './server/tracking-proxy';
 import { cleanupExpiredSessions, cancelRunSessions } from './server/services/sessions';
 import { cleanupDcvSessions, reconcileDcvSetup } from './server/dcv/sessions';
 import { reconcilePipelineIntents } from './server/services/pipelines';
+import { reconcileSourceBuilds } from './server/services/source-builds';
 import { refreshBackendChecks } from './server/backends/registry';
 import { reconcileWebhookDeliveries } from './server/services/webhooks';
+import { idleScalingTick } from './server/services/idle-scaling';
 
 const shutdown = new AbortController();
 const sqs = new SQSClient({ region: config().region });
@@ -84,7 +86,7 @@ async function finalizeDatasets() {
 }
 async function reconcileSessions() {
   while (!shutdown.signal.aborted) {
-    const results = await Promise.allSettled([cleanupExpiredSessions(), cleanupDcvSessions(), reconcileDcvSetup(), reconcilePipelineIntents()]);
+    const results = await Promise.allSettled([cleanupExpiredSessions(), cleanupDcvSessions(), reconcileDcvSetup()]);
     for (const result of results) if (result.status === 'rejected') console.error('[worker] session reconciliation failed', result.reason instanceof Error ? result.reason.name : 'error');
     await sleep(5000);
   }
@@ -106,7 +108,29 @@ async function main() {
   const stop = () => { shutdown.abort(); stopController(); server.close(); };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
-  await Promise.all([receiveRequests(), heartbeat(), finalizeDatasets(), reconcileSessions(), monitorBackends(), deliverWebhooks()]);
+  await Promise.all([receiveRequests(), heartbeat(), finalizeDatasets(), reconcileSessions(), reconcilePipelines(),
+    manageSourceBuilds(), monitorBackends(), deliverWebhooks(), manageIdleCapacity()]);
+}
+async function reconcilePipelines() {
+  while (!shutdown.signal.aborted) {
+    try { await reconcilePipelineIntents(undefined, shutdown.signal); }
+    catch (error) { if (!shutdown.signal.aborted) console.error('[worker] pipeline reconciliation failed', (error as Error).name); }
+    await sleep(5000);
+  }
+}
+async function manageSourceBuilds() {
+  while (!shutdown.signal.aborted) {
+    try { await reconcileSourceBuilds(shutdown.signal); }
+    catch (error) { if (!shutdown.signal.aborted) console.error('[worker] source build reconciliation failed', (error as Error).name); }
+    await sleep(5000);
+  }
+}
+async function manageIdleCapacity() {
+  while (!shutdown.signal.aborted) {
+    try { await idleScalingTick(shutdown.signal); }
+    catch (error) { if (!shutdown.signal.aborted) console.error('[worker] idle policy check failed', (error as Error).name); }
+    await sleep(60_000);
+  }
 }
 async function deliverWebhooks() {
   while (!shutdown.signal.aborted) {

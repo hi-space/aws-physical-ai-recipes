@@ -8,21 +8,26 @@ import { guardChecks, type AuthContext } from './ledger';
 import { objectStorage, type FileDescription, type ObjectStorage } from './storage';
 import { checkpointSignature, checkpointURL, type CheckpointSource } from '../workflow/checkpoints';
 import type { Write } from '../store/atomic';
+import { RUNTIME_LIMITS } from './limits';
+import { UploadFiles, uploadFileKey, type UploadFile } from './upload-files';
+import { activeUploadWrite } from './upload-registry';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export function safeRelative(path: string): boolean {
-  return !!path && path.length <= 1024 && !path.startsWith('/') && !/[\\%\x00-\x1f\x7f]/.test(path) && path.split('/').every(part => part !== '' && part !== '.' && part !== '..') && posix.normalize(path) === path;
+  return !!path && Buffer.byteLength(path) <= RUNTIME_LIMITS.pathBytes && !path.startsWith('/') && !/[\\%\x00-\x1f\x7f]/.test(path) && path.split('/').every(part => part !== '' && part !== '.' && part !== '..') && posix.normalize(path) === path;
 }
 export function validChecksum(checksum: string): boolean {
   return /^[A-Za-z0-9+/]{43}=$/.test(checksum) && Buffer.from(checksum, 'base64').length === 32 && Buffer.from(checksum, 'base64').toString('base64') === checksum;
 }
 const requestSchema = z.object({
   purpose: z.literal('checkpoint'),
+  protocolVersion: z.literal(2).optional(),
+  snapshotId: z.string().regex(/^[a-f0-9]{32}$/).optional(),
   destination: z.string().max(2048),
   files: z.array(z.object({
     path: z.string().refine(safeRelative),
-    size: z.number().int().min(0).max(5 * 1024 ** 3),
+    size: z.number().int().min(0).max(RUNTIME_LIMITS.fileBytes),
     checksumSHA256: z.string().refine(validChecksum)
-  }).strict()).min(1).max(1024)
+  }).strict()).min(1).max(RUNTIME_LIMITS.files)
 }).strict();
 type UploadRequest = z.infer<typeof requestSchema>;
 export interface Plan extends Item {
@@ -31,7 +36,7 @@ export interface Plan extends Item {
   bucket: string;
   request: UploadRequest;
   createdAt: string;
-  state: 'PENDING' | 'READY';
+  state: 'PENDING' | 'READY' | 'ABORTING' | 'ABORTED';
   receipt?: CheckpointReceipt;
   checkpointIndex?: number;
   checkpointSignature?: string;
@@ -71,16 +76,19 @@ export interface CheckpointManifest {
 }
 export class CheckpointService {
   readonly storage: ObjectStorage;
+  readonly files: UploadFiles;
   constructor(private readonly deps: BrokerDeps, private readonly authenticate: (token: string) => Promise<AuthContext>) {
     this.storage = deps.storage ?? objectStorage;
+    this.files = new UploadFiles(deps, authenticate, (context, id) => this.registered(context, id));
   }
   private prepare(context: AuthContext, payload: unknown) {
     const parsed = requestSchema.safeParse(payload);
     if (!parsed.success) throw new HttpError(400, 'Invalid checkpoint file manifest');
     const request = parsed.data;
+    if (!request.protocolVersion && request.files.some(file => file.size > 5 * 1024 ** 3)) throw new HttpError(400, 'Large checkpoints require runtime upload protocol v2');
     request.files.sort((a, b) => a.path.localeCompare(b.path));
     if (new Set(request.files.map(file => file.path)).size !== request.files.length) throw new HttpError(400, 'Duplicate checkpoint paths');
-    if (Buffer.byteLength(JSON.stringify(request)) > 300_000) throw new HttpError(400, 'Checkpoint plan exceeds durable metadata size limit');
+    if (Buffer.byteLength(JSON.stringify(request)) > RUNTIME_LIMITS.metadataBytes) throw new HttpError(400, 'Checkpoint plan exceeds durable metadata size limit');
     const bucket = this.deps.artifactBucket;
     if (!bucket) throw new HttpError(503, 'Checkpoint artifact bucket is not configured');
     let uri: URL;
@@ -105,6 +113,7 @@ export class CheckpointService {
       request
     }));
     const prefix = `projects/${c.projectId}/runs/${c.workflowId}/attempts/${c.attempt}/checkpoints/${c.task}/${publicationId}/`;
+    if (request.files.some(file => Buffer.byteLength(prefix + 'objects/' + file.path) > 1024)) throw new HttpError(400, 'Checkpoint object key exceeds storage limit');
     return {
       request,
       bucket,
@@ -117,6 +126,17 @@ export class CheckpointService {
         sk: `RUNTIME#${c.epoch}#UPLOAD#${publicationId}`
       }
     };
+  }
+  async registered(context: AuthContext, id: string): Promise<Plan> {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new HttpError(400, 'Invalid checkpoint publication identity');
+    const key = { pk: `WF#${context.claims.workflowId}`, sk: `RUNTIME#${context.claims.epoch}#UPLOAD#${id}` };
+    const plan = await this.deps.repo.kv.get(key.pk, key.sk) as Plan | undefined;
+    if (!plan) throw new HttpError(404, 'Checkpoint publication is not registered');
+    const expected = this.prepare(context, plan.request);
+    if (plan.publicationId !== id || expected.publicationId !== id || plan.bucket !== expected.bucket || plan.prefix !== expected.prefix) {
+      throw new HttpError(403, 'Checkpoint publication scope mismatch');
+    }
+    return plan;
   }
   async plan(token: string, payload: unknown) {
     const context = await this.authenticate(token),
@@ -134,7 +154,7 @@ export class CheckpointService {
         checkpointSignature: p.checkpointSignature,
         createdAt: this.deps.now().toISOString()
       };
-      if (!(await this.deps.repo.kv.transaction([...guardChecks(context), {
+      if (!(await this.deps.repo.kv.transaction([...guardChecks(context), ...await activeUploadWrite(this.deps, plan, true), {
         kind: 'put',
         item: plan,
         condition: {
@@ -145,6 +165,9 @@ export class CheckpointService {
         if (!(await this.deps.repo.kv.get(p.key.pk, p.key.sk))) throw new HttpError(409, 'Concurrent upload registration; retry');
       }
     }
+    const registered = await this.registered(await this.authenticate(token), p.publicationId);
+    if (registered.state === 'ABORTING' || registered.state === 'ABORTED') throw new HttpError(410, 'Checkpoint publication has been aborted');
+    if (p.request.protocolVersion === 2) return { publicationId: p.publicationId, state: registered.state, uploads: [] };
     const uploads = [];
     for (const file of p.request.files) {
       const signed = await this.storage.presignPut(p.bucket, p.prefix + 'objects/' + file.path, file, 300);
@@ -170,6 +193,8 @@ export class CheckpointService {
     for (const [index, file] of p.request.files.entries()) {
       const object = manifest.objects[index];
       if (object.path !== file.path || object.size !== file.size || object.checksumSHA256 !== file.checksumSHA256 || object.key !== p.prefix + 'objects/' + file.path || !object.versionId || object.versionId === 'null') throw new HttpError(409, 'Checkpoint manifest object mismatch');
+      if (object.storageChecksumType !== undefined && (!['FULL_OBJECT', 'COMPOSITE'].includes(object.storageChecksumType) ||
+        typeof object.storageChecksumSHA256 !== 'string')) throw new HttpError(409, 'Checkpoint manifest transport checksum mismatch');
     }
     return manifest;
   }
@@ -186,7 +211,7 @@ export class CheckpointService {
   }
 
   /** Read-only verification uses source identities, never a source capability. */
-  async readCommitted(context: AuthContext, plan: Plan, signal?: AbortSignal): Promise<{ manifest: CheckpointManifest; bucket: string; index: number }> {
+  async readCommitted(context: AuthContext, plan: Plan, signal?: AbortSignal, verifyObjects = true): Promise<{ manifest: CheckpointManifest; bucket: string; index: number }> {
     const p = this.prepare(context, plan.request);
     const receipt = plan.receipt;
     if (plan.state !== 'READY' || !receipt || plan.pk !== p.key.pk || plan.sk !== p.key.sk ||
@@ -205,21 +230,31 @@ export class CheckpointService {
       receipt.sizeBytes !== manifest.objects.reduce((sum, object) => sum + object.size, 0)) {
       throw new HttpError(409, 'Committed checkpoint metadata mismatch');
     }
-    for (let offset = 0; offset < manifest.objects.length; offset += 8) {
+    for (let offset = 0; verifyObjects && offset < manifest.objects.length; offset += 8) {
       signal?.throwIfAborted();
       await Promise.all(manifest.objects.slice(offset, offset + 8).map(async object => {
         const head = await this.storage.head(p.bucket, object.key, object.versionId, signal);
-        if (head.versionId !== object.versionId || head.size !== object.size || head.checksumSHA256 !== object.checksumSHA256 ||
-          (head.checksumType ?? 'FULL_OBJECT') !== 'FULL_OBJECT') throw new HttpError(409, 'Committed checkpoint object version or checksum mismatch');
+        if (!this.matchesObject(head, object)) throw new HttpError(409, 'Committed checkpoint object version or checksum mismatch');
       }));
     }
     return { manifest, bucket: p.bucket, index: p.checkpointIndex };
+  }
+  async verifyCommittedObject(bucket: string, object: CheckpointManifest['objects'][number], signal?: AbortSignal) {
+    if (!this.matchesObject(await this.storage.head(bucket, object.key, object.versionId, signal), object)) {
+      throw new HttpError(409, 'Committed checkpoint object version or checksum mismatch');
+    }
+  }
+  private matchesObject(head: Awaited<ReturnType<ObjectStorage['head']>>, object: CheckpointManifest['objects'][number]) {
+    return head.versionId === object.versionId && head.size === object.size &&
+      head.checksumSHA256 === (object.storageChecksumSHA256 ?? object.checksumSHA256) &&
+      (head.checksumType ?? 'FULL_OBJECT') === (object.storageChecksumType ?? 'FULL_OBJECT');
   }
   async complete(token: string, payload: unknown, signal?: AbortSignal): Promise<CheckpointReceipt> {
     let context = await this.authenticate(token);
     const p = this.prepare(context, payload),
       plan = (await this.deps.repo.kv.get(p.key.pk, p.key.sk)) as Plan | undefined;
     if (!plan) throw new HttpError(409, 'Checkpoint upload plan has not been registered');
+    if (plan.state === 'ABORTED' || plan.state === 'ABORTING') throw new HttpError(410, 'Checkpoint publication has been aborted');
     if (plan.state === 'READY' && plan.receipt) {
       const writes = await this.indexWrite(context, p, plan);
       if (writes.length && !await this.deps.repo.kv.transaction([...guardChecks(context), ...writes])) {
@@ -234,6 +269,21 @@ export class CheckpointService {
       const objects: CheckpointManifest['objects'] = [];
       for (const file of p.request.files) {
         const key = p.prefix + 'objects/' + file.path;
+        if (plan.request.protocolVersion === 2) {
+          const rowKey = uploadFileKey(plan, file.path);
+          const row = await this.deps.repo.kv.get(rowKey.pk, rowKey.sk) as UploadFile | undefined;
+          if (!row || row.state !== 'COMPLETE' || row.key !== key || row.checksumSHA256 !== file.checksumSHA256 ||
+            row.size !== file.size || !row.versionId || !row.storageChecksumSHA256 || !row.storageChecksumType) {
+            throw new HttpError(409, 'Checkpoint file has not completed checksum verification');
+          }
+          const object = { ...file, key, versionId: row.versionId,
+            storageChecksumSHA256: row.storageChecksumSHA256, storageChecksumType: row.storageChecksumType };
+          if (!this.matchesObject(await this.storage.head(p.bucket, key, row.versionId, signal), object)) {
+            throw new HttpError(409, 'Verified checkpoint version changed');
+          }
+          objects.push(object);
+          continue;
+        }
         const head = await this.storage.head(p.bucket, key, undefined, signal);
         if ((head.checksumType ?? 'FULL_OBJECT') !== 'FULL_OBJECT' || head.size !== file.size || head.checksumSHA256 !== file.checksumSHA256 || !head.versionId || head.versionId === 'null') throw new HttpError(409, 'Checkpoint object verification failed');
         objects.push({
@@ -255,13 +305,16 @@ export class CheckpointService {
         createdAt: plan.createdAt,
         objects
       };
+      if (Buffer.byteLength(JSON.stringify(manifest)) > RUNTIME_LIMITS.responseBytes) {
+        throw new HttpError(409, 'Checkpoint committed manifest exceeds supported size');
+      }
       stored = await this.storage.writeManifest(p.bucket, p.prefix + 'manifest.json', JSON.stringify(manifest), signal);
       manifest = this.parseManifest(stored.body, context, p);
     }
     // Pin and verify the manifest's actual versions, including adoption after a lost write reply.
     for (const object of manifest.objects) {
       const head = await this.storage.head(p.bucket, object.key, object.versionId, signal);
-      if ((head.checksumType ?? 'FULL_OBJECT') !== 'FULL_OBJECT' || head.versionId !== object.versionId || head.size !== object.size || head.checksumSHA256 !== object.checksumSHA256) throw new HttpError(409, 'Immutable checkpoint version verification failed');
+      if (!this.matchesObject(head, object)) throw new HttpError(409, 'Immutable checkpoint version verification failed');
     }
     context = await this.authenticate(token);
     signal?.throwIfAborted();
@@ -288,7 +341,7 @@ export class CheckpointService {
           state: 'PENDING'
         }
       }
-    }, ...indexWrites]);
+    }, ...indexWrites, ...await activeUploadWrite(this.deps, plan, false)]);
     if (!ok) {
       await this.authenticate(token);
       const saved = (await this.deps.repo.kv.get(p.key.pk, p.key.sk)) as Plan | undefined;

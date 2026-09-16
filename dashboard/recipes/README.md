@@ -2,32 +2,30 @@
 
 This catalog implements the recipe portion of approved dashboard design F29–F34/F40. It does not provision infrastructure, push images, register SageMaker pipelines, or operate a physical robot.
 
-The catalog is in `dashboard/web/src/server/workflow/builtin-templates.ts`. Every recipe includes source URLs, image contract, artifact paths, verification level, and explicit prerequisites in YAML `ui.recipe`. Store types and the web package are unchanged by this work.
+The catalog is in `dashboard/web/src/server/workflow/builtin-templates.ts`. Every recipe includes source URLs, image contract, artifact paths, verification level, and explicit prerequisites in YAML `ui.recipe`. The [feature inventory](../../docs/reports/2026-09-16-feature-evidence.md) distinguishes software support from [measured AWS executions](../../docs/reports/2026-09-16-release3-validation.md).
 
-## Parent integration
+## Execution integration
 
 1. Build from **repository root**, with the Dockerfile paths below. Set image URI environment variables before importing/seeding the built-ins. Unconfigured images deliberately use `required://ENV_NAME`, accompanied by a prerequisite reason; they are not ECR tags.
 2. Before submission, call `recipeConfigurationErrors(template, overrides)` for missing image parameters. GPU/model/network/asset prerequisite metadata also requires parent preflight; an image URI alone does not mark those recipes ready.
-3. Bind a real run ID using `materializeBuiltinTemplate(template, runId)` **before** `parseWorkflowYaml`. It resolves only published dataset names, such as `mujoco-checkpoints-<runId>`. Raw YAML retains `{{workflow_id}}` in those names and the current schema rejects that token. Alternatively, the parent can extend output-name schema validation and resolve names before publication. Never publish literal tokens or reuse a fixed default dataset name across runs.
+3. Submit through the workflow API. The schema accepts `{{workflow_id}}` in output dataset names, and submission resolves it after generating the durable run ID. The saved spec contains the resolved names. `materializeBuiltinTemplate` remains a compatibility helper for explicit offline rendering; browser users do not need to create run IDs or edit dataset names manually.
 4. Pipelines use `{ task: ... }` inputs, so evaluation and augmentation consume the producing task's output from this run/attempt. Standalone imported datasets explicitly reference version 1; edit YAML to select another immutable version.
 5. Every declared output is below `{{output}}`. The compiler owns project paths, input hydration and the separate `TASK_RUNTIME_IMAGE`. Workload images contain no orchestration runtime.
 6. Groups use compiler-supported `{{host:discovery}}` / `{{host:policy}}`. One lead controls completion; group barriers/admission, host resolution, termination, and epoch fencing belong to the parent engine.
-7. Periodic model saves are local; final publication is delegated to the parent publisher. No S3 broker checkpoint declarations are made until reliable project-scoped destination variables are available.
+7. Tasks declaring `checkpoint` with `url: auto` use the runtime broker's project/run/attempt-scoped durable publication. Retry attempts restore only committed checkpoint manifests. The MuJoCo recovery path has actual optimizer/normalization restoration evidence; framework-specific recipes must consume the supplied restore paths, and simulator trajectories are not universally bit-identical.
 8. Retire persisted legacy `workshop-setup`, `mujoco-setup`, and `isaaclab-play` records from the previous catalog when migrating existing stores (`RETIRED_BUILTIN_TEMPLATE_IDS` is exported). They are intentionally absent: shared mutable FSx setup is obsolete; node-pinned DCV playback belongs to the parent session integration. `isaaclab-video` retains actual headless checkpoint playback.
-
-Early coordination note: `/tmp/physical-ai-recipes-interfaces.md`.
 
 ## Images and verification boundaries
 
 | Dockerfile under `dashboard/images/` | URI environment | Contract / remaining prerequisites |
 |---|---|---|
-| `mujoco/Dockerfile` | `MUJOCO_IMAGE_URI` | **Built and CPU-tested locally.** Python 3.11.13, CPU Torch, SB3 PPO, MuJoCo, SO-101 Menagerie assets, workshop environment, video codecs, HF converter. No runtime installation or network required for training/evaluation. |
-| `isaaclab/Dockerfile` | `ISAACLAB_IMAGE_URI` | Isaac Lab 2.3.0 derivative; workshop robot USD/URDF/source and adapters baked in. **GPU build/run unverified.** NVIDIA EULA, compatible driver/RTX GPU, writable simulation caches and scene asset access required. Also used by Replicator/Mimic. |
-| `groot/Dockerfile` | `GROOT_RUNTIME_IMAGE_URI` | Official N1.6.1 release commit and frozen upstream lock; full training interpreter includes MLflow plugin. **GPU build/run unverified.** Model access, camera/action/modality data, sufficient VRAM and tracking server role required. Also provides the actual policy server module. |
-| `openpi/Dockerfile` | `OPENPI_IMAGE_URI` | Pinned official OpenPI and frozen lock. **GPU build/run unverified.** JAX CUDA, LIBERO LeRobot input, base weights at `gs://openpi-assets/checkpoints/pi0_base`, and tested LoRA memory profile required. No SO-101 compatibility claim. |
+| `mujoco/Dockerfile` | `MUJOCO_IMAGE_URI` | **Built; actual AWS CPU learning, evaluation and checkpoint recovery passed.** Python 3.11.13, CPU Torch, SB3 PPO, MuJoCo, SO-101 Menagerie assets, workshop environment, video codecs, HF converter. The measured two-episode quality result remains REVIEW, not approval. |
+| `isaaclab/Dockerfile` | `ISAACLAB_IMAGE_URI` | Isaac Lab 2.3.0 derivative; workshop robot USD/URDF/source and adapters baked in. **Actual SO-101 GPU PPO and nonblank checkpoint replay video passed.** Other tasks, Replicator and Mimic still require their own compatible driver/RTX GPU, assets and measured outputs. |
+| `groot/Dockerfile` | `GROOT_RUNTIME_IMAGE_URI` | Official N1.6.1 release commit and frozen upstream lock; full training interpreter includes MLflow plugin. **Image built; EKS training not live-accepted.** The separate SageMaker attempts failed OOM or were stopped after capacity waits. Model/data access, sufficient VRAM and tracking role remain prerequisites. |
+| `openpi/Dockerfile` | `OPENPI_IMAGE_URI` | Pinned official OpenPI and frozen lock. **Image built; actual learning unverified.** JAX CUDA, LIBERO LeRobot input, base weights at `gs://openpi-assets/checkpoints/pi0_base`, and tested LoRA memory profile required. No SO-101 compatibility claim. |
 | `cosmos/Dockerfile` | `COSMOS_IMAGE_URI` | Pinned Cosmos-Transfer2.5 and frozen lock. **GPU build/run unverified.** Authorized weights and a compatible 80 GB GPU; upstream documents 65.4 GB for Transfer2-2B inference. Existing A10G resources do not satisfy that profile. |
 | `leisaac/Dockerfile` | `LEISAAC_IMAGE_URI` | Build args `ISAACLAB_RECIPE_IMAGE`, `LEISAAC_ASSETS_IMAGE`, `LEISAAC_SCENE_REVISION`. Asset image must contain `/assets/scenes/kitchen_with_orange/scene.usd` plus matching SO-101 robot/material files. **GPU build/run unverified.** Two concurrent GPU allocations, compatible GR00T model, and port 5555 between pods required. |
-| `ros2/Dockerfile` | `ROS2_IMAGE_URI` | ROS Humble and Fast DDS tools baked in. Local Docker validation checks actual payload transfer. Kubernetes network policy/CNI discovery and direct UDP delivery remain external prerequisites. |
+| `ros2/Dockerfile` | `ROS2_IMAGE_URI` | ROS Humble and Fast DDS tools baked in. **Actual Kubernetes discovery and 20 unique run-scoped messages passed.** This verifies communication, not physical robot motion or HIL. |
 
 All build contexts are the repository root. No workload requires `/fsx/scratch` checkouts or `/fsx/envs`. GPU Dockerfiles are source-verified build definitions, **not** proof that those images have been provisioned or executed.
 

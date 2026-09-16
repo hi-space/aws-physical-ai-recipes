@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Bar, Button, Card, CodeBlock, CopyButton, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, Tabs, Toast } from '@/components/ui';
 import { ago, classNames as cx, fmtBytes, fmtTime, shortId } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { ScaleControls } from '@/components/compute/ScaleControls';
 
 interface ClusterSummary {
   name: string;
@@ -47,27 +48,12 @@ export function ComputePage() {
   const me = useMe();
   const [activeTab, setActiveTab] = React.useState<'eks' | 'slurm'>('eks');
   const [scaleDialog, setScaleDialog] = React.useState<{ cluster: string; group: string; current: number } | null>(null);
-  const [scaleValue, setScaleValue] = React.useState<string>('');
   const [exportDialog, setExportDialog] = React.useState<{ fileSystemId: string } | null>(null);
   const [exportPaths, setExportPaths] = React.useState<string>('/fsx/checkpoints');
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
 
   const clustersResp = useApi<ClusterResponse>('/api/clusters', { refetch: 10000 });
   const fsxResp = useApi<FileSystem[]>('/api/fsx', { refetch: 10000 });
-
-  const scaleClusterMutation = useApiMutation(
-    async (params: { cluster: string; group: string; count: number; expectedCount: number }) => {
-      const res = await fetch(`/api/clusters/${params.cluster}/scale`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ group: params.group, count: params.count, expectedCount: params.expectedCount }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error ?? `Scale failed: ${res.statusText}`);
-      return result;
-    },
-    ['/api/clusters'],
-  );
 
   const exportFsxMutation = useApiMutation(
     async (params: { fileSystemId: string; paths: string[] }) => {
@@ -88,23 +74,6 @@ export function ComputePage() {
 
   const handleScaleClick = (cluster: string, group: string, current: number) => {
     setScaleDialog({ cluster, group, current });
-    setScaleValue(String(current));
-  };
-
-  const handleScaleApply = async () => {
-    if (!scaleDialog) return;
-    const count = parseInt(scaleValue, 10);
-    if (isNaN(count) || count < 0) {
-      setToast({ message: 'Invalid node count', tone: 'err' });
-      return;
-    }
-    try {
-      await scaleClusterMutation.mutateAsync({ cluster: scaleDialog.cluster, group: scaleDialog.group, count, expectedCount: scaleDialog.current });
-      setToast({ message: `Scaling ${scaleDialog.group} to ${count} nodes`, tone: 'ok' });
-      setScaleDialog(null);
-    } catch (e) {
-      setToast({ message: `Error: ${(e as Error).message}`, tone: 'err' });
-    }
   };
 
   const handleExportClick = (fileSystemId: string) => {
@@ -183,12 +152,12 @@ export function ComputePage() {
             </Card>
 
             {/* Instance Groups */}
-            <Card title="Instance Groups">
+            <Card title="인스턴스 그룹">
               {activeCluster.groups.length === 0 ? (
                 <EmptyState title="No instance groups" />
               ) : (
                 <Table
-                  head={['Group', 'Instance Type', 'Current / Target', 'Status', can(me.data, 'admin') ? 'Scale' : '']}
+                  head={['그룹', '인스턴스 유형', '현재 / 목표', '상태', can(me.data, 'admin') ? '용량 계획' : '']}
                   dense
                 >
                   {activeCluster.groups.map((g) => (
@@ -202,9 +171,9 @@ export function ComputePage() {
                       </td>
                       <td>{g.status && <StatusPill status={g.status} />}</td>
                       <td>
-                        {can(me.data, 'admin') && !g.isSystem ? (
+                        {can(me.data, 'admin') ? (
                           <Button size="sm" variant="ghost" onClick={() => handleScaleClick(activeCluster.name, g.name, g.target)}>
-                            Scale
+                            계획·차단 사유
                           </Button>
                         ) : g.isSystem ? (
                           <span className="text-[11px] text-fg-faint">System</span>
@@ -381,47 +350,7 @@ export function ComputePage() {
         )}
       </div>
 
-      {/* Scale Dialog */}
-      <Dialog
-        open={!!scaleDialog}
-        onClose={() => setScaleDialog(null)}
-        title={`Scale ${scaleDialog?.group} on ${scaleDialog?.cluster}`}
-        width="md"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setScaleDialog(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              loading={scaleClusterMutation.isPending}
-              onClick={handleScaleApply}
-            >
-              Apply
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <div className="text-sm text-fg-muted">
-            Scale <strong>{scaleDialog?.group}</strong> from <strong>{scaleDialog?.current}</strong> to{' '}
-            <strong>
-              <Input
-                type="number"
-                value={scaleValue}
-                onChange={(e) => setScaleValue(e.target.value)}
-                min="0"
-                max="256"
-                className="inline-block w-16"
-              />
-            </strong>{' '}
-            node(s)?
-          </div>
-          <div className="rounded border border-border/50 bg-bg-elev-2 p-2 text-xs text-fg-muted">
-            Note: Nodes take 10–20 minutes to join the cluster and are billed while running.
-          </div>
-        </div>
-      </Dialog>
+      {scaleDialog && <ScaleControls {...scaleDialog} onClose={() => setScaleDialog(null)} onChanged={() => { void clustersResp.refetch(); }} />}
 
       {/* Export Dialog */}
       <Dialog

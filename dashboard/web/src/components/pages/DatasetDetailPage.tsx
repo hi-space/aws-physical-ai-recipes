@@ -47,6 +47,7 @@ interface DatasetVersion {
   createdBy: string;
   note?: string;
   state?: 'PENDING' | 'READY';
+  selection?: {include?:string[];exclude?:string[]};
   finalizationError?: string;
 }
 
@@ -56,6 +57,8 @@ interface S3Entry {
   size?: number;
   lastModified?: string;
   isPrefix: boolean;
+  path?: string;
+  versionId?: string;
 }
 
 interface S3Listing {
@@ -63,11 +66,12 @@ interface S3Listing {
   prefix: string;
   entries: S3Entry[];
   nextToken?: string;
+  immutable?: boolean;
 }
 
 interface LineageData {
   produced: Array<{ version: number; workflowId: string; task: string }>;
-  consumers: Array<{ workflowId: string; workflowName: string; task: string; version: 'latest' | number; status: string }>;
+  consumers: Array<{ workflowId: string; workflowName: string; task: string; version: 'latest' | number; status: string; inputIndex?:number; workflowDeleted?:boolean }>;
 }
 
 export function DatasetDetailPage({ name }: { name: string }) {
@@ -83,7 +87,6 @@ export function DatasetDetailPage({ name }: { name: string }) {
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
   const [newVersionOpen, setNewVersionOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const [deletePurge, setDeletePurge] = React.useState(false);
   const [fileBrowserPrefix, setFileBrowserPrefix] = React.useState('');
   const [fileBrowserToken, setFileBrowserToken] = React.useState<string | undefined>();
   const [editTagsOpen, setEditTagsOpen] = React.useState(false);
@@ -104,13 +107,13 @@ export function DatasetDetailPage({ name }: { name: string }) {
   );
 
   const createVersionMutation = useApiMutation(
-    async (input: { uri?: string; note?: string; tags?: string[] }) =>
+    async (input: { uri?: string; note?: string; tags?: string[]; include?:string[];exclude?:string[] }) =>
       api<DatasetVersion>(`/api/datasets/${name}/versions`, { method: 'POST', json: input }),
     [`/api/datasets/${name}`]
   );
 
   const deleteMutation = useApiMutation(
-    async () => api(`/api/datasets/${name}?purge=${deletePurge ? '1' : '0'}`, { method: 'DELETE' }),
+    async () => api(`/api/datasets/${name}`, { method: 'DELETE' }),
     ['/api/datasets']
   );
 
@@ -142,6 +145,8 @@ export function DatasetDetailPage({ name }: { name: string }) {
     try {
       const newVer = await createVersionMutation.mutateAsync({
         uri: choice === 'existing' ? (form.get('uri') as string) : undefined,
+        include: String(form.get('include') ?? '').split(/\r?\n/).map(p => p.trim()).filter(Boolean),
+        exclude: String(form.get('exclude') ?? '').split(/\r?\n/).map(p => p.trim()).filter(Boolean),
         note: form.get('note') as string,
         tags: (form.get('tags') as string).split(',').map((t) => t.trim()).filter(Boolean),
       });
@@ -327,6 +332,12 @@ export function DatasetDetailPage({ name }: { name: string }) {
                       <code className="mono text-xs bg-bg-elev-2 px-2 py-1 rounded flex-1 break-all">{currentVersion.fsxPath}</code>
                       <CopyButton text={currentVersion.fsxPath} />
                     </div>
+                  </div>
+                )}
+                {currentVersion.selection && ((currentVersion.selection.include?.length ?? 0) > 0 || (currentVersion.selection.exclude?.length ?? 0) > 0) && (
+                  <div className="text-sm space-y-1">
+                    <p>포함: <code>{currentVersion.selection.include?.join(', ') || '전체'}</code></p>
+                    <p>제외: <code>{currentVersion.selection.exclude?.join(', ') || '없음'}</code></p>
                   </div>
                 )}
                 {currentVersion.note && (
@@ -538,16 +549,14 @@ export function DatasetDetailPage({ name }: { name: string }) {
                             <td className="py-2 px-3 text-xs">{fmtBytes(e.size)}</td>
                             <td className="py-2 px-3 text-xs text-gray-500">{ago(e.lastModified)}</td>
                             <td className="py-2 px-3">
-                              {!e.isPrefix && (
+                              {!e.isPrefix && fileListingQuery.data.immutable && (
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={async () => {
                                     try {
-                                      const res = await api<{ url: string }>('/api/s3/presign', {
-                                        method: 'POST',
-                                        json: { bucket: fileListingQuery.data!.bucket, key: e.key, op: 'get' },
-                                      });
+                                      const path = e.path ?? datasetRelativePrefix(e.key, currentVersion.uri);
+                                      const res = await api<{ url: string }>(`/api/datasets/${name}/versions/${currentVersion.version}/download?path=${encodeURIComponent(path)}`);
                                       window.open(res.url);
                                     } catch (err) {
                                       const msg = err instanceof Error ? err.message : 'Download failed';
@@ -614,14 +623,9 @@ export function DatasetDetailPage({ name }: { name: string }) {
                       </thead>
                       <tbody>
                         {data.lineage.consumers.map((c) => (
-                          <tr key={`${c.workflowId}-${c.task}`} className="border-b border-border hover:bg-bg-elev-1 transition">
+                          <tr key={`${c.workflowId}-${c.task}-${c.inputIndex ?? 0}`} className="border-b border-border hover:bg-bg-elev-1 transition">
                             <td className="py-2 px-3">
-                              <Link
-                                href={`/workflows/${c.workflowId}`}
-                                className="text-blue-400 hover:underline text-sm"
-                              >
-                                {c.workflowName}
-                              </Link>
+                              {c.workflowDeleted ? <span>{c.workflowName} (기록 보존)</span> : <Link href={`/workflows/${c.workflowId}`} className="text-blue-400 hover:underline text-sm">{c.workflowName}</Link>}
                             </td>
                             <td className="py-2 px-3 text-sm">{c.task}</td>
                             <td className="py-2 px-3 mono text-sm">{c.version === 'latest' ? 'latest' : `v${c.version}`}</td>
@@ -662,6 +666,12 @@ export function DatasetDetailPage({ name }: { name: string }) {
             <Field label="URI" help="기존 S3 데이터를 등록할 때 입력하세요.">
               <Input name="uri" placeholder="s3://bucket/prefix/" />
             </Field>
+            <Field label="포함할 파일/폴더" help="한 줄에 상대 파일 경로 또는 /로 끝나는 폴더를 입력하세요. 비우면 전체를 포함합니다. 와일드카드는 지원하지 않습니다.">
+              <Textarea name="include" rows={3} placeholder={'train/\nlabels.json'} />
+            </Field>
+            <Field label="제외할 파일/폴더" help="제외 경로가 포함 경로보다 우선합니다. 선택 결과는 새 버전으로 고정됩니다.">
+              <Textarea name="exclude" rows={3} placeholder={'train/private/'} />
+            </Field>
             <Field label="메모">
               <Textarea name="note" placeholder="이 버전의 변경 사항…" maxLength={500} rows={3} />
             </Field>
@@ -688,11 +698,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
           title="데이터셋 삭제"
         >
           <div className="space-y-4">
-            <p>데이터셋 메타데이터와 모든 버전을 삭제합니다.</p>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={deletePurge} onChange={(e) => setDeletePurge(e.target.checked)} />
-              <span className="text-sm">datasets/{ds.name}/ 아래 S3 객체도 삭제 (관리자 전용)</span>
-            </label>
+            <p>목록에서 데이터셋을 삭제합니다. 실험 기록이 참조하는 데이터셋은 삭제할 수 없으며, 확정된 파일과 버전 기록은 보존됩니다.</p>
             <div className="flex gap-2 justify-end">
               <Button type="button" onClick={() => setDeleteOpen(false)} variant="ghost">
                 취소

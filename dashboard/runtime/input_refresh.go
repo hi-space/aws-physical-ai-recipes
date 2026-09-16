@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"sync"
 )
 
@@ -23,8 +22,8 @@ func newInputURLs(r *runner, in input) *inputURLs {
 		urls.files[file.Path] = file
 	}
 	urls.load = func(ctx context.Context) ([]input, error) {
-		var plan inputPlan
-		if err := r.broker.request(ctx, http.MethodGet, "/runtime/inputs", nil, &plan, 200); err != nil {
+		plan, err := r.fetchInputPlan(ctx)
+		if err != nil {
 			return nil, err
 		}
 		if err := validateInputs(&plan, r.contract.ProjectID, r.opts.inputRoot, r.broker.token); err != nil {

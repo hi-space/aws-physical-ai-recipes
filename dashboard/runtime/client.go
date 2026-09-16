@@ -18,6 +18,10 @@ const maxResponseBytes = 2 * 1024 * 1024
 
 var errFenced = errors.New("runtime epoch fenced")
 
+type brokerHTTPError struct{ status int }
+
+func (e *brokerHTTPError) Error() string { return fmt.Sprintf("broker returned HTTP %d", e.status) }
+
 type options struct {
 	requestTimeout, retryDelay, pollInterval, heartbeatInterval time.Duration
 	killGrace, finalTimeout, publicationTimeout, putTimeout     time.Duration
@@ -75,6 +79,10 @@ func waitContext(ctx context.Context, d time.Duration) error {
 }
 
 func (b *broker) request(ctx context.Context, method, path string, payload any, reply any, exactStatus int) error {
+	return b.requestTimeout(ctx, method, path, payload, reply, exactStatus, b.opts.requestTimeout)
+}
+
+func (b *broker) requestTimeout(ctx context.Context, method, path string, payload any, reply any, exactStatus int, timeout time.Duration) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return errors.New("cannot encode broker request")
@@ -89,7 +97,7 @@ func (b *broker) request(ctx context.Context, method, path string, payload any, 
 				return err
 			}
 		}
-		callCtx, cancel := context.WithTimeout(ctx, b.opts.requestTimeout)
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		var body io.Reader
 		if method != http.MethodGet {
 			body = bytes.NewReader(data)
@@ -126,7 +134,7 @@ func (b *broker) request(ctx context.Context, method, path string, payload any, 
 			continue
 		}
 		if status < 200 || status >= 300 || (exactStatus != 0 && status != exactStatus) {
-			last = fmt.Errorf("broker returned HTTP %d", status)
+			last = &brokerHTTPError{status: status}
 			if status == 409 || status == 429 || status >= 500 {
 				continue
 			}

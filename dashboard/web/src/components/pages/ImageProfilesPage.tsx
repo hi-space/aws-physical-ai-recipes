@@ -1,12 +1,13 @@
 'use client';
 import * as React from 'react';
-import { Badge, Button, Card, EmptyState, ErrorBox, Spinner } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBox, LinkButton, Spinner } from '@/components/ui';
 import { api, useApi } from '@/lib/api-client';
 import type { ImageProfile, ImagePreflight } from '@/server/services/image-profiles';
+import { ExecutionProfilesPanel } from './ExecutionProfilesPanel';
 
 interface Registry { project: { id: string; name: string }; profiles: ImageProfile[]; capabilities: { canApprove: boolean; canSeed: boolean } }
 const base = '/api/image-profiles';
-const empty = { id: '', name: '', image: '', cpu: '1', memory: '1', gpu: '0', vram: '0', platforms: '' };
+const empty = { id: '', name: '', image: '', sourceBuildId: '', cpu: '1', memory: '1', gpu: '0', vram: '0', platforms: '' };
 const fieldClass = 'mt-1 w-full rounded border border-border bg-bg px-3 py-2 text-sm';
 
 export function ImageProfilesPage() {
@@ -24,9 +25,15 @@ export function ImageProfilesPage() {
   const [notice, setNotice] = React.useState('');
   const profile = detail.data ?? current;
   const canApprove = registry.data?.capabilities.canApprove;
+  React.useEffect(() => {
+    const query = new URLSearchParams(window.location.search), build = query.get('sourceBuildId'), image = query.get('image');
+    if (build && /^sb-[a-f0-9]{32}$/.test(build) && image && image.length <= 600) {
+      setDraft({ ...empty, id: `build-${build.slice(3, 15)}`, name: '소스 빌드 이미지', image, sourceBuildId: build });
+    }
+  }, []);
   function choose(value: ImageProfile) {
     setSelected(value.id); setVersion(undefined);
-    setDraft({ id: value.id, name: value.name, image: value.image.requestedImage, cpu: String(value.requirements.minCpu),
+    setDraft({ id: value.id, name: value.name, image: value.image.requestedImage, sourceBuildId: value.sourceBuild?.id ?? '', cpu: String(value.requirements.minCpu),
       memory: String(value.requirements.minMemoryMiB / 1024), gpu: String(value.requirements.minGpu),
       vram: String(value.requirements.minGpuMemoryMiB / 1024), platforms: value.requirements.platforms.join(', ') });
   }
@@ -39,6 +46,7 @@ export function ImageProfilesPage() {
     await action(async () => {
       const saved = await api<ImageProfile>(base, { method: 'POST', json: {
         id: draft.id, name: draft.name, image: draft.image, ...(current ? { expectedVersion: current.version } : {}),
+        ...(draft.sourceBuildId ? { sourceBuildId: draft.sourceBuildId } : {}),
         requirements: { minCpu: Number(draft.cpu), minMemoryMiB: Number(draft.memory) * 1024,
           minGpu: Number(draft.gpu), minGpuMemoryMiB: Number(draft.vram) * 1024,
           platforms: draft.platforms.split(',').map(v => v.trim()).filter(Boolean) },
@@ -90,6 +98,11 @@ export function ImageProfilesPage() {
             <div><dt className="text-xs text-fg-muted">검사 근거</dt><dd>{profile.image.source} · {profile.image.inspectedAt}</dd></div>
             <div><dt className="text-xs text-fg-muted">최소 승인 요구량</dt><dd>{profile.requirements.minCpu} vCPU / {profile.requirements.minMemoryMiB / 1024} GiB RAM / GPU {profile.requirements.minGpu} / GPU당 {profile.requirements.minGpuMemoryMiB ? `${profile.requirements.minGpuMemoryMiB / 1024} GiB VRAM` : 'VRAM 요구량 미지정'}</dd></div>
             <div><dt className="text-xs text-fg-muted">승인자 / 등록자</dt><dd>{profile.approvedBy ?? '미승인'} / {profile.createdBy}</dd></div>
+            {profile.sourceBuild && <div><dt className="text-xs text-fg-muted">검증된 소스 계보</dt>
+              <dd className="mt-1 break-all font-mono text-xs">{profile.sourceBuild.provenance.sourceArchiveSha256}</dd>
+              <dd className="mt-2"><LinkButton size="sm" href={`/builds?run=${profile.sourceBuild.id}`}>연결된 빌드 보기</LinkButton></dd>
+              <dd className="mt-2 text-xs text-fg-muted">워크플로는 이 이미지 프로필의 불변 버전을 통해 소스·빌드·결과 digest를 추적합니다. 모델 실행 검증은 별도입니다.</dd>
+            </div>}
           </dl>
           <div className="mt-4 flex flex-wrap gap-2"><Button onClick={example}>검사용 예제 작성</Button>
             {canApprove && current?.enabled && <Button variant="danger" disabled={busy} onClick={() => void action(async () => {
@@ -102,16 +115,17 @@ export function ImageProfilesPage() {
     {canApprove && <Card title={selected ? '새 승인 버전 만들기' : '이미지 검사 후 승인'}>
       <p className="mb-4 text-xs text-fg-muted">아래 요구량은 관리자 선언입니다. 자동 측정이나 학습 검증을 뜻하지 않습니다. CPU/GPU 이미지 모두 digest와 config 아키텍처를 검사합니다.</p>
       <form onSubmit={approve} className="grid gap-4 md:grid-cols-4">
-        {[['id', '식별자'], ['name', '이름'], ['image', 'Private ECR tag 또는 digest'], ['platforms', '허용 플랫폼 (쉼표 구분)'],
+        {[['id', '식별자'], ['name', '이름'], ['image', 'Private ECR tag 또는 digest'], ['platforms', '허용 플랫폼 (쉼표 구분)'], ['sourceBuildId', '연결할 소스 빌드 ID (선택)'],
           ['cpu', '최소 vCPU'], ['memory', '최소 RAM (GiB)'], ['gpu', '최소 GPU 수'], ['vram', 'GPU당 최소 VRAM (GiB)']].map(([key, label]) =>
           <label key={key} className={`text-xs text-fg-muted ${key === 'image' ? 'md:col-span-2' : ''}`}>{label}
-            <input className={fieldClass} required={!['platforms'].includes(key)} readOnly={key === 'id' && !!selected}
+            <input className={fieldClass} required={!['platforms', 'sourceBuildId'].includes(key)} readOnly={key === 'id' && !!selected}
               type={['cpu', 'memory', 'gpu', 'vram'].includes(key) ? 'number' : 'text'} min="0" step={key === 'gpu' ? '1' : 'any'}
               value={draft[key as keyof typeof draft]} onChange={e => setDraft(value => ({ ...value, [key]: e.target.value }))} />
           </label>)}
         <div className="md:col-span-4"><Button type="submit" variant="primary" loading={busy}>검사하고 승인 버전 저장</Button></div>
       </form>
     </Card>}
+    <ExecutionProfilesPanel />
     <Card title="워크플로우 사전 검사" description="이 화면은 작업을 제출하거나 자원을 변경하지 않습니다.">
       <form onSubmit={event => { event.preventDefault(); void action(async () => {
         setResult(undefined); setResult(await api<ImagePreflight>(`${base}/preflight`, { method: 'POST', json: { yaml } }));

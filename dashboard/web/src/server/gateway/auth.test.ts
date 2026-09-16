@@ -23,6 +23,19 @@ beforeEach(async () => {
 });
 
 describe('gateway launch credentials', () => {
+  it('rejects HTTP grants for a trusted host-network profile and legacy exec without strong approval fields', async () => {
+    session = { ...session, kind: 'port-forward', workflowId: 'wf', taskName: 'train', attempt: 1 };
+    await save(session);
+    await repo.kv.put({ pk: 'WF#wf', sk: 'META', status: 'RUNNING', namespace: session.namespace, projectId: session.projectId, executionProfilePins: { train: { policy: { hostNetwork: true } } } });
+    await repo.kv.put({ pk: 'WF#wf', sk: 'TASK#train', phase: 'RUNNING', attempts: 1 });
+    await expect(issueLaunchTicket(session, { subject: 'owner-sub' }, options())).rejects.toBeDefined();
+    session.kind = 'terminal'; await save(session);
+    await expect(issueLaunchTicket(session, { subject: 'owner-sub' }, options())).rejects.toMatchObject({ status: 403 });
+  });
+  it('rejects a registered shared-host HTTP target even without a workflow pin', async () => {
+    session = { ...session, hostNetwork: true }; await save(session);
+    await expect(issueLaunchTicket(session, { subject: 'owner-sub' }, options())).rejects.toMatchObject({ status: 401 });
+  });
   it('exchanges exactly once even when two replicas consume concurrently', async () => {
     const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, options());
     expect(launch.host).toBe(host);

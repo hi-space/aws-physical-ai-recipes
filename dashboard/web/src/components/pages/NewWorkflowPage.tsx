@@ -6,6 +6,7 @@ import { Badge, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Field, In
 import { PageHeader } from '@/components/layout/PageHeader';
 import { api, ApiError, can, useApi, useApiMutation, useMe } from '@/lib/api-client';
 import type { Template, TemplateParam } from '@/server/store/types';
+import type { ExecutionProfile } from '@/server/services/execution-profiles';
 
 type Mapping = Record<string, unknown>;
 type YamlPath = (string | number)[];
@@ -17,7 +18,7 @@ const categoryLabels = { setup: '환경 준비', data: '데이터 준비', train
 const paramLabels: Record<string, string> = { image: '실행 이미지', dataset_name: '입력 데이터셋', checkpoint_bundle: '체크포인트 묶음 경로', episodes: '평가 에피소드 수', eval_seed: '평가 seed', seed: '학습 seed', total_steps: '학습 step 수', num_envs: '병렬 환경 수', checkpoint_every: '체크포인트 저장 주기', resume: '재개할 체크포인트' };
 
 export interface EvaluationLink { templateId: string; modelId: string; datasetName: string; datasetVersion: number; checkpointBundle: string; episodes: string; evalSeed: string }
-interface EvaluationModel { id: string; source: { dataset: { name: string; version: number } }; bundle?: { path: string }; evaluationLaunch?: { template: string }; evaluationUnavailableReason?: string }
+interface EvaluationModel { id: string; source: { dataset: { name: string; version: number } }; bundle?: { path: string }; checkpointBundle?: { path: string }; evaluationLaunch?: { template: string }; evaluationUnavailableReason?: string }
 interface CredentialOption { id?: string; name?: string; kind?: string; scope?: string; ref: string; status: string }
 interface CredentialBinding { key: string; path: YamlPath; label: string; ref: string; parameter?: string }
 type WorkflowPreset = 'cpu-quick';
@@ -52,6 +53,16 @@ function tasksOf(root: Mapping) {
   if (Array.isArray(workflow.groups)) workflow.groups.forEach((group, index) => { if (mapping(group)) add(group.tasks, ['workflow', 'groups', index, 'tasks']); });
   return tasks;
 }
+export function chooseExecutionProfile(yaml: string, taskName: string, profile?: { id: string; version: number }): string {
+  const { document, root } = documentOf(yaml);
+  const matches = tasksOf(root).filter(({ task }) => task.name === taskName);
+  if (!matches.length) throw new Error('승인 프로필을 연결할 작업이 없습니다.');
+  for (const { path } of matches) {
+    if (profile) document.setIn([...path, 'executionProfile'], { id: profile.id, version: profile.version });
+    else document.deleteIn([...path, 'executionProfile']);
+  }
+  return document.toString({ lineWidth: 0 });
+}
 export function credentialBindings(yaml: string): CredentialBinding[] {
   const { root } = documentOf(yaml);
   return tasksOf(root).flatMap(({ task, path }) => {
@@ -80,7 +91,7 @@ export function readEvaluationQuery(query: URLSearchParams): EvaluationLink | un
 }
 export function assertEvaluationModel(link: EvaluationLink, model: EvaluationModel) {
   if (model?.id !== link.modelId || model.evaluationLaunch?.template !== link.templateId || model.source?.dataset.name !== link.datasetName ||
-    model.source.dataset.version !== link.datasetVersion || model.bundle?.path !== link.checkpointBundle) throw new Error('평가 링크가 등록 모델의 고정된 데이터셋·체크포인트와 일치하지 않습니다. 모델 화면에서 다시 시작하세요.');
+    model.source.dataset.version !== link.datasetVersion || (model.bundle?.path ?? model.checkpointBundle?.path) !== link.checkpointBundle) throw new Error('평가 링크가 등록 모델의 고정된 데이터셋·체크포인트와 일치하지 않습니다. 모델 화면에서 다시 시작하세요.');
 }
 function replaceVariables(value: string, variables: Record<string, string>) {
   return value.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)(?::([^}]+))?\s*\}\}/g, (match, name: string, suffix?: string) => {
@@ -190,6 +201,7 @@ export function NewWorkflowPage() {
     catch (error) { return { selection: null, evaluation: undefined, error }; }
   }, [search]);
   const me = useMe();
+  const executionProfiles = useApi<{ profiles: ExecutionProfile[] }>(me.data?.role === 'admin' ? '/api/execution-profiles' : null);
   const templates = useApi<Template[]>('/api/templates', { refetch: 15000 });
   const credentials = useApi<{ projectId: string; credentials: CredentialOption[] }>('/api/credentials', { refetch: 15000 });
   const queues = useApi<{ priorityClasses: Array<{ name: string }> }>('/api/queues');
@@ -409,6 +421,27 @@ export function NewWorkflowPage() {
       <Button onClick={() => setStep(3)}>YAML 확인</Button>
     </div>}
     {step === 3 && <div className="space-y-4">
+      {!!executionProfiles.data?.profiles.some(profile => profile.enabled) && <Card title="승인된 특수 실행 연결"
+        description="관리자 작업에 필요한 경우만 선택하세요. 이미지·명령·환경·데이터 버전이 승인 내용과 같아야 합니다.">
+        {(() => {
+          try {
+            return tasksOf(documentOf(draft.yaml).root).map(({ task, path }) => <Field key={JSON.stringify(path)} label={String(task.name)}>
+              <Select aria-label={`${String(task.name)} 특수 실행 프로필`}
+                value={mapping(task.executionProfile) ? `${task.executionProfile.id}@${task.executionProfile.version}` : ''}
+                onChange={event => {
+                  const selected = executionProfiles.data?.profiles.find(profile => `${profile.id}@${profile.version}` === event.target.value);
+                  try { setDraft(previous => ({ ...previous, yaml: chooseExecutionProfile(previous.yaml, String(task.name), selected) })); setActionError(undefined); }
+                  catch (error) { setActionError(error); }
+                }}>
+                <option value="">일반 프로젝트 실행</option>
+                {executionProfiles.data?.profiles.filter(profile => profile.enabled && profile.approvedTask.name === task.name)
+                  .map(profile => <option key={profile.id} value={`${profile.id}@${profile.version}`}>{profile.name} · v{profile.version}</option>)}
+              </Select>
+            </Field>);
+          } catch { return <p className="text-sm text-fg-muted">YAML의 작업 목록을 먼저 확인하세요.</p>; }
+        })()}
+        <LinkButton href="/image-profiles" size="sm" className="mt-3">실행 프로필 승인·이력</LinkButton>
+      </Card>}
       <Field label="워크플로 YAML" help="직접 편집 내용과 선택한 원본 버전을 유지합니다. 파라미터는 default-values에서 변경할 수 있으며, 비밀값 대신 등록된 자격증명 참조를 사용하세요."><Textarea id="workflow-yaml" value={draft.yaml} rows={24} maxLength={1024 * 1024} disabled={busy} className="font-mono text-xs" onChange={(event) => { setDraft((previous) => ({ ...previous, yaml: event.target.value })); setPriority(undefined); }} /></Field>
       {preflightError !== undefined && <ErrorBox error={preflightError} />}
       {derived.rendered && <details><summary className="cursor-pointer text-sm">실제로 제출할 YAML 미리보기</summary><CodeBlock code={derived.rendered} lang="yaml" /></details>}

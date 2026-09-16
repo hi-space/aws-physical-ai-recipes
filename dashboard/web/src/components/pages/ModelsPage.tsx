@@ -5,13 +5,16 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Button, Card, CopyButton, EmptyState, ErrorBox, Field, Input, LinkButton, Select, Spinner, Table } from '@/components/ui';
 import { ago } from '@/lib/format';
 import { api, useApi, useMe } from '@/lib/api-client';
-import type { GateRecord, LegacyModelsResponse, LegacySource, ModelDetail, ModelEvaluation, ModelsResponse, ObjectPin, PublishedOutput, RegisteredModel } from '@/server/evaluations/types';
+import type { GateRecord, LegacyModelsResponse, LegacySource, ModelDetail, ModelEvaluation, ModelsResponse, ObjectPin, PublishedOutput, RegisteredModel, SourceLineage } from '@/server/evaluations/types';
 import type { PromotionPolicy } from '@/server/evaluations/promotion-policy';
 
 const outputKey = (value: PublishedOutput) => `${value.dataset}@${value.version}`;
 const gateLabel = { pass: '기준 통과', fail: '기준 미달', review: '검토 필요' };
 const gateTone = { pass: 'ok', fail: 'err', review: 'warn' } as const;
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+const sourceId = (source: SourceLineage) => source.pipeline?.executionArn ?? source.workflowId ?? '원본 실행';
+const sourceHref = (source: SourceLineage) => source.pipeline
+  ? `/pipelines/${encodeURIComponent(source.pipeline.executionArn)}` : `/workflows/${source.workflowId}`;
 type OutputFiles = { files: (ObjectPin & { kind: 'checkpoint' | 'evaluation' | 'artifact' })[] };
 
 function OutputPicker({ outputs, value, onChange, label }: { outputs: PublishedOutput[]; value: string; onChange: (value: string) => void; label: string }) {
@@ -117,10 +120,19 @@ function ModelWorkspace({ detail, outputs, refresh }: { detail: ModelDetail; out
       await refresh();
     } catch (err) { setError(err); } finally { setBusy(false); }
   }
+  async function propagateRegistry() {
+    if (!model.qualityApproval || !model.registryLink ||
+        !window.confirm(`검증된 품질 승인 ${model.qualityApproval.id}를 연결된 SageMaker ModelPackage에 반영할까요? AWS Registry 상태가 변경됩니다.`)) return;
+    setError(undefined); setBusy(true);
+    try {
+      await api(`/api/models/${model.id}/registry-approval`, { method: 'POST', json: { gateId: model.qualityApproval.id, confirm: true } });
+      await refresh();
+    } catch (failure) { setError(failure); } finally { setBusy(false); }
+  }
   return <div className="min-w-0 space-y-4">
     <Card title={model.name} actions={<Badge tone={model.qualityApproval ? 'ok' : 'neutral'}>{model.qualityApproval ? '애플리케이션 품질 승인' : '품질 미승인'}</Badge>}>
       <div className="grid gap-4 text-xs md:grid-cols-3">
-        <div><p className="mb-1 text-fg-faint">원본 실행 / 작업</p><Link className="text-accent hover:underline" href={`/workflows/${model.source.workflowId}`}>{model.source.workflowId}</Link><p className="mt-1 text-fg-muted">{model.source.task} · attempt {model.source.attempt}</p></div>
+        <div><p className="mb-1 text-fg-faint">원본 실행 / 작업</p><Link className="break-all text-accent hover:underline" href={sourceHref(model.source)}>{sourceId(model.source)}</Link><p className="mt-1 text-fg-muted">{model.source.task}{model.source.attempt !== undefined ? ` · attempt ${model.source.attempt}` : ' · SageMaker'}</p></div>
         <div><p className="mb-1 text-fg-faint">고정된 출력 버전</p><Link className="text-accent hover:underline" href={`/datasets/${encodeURIComponent(model.source.dataset.name)}`}>{model.source.dataset.name}</Link><p className="mt-1 font-mono">v{model.source.dataset.version}</p></div>
         <div><p className="mb-1 text-fg-faint">체크포인트</p><p className="break-all font-mono">{model.checkpoint.path}</p><p className="mt-1 text-fg-muted">{model.checkpoint.sha256 ? '전체 파일 SHA-256 확인' : '복합 checksum — 전체 digest 미확인'}</p></div>
       </div>
@@ -131,8 +143,11 @@ function ModelWorkspace({ detail, outputs, refresh }: { detail: ModelDetail; out
           <dt className="text-fg-faint">체크포인트 SHA-256</dt><dd className="break-all font-mono">{model.checkpoint.sha256 ?? '미확인'}</dd>
           <dt className="text-fg-faint">Manifest SHA-256</dt><dd className="break-all font-mono">{model.source.dataset.manifestHash}</dd>
           <dt className="text-fg-faint">Manifest VersionId</dt><dd className="break-all font-mono">{model.source.dataset.manifestVersionId}</dd>
-          <dt className="text-fg-faint">학습 이미지</dt><dd className="break-all font-mono">{model.source.image}<CopyButton text={model.source.image} /></dd>
-          <dt className="text-fg-faint">학습 입력</dt><dd>{model.source.inputs.length ? model.source.inputs.map(input => <div key={`${input.name}:${input.version}`}><Link className="text-accent" href={`/datasets/${encodeURIComponent(input.name)}`}>{input.name}</Link> · v{input.version} · <span className="font-mono">{input.manifestHash.slice(0, 12)}…</span></div>) : '등록된 외부 데이터 입력 없음'}</dd>
+          <dt className="text-fg-faint">{model.source.pipeline ? 'SageMaker 선언 이미지' : '학습 이미지'}</dt><dd className="break-all font-mono">{model.source.image}<CopyButton text={model.source.image} /></dd>
+          {model.checkpointBundle && <><dt className="text-fg-faint">디렉터리 묶음 digest</dt><dd className="break-all font-mono">{model.checkpointBundle.directory.digest}<p className="mt-1 font-sans text-fg-muted">{model.checkpointBundle.directory.fileCount}개 파일 · {model.checkpointBundle.directory.algorithm}. tar.gz 전체 파일 SHA-256과 별도로 검증합니다.</p></dd></>}
+          {model.source.pipeline && <><dt className="text-fg-faint">파이프라인 정의 SHA-256</dt><dd className="break-all font-mono">{model.source.pipeline.definitionHash}</dd>
+            <dt className="text-fg-faint">SageMaker 입력 선언</dt><dd>{model.source.pipeline.training.inputs.map(input => <p key={input.channel} className="break-all">{input.channel}: {input.uri}</p>)}<p className="mt-1 text-warn">백엔드가 선언한 URI입니다. 당시 학습 입력의 파일 버전까지 검증한 것으로 표시하지 않습니다.</p></dd></>}
+          <dt className="text-fg-faint">버전이 고정된 입력 데이터셋</dt><dd>{model.source.inputs.length ? model.source.inputs.map(input => <div key={`${input.name}:${input.version}`}><Link className="text-accent" href={`/datasets/${encodeURIComponent(input.name)}`}>{input.name}</Link> · v{input.version} · <span className="font-mono">{input.manifestHash.slice(0, 12)}…</span></div>) : '고정된 입력 버전 기록 없음'}</dd>
           {!!model.source.upstreamTasks.length && <><dt className="text-fg-faint">선행 작업</dt><dd>{model.source.upstreamTasks.join(' → ')}</dd></>}
         </dl>
       </details>
@@ -142,24 +157,42 @@ function ModelWorkspace({ detail, outputs, refresh }: { detail: ModelDetail; out
         <p className="mt-1 text-fg-faint">{ago(model.qualityApproval.createdAt)} · SageMaker Registry 상태와 별도입니다.</p>
       </div>}
     </Card>
+    {model.registryLink && <Card title="연결된 SageMaker ModelPackage">
+      <p className="break-all font-mono text-xs">{model.registryLink.arn}</p>
+      <p className="mt-2 text-xs text-warn">가져올 당시 Registry 상태: {model.registryLink.observedApprovalStatus}. 기존 smoke 승인은 로봇 작업 품질 승인이 아닙니다.</p>
+      {model.registryApproval && <p role="status" className="mt-2 text-xs">
+        {model.registryApproval.status === 'CONFIRMED' ? `AWS API로 품질 승인 반영 확인 · ${model.registryApproval.confirmedAt}`
+          : model.registryApproval.status === 'PENDING' ? 'Registry 반영 확인 대기 — 성공으로 확정되지 않았습니다.'
+            : model.registryApproval.error}
+      </p>}
+      <Button className="mt-3" disabled={!detail.canPropagateRegistry || !model.qualityApproval || busy ||
+        model.registryApproval?.status === 'CONFIRMED' && model.registryApproval.gateId === model.qualityApproval.id}
+        loading={busy} onClick={() => void propagateRegistry()}>품질 승인을 SageMaker Registry에 반영</Button>
+      <p className="mt-2 text-[11px] text-fg-faint">프로젝트 관리자의 별도 동작입니다. 모델 등록·smoke 연결·기준 확인만으로 AWS 상태를 변경하지 않습니다.</p>
+    </Card>}
 
-    <Card title="검증된 평가 이력" description="게시된 실행 보고서를 서버에서 확인한 결과입니다." actions={canWrite && model.evaluationLaunch ? <LinkButton href={model.evaluationLaunch.href} size="sm">새 평가 실행</LinkButton> : undefined}>
+    <Card title="검증된 평가 이력" description="게시된 실행 보고서를 서버에서 확인한 결과입니다." actions={canWrite && model.evaluationLaunch ? <LinkButton href={model.evaluationLaunch.href} size="sm">{model.evaluationUnavailableReason ? '평가 환경 검토' : '새 평가 실행'}</LinkButton> : undefined}>
       {model.evaluationUnavailableReason && <p className="mb-3 rounded border border-border bg-bg p-3 text-xs text-fg-muted">평가 실행 조건 확인 필요: {model.evaluationUnavailableReason}</p>}
       {!evaluations.length ? <EmptyState title="연결된 평가 결과가 없습니다" hint="모델을 평가한 뒤 게시된 보고서를 연결하면 실제 결과와 품질 기준을 비교할 수 있습니다." /> : <>
         <Table className="[&_table]:min-w-[560px] [&_td]:whitespace-nowrap" head={['선택', '평가 실행', '유형', '성공 / 횟수', '성공률', 'p95']}>
           {evaluations.map(item => <tr key={item.id} className={item.id === evaluation?.id ? 'bg-accent/5' : ''}>
-            <td><input type="radio" name={`evaluation-${model.id}`} aria-label={`${item.source.workflowId} 평가 선택`} checked={item.id === evaluation?.id} onChange={() => { setSelectedId(item.id); setGate(undefined); }} /></td>
-            <td><Link className="text-accent hover:underline" href={`/workflows/${item.source.workflowId}`}>{item.source.workflowId}</Link><p className="text-[11px] text-fg-faint">seed {item.seed} · {ago(item.createdAt)}</p></td>
-            <td>시뮬레이션 · 폐루프</td><td className="font-mono">{item.metrics.successes} / {item.metrics.episodes}</td><td className="font-mono">{percent(item.successRate)}</td><td className="font-mono">{item.metrics.latencyP95Ms !== undefined ? `${item.metrics.latencyP95Ms.toFixed(1)} ms` : '미측정'}</td>
+            <td><input type="radio" name={`evaluation-${model.id}`} aria-label={`${sourceId(item.source)} 평가 선택`} checked={item.id === evaluation?.id} onChange={() => { setSelectedId(item.id); setGate(undefined); }} /></td>
+            <td><Link className="text-accent hover:underline" href={sourceHref(item.source)}>{sourceId(item.source)}</Link><p className="text-[11px] text-fg-faint">{item.seed !== undefined ? `seed ${item.seed} · ` : ''}{ago(item.createdAt)}</p></td>
+            <td>{'smoke' in item ? `Smoke · ${item.smoke.passed ? '형태 검사 통과' : '검사 실패'}` : '시뮬레이션 · 폐루프'}</td>
+            <td className="font-mono">{'smoke' in item ? '작업 평가 없음' : `${item.metrics.successes} / ${item.metrics.episodes}`}</td>
+            <td className="font-mono">{item.successRate !== undefined ? percent(item.successRate) : '해당 없음'}</td><td className="font-mono">{item.metrics.latencyP95Ms !== undefined ? `${item.metrics.latencyP95Ms.toFixed(1)} ms` : '미측정'}</td>
           </tr>)}
         </Table>
         {evaluation && <details className="my-3 text-xs">
           <summary className="cursor-pointer text-fg-muted">선택한 평가의 보고서·영상</summary>
           <div className="mt-3 space-y-2">
             <a className="text-accent hover:underline" href={`/api/evaluations/${evaluation.id}/artifact?kind=report`} target="_blank" rel="noreferrer">고정된 evaluation.json 열기</a>
-            <p className="break-all font-mono text-fg-faint">{evaluation.task} · {evaluation.simulator.name} {evaluation.simulator.version} · timeout {evaluation.timeoutCount ?? '미기록'}</p>
-            <video className="max-h-80 w-full rounded border border-border bg-black" controls preload="none" src={`/api/evaluations/${evaluation.id}/artifact?kind=video`} aria-label="첫 평가 에피소드 영상" />
-            <p className="text-fg-faint">보고서와 영상 모두 게시된 S3 VersionId를 고정해 엽니다.</p>
+            {'smoke' in evaluation ? <p className="text-warn">출력 shape {JSON.stringify(evaluation.smoke.actionShape)} · finite {String(evaluation.smoke.allFinite)}. 폐루프 성공률·영상 증거는 없습니다.</p> : <>
+              <p className="break-all font-mono text-fg-faint">{evaluation.task} · {evaluation.simulator.name} {evaluation.simulator.version} · timeout {evaluation.timeoutCount ?? '미기록'}</p>
+              <video className="max-h-80 w-full rounded border border-border bg-black" controls preload="none" src={`/api/evaluations/${evaluation.id}/artifact?kind=video`} aria-label="첫 평가 에피소드 영상" />
+              {evaluation.reportedCheckpointDigest && <p className="break-all font-mono">보고된 디렉터리 digest: {evaluation.reportedCheckpointDigest}</p>}
+            </>}
+            <p className="text-fg-faint">증거 파일은 게시된 S3 VersionId를 고정해 엽니다.</p>
           </div>
         </details>}
       </>}

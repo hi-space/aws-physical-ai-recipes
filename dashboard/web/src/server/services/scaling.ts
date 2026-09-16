@@ -1,10 +1,7 @@
 import type { ClusterInstanceGroupDetails } from '@aws-sdk/client-sagemaker';
-import { backendConfig as config } from '../backends/context';
 import { HttpError, badRequest } from '../errors';
-import * as hp from '../aws/hyperpod';
-import { listNodes, listPods, type Node, type Pod } from '../k8s/resources';
+import type { Node, Pod } from '../k8s/resources';
 import { SYSTEM_NAMESPACES } from '../k8s/client';
-import { getRepo } from '../store/repo';
 import { TERMINAL_WF, type Workflow } from '../store/types';
 
 export function assertScaleBaseline(groups: ClusterInstanceGroupDetails[], group: string, expected: number) {
@@ -30,26 +27,8 @@ export function assertGroupIdle(target: ClusterInstanceGroupDetails, nodes: Node
   });
 }
 
-/** Reject stale UI changes and inspect all pages before reducing shared capacity. */
-export async function scaleChecked(name: string, group: string, count: number, expectedCount: number) {
-  const initial = await hp.describeCluster(name);
-  if (initial.ClusterStatus !== 'InService') throw new HttpError(409, '클러스터 변경이 진행 중입니다. 완료 후 다시 시도하세요.');
-  const target = assertScaleBaseline(initial.InstanceGroups ?? [], group, expectedCount);
-  if (count === expectedCount) return;
-  if (count < expectedCount) {
-    if (name !== config().eks?.hyperPodClusterName) throw new HttpError(409, '이 클러스터의 작업 점유 상태를 확인할 수 없어 웹에서 축소하지 않습니다.');
-    const [nodes, pods, clusterNodes] = await Promise.all([listNodes(), listPods(), hp.listNodes(name)]);
-    const workflows: Workflow[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = await getRepo().listWorkflowsPage({ limit: 200, cursor });
-      workflows.push(...page.items.filter((workflow) => !TERMINAL_WF.has(workflow.status)));
-      cursor = page.cursor;
-    } while (cursor);
-    assertGroupIdle(target, nodes, pods, workflows, clusterNodes.filter((node) => node.InstanceGroupName === group).map((node) => node.InstanceId!).filter(Boolean));
-  }
-  const fresh = await hp.describeCluster(name);
-  assertScaleBaseline(fresh.InstanceGroups ?? [], group, expectedCount);
-  if (fresh.ClusterStatus !== 'InService') throw new HttpError(409, '클러스터가 변경되었습니다. 새로고침 후 확인하세요.');
-  await hp.scaleGroup(name, group, count, expectedCount);
+/** Legacy count-only calls cannot bypass reviewed plans and the cluster operation lock. */
+export async function scaleChecked(_name: string, _group: string, _count: number, _expectedCount: number) {
+  throw new HttpError(428, '새 관측값으로 용량 변경 계획을 검토한 뒤 planId로 실행하세요.', 'scale_plan_required');
 }
+export { scaleSnapshot, saveScalingPolicy, planScale, executeScalePlan, reconcileScale } from './scaling-plans';

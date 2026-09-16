@@ -307,6 +307,10 @@ def build_mlflow_env(env: dict, environ=None) -> dict:
             print(f"경고: MLFLOW_TAGS 가 JSON 이 아니어서 무시합니다: {environ['MLFLOW_TAGS']!r}")
     if job_name:
         tags["sagemaker.training_job_name"] = job_name
+    if environ.get("PAI_PROJECT_ID"):
+        tags["pai.project_id"] = environ["PAI_PROJECT_ID"]
+    if environ.get("PAI_OWNER_SUBJECT"):
+        tags["pai.owner_subject"] = environ["PAI_OWNER_SUBJECT"]
     if sm_env.get("current_instance_type"):
         tags["sagemaker.instance_type"] = sm_env["current_instance_type"]
     if env.get("checkpoint_s3_uri"):

@@ -93,7 +93,9 @@ State POSTs must be idempotent: network retries can repeat a request.
    that prefix precedence over COMPLETE/ignoreNonleadStatus policies so a raw
    successful exit cannot hide failed final publication.
 
-State and upload-complete POSTs accept any 2xx response. Barrier and upload-plan
+State and legacy upload-complete POSTs accept any 2xx response. V2 completion
+requires matching terminal COMPLETE/READY JSON, including after streamed
+keepalives; HTTP 200 alone is not success. Barrier and upload-plan
 responses must be 200 and well-formed JSON. A 410 on **any broker route** fences
 the runtime. The terminal failure report after fencing is best effort; a fenced
 broker is expected to reject it. The broker owns durable retry scheduling.
@@ -115,6 +117,10 @@ Child stdout/stderr stream to the runtime's stdout/stderr; no log buffering
 or upload is required. The child does not receive `PAI_RUNTIME_TOKEN`.
 
 ## Checkpoint publication
+
+Current large-file protocol, rolling compatibility, pagination and cleanup are
+specified in `MULTIPART.md`. The single-PUT example below is the preserved
+legacy protocol; new runtimes negotiate v2 per-file and multipart descriptors.
 
 For each entry, select regular files under `path` (or that file's basename when
 `path` is a file). `regex`, if present, uses Go/RE2 syntax against slash-separated
@@ -173,9 +179,9 @@ barrier, and `PAI_RESUME_CHECKPOINTS` contains only new-attempt private paths.
 The MuJoCo recipe consumes it when `--resume` is empty. Upload alone is not
 reported as successful recovery.
 
-Limits: 256 KiB contract, 1024 files per publication, 2 MiB broker response,
-and **5 GiB (5 × 1024³ bytes) per file**. Larger files are explicitly unsupported:
-there is no multipart broker protocol in this version. Snapshots require
+Limits: 256 KiB contract, 1024 files/300,000 metadata bytes per publication,
+2 MiB broker response, and **1 TiB per checkpoint file** with protocol v2.
+Legacy single PUTs remain bounded to 5 GiB. Snapshots require
 temporary disk space equal to the selected data. Control requests have 10-second
 attempt deadlines and three attempts (409/429/5xx and transport failures retry);
 each PUT has a 5-minute attempt deadline and three attempts. Redirects and HTTP
@@ -183,11 +189,14 @@ proxy environment variables are disabled.
 Errors never print broker bodies, presigned URLs, or bearer credentials.
 
 Defaults: 1-second barrier polling, 5-second heartbeats, 5-second process
-termination grace, 30-minute periodic-publication deadline and 30-second
-final-checkpoint deadline, plus at most 10 seconds for a failure report if that
-deadline expires. The compiler should allow at least 60 seconds of pod
-termination grace. The finalization deadline bounds shutdown even if storage
-or the broker becomes unavailable; large checkpoints must finish within it.
+termination grace, and a 30-minute publication deadline for periodic checkpoints
+and ordinary process exits (including exit 75). External-stop final checkpoints
+default to 30 seconds, plus a bounded failure report. Trusted
+`PAI_RUNTIME_CHECKPOINT_TIMEOUT_SECONDS` and
+`PAI_RUNTIME_FINAL_CHECKPOINT_TIMEOUT_SECONDS` accept 1–21600 seconds.
+The compiler must provision termination grace for the chosen external-stop
+deadline plus cleanup/reporting; the default needs at least 60 seconds. Large
+checkpoints must fit their configured time and scratch-disk budgets.
 
 ## Build and test
 
@@ -304,9 +313,9 @@ initializers for a destination; paths with conflicting manifests are replaced
 only after invalidating the prior receipt. Cache directories must be dedicated
 to one pinned dataset version.
 
-Hydration limits: 64 inputs, 1024 files per input, 2 MiB response, 30-minute
+Hydration limits: 64 inputs, 1024 total files in a negotiated paged plan, 2 MiB response, 30-minute
 overall deadline, 5-minute download attempts, three attempts per download.
-Dataset GETs stream and do not use the checkpoint PUT 5-GiB cap. Failure,
+Dataset GETs stream with the common 1-TiB file cap. Failure,
 checksum mismatch, cancellation or fencing exits 125. No new receipt is written
 for incomplete data or after a failed lease check. An existing receipt certifies
 cached manifest contents, not the continued validity of a task capability.
@@ -397,6 +406,12 @@ The listener and active transfers stop on workload exit, termination or fencing,
 before final checkpoints. `--prepare-inputs` and `--verify-isolation` never start
 this service. After workload exit, durable files remain available through the
 parent's artifact/checkpoint APIs rather than this process.
+
+Trusted `PAI_RUNTIME_FILES_DISABLED=1` skips this listener entirely, including
+filesystem setup for it. Unset means enabled; every other explicit value is
+rejected for ordinary execution. Parent sets this for trusted hostNetwork
+profiles and denies their file/port sessions separately. An old runtime binary
+does not understand this flag, so hostNetwork use requires the rebuilt runtime.
 
 The early parent handoff is `/tmp/physical-ai-files-protocol.md`. Unit tests use
 real HTTP transfers and temporary directories. Browser testing exercised

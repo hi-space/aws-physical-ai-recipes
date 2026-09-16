@@ -5,6 +5,9 @@ import type { TaskSpec } from '../workflow/schema';
 import type { ControllerDeps } from '../workflow/ports';
 import { RuntimeBroker } from './broker';
 import { createRuntimeHandler } from './http';
+import { executionProfileChecks } from '../services/execution-profiles';
+import { taskImagePolicyChecks } from '../services/profile-binding';
+import { cleanupCheckpointUploads } from './upload-cleanup';
 export { RuntimeBroker } from './broker';
 export type { BrokerDeps } from './broker';
 export { createRuntimeHandler } from './http';
@@ -17,7 +20,11 @@ function realBroker() {
     now: () => new Date(),
     signingKey: process.env.RUNTIME_SIGNING_KEY ?? '',
     apiUrl: process.env.RUNTIME_API_URL ?? '',
-    artifactBucket: process.env.DASHBOARD_ARTIFACT_BUCKET
+    artifactBucket: process.env.DASHBOARD_ARTIFACT_BUCKET,
+    validateTaskPolicy: async (workflow, task) => [
+      ...await taskImagePolicyChecks(workflow, task),
+      ...await executionProfileChecks(workflow, task),
+    ],
   });
 }
 export function runtimeEnvironment(workflow: Workflow, task: TaskSpec, epoch: string, attempt: number): Record<string, string> {
@@ -35,6 +42,9 @@ export const groupRuntime: NonNullable<ControllerDeps['groupRuntime']> = {
 };
 export function validateRuntimeCapability(token: string) {
   return realBroker().authenticate(token);
+}
+export function cleanupRuntimeUploads(workflow: Workflow, context: { signal: AbortSignal; taskNames?: string[]; attempt?: number }) {
+  return cleanupCheckpointUploads(realBroker().deps, workflow, context);
 }
 export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   if (!req.url?.startsWith('/runtime/')) return false;

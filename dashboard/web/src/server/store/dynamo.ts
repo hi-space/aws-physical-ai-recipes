@@ -1,5 +1,5 @@
 import { expression, isConflict, matches, type Write } from './atomic';
-import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { dynamo } from '../aws/clients';
 import { config } from '../config';
 export interface Item {
@@ -30,6 +30,8 @@ export interface KV {
     items: Item[];
     cursor?: string;
   }>;
+  /** Primary-table, strongly consistent pages for complete historical reference protection. */
+  scanPage?(cursor?: string): Promise<{items: Item[]; cursor?: string}>;
   acquireLease(pk: string, sk: string, holder: string, ttlSec: number): Promise<boolean>;
 }
 let doc: DynamoDBDocumentClient | undefined;
@@ -40,6 +42,13 @@ const client = () => doc ??= DynamoDBDocumentClient.from(dynamo(), {
 });
 export class DynamoKV implements KV {
   constructor(private readonly table = config().tableName) {}
+  async scanPage(cursor?: string) {
+    const key = cursor ? JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) : undefined;
+    const out = await client().send(new ScanCommand({ TableName: this.table, ConsistentRead: true, Limit: 200,
+      ExclusiveStartKey: key, FilterExpression: 'begins_with(pk, :wf) AND sk = :meta',
+      ExpressionAttributeValues: { ':wf': 'WF#', ':meta': 'META' } }));
+    return { items: (out.Items ?? []) as Item[], cursor: out.LastEvaluatedKey ? Buffer.from(JSON.stringify(out.LastEvaluatedKey)).toString('base64url') : undefined };
+  }
   async get(pk: string, sk: string) {
     const out = await client().send(new GetCommand({
       TableName: this.table,
@@ -221,6 +230,12 @@ export class MemoryKV implements KV {
   items = new Map<string, Item>();
   private key(pk: string, sk: string) {
     return `${pk} ${sk}`;
+  }
+  async scanPage(cursor?: string) {
+    const sorted = [...this.items.entries()].sort(([a],[b])=>a<b?-1:a>b?1:0).filter(([key])=>!cursor || key>cursor);
+    const page=sorted.slice(0,200);
+    return { items: structuredClone(page.map(([,value])=>value).filter(i=>i.pk.startsWith('WF#') && i.sk==='META')),
+      cursor: sorted.length>page.length ? page.at(-1)![0] : undefined };
   }
   async get(pk: string, sk: string) {
     const item = this.items.get(this.key(pk, sk));

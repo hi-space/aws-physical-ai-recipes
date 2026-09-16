@@ -1,6 +1,11 @@
 node_modules
 .next
 .git
+dist
+*.tsbuildinfo
+next-env.d.ts
+.env*
+.results
 e2e
 playwright-report
 test-results

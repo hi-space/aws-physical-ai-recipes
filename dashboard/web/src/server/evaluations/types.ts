@@ -1,4 +1,6 @@
 import type { EvaluationMetrics, PromotionDecision, PromotionPolicy } from './promotion-policy';
+import type { PipelineProvenance, PipelineObjectSource } from './pipeline-types';
+import type { CheckpointDirectorySummary } from './bundles';
 
 export interface ObjectPin {
   bucket: string;
@@ -10,6 +12,7 @@ export interface ObjectPin {
   checksumType: 'FULL_OBJECT' | 'COMPOSITE';
   /** Full file SHA-256 only. A multipart composite checksum is never relabeled as this digest. */
   sha256?: string;
+  sha256Verification?: 'streamed-version';
 }
 export interface DatasetPin {
   name: string;
@@ -20,14 +23,16 @@ export interface DatasetPin {
   manifestVersionId: string;
 }
 export interface SourceLineage {
-  workflowId: string;
+  kind?: 'workflow' | 'sagemaker-pipeline';
+  workflowId?: string;
   task: string;
-  attempt: number;
+  attempt?: number;
   image: string;
-  workflowSpecHash: string;
+  workflowSpecHash?: string;
   dataset: DatasetPin;
   inputs: { name: string; version: number; uri: string; manifestHash: string }[];
   upstreamTasks: string[];
+  pipeline?: PipelineProvenance & { archiveId: string; sourceObject: PipelineObjectSource };
 }
 export interface GateRecord {
   id: string;
@@ -48,8 +53,17 @@ export interface RegisteredModel {
   source: SourceLineage;
   checkpoint: ObjectPin;
   normalization?: ObjectPin;
+  checkpointBundle?: { path: string; manifest: ObjectPin; directory: CheckpointDirectorySummary };
+  registryLink?: {
+    arn: string; group: string; modelUri: string; observedApprovalStatus: string;
+    sourceMeaning: 'smoke_only'; archiveId: string;
+  };
+  registryApproval?: {
+    gateId: string; packageArn: string; status: 'PENDING' | 'CONFIRMED' | 'ERROR';
+    requestedBy: string; requestedAt: string; confirmedAt?: string; error?: string;
+  };
   bundle?: { path: string; manifest: ObjectPin; task: string; seed: number; simulator: Record<string, string> };
-  evaluationLaunch?: { template: 'mujoco-render'; href: string };
+  evaluationLaunch?: { template: 'mujoco-render' | 'leisaac-evaluate'; href: string };
   evaluationUnavailableReason?: string;
   lastGate?: GateRecord;
   /** Application approval of this exact checkpoint/evaluation/policy; no SageMaker status is implied. */
@@ -64,26 +78,40 @@ export interface NormalizedEvaluation {
   timeoutSeconds?: number;
   latencyMs?: { p50?: number; p95?: number; p99?: number };
   checkpointDigest: string;
+  checkpointDigestKind?: 'file-sha256' | 'pai-directory-sha256-v1';
   normalizationDigest?: string;
   simulator: Record<string, string>;
   videoPaths: string[];
 }
-export interface ModelEvaluation extends Omit<NormalizedEvaluation, 'videoPaths'> {
+export interface ClosedLoopEvaluation extends Omit<NormalizedEvaluation, 'videoPaths'> {
   id: string;
   modelId: string;
   projectId: string;
   ownerSubject: string;
   createdAt: string;
-  verification: 'published_runtime_report';
+  verification: 'published_runtime_report' | 'published_pipeline_report';
   source: SourceLineage;
   report: ObjectPin;
   primaryVideo: ObjectPin;
-  inputMatch: 'dataset_snapshot' | 'same_run_task_output';
+  inputMatch: 'dataset_snapshot' | 'same_run_task_output' | 'pipeline_model_input';
+  reportedCheckpointDigest?: string;
 }
+export interface SmokeEvaluation {
+  id: string; modelId: string; projectId: string; ownerSubject: string; createdAt: string;
+  verification: 'published_pipeline_report'; inputMatch: 'pipeline_model_input';
+  source: SourceLineage; report: ObjectPin; primaryVideo?: never;
+  metrics: EvaluationMetrics & { kind: 'smoke' };
+  checkpointDigest: string; task: string;
+  smoke: { passed: boolean; allFinite: boolean; actionShape: number[]; error?: string };
+  seed?: never; successRate?: never; latencyMs?: never; timeoutCount?: never;
+  simulator?: never; normalizationDigest?: never;
+}
+export type ModelEvaluation = ClosedLoopEvaluation | SmokeEvaluation;
 export interface PublishedOutput {
   dataset: string;
   version: number;
-  workflowId: string;
+  workflowId?: string;
+  pipelineExecutionArn?: string;
   task: string;
   createdAt: string;
 }
@@ -101,6 +129,7 @@ export interface ModelDetail {
   evaluations: ModelEvaluation[];
   gates: GateRecord[];
   canWrite: boolean;
+  canPropagateRegistry?: boolean;
 }
 export interface LegacySource {
   name: string;

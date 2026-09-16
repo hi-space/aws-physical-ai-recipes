@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { assertCredentialUse } from '@/server/services/credentials';
 import { canReadTemplate, readTemplate } from '@/app/api/templates/_shared';
 import { acceptedImagePins, inspectWorkflowImages, profilesRequired } from '@/server/services/profile-binding';
+import { executionProfilesService } from '@/server/services/execution-profiles';
 export const dynamic = 'force-dynamic';
 
 export const GET = route('viewer', async ({ url, session, req }) => {
@@ -61,8 +62,12 @@ export const POST = route('researcher', async ({ req, session }) => {
   const imagePins = profilesRequired()
     ? acceptedImagePins(await inspectWorkflowImages(session, parsed.spec, project), b.acknowledgePreflight === true)
     : undefined;
+  const executionSpec = structuredClone(parsed.spec);
+  if (imagePins) for (const task of executionSpec.workflow.tasks) task.image = imagePins[task.name]?.image ?? task.image;
+  const executionProfilePins = await executionProfilesService(session).bind(executionSpec, project);
   const wf = await submitWorkflow({
     ...b, owner: session.user, ownerSubject: session.subject, projectId: project.id,
+    ...(Object.keys(executionProfilePins).length ? { executionProfilePins } : {}),
     templateVersion: template?.templateVersion,
     templateContentHash: template?.contentHash,
     templateModified: template ? b.yaml.trim() !== template.yaml.trim() : undefined,

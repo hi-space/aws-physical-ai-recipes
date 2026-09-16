@@ -173,7 +173,7 @@ func TestCheckpointRejectsOversizeAndSymlinkRootWithoutBrokerCall(t *testing.T) 
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := f.Truncate(5*1024*1024*1024 + 1); err != nil {
+				if err := f.Truncate(maxCheckpointFileBytes + 1); err != nil {
 					t.Fatal(err)
 				}
 				f.Close()
@@ -190,7 +190,7 @@ func TestCheckpointRejectsOversizeAndSymlinkRootWithoutBrokerCall(t *testing.T) 
 			if err == nil {
 				t.Fatal("unsafe checkpoint accepted")
 			}
-			if mode == "oversize" && !strings.Contains(err.Error(), "multipart") {
+			if mode == "oversize" && !strings.Contains(err.Error(), "1 TiB") {
 				t.Fatalf("unclear size error: %v", err)
 			}
 		})

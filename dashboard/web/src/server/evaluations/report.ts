@@ -28,6 +28,7 @@ const reportSchema = z.object({
   timeoutCount: count.optional(), timeoutSeconds: finite.positive().optional(),
   latencyMs: z.object({ p50: finite.nonnegative().optional(), p95: finite.nonnegative().optional(), p99: finite.nonnegative().optional() }).nullable().optional(),
   checkpointDigest: sha256Schema, normalizationDigest: sha256Schema.optional(),
+  checkpointDigestKind: z.enum(['file-sha256', 'pai-directory-sha256-v1']).optional(),
   simulator: z.record(z.string().max(100), z.string().max(1024))
     .refine(value => Boolean(value.name && value.version), 'Simulator name and version are required'),
   videoUri: relativePath, episodes: z.array(episode).min(1).max(10_000),
@@ -57,7 +58,23 @@ export function normalizeEvaluationReport(value: unknown): NormalizedEvaluation 
     ...(r.timeoutSeconds !== undefined ? { timeoutSeconds: r.timeoutSeconds } : {}),
     ...(r.latencyMs ? { latencyMs: r.latencyMs } : {}),
     checkpointDigest: r.checkpointDigest,
+    ...(r.checkpointDigestKind ? { checkpointDigestKind: r.checkpointDigestKind } : {}),
     ...(r.normalizationDigest ? { normalizationDigest: r.normalizationDigest } : {}),
     simulator: r.simulator, videoPaths: [...new Set(r.episodes.map(e => e.videoUri))],
   };
+}
+
+/** Workshop SmokeEval checks shape/finite values, not closed-loop task success. */
+export function normalizeSmokeReport(value: unknown) {
+  const shape = z.object({ smoke: z.object({
+    passed: z.union([z.literal(0), z.literal(1)]),
+    all_finite: z.union([z.literal(0), z.literal(1)]),
+    action_shape: z.array(z.number().int().positive().max(1_000_000)).max(8),
+    error: z.string().max(16_384).optional(),
+  }) }).safeParse(value);
+  if (!shape.success) throw badRequest('Invalid published smoke report');
+  const report = shape.data.smoke;
+  if (report.passed && (!report.all_finite || !report.action_shape.length || report.error)) throw badRequest('Inconsistent smoke result');
+  return { passed: report.passed === 1, allFinite: report.all_finite === 1, actionShape: report.action_shape,
+    ...(report.error ? { error: report.error } : {}) };
 }

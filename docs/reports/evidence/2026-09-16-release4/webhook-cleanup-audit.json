@@ -1,0 +1,37 @@
+{
+  "checkedAt": "2026-09-16T18:03:22.639797+00:00",
+  "receivers": [
+    {
+      "name": "pai-webhook-e2e-06a6f7c683be",
+      "manifestCleaned": true,
+      "privateKeyRemoved": true,
+      "functionAbsent": true,
+      "roleAbsent": true,
+      "logsAbsent": true
+    },
+    {
+      "name": "pai-webhook-e2e-11f865ceeaa0",
+      "manifestCleaned": true,
+      "privateKeyRemoved": true,
+      "functionAbsent": true,
+      "roleAbsent": true,
+      "logsAbsent": true
+    }
+  ],
+  "hooks": [
+    {
+      "id": "wh-1247bbfeb3d7946560c7bd1249152eac",
+      "name": "AWS-receiver-510fa4d82177",
+      "enabled": false,
+      "state": "DISABLED",
+      "secretAbsent": true
+    },
+    {
+      "id": "wh-f68f9f32db3acca4f854f5cb31ad8e31",
+      "name": "AWS-receiver-8d73a7b8fd2c",
+      "enabled": false,
+      "state": "DISABLED",
+      "secretAbsent": true
+    }
+  ]
+}

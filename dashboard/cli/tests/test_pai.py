@@ -200,7 +200,6 @@ class WorkflowCommandTests(unittest.TestCase):
             (['list'], [Response(200, [{'id': 'run', 'name': 'test', 'status': 'RUNNING', 'specYaml': TOKEN}])], 'GET', '/api/v1/workflows'),
             (['status', 'run'], [Response(200, {'workflow': {'id': 'run', 'status': 'RUNNING', 'specYaml': TOKEN}, 'tasks': []})], 'GET', '/api/v1/workflows/run'),
             (['cancel', 'run'], [Response(202, {'id': 'run', 'status': 'CANCELLING'})], 'POST', '/api/v1/workflows/run/cancel'),
-            (['logs', 'run', '--task', 'train'], [Response(200, {'lines': ['ok', TOKEN + ' https://host.test/?ticket=' + TICKET]})], 'GET', '/api/v1/workflows/run/tasks/train/logs?tail=1000'),
         ]
         for args, responses, method, path in cases:
             with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:

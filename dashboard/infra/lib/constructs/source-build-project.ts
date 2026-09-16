@@ -37,7 +37,8 @@ export class SourceBuildProject extends Construct {
     const projectArn = stack.formatArn({ service: 'codebuild', resource: 'project', resourceName: name });
     this.sourceAsset = new s3assets.Asset(this, 'SourceSnapshot', {
       path: props.sourceDirectory ?? path.join(props.repositoryRoot, 'dashboard/infra/source-build-example'),
-      exclude: ['.git', 'node_modules', '.venv', '__pycache__', '*.pyc'],
+      exclude: ['.git', 'node_modules', '.venv', '__pycache__', '*.pyc', '.env*', '**/.env*', '.aws', '**/.aws', '.ssh', '**/.ssh',
+        '.next', 'dist', 'cdk.out', '*.tsbuildinfo', 'test-results', 'playwright-report'],
     });
     const outputRepositoryName = `physical-ai/projects/${projectId}/source-images`;
     this.repository = new ecr.Repository(this, 'Output', {

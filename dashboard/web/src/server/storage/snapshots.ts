@@ -1,3 +1,6 @@
+import { badRequest } from '../errors';
+import { normalizeSelection, pathSelected, safeDataPath, type PathSelection } from '../data/selection';
+import { assertConsumableObjects, MAX_MANIFEST_BYTES, MAX_INPUT_FILE_BYTES } from '../data/limits';
 import { createHash } from 'node:crypto';
 import {
   AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CopyObjectCommand,
@@ -24,6 +27,7 @@ export interface SnapshotManifest {
   source: { bucket: string; prefix: string };
   objects: SnapshotObject[];
   inventoryHash?: string;
+  selection?: Required<PathSelection>;
 }
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const encodedSource = (bucket: string, key: string, versionId?: string) =>
@@ -109,7 +113,8 @@ export async function copyVerified(source: PinnedSource, target: { bucket: strin
   if (!Number.isSafeInteger(singleCopyLimitBytes) || singleCopyLimitBytes < 1 || singleCopyLimitBytes > 5 * 1024 ** 3) throw new Error('Invalid single-copy limit');
   const client = s3();
   const head = source.head ?? await client.send(new HeadObjectCommand({ Bucket: source.bucket, Key: source.key }), { abortSignal: signal });
-  const bytes = head.ContentLength ?? 0;
+  const bytes = head.ContentLength ?? -1;
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > MAX_INPUT_FILE_BYTES) throw badRequest('Dataset file size exceeds runtime 1 TiB limit or is unknown');
   const CopySource = encodedSource(source.bucket, source.key, validVersion(head.VersionId) ? head.VersionId : undefined);
   let versionId: string | undefined;
   if (bytes <= singleCopyLimitBytes) {
@@ -162,14 +167,15 @@ export async function copyVerified(source: PinnedSource, target: { bucket: strin
     checksumType, ...(fullSHA256 ? { fullSHA256 } : {}) };
 }
 
-export async function loadSnapshot(bucket: string, key: string, signal?: AbortSignal) {
-  const response = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: signal });
+export async function loadSnapshot(bucket: string, key: string, signal?: AbortSignal, versionId?: string) {
+  const response = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: key, VersionId: versionId }), { abortSignal: signal });
+  if (versionId && response.VersionId !== versionId) throw new Error('Pinned manifest version mismatch');
   if ((response.ContentLength ?? 0) > 8 * 1024 * 1024) throw new Error('Snapshot manifest exceeds 8 MiB');
   const text = await response.Body!.transformToString();
   if (Buffer.byteLength(text) > 8 * 1024 * 1024) throw new Error('Snapshot manifest exceeds 8 MiB');
   const manifest = JSON.parse(text) as SnapshotManifest;
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.objects) || !manifest.objects.length) throw new Error('Invalid snapshot manifest');
-  return { manifest, hash: sha256(text) };
+  return { manifest, hash: sha256(text), manifestBytes: Buffer.byteLength(text), manifestVersionId: validVersion(response.VersionId) ? response.VersionId : undefined };
 }
 
 export interface SnapshotInput {
@@ -177,27 +183,23 @@ export interface SnapshotInput {
   identity: string; signal?: AbortSignal; inventory?: ArtifactInventory;
   /** Recheck cancellation/attempt fencing around side effects and before adoption. */
   assertCurrent?: () => Promise<void>;
+  selection?: PathSelection;
 }
 async function validateExisting(manifest: SnapshotManifest, input: SnapshotInput) {
   if (manifest.identity !== input.identity) throw new Error('Snapshot identity mismatch');
-  if (!input.inventory) return;
-  if (input.inventory.identity !== input.identity || manifest.inventoryHash !== input.inventory.hash ||
-      manifest.objects.length !== input.inventory.files.length) throw new Error('Snapshot does not match trusted inventory');
-  const prefix = input.targetPrefix.replace(/\/?$/, '/');
-  if (new Set(manifest.objects.map(object => object.path)).size !== manifest.objects.length) throw new Error('Duplicate snapshot objects');
-  for (const file of input.inventory.files) {
-    const object = manifest.objects.find(object => object.path === file.path);
-    if (!object || object.key !== prefix + file.path || object.bytes !== file.bytes || !validVersion(object.versionId) ||
-        (object.checksumType === 'FULL_OBJECT' ? fullChecksum(object.checksumSHA256) : object.fullSHA256) !== file.sha256) {
-      throw new Error('Snapshot object does not match trusted inventory');
+  const selection=normalizeSelection(input.selection);
+  if (JSON.stringify(normalizeSelection(manifest.selection)) !== JSON.stringify(selection)) throw new Error('Snapshot path selection mismatch');
+  if(input.inventory && (input.inventory.identity !== input.identity || manifest.inventoryHash !== input.inventory.hash || manifest.objects.length !== input.inventory.files.length)) throw new Error('Snapshot does not match trusted inventory');
+  assertConsumableObjects(manifest.objects);
+  const prefix=input.targetPrefix.replace(/\/?$/,'/');
+  for(const object of manifest.objects) {
+    if(object.key!==prefix+object.path || !validVersion(object.versionId) || !pathSelected(object.path,selection))throw new Error('Snapshot object escapes its immutable version/selection');
+    if(input.inventory) {
+      const file=input.inventory.files.find(f=>f.path===object.path);
+      if(!file||object.bytes!==file.bytes||(object.checksumType==='FULL_OBJECT'?fullChecksum(object.checksumSHA256):object.fullSHA256)!==file.sha256)throw new Error('Snapshot object does not match trusted inventory');
     }
-    const head = await s3().send(new HeadObjectCommand({
-      Bucket: input.targetBucket, Key: object.key, VersionId: object.versionId, ChecksumMode: 'ENABLED',
-    }), { abortSignal: input.signal });
-    if (head.VersionId !== object.versionId || head.ContentLength !== object.bytes ||
-        head.ChecksumSHA256 !== object.checksumSHA256 || (head.ChecksumType ?? 'FULL_OBJECT') !== object.checksumType) {
-      throw new Error('Committed snapshot version verification failed');
-    }
+    const head=await s3().send(new HeadObjectCommand({Bucket:input.targetBucket,Key:object.key,VersionId:object.versionId,ChecksumMode:'ENABLED'}),{abortSignal:input.signal});
+    if(head.VersionId!==object.versionId||head.ContentLength!==object.bytes||head.ChecksumSHA256!==object.checksumSHA256||(head.ChecksumType??'FULL_OBJECT')!==object.checksumType)throw new Error('Committed snapshot version verification failed');
   }
 }
 
@@ -206,13 +208,18 @@ export async function snapshotPrefix(input: SnapshotInput) {
   input.signal?.throwIfAborted();
   await input.assertCurrent?.();
   if (input.inventory && input.inventory.identity !== input.identity) throw new Error('Inventory identity mismatch');
+  const selection = normalizeSelection(input.selection);
+  if (input.inventory && (selection.include.length || selection.exclude.length)) throw new Error('Trusted output inventory cannot be filtered implicitly');
+  if (input.inventory) assertConsumableObjects(input.inventory.files.map(f => ({...f,versionId:'pending',checksumSHA256:'pending'})));
   const targetPrefix = input.targetPrefix.replace(/\/?$/, '/');
   const manifestKey = `${targetPrefix}manifest.json`;
   try {
     const existing = await loadSnapshot(input.targetBucket, manifestKey, input.signal);
     await validateExisting(existing.manifest, input);
+    const hydrationBytes = assertConsumableObjects(existing.manifest.objects, existing.manifestBytes);
+    if (!validVersion(existing.manifestVersionId)) throw new Error('Snapshot manifest requires bucket versioning');
     await input.assertCurrent?.();
-    return existing;
+    return { ...existing, hydrationBytes };
   } catch (error) {
     if (!['NoSuchKey', 'NotFound'].includes((error as Error).name)) throw error;
   }
@@ -239,45 +246,58 @@ export async function snapshotPrefix(input: SnapshotInput) {
       } catch (error) { if (!['NotFound', 'NoSuchKey'].includes((error as Error).name)) throw error; }
     }
     let token: string | undefined;
+    const selected: {key:string;path:string}[]=[];
+    const seenTokens=new Set<string>();
     do {
       const page = singleObject ? { Contents: [singleObject], NextContinuationToken: undefined } : await s3().send(new ListObjectsV2Command({
         Bucket: input.sourceBucket, Prefix: sourcePrefix, ContinuationToken: token,
       }), { abortSignal: input.signal });
-      const sources = (page.Contents ?? []).filter((object) => object.Key && !object.Key.endsWith('/') && !['.dataset.json', 'manifest.json'].includes(object.Key.slice(sourcePrefix.length)));
-      for (let offset = 0; offset < sources.length; offset += 8) {
-        const results = await Promise.all(sources.slice(offset, offset + 8).map((object) => {
-          const path = singleObject ? object.Key!.split('/').pop()! : object.Key!.slice(sourcePrefix.length);
-          if (!path || path.split('/').some((segment) => segment === '..' || segment === '.')) throw new Error('Unsafe snapshot object path');
-          return copyVerified({ bucket: input.sourceBucket, key: object.Key!, path }, { bucket: input.targetBucket, key: targetPrefix + path }, input.signal);
-        }));
-        objects.push(...results);
+      for (const object of page.Contents ?? []) {
+        if(!object.Key || object.Key.endsWith('/'))continue;
+        const path=singleObject?object.Key.split('/').pop()!:object.Key.slice(sourcePrefix.length);
+        if(['manifest.json','.dataset.json'].includes(path))continue;
+        if(!safeDataPath(path))throw badRequest('Unsafe snapshot object path');
+        if(pathSelected(path,selection))selected.push({key:object.Key,path});
+        if(selected.length>1024)throw badRequest('Runtime input exceeds 1024 files; select a smaller version');
       }
-      token = page.NextContinuationToken;
-    } while (token);
+      token=page.NextContinuationToken;
+      if(token){if(seenTokens.has(token))throw new Error('Repeated source listing cursor');seenTokens.add(token);}
+    }while(token);
+    for(let offset=0;offset<selected.length;offset+=8) {
+      await input.assertCurrent?.();
+      objects.push(...await Promise.all(selected.slice(offset,offset+8).map(source=>copyVerified({bucket:input.sourceBucket,...source},{bucket:input.targetBucket,key:targetPrefix+source.path},input.signal))));
+    }
   }
-  if (!objects.length) throw new Error('No data files were uploaded');
+  if (!objects.length) throw badRequest('No data files were uploaded or selected');
   objects.sort((a, b) => a.path.localeCompare(b.path));
   const manifest: SnapshotManifest = {
+    ...(selection.include.length || selection.exclude.length ? { selection } : {}),
     schemaVersion: 1, identity: input.identity, createdAt: new Date().toISOString(),
     source: { bucket: input.sourceBucket, prefix: input.inventory?.kind === 'file' ? input.sourcePrefix : sourcePrefix }, objects,
     ...(input.inventory ? { inventoryHash: input.inventory.hash } : {}),
   };
   const text = JSON.stringify(manifest);
-  if (Buffer.byteLength(text) > 8 * 1024 * 1024) throw new Error('Snapshot manifest exceeds 8 MiB');
+  const hydrationBytes = assertConsumableObjects(objects, Buffer.byteLength(text));
+  if (Buffer.byteLength(text) > MAX_MANIFEST_BYTES) throw new Error('Snapshot manifest exceeds 2 MiB');
   input.signal?.throwIfAborted();
   await input.assertCurrent?.();
+  let manifestVersionId: string | undefined;
   try {
-    await s3().send(new PutObjectCommand({
+    const written = await s3().send(new PutObjectCommand({
       Bucket: input.targetBucket, Key: manifestKey, Body: text,
       ContentType: 'application/json', ChecksumAlgorithm: 'SHA256', IfNoneMatch: '*',
     }), { abortSignal: input.signal });
+    manifestVersionId = written.VersionId;
+    if (!validVersion(manifestVersionId)) throw new Error('Snapshot manifest requires bucket versioning');
   } catch (error) {
     if ((error as Error).name !== 'PreconditionFailed') throw error;
     const existing = await loadSnapshot(input.targetBucket, manifestKey, input.signal);
     await validateExisting(existing.manifest, input);
+    const hydrationBytes = assertConsumableObjects(existing.manifest.objects, existing.manifestBytes);
+    if (!validVersion(existing.manifestVersionId)) throw new Error('Snapshot manifest requires bucket versioning');
     await input.assertCurrent?.();
-    return existing;
+    return { ...existing, hydrationBytes };
   }
   await input.assertCurrent?.();
-  return { manifest, hash: sha256(text) };
+  return { manifest, hash: sha256(text), manifestVersionId, hydrationBytes };
 }

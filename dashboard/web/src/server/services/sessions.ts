@@ -15,6 +15,7 @@ import { assertTokenLaunchPrincipal, assertTokenRequestProject, authorizeDerived
 import { currentBackend, runOnBackend, assertBackendReady } from '../backends/context';
 import { backendId } from '../backends/registry';
 import { assertWorkflowBackend } from '../backends/binding';
+import { authorizeExecutionSession } from '../gateway/execution-session';
 
 const LABEL = 'pai.aws/session';
 const MANAGED = 'pai.aws/managed-session';
@@ -44,6 +45,7 @@ export interface SessionDeps {
   image?: string;
   runtimeImage?: string;
   currentUser?: AuthOptions['currentUser'];
+  validateExecutionProfile?: AuthOptions['validateExecutionProfile'];
   k8s: {
     prepare(project: Project): Promise<void>;
     getJob(ns: string, name: string): Promise<Job | null>;
@@ -196,9 +198,9 @@ function assertJob(s: Session, job: Job) {
   if (job.metadata.labels?.[LABEL] !== s.id || job.metadata.labels?.['pai.aws/project'] !== s.projectId ||
     job.metadata.labels?.['pai.aws/owner-subject'] !== ownerHash(s.ownerSubject!) || !job.metadata.uid || s.jobUid && job.metadata.uid !== s.jobUid) throw new HttpError(409, 'Managed Job ownership changed');
 }
-function readyPod(p: SessionPod, container: string) {
+function readyPod(p: SessionPod, container: string, allowHostNetwork = false) {
   const variables = p.spec.containers.flatMap((c) => c.env ?? []);
-  if (p.spec.hostNetwork || variables.some((v) => /^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|CONTAINER_CREDENTIALS_.*|CONTAINER_AUTHORIZATION_.*)$/.test(v.name))) return false;
+  if (p.spec.hostNetwork && !allowHostNetwork || variables.some((v) => /^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|CONTAINER_CREDENTIALS_.*|CONTAINER_AUTHORIZATION_.*)$/.test(v.name))) return false;
   return !!p.metadata.uid && !p.metadata.deletionTimestamp && p.status?.phase === 'Running' && p.status.conditions?.some((c) => c.type === 'Ready' && c.status === 'True') && p.status.containerStatuses?.some((c) => c.name === container && c.ready);
 }
 function ownedPod(s: Session, p: SessionPod) {
@@ -215,7 +217,7 @@ async function taskTarget(workflowId: string, taskName: string, replicaIndex: nu
     p.metadata.labels?.['app.kubernetes.io/managed-by'] === 'physical-ai-dashboard' &&
     p.metadata.labels?.['pai.aws/workflow-id'] === wf.id && p.metadata.labels?.['pai.aws/task'] === task.name &&
     p.metadata.labels?.['pai.aws/attempt'] === String(task.attempts) && p.metadata.labels?.['pai.aws/epoch'] === task.attemptEpoch &&
-    Number(p.metadata.labels?.['batch.kubernetes.io/job-completion-index'] ?? 0) === replicaIndex && readyPod(p, 'main'));
+    Number(p.metadata.labels?.['batch.kubernetes.io/job-completion-index'] ?? 0) === replicaIndex && readyPod(p, 'main', true));
   if (candidates.length !== 1) throw new HttpError(409, 'Selected task replica is not uniquely ready');
   return { wf, task, pod: candidates[0] };
 }
@@ -223,6 +225,10 @@ function namedPort(pod: SessionPod, name: string) {
   const ports = pod.spec.containers.find((c) => c.name === 'main')?.ports?.filter((p) => p.name === name && (!p.protocol || p.protocol === 'TCP')) ?? [];
   if (ports.length !== 1 || !Number.isInteger(ports[0].containerPort) || ports[0].containerPort < 1 || ports[0].containerPort > 65535) throw badRequest('Named task TCP port is not registered on the selected container');
   return ports[0].containerPort;
+}
+function sharedHostNetwork(wf: Workflow, taskName: string, pod: SessionPod): boolean {
+  const pins = (wf as { executionProfilePins?: Record<string, { policy?: { hostNetwork?: boolean } }> }).executionProfilePins;
+  return pod.spec.hostNetwork === true || pins?.[taskName]?.policy?.hostNetwork === true;
 }
 
 export async function createManagedSession(raw: CreateSessionInput, principal: Principal, suppliedProject: Project, deps = defaults()): Promise<Session> {
@@ -240,10 +246,12 @@ export async function createManagedSession(raw: CreateSessionInput, principal: P
   let s: Session = { id, name: `session-${id}`, kind: input.kind, projectId: project.id, backendId: backendId(project.backendId), backendConfigHash: project.backendConfigHash, ownerSubject, owner: principal.user,
     namespace: project.namespace, queue: project.queue, createdAt: new Date(now).toISOString(), expiresAt: new Date(expires).toISOString(), revision: 0, ...source };
   if (input.kind === 'terminal' || input.kind === 'port-forward') {
-    const { task, pod } = await taskTarget(input.workflowId, input.taskName, input.replicaIndex, principal, project, deps);
-    s = { ...s, status: 'READY', managedJob: false, workflowId: input.workflowId, taskName: task.name, groupId: task.groupId,
+    const { wf, task, pod } = await taskTarget(input.workflowId, input.taskName, input.replicaIndex, principal, project, deps);
+    const hostNetwork = sharedHostNetwork(wf, task.name, pod);
+    if (input.kind === 'port-forward' && hostNetwork) throw forbidden('Host-network tasks cannot expose isolated HTTP or file sessions');
+    s = { ...s, trustedExecution: Object.keys(wf.executionProfilePins ?? {}).length > 0, authMethod: s.authMethod ?? principal.authMethod ?? 'alb', status: 'READY', managedJob: false, workflowId: input.workflowId, taskName: task.name, groupId: task.groupId,
       attempt: task.attempts, attemptEpoch: task.attemptEpoch, replicaIndex: input.replicaIndex,
-      podName: pod.metadata.name, podUid: pod.metadata.uid, nodeName: pod.spec.nodeName, container: 'main',
+      podName: pod.metadata.name, podUid: pod.metadata.uid, nodeName: pod.spec.nodeName, container: 'main', hostNetwork,
       ...(input.kind === 'port-forward' ? { portName: input.portName, port: namedPort(pod, input.portName) } : {}) };
   } else {
     if (input.kind === 'tensorboard') logPath(input.logDir, project.id);
@@ -252,6 +260,7 @@ export async function createManagedSession(raw: CreateSessionInput, principal: P
     await deps.k8s.prepare(project);
   }
   await authorizeDerivedToken(s, { repo: deps.repo, now: deps.now, currentUser: deps.currentUser });
+  await authorizeExecutionSession(s as GatewaySession, { repo: deps.repo, now: deps.now, currentUser: deps.currentUser, getPod: deps.k8s.getPod, validateExecutionProfile: deps.validateExecutionProfile }, principal);
   // Durable intent precedes the external Job create; reconciliation can adopt its unique labelled name.
   const inserted = await deps.repo.kv.put({ pk: `SESS#${id}`, sk: 'META', gsi1pk: 'TYPE#SESS', gsi1sk: `${s.createdAt}#${id}`, ...s }, 'not_exists');
   if (!inserted) throw new HttpError(409, 'Session id collision');
@@ -309,9 +318,9 @@ async function refresh(s: Session, deps: SessionDeps): Promise<Session> {
   try {
     const principal: Principal = { subject: s.ownerSubject, user: s.owner, email: '', role: 'researcher' };
     const project = await projectFor(s, principal, deps);
-    const { task, pod } = await taskTarget(s.workflowId!, s.taskName!, s.replicaIndex ?? 0, principal, project, deps);
+    const { wf, task, pod } = await taskTarget(s.workflowId!, s.taskName!, s.replicaIndex ?? 0, principal, project, deps);
     if (task.attempts !== s.attempt || task.attemptEpoch !== s.attemptEpoch || pod.metadata.uid !== s.podUid || pod.metadata.name !== s.podName) return close(s, deps);
-    if (s.kind === 'port-forward' && namedPort(pod, s.portName!) !== s.port) return close(s, deps);
+    if (s.kind === 'port-forward' && (sharedHostNetwork(wf, task.name, pod) || namedPort(pod, s.portName!) !== s.port)) return close(s, deps);
     return s;
   } catch (error) {
     if (error instanceof HttpError && [400, 403, 404, 409].includes(error.status)) return close(s, deps);
@@ -379,8 +388,8 @@ export async function launchSession(id: string, principal: Principal, deps = def
   s = await refresh(s, deps);
   if (s.status !== 'READY' || s.revokedAt || !s.podName || !s.podUid || !s.container) throw new HttpError(409, 'Session is not ready');
   const pod = await deps.k8s.getPod(s.namespace, s.podName);
-  if (!pod || pod.metadata.uid !== s.podUid || !readyPod(pod, s.container) || s.managedJob && !ownedPod(s, pod)) throw new HttpError(409, 'Registered session pod is no longer ready');
-  const launch = await issueLaunchTicket(s as GatewaySession, principal, { repo: deps.repo, now: deps.now, currentUser: deps.currentUser });
+  if (!pod || pod.metadata.uid !== s.podUid || !readyPod(pod, s.container, s.kind === 'terminal') || s.managedJob && !ownedPod(s, pod)) throw new HttpError(409, 'Registered session pod is no longer ready');
+  const launch = await issueLaunchTicket(s as GatewaySession, principal, { repo: deps.repo, now: deps.now, currentUser: deps.currentUser, getPod: deps.k8s.getPod, validateExecutionProfile: deps.validateExecutionProfile });
   return { url: launch.url, expiresAt: launch.expiresAt };
 }
 export async function extendSession(id: string, ttlMinutes: number, principal: Principal, deps = defaults()) {
@@ -448,7 +457,7 @@ export async function taskConnectionOptions(workflowId: string, taskName: string
   for (let replicaIndex = 0; replicaIndex < Math.max(1, Math.min(64, task.replicas ?? 1)); replicaIndex++) {
     try {
       const { pod } = await taskTarget(wf.id, task.name, replicaIndex, principal, project, deps);
-      const ports = pod.spec.containers.find((c) => c.name === 'main')?.ports ?? [];
+      const ports = sharedHostNetwork(wf, task.name, pod) ? [] : pod.spec.containers.find((c) => c.name === 'main')?.ports ?? [];
       replicas.push({ replicaIndex, ports: ports.filter((p) => p.name && (!p.protocol || p.protocol === 'TCP')).map((p) => p.name!) });
     } catch (e) { if (!(e instanceof HttpError && e.status === 409)) throw e; }
   }

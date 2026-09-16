@@ -47,6 +47,7 @@ export interface K8sPort {
   deleteJob(ns: string, name: string): Promise<void>;
   upsertConfigMap(ns: string, name: string, data: Record<string, string>, labels: Record<string, string>): Promise<void>;
   upsertSecret(ns: string, name: string, data: Record<string, string>, labels: Record<string, string>): Promise<void>;
+  ensureAttemptSecret?(ns: string, name: string, data: Record<string, string>, labels: Record<string, string>): Promise<{ uid: string }>;
   deleteByLabel(ns: string, kind: 'configmaps' | 'secrets', selector: string): Promise<void>;
   ensureNamespace(ns: string): Promise<void>;
   ensureFsxPvc(ns: string): Promise<void>;
@@ -124,12 +125,19 @@ export interface ControllerDeps {
     taskNames?: string[];
     attempt?: number;
   }) => Promise<boolean>;
+  cleanupCheckpointUploads?: (workflow: Workflow, context: {
+    signal: AbortSignal; taskNames: string[]; attempt: number;
+  }) => Promise<boolean>;
   /** Trusted executable available in the workload image; --contract JSON -- user argv. */
   runtimeCommand?: string;
   runtimeImage?: string;
   runtimeEnvironment?: (workflow: Workflow, task: TaskSpec, epoch: string, attempt: number) => Record<string, string>;
   /** Final pre-create approval-head check; throw to veto. No image rewriting. */
   validateTaskPolicy?: (workflow: Workflow, task: TaskSpec) => Promise<void>;
+  logs?: {
+    reconcile(workflow: Workflow): Promise<void>;
+    drain(workflow: Workflow, taskNames: string[], attempt: number): Promise<void>;
+  };
   /** Server-selected vetted recipe mounts only; never populated from user YAML. */
   sharedReadOnlyPaths?: (workflow: Workflow, task: TaskSpec) => SharedReadOnlyPath[];
   workloadServiceAccount?: string;

@@ -12,6 +12,7 @@ import { LogViewer } from '@/components/workflows/LogViewer';
 import { TaskConnections } from '@/components/workflows/TaskConnections';
 import { cloneWorkflowYaml } from '@/components/workflows/clone';
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
+import { RunUsagePanel } from '@/components/usage/UsageSummary';
 
 interface WorkflowDetailPageProps {
   id: string;
@@ -164,6 +165,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
       </div>
 
       {workflow.message && workflow.status === 'FAILED' && <ErrorBox error={{ message: workflow.message }} />}
+      <RunUsagePanel workflowId={workflow.id} />
 
       <div className="flex gap-2">
         {!isTerminal && can(me.data, 'researcher') && <Button variant="danger" size="sm" onClick={() => setShowCancelConfirm(true)} disabled={cancelMut.isPending}>

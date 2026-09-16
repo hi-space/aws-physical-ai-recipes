@@ -13,6 +13,9 @@ import {
   ListClustersCommand,
   ListComputeQuotasCommand,
   UpdateClusterCommand,
+  BatchDeleteClusterNodesCommand,
+  SageMakerClient,
+  type DescribeClusterResponse,
   type ClusterInstanceGroupDetails,
   type ClusterInstanceGroupSpecification,
   type ClusterNodeSummary,
@@ -20,6 +23,8 @@ import {
 } from '@aws-sdk/client-sagemaker';
 import { badRequest, HttpError } from '../errors';
 import { sagemaker } from './clients';
+import { config } from '../config';
+import { createHash } from 'node:crypto';
 
 export async function listClusters(): Promise<ClusterSummary[]> {
   const out = await sagemaker().send(new ListClustersCommand({ MaxResults: 50 }));
@@ -33,10 +38,13 @@ export async function describeCluster(name: string) {
 export async function listNodes(name: string): Promise<ClusterNodeSummary[]> {
   const nodes: ClusterNodeSummary[] = [];
   let token: string | undefined;
+  const seen = new Set<string>();
   do {
     const out = await sagemaker().send(new ListClusterNodesCommand({ ClusterName: name, MaxResults: 100, NextToken: token }));
     nodes.push(...(out.ClusterNodeSummaries ?? []));
     token = out.NextToken;
+    if (token && (seen.has(token) || seen.size >= 100)) throw new Error('HyperPod node inventory is incomplete');
+    if (token) seen.add(token);
   } while (token);
   return nodes;
 }
@@ -66,17 +74,44 @@ export function buildScaleSpec(groups: ClusterInstanceGroupDetails[], group: str
       TrainingPlanArn: g.TrainingPlanArn,
       OverrideVpcConfig: g.OverrideVpcConfig,
       ScheduledUpdateConfig: g.ScheduledUpdateConfig,
+      MinInstanceCount: g.MinCount,
     };
+    // These have Describe/request shapes that cannot be safely round-tripped by
+    // the homogeneous on-demand scaler. Reject them instead of discarding fields.
+    if (g.InstanceGroupName === group && (g.InstanceRequirements || g.CapacityRequirements || g.AutoPatchConfig || g.KubernetesConfig || g.SlurmConfig || g.NetworkInterface)) {
+      throw badRequest('복합 instance group 설정은 이 스케일러에서 변경하지 않습니다.');
+    }
     return spec;
   });
 }
 
-export async function scaleGroup(name: string, group: string, count: number, expectedCount?: number): Promise<void> {
+export function clusterSpecHash(cluster: DescribeClusterResponse): string {
+  const stable = (value: unknown): string => {
+    if (value instanceof Date) return JSON.stringify(value.toISOString());
+    if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+    if (value && typeof value === 'object') return `{${Object.entries(value).filter(([k, v]) => k !== '$metadata' && v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(',')}}`;
+    return JSON.stringify(value);
+  };
+  return createHash('sha256').update(stable({ ...cluster, InstanceGroups: [...(cluster.InstanceGroups ?? [])].sort((a, b) => (a.InstanceGroupName ?? '').localeCompare(b.InstanceGroupName ?? '')) })).digest('hex');
+}
+function assertObserved(cluster: DescribeClusterResponse, expectedHash?: string) {
+  if (!expectedHash || clusterSpecHash(cluster) !== expectedHash || cluster.ClusterStatus !== 'InService') throw new HttpError(409, '관측한 클러스터 전체 설정이 변경되었습니다. 계획을 다시 검토하세요.', 'scale_spec_changed');
+}
+// Capacity RPCs deliberately have no SDK retries after an ambiguous response.
+const capacityClient = () => new SageMakerClient({ region: config().region, maxAttempts: 1 });
+export async function scaleGroup(name: string, group: string, count: number, expectedCount?: number, expectedHash?: string): Promise<void> {
   const desc = await describeCluster(name);
+  assertObserved(desc, expectedHash);
   const current = desc.InstanceGroups?.find((item) => item.InstanceGroupName === group);
   if (expectedCount !== undefined && ((current?.TargetCount ?? current?.CurrentCount ?? 0) !== expectedCount || desc.ClusterStatus !== 'InService')) throw new HttpError(409, '클러스터 구성이 변경되어 요청을 적용하지 않았습니다.');
-  const spec = buildScaleSpec(desc.InstanceGroups ?? [], group, count);
-  await sagemaker().send(new UpdateClusterCommand({ ClusterName: name, InstanceGroups: spec }));
+  if (expectedCount === undefined || count < expectedCount) throw badRequest('축소에는 검증된 개별 노드 삭제 계획이 필요합니다.');
+  const spec = buildScaleSpec(desc.InstanceGroups ?? [], group, count).filter(item => item.InstanceGroupName === group);
+  await capacityClient().send(new UpdateClusterCommand({ ClusterName: name, InstanceGroups: spec }), { abortSignal: AbortSignal.timeout(30_000) });
+}
+export async function deleteIdleNodes(name: string, nodeIds: string[], expectedHash: string) {
+  if (!nodeIds.length || nodeIds.length > 99 || new Set(nodeIds).size !== nodeIds.length || nodeIds.some(id => !/^i-[a-f0-9]{8}(?:[a-f0-9]{9})?$/.test(id))) throw badRequest('Invalid bounded node deletion set');
+  assertObserved(await describeCluster(name), expectedHash);
+  return capacityClient().send(new BatchDeleteClusterNodesCommand({ ClusterName: name, NodeIds: nodeIds }), { abortSignal: AbortSignal.timeout(30_000) });
 }
 
 export async function listEvents(name: string, max = 25) {

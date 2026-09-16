@@ -1,3 +1,4 @@
+import { datasetGuard, referenceWrites, workflowConsumers, workflowReferenceWrites, validateInputMetadata, type DatasetConsumer } from './dataset-references';
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpError } from '../errors';
 import type { Write } from './atomic';
@@ -19,7 +20,7 @@ const pad = (n: number, w = 6) => String(n).padStart(w, '0');
 let seqCounter = 0;
 const nextSeq = () => seqCounter = (seqCounter + 1) % 1000;
 export class Repo {
-  constructor(readonly kv: KV) {}
+  constructor(readonly kv: KV, private readonly validateInputs?: (repo: Repo, workflow: Workflow) => Promise<void>) {}
 
   // ---- workflows
   async putWorkflow(w: Workflow, lease?: RunLease) {
@@ -78,6 +79,8 @@ export class Repo {
     scope: string;
     hash: string;
   }, outbox: OutboxEntry['kind'][] = []) {
+    await this.validateInputs?.(this, w);
+    await validateInputMetadata(this.kv, w);
     const writes: Write[] = [...this.workflowWrites(w).map(write => ({
       ...write,
       condition: {
@@ -111,7 +114,12 @@ export class Repo {
         absent: true
       }
     });
-    if (await this.kv.transaction(writes)) return w;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const references = await workflowReferenceWrites(this.kv, w);
+      if (writes.length + references.length > 100) throw new HttpError(400, 'Workflow and dataset references exceed the atomic admission budget');
+      if (await this.kv.transaction([...writes, ...references])) return w;
+      if (await this.getWorkflow(w.id)) break;
+    }
     if (key) {
       const saved = await this.findSubmission(key.scope, key.hash);
       if (saved) return saved;
@@ -153,6 +161,10 @@ export class Repo {
     return (await this.listWorkflowsPage(opts)).items;
   }
   async deleteWorkflow(id: string) {
+    const wf = await this.getWorkflow(id);
+    if (wf) for (const name of new Set((wf.spec?.workflow?.tasks ?? []).flatMap(t => (t.inputs ?? []).flatMap(i => 'dataset' in i ? [i.dataset.name] : [])))) {
+      if (await this.getDataset(name)) await this.recordDatasetReference(name, `workflow:${id}`, workflowConsumers(wf, name), true);
+    }
     for (const it of await this.kv.query(`WF#${id}`)) await this.kv.del(it.pk, it.sk);
   }
   async putTask(t: Task, lease?: RunLease) {
@@ -191,25 +203,62 @@ export class Repo {
 
   // ---- datasets
   async putDataset(d: Dataset) {
-    await this.kv.put({
-      pk: `DS#${d.name}`,
-      sk: 'META',
-      gsi1pk: 'TYPE#DS',
-      gsi1sk: `${d.updatedAt}#${d.name}`,
-      ...d
-    });
+    for(let retry=0;retry<8;retry++) {
+      const guard=await datasetGuard(this.kv,d.name),current=await this.kv.get(`DS#${d.name}`,'META');
+      if(current?.deletedAt)throw new HttpError(409,'Deleted dataset names are reserved');
+      if(current&&(current.projectId??'')!==(d.projectId??''))throw new HttpError(409,'Dataset project binding is immutable');
+      if(await this.kv.transaction([
+        {kind:'check',pk:guard.pk,sk:guard.sk,condition:{equals:{state:'ACTIVE'}}},
+        {kind:'put',item:{pk:`DS#${d.name}`,sk:'META',gsi1pk:'TYPE#DS',gsi1sk:`${d.updatedAt}#${d.name}`,...d,latestVersion:Math.max(d.latestVersion,Number(current?.latestVersion??0))},
+          condition:current?{equals:{latestVersion:current.latestVersion}}:{absent:true}}
+      ]))return;
+    }
+    throw new HttpError(409,'Dataset metadata changed concurrently; retry');
   }
   async getDataset(name: string) {
     const i = await this.kv.get(`DS#${name}`, 'META');
-    return i ? strip<Dataset>(i) : undefined;
+    return i && !i.deletedAt ? strip<Dataset>(i) : undefined;
   }
   async listDatasets() {
     return (await this.kv.queryGsi1('TYPE#DS', {
       desc: true
-    })).map(i => strip<Dataset>(i));
+    })).filter(i => !i.deletedAt).map(i => strip<Dataset>(i));
+  }
+  async recordDatasetReference(name: string, id: string, consumer: DatasetConsumer | DatasetConsumer[], historical = false) {
+    for (let retry=0;retry<8;retry++) if(await this.kv.transaction(await referenceWrites(this.kv,name,id,Array.isArray(consumer)?consumer:[consumer],historical))) return;
+    throw new HttpError(409,'Dataset references changed concurrently; retry');
+  }
+  async datasetLineage(name: string) {
+    const consumers=new Map<string,DatasetConsumer>();
+    const key=(c:DatasetConsumer)=>`${c.workflowId}/${c.task}/${c.inputIndex}`;
+    for(const row of await this.kv.query(`DS#${name}`,'REFERENCE#')) for(const c of row.consumers as DatasetConsumer[]) {
+      const wf=await this.getWorkflow(c.workflowId);
+      consumers.set(key(c), {...c,status:wf?.status??c.status,workflowDeleted:!wf});
+    }
+    if(!this.kv.scanPage) throw new HttpError(503,'Complete historical reference inspection is unavailable; deletion is disabled');
+    let cursor:string|undefined;const seen=new Set<string>();
+    do {
+      const page=await this.kv.scanPage(cursor);
+      for(const item of page.items) for(const c of workflowConsumers(strip<Workflow>(item),name)) consumers.set(key(c),c);
+      cursor=page.cursor;
+      if(cursor){if(seen.has(cursor))throw new Error('Repeated historical scan cursor');seen.add(cursor);}
+    }while(cursor);
+    const produced=(await this.listVersions(name)).filter(v=>v.producedBy).map(v=>({version:v.version,...v.producedBy!}));
+    return {produced,consumers:[...consumers.values()]};
   }
   async deleteDataset(name: string) {
-    for (const it of await this.kv.query(`DS#${name}`)) await this.kv.del(it.pk, it.sk);
+    const ds=await this.getDataset(name);if(!ds)return;
+    const guard=await datasetGuard(this.kv,name);
+    const history=await this.datasetLineage(name);
+    if(history.consumers.length || history.produced.length) throw new HttpError(409,'Dataset is referenced by experiment history and cannot be deleted');
+    const current=await this.kv.get(`DS#${name}`,'META');
+    if(!current || current.deletedAt)return;
+    if(current.latestVersion!==ds.latestVersion) throw new HttpError(409,'Dataset changed during deletion; retry');
+    const deletedAt=new Date().toISOString();
+    if(!await this.kv.transaction([
+      {kind:'put',item:{...guard,state:'DELETED',revision:Number(guard.revision)+1},condition:{equals:{state:'ACTIVE',revision:guard.revision}}},
+      {kind:'put',item:{...current,deletedAt},condition:{equals:{latestVersion:ds.latestVersion}}}
+    ])) throw new HttpError(409,'Dataset references changed during deletion; retry');
   }
   async putVersion(v: DatasetVersion) {
     await this.kv.put({
@@ -234,6 +283,9 @@ export class Repo {
       pk: `PUB#${createHash('sha256').update(publicationId).digest('hex')}`,
       sk: 'META'
     };
+    if (input.state === 'READY' && input.objectCount !== undefined && input.objectCount > 1024) throw new HttpError(400, 'Dataset publication exceeds runtime 1024-file limit');
+    const guard = await datasetGuard(this.kv, dataset.name);
+    if ((await this.kv.get(`DS#${dataset.name}`, 'META'))?.deletedAt) throw new HttpError(409, 'Dataset is deleted');
     const producer = input.producedBy,
       attempt = input.producedAttempt;
     const assertAttempt = async () => {
@@ -299,6 +351,7 @@ export class Repo {
           absent: true
         }
       }];
+      writes.push({kind:'check',pk:guard.pk,sk:guard.sk,condition:{equals:{state:'ACTIVE'}}});
       if (lease) writes.push(this.leaseCheck(lease));
       if (producer && attempt !== undefined) writes.push({
         kind: 'check',
@@ -624,7 +677,12 @@ let repo: Repo | undefined;
 export function getRepo(): Repo {
   if (!repo) {
     const c = config();
-    repo = new Repo(c.authMode === 'dev' && !process.env.TABLE_NAME ? new MemoryKV() : new DynamoKV(c.tableName));
+    repo = new Repo(c.authMode === 'dev' && !process.env.TABLE_NAME ? new MemoryKV() : new DynamoKV(c.tableName), async (store, workflow) => {
+      if (workflow.projectId && workflow.spec.workflow.tasks.some(t => t.inputs.some(i => 'dataset' in i))) {
+        const { validateDatasetInputs } = await import('../data/versions');
+        await validateDatasetInputs(store, workflow);
+      }
+    });
   }
   return repo;
 }

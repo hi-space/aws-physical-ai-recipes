@@ -56,6 +56,43 @@ beforeEach(async () => {
     artifactBucket: 'artifacts'
   });
 });
+it('rechecks trusted policy after readiness and before application RUNNING, without changing the durable member on denial', async () => {
+  let allowed = true;
+  broker.deps.validateTaskPolicy = async () => { if (!allowed) throw Object.assign(new Error('approval revoked'), { status: 403 }); };
+  for (const [task, replica] of [['lead', 0], ['worker', 0], ['worker', 1]] as const) {
+    await broker.state(token(task), { phase: 'INITIALIZING', ready: true, replica });
+  }
+  allowed = false;
+  await expect(broker.barrier(token('lead'), 0)).rejects.toMatchObject({ status: 403 });
+  const before = await repo.kv.query('WF#run', 'RUNTIME#epoch#MEMBER#');
+  expect(before.every(row => row.processStarted === false)).toBe(true);
+  allowed = true;
+  expect((await broker.barrier(token('lead'), 0)).released).toBe(true);
+  allowed = false;
+  await expect(broker.state(token('lead'), { phase: 'RUNNING', ready: true, replica: 0 })).rejects.toMatchObject({ status: 403 });
+  expect(await repo.kv.query('WF#run', 'RUNTIME#epoch#MEMBER#')).toEqual(before);
+});
+it.each(['barrier', 'running'] as const)('atomically rejects approval withdrawal between validation and the %s write', async phase => {
+  for (const [task, replica] of [['lead', 0], ['worker', 0], ['worker', 1]] as const) {
+    await broker.state(token(task), { phase: 'INITIALIZING', ready: true, replica });
+  }
+  if (phase === 'running') await broker.barrier(token('lead'), 0);
+  await repo.kv.put({ pk: 'PROJECT#p', sk: 'EXECUTION_PROFILE#device', enabled: true, version: 1 });
+  broker.deps.validateTaskPolicy = async () => [{ kind: 'check', pk: 'PROJECT#p', sk: 'EXECUTION_PROFILE#device',
+    condition: { equals: { enabled: true, version: 1 } } }];
+  const transaction = repo.kv.transaction.bind(repo.kv);
+  let revoked = false;
+  repo.kv.transaction = async writes => {
+    if (!revoked && writes.some(write => write.kind === 'check' && write.sk === 'EXECUTION_PROFILE#device')) {
+      revoked = true; await repo.kv.put({ pk: 'PROJECT#p', sk: 'EXECUTION_PROFILE#device', enabled: false, version: 1 });
+    }
+    return transaction(writes);
+  };
+  await expect(phase === 'barrier' ? broker.barrier(token('lead'), 0) :
+    broker.state(token('lead'), { phase: 'RUNNING', ready: true, replica: 0 })).rejects.toMatchObject({ status: 409 });
+  expect((await repo.kv.query('WF#run', 'RUNTIME#epoch#MEMBER#')).every(row => row.processStarted === false)).toBe(true);
+  if (phase === 'barrier') expect((await repo.kv.get('WF#run', 'RUNTIME#epoch#META'))?.released).not.toBe(true);
+});
 it('binds capability identity and rejects signature tampering, expired tokens and changed project/attempt', async () => {
   const signed = token('lead');
   expect((await broker.authenticate(signed)).claims).toMatchObject({

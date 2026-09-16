@@ -7,10 +7,13 @@ import { config } from '../config';
 import { managedLabels } from '../k8s/resources';
 import { durationToSeconds, type ResourceSpec, type TaskSpec, type WorkflowSpec } from './schema';
 import { checkpointPath, checkpointURL } from './checkpoints';
+import { assertExecutionPin, TRUSTED_NODE_LABEL, TRUSTED_NODE_TAINT, type ExecutionProfilePin } from './execution-profile-policy';
 export const LABEL_WF = 'pai.aws/workflow-id';
 export const LABEL_TASK = 'pai.aws/task';
 export const LABEL_OWNER = 'pai.aws/owner';
 export interface CompileContext {
+  /** Administrator-approved immutable task/policy pin; never supplied directly by YAML. */
+  executionProfile?: ExecutionProfilePin;
   backendId?: string;
   workflowId: string;
   /** Trusted, durable admission-unit plan; never sourced from YAML. */
@@ -102,6 +105,11 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
   const wf = spec.workflow;
   if (ctx.projectId && task.volumes.length) throw new Error('user volumes are not permitted for project workloads');
   const res: ResourceSpec = wf.resources[task.resource] ?? {};
+  const executionProfile = ctx.executionProfile;
+  if (task.executionProfile || executionProfile) {
+    assertExecutionPin(executionProfile, task, res, ctx);
+    if (!ctx.runtimeImage || !ctx.projectId) throw new Error('Trusted execution requires project identity and the guarded runtime');
+  }
   if (res.topology?.length && !ctx.topologyPlan) throw new Error('Native OSMO topology requires a registered, durable placement plan');
   if (ctx.topologyPlan) {
     assertPlan(ctx.topologyPlan, ctx.workflowId, ctx.namespace, ctx.epoch ?? ctx.group?.epoch);
@@ -242,6 +250,9 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
       env.push({ name, valueFrom: { secretKeyRef: { name: `${jobName}-creds`, key: name } } });
     } else env.push({ name, value });
   }
+  if (executionProfile?.policy.hostNetwork) {
+    env.push({ name: 'PAI_RUNTIME_FILES_DISABLED', value: '1' });
+  }
   if (ctx.runtimeEnvironment?.PAI_RUNTIME_MLFLOW_URI) {
     const prior = env.findIndex((entry) => entry.name === 'MLFLOW_TRACKING_URI');
     if (prior >= 0) env.splice(prior, 1);
@@ -278,6 +289,37 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
     mounts,
     initContainers
   } = storageLayout(ctx.projectId, ctx.runtimeImage, ctx.sharedReadOnlyPaths);
+  if (ctx.projectId && ctx.runtimeImage) {
+    // The runtime needs an existing output root before starting its file/restore service.
+    // Prepare only the server-derived project path in an unprivileged trusted initializer.
+    const root = `/fsx/checkpoints/projects/${ctx.projectId}/`;
+    if (!output.startsWith(root)) throw new Error('Output must remain inside the project checkpoint root');
+    const setup = ['set -eu'];
+    let directory = '/pai-project';
+    for (const component of output.slice(root.length).split('/')) {
+      directory += '/' + component;
+      setup.push(`[ ! -L ${shellQuote(directory)} ] || exit 125`, `mkdir -p ${shellQuote(directory)}`);
+    }
+    initContainers.push({
+      name: 'pai-output-prepare', image: ctx.runtimeImage,
+      command: ['/bin/sh', '-c', setup.join('; ')],
+      volumeMounts: [{ name: 'fsx', mountPath: '/pai-project', subPath: `checkpoints/projects/${ctx.projectId}` }],
+      securityContext: { ...workloadSecurity, readOnlyRootFilesystem: true },
+    });
+  }
+  if (executionProfile) {
+    if (executionProfile.policy.hostNetwork) {
+      // A host-network task is an explicitly trusted administrator operation.
+      // Pod-network isolation is not asserted for it; runtime approval still gates application start.
+      const index = initContainers.findIndex(container => (container as { name: string }).name === 'pai-isolation-ready');
+      if (index >= 0) initContainers.splice(index, 1);
+    }
+    executionProfile.policy.mounts.forEach((mount, index) => {
+      const name = `trusted-host-${index}`;
+      volumes.push({ name, hostPath: { path: mount.hostPath, type: mount.type } });
+      mounts.push({ name, mountPath: mount.mountPath, readOnly: mount.readOnly });
+    });
+  }
   const needsRuntime = usesRuntime(task, ctx, !!ctx.group);
   const runtimeCommand = ctx.runtimeCommand ?? (ctx.runtimeImage ? '/opt/pai/runtime' : undefined);
   if (needsRuntime && ctx.runtimeImage) {
@@ -423,6 +465,10 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
   const platform = task.platform ?? res.platform;
   if (platform) nodeSelector['node.kubernetes.io/instance-type'] = platform;
   const tolerations: unknown[] = [];
+  if (executionProfile) {
+    nodeSelector[TRUSTED_NODE_LABEL] = executionProfile.nodeBinding;
+    tolerations.push({ key: TRUSTED_NODE_TAINT, operator: 'Equal', value: executionProfile.nodeBinding, effect: 'NoSchedule' });
+  }
   if (res.gpu) tolerations.push({
     key: 'nvidia.com/gpu',
     operator: 'Exists',
@@ -433,6 +479,7 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
   const shellQuoted = userCmd.map(s => `'${s.replace(/'/g, `'\\''`)}'`).join(' ');
   if (!userCmd.length) throw new Error(`task ${task.name}: explicit command required`);
   let run = shellQuoted;
+  let guardedCommand: string[] | undefined;
   if (needsRuntime) {
     if (!runtimeCommand) throw new Error('verified workload runtime is required for groups/checkpoint');
     const runtime = {
@@ -471,8 +518,13 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
       });
     }
     run = `${shellQuote(runtimeCommand)} --contract ${shellQuote(JSON.stringify(runtime))} -- ${shellQuoted}`;
+    if (ctx.projectId && ctx.runtimeImage) {
+      // No user-controlled shell setup or inline-file writes occur before the runtime approval barrier.
+      guardedCommand = [runtimeCommand, '--contract', JSON.stringify(runtime), '--', '/bin/sh', '-c',
+        `set -eu; ${fileCopy}mkdir -p "$HOME" "$XDG_CACHE_HOME" ${shellQuote(output)} && exec ${shellQuoted}`];
+    }
   }
-  const command = ['/bin/sh', '-c', `set -eu; ${fileCopy}mkdir -p "$HOME" "$XDG_CACHE_HOME" ${shellQuote(output)} && exec ${run}`];
+  const command = guardedCommand ?? ['/bin/sh', '-c', `set -eu; ${fileCopy}mkdir -p "$HOME" "$XDG_CACHE_HOME" ${shellQuote(output)} && exec ${run}`];
   const activeDeadlineSeconds = durationToSeconds(task.timeout ?? wf.timeout.exec_timeout);
   const job = {
     apiVersion: 'batch/v1',
@@ -505,7 +557,11 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
       } : {}),
       template: {
         metadata: {
-          ...(ctx.topologyPlan ? { annotations: { [TOPOLOGY_ANNOTATION]: ctx.topologyPlan.hash } } : {}),
+          ...(ctx.topologyPlan || executionProfile ? { annotations: {
+            ...(ctx.topologyPlan ? { [TOPOLOGY_ANNOTATION]: ctx.topologyPlan.hash } : {}),
+            ...(executionProfile ? { 'pai.aws/execution-profile': `${executionProfile.id}@${executionProfile.version}`,
+              'pai.aws/execution-profile-hash': executionProfile.contentHash, 'pai.aws/execution-boundary': 'trusted-administrator-node' } : {}),
+          } } : {}),
           labels: {
             ...labels,
             ...kueueLabels
@@ -513,6 +569,7 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
         },
         spec: {
           restartPolicy: 'Never',
+          ...(executionProfile?.policy.hostNetwork ? { hostNetwork: true, dnsPolicy: 'ClusterFirstWithHostNet' } : {}),
           ...(initContainers.length ? {
             initContainers
           } : {}),
@@ -536,7 +593,12 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
           containers: [{
             name: 'main',
             ...(ctx.projectId ? {
-              securityContext: workloadSecurity
+              securityContext: executionProfile ? {
+                ...workloadSecurity,
+                ...(executionProfile.policy.runAsRoot ? { runAsUser: 0, runAsGroup: 0, runAsNonRoot: false } : {}),
+                ...(executionProfile.policy.privileged ? { privileged: true, allowPrivilegeEscalation: true,
+                  seccompProfile: { type: 'Unconfined' } } : {}),
+              } : workloadSecurity
             } : {}),
             image: task.image,
             command,
@@ -544,7 +606,7 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
               env,
               ports: [
                 ...(task.ports ?? []).filter((port) => port.name !== 'pai-files' && port.containerPort !== 8077),
-                ...(needsRuntime ? [{ name: 'pai-files', containerPort: 8077, protocol: 'TCP' }] : []),
+                ...(needsRuntime && !executionProfile?.policy.hostNetwork ? [{ name: 'pai-files', containerPort: 8077, protocol: 'TCP' }] : []),
               ],
             resources: {
               requests,

@@ -5,25 +5,19 @@ Uses the policy and simulator APIs from LightwheelAI/leisaac
 No synthesized observations, rewards, actions, or success labels.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import socket
 import time
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from checkpoint_bundle import ALGORITHM, inspect_checkpoint
 
 
 def checkpoint_digest(root):
-    result = hashlib.sha256()
-    files = sorted(p for p in Path(root).rglob("*") if p.is_file())
-    if not files:
-        raise ValueError("checkpoint directory is empty")
-    for file in files:
-        result.update(str(file.relative_to(root)).encode())
-        with file.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                result.update(chunk)
-    return result.hexdigest()
+    return inspect_checkpoint(root)[1]["digest"]
 
 
 def main():
@@ -71,7 +65,7 @@ def main():
             "successRate": sum(r["success"] for r in results) / len(results) if results else None,
             "timeoutCount": sum(r["timeout"] for r in results), "timeoutSeconds": args.episode_seconds,
             "latencyMs": {k: float(np.quantile(latency, q)) for k, q in (("p50", .5), ("p95", .95), ("p99", .99))} if latency else None,
-            "checkpointDigest": digest, "episodes": results,
+            "checkpointDigest": digest, "checkpointDigestKind": ALGORITHM, "episodes": results,
             "simulator": {"name": "Isaac Lab", "version": "2.3.0",
                           "leisaacCommit": "24d3bcd3f1e4585740fc79921782c41617237812",
                           "sceneVersion": os.environ.get("LEISAAC_SCENE_REVISION", "unverified")},

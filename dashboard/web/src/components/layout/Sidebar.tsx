@@ -22,6 +22,7 @@ const NAV = [
   { href: '/compute', label: '컴퓨트', icon: Cpu },
   { href: '/queues', label: '대기열·할당량', icon: Layers, feature: 'eks' },
   { href: '/metrics', label: '메트릭', icon: Activity, feature: 'amp' },
+  { href: '/usage', label: '사용량·예상 비용', icon: Activity },
   { href: '/edge', label: '디바이스·배포', icon: Radio },
   { section: '관리' },
   { href: '/projects', label: '프로젝트·구성원', icon: Layers },

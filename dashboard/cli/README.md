@@ -43,7 +43,9 @@ The parent must register the task's `pai-files` port (8077) and provide authenti
 
 Default exclusions: `.git`, `node_modules`, `.env*`, `.aws`, `.ssh`, runtime `.pai-*`/`pai-checkpoint-*`, and the CLI's own credentials file/directory. Symlinks, hard-linked files and special files are not transferred. Unsafe remote paths fail rather than escaping the local root. Local downloads are staged and atomically renamed only after the listed byte count matches. Watch compares content hashes; deleting a local file **never deletes a remote file**. There is no remote delete or ranged/resumable transfer API. Interrupted transfers must be retried.
 
-The CLI does not print request/launch URLs or credentials. Displayed job logs redact URLs, ticket query values and `pai_` tokens. `logs --follow` polls tails and removes overlapping lines; it is not cursor-based lossless replay.
+The CLI does not print request/launch URLs or credentials. Job log content preserves repeated/blank lines and ordinary URLs; capture redacts exact approved task secrets, and the CLI also redacts its exact API token across chunk boundaries. `logs --follow` replays committed archive records using an opaque cursor, with current token/project authorization on every request. Capture gaps are reported separately on stderr; Kubernetes rotation or disconnected source bytes may be missing.
+
+Use `--start beginning` for all retained captured bytes, or the default bounded `--start tail` for recent bytes. Select `--attempt`, `--member`, `--container`, or an exact archive `--stream`. `--cursor-file /private/directory/log-cursor.json` saves a private resume position after clean completion or Ctrl-C and output flush; it is bound to the command, project and token. An abrupt process crash may replay the last invocation because stdout and the checkpoint cannot be committed atomically. Cursors expire after one hour; retained archives expire after 30 days. An expired cursor is an error and does not silently jump to another source. The old `--tail` line-count option is replaced by these archive selectors.
 
 ## Tests
 

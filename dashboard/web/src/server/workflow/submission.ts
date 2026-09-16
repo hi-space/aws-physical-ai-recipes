@@ -13,6 +13,7 @@ import { checkpointSources, checkpointURL, type RecoveryTask, type RecoveryWorkf
 import { applyTrustedImagePins, imagePinBindings, validatePreflightReview } from './image-pins';
 import { backendId, DEFAULT_BACKEND } from '../backends/registry';
 import { runOnBackend } from '../backends/context';
+import { assertExecutionPin } from './execution-profile-policy';
 export const CREDENTIAL_PREFIXES = ['/groot/', '/physical-ai/', '/pai/'] as const;
 export function assertCredentialRef(ref: string): void {
   if (!CREDENTIAL_PREFIXES.some(p => ref.startsWith(p)) || ref.includes('..')) throw badRequest(`credential ref ${ref} must be an SSM parameter path under ${CREDENTIAL_PREFIXES.join(', ')}`);
@@ -36,6 +37,7 @@ export interface SubmitInput {
   deferLaunch?: boolean;
   /** Supplied only by the trusted API preflight binding, never parsed from YAML. */
   imagePins?: Workflow['imagePins'];
+  executionProfilePins?: Workflow['executionProfilePins'];
   preflightReviewedBy?: string;
   preflightReviewedAt?: string;
 }
@@ -98,6 +100,12 @@ async function submitBoundWorkflow(input: SubmitInput, deps: ControllerDeps, ret
     if (input.queue) spec.workflow.queue = input.queue;
   }
   const namespace = spec.workflow.namespace!;
+  for (const task of spec.workflow.tasks) if (task.executionProfile || input.executionProfilePins?.[task.name]) {
+    if (!deps.validateTaskPolicy) throw badRequest('Trusted execution requires a launch-time policy validator');
+    try { assertExecutionPin(input.executionProfilePins?.[task.name], task, spec.workflow.resources[task.resource] ?? {}, {
+      projectId: input.projectId, namespace, backendId: input.backendId,
+    }); } catch { throw badRequest('Trusted execution requires current server-bound administrator approval'); }
+  }
   const hash = createHash('sha256').update(stable({
     spec,
     namespace,
@@ -108,6 +116,7 @@ async function submitBoundWorkflow(input: SubmitInput, deps: ControllerDeps, ret
     templateContentHash: input.templateContentHash,
     templateModified: input.templateModified,
     imagePins: imagePinBindings(imagePins),
+    executionProfilePins: input.executionProfilePins,
     preflightReviewedBy: input.preflightReviewedBy,
     ...(recovery ? { retryOf: recovery.retryOf, checkpointRestoreSources: recovery.sources } : {}),
   })).digest('hex');
@@ -171,6 +180,7 @@ async function submitBoundWorkflow(input: SubmitInput, deps: ControllerDeps, ret
     templateContentHash: input.templateContentHash,
     templateModified: input.templateModified,
     imagePins,
+    executionProfilePins: input.executionProfilePins,
     preflightReviewedBy: input.preflightReviewedBy,
     preflightReviewedAt: input.preflightReviewedAt,
     createdAt: now,
@@ -244,6 +254,7 @@ export async function retryWorkflowInternal(id: string, actor: string, deps: Con
     templateContentHash: wf.templateContentHash,
     templateModified: wf.templateModified,
     imagePins: wf.imagePins,
+    executionProfilePins: wf.executionProfilePins,
     preflightReviewedBy: wf.preflightReviewedBy,
     preflightReviewedAt: wf.preflightReviewedAt,
   }, deps, wf.datasetSnapshots, recovery);

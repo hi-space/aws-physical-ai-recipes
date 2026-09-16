@@ -2,6 +2,7 @@
 """Physical AI CLI. Python standard library only; POSIX secure file operations."""
 import argparse
 import base64
+import codecs
 from contextlib import contextmanager
 import getpass
 import hashlib
@@ -167,6 +168,118 @@ class ApiClient:
         with self.transport.open(method, self.origin + '/api/v1' + path, request_headers, data) as response:
             status_ok(response)
             return None if response.status == 204 else read_json(response)
+
+class LogCursorFile:
+    """Private checkpoint written after output flush, never a log/authentication bearer."""
+    def __init__(self, path, binding):
+        self.store = ConfigStore(path); self.binding = binding
+    def load(self):
+        parent = self.store._parent(True)
+        try:
+            try: fd = os.open(self.store.path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError: return None
+            with os.fdopen(fd, 'r') as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_size > 8192:
+                    raise CliError('Log cursor must be a private regular file.')
+                value = json.load(stream)
+            if value.get('kind') != 'pai-log-cursor-v1' or value.get('binding') != self.binding or not OPAQUE_RE.fullmatch(value.get('cursor', '')):
+                raise CliError('Log cursor file belongs to another command or identity.')
+            return value['cursor']
+        except (OSError, ValueError, TypeError):
+            raise CliError('Cannot read a private log cursor file.') from None
+        finally: os.close(parent)
+    def save(self, cursor):
+        self.load()  # Do not overwrite another file type or a changed binding.
+        parent = self.store._parent(True); temp = '.pai-log-cursor-' + secrets.token_hex(12)
+        try:
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            with os.fdopen(fd, 'w') as stream:
+                json.dump({'kind': 'pai-log-cursor-v1', 'binding': self.binding, 'cursor': cursor}, stream)
+                stream.flush(); os.fsync(stream.fileno())
+            os.replace(temp, self.store.path.name, src_dir_fd=parent, dst_dir_fd=parent); os.fsync(parent)
+        finally:
+            try: os.unlink(temp, dir_fd=parent)
+            except FileNotFoundError: pass
+            os.close(parent)
+
+def replay_logs(api, path, args):
+    if not ID_RE.fullmatch(args.task) or args.cursor and not OPAQUE_RE.fullmatch(args.cursor):
+        raise CliError('Invalid task or log cursor.')
+    if args.attempt is not None and args.attempt < 1 or args.member is not None and not 0 <= args.member < 64:
+        raise CliError('Invalid log attempt/member.')
+    if args.container and not ID_RE.fullmatch(args.container) or args.stream and not re.fullmatch(r'[a-f0-9]{64}', args.stream):
+        raise CliError('Invalid log source.')
+    query = {'start': args.start}
+    for key in ('attempt', 'member', 'container', 'stream'):
+        if getattr(args, key) is not None: query[key] = getattr(args, key)
+    binding = hashlib.sha256(json.dumps([api.origin, api.project_id, hashlib.sha256(api._token.encode()).hexdigest(), path, args.task, query], sort_keys=True).encode()).hexdigest()
+    checkpoint = LogCursorFile(args.cursor_file, binding) if args.cursor_file else None
+    saved = checkpoint.load() if checkpoint else None
+    if saved and args.cursor and saved != args.cursor: raise CliError('Explicit cursor differs from the cursor file.')
+    cursor, sequence, stream_id = args.cursor or saved, None, args.stream
+    pending = b''; known_secret = api._token.encode()
+    decoder = codecs.getincrementaldecoder('utf-8')('replace')
+    def output(data, final=False):
+        nonlocal pending
+        data = pending + data; end = len(data) if final else max(0, len(data) - len(known_secret) + 1)
+        result = bytearray(); pos = 0
+        while pos < end:
+            at = data.find(known_secret, pos)
+            if at < 0 or at >= end: result.extend(data[pos:end]); pos = end; break
+            result.extend(data[pos:at]); result.extend(b'[REDACTED]'); pos = at + len(known_secret)
+        pending = data[pos:]
+        if hasattr(sys.stdout, 'buffer'): sys.stdout.buffer.write(result); sys.stdout.buffer.flush()
+        else: sys.stdout.write(decoder.decode(result, final=final)); sys.stdout.flush()
+    completed = False
+    try:
+        while True:
+            request_query = dict(query)
+            if cursor: request_query['cursor'] = cursor
+            try:
+                page = require_object(api.json('GET', path + '/tasks/' + args.task + '/logs?' + urllib.parse.urlencode(request_query)))
+            except CliError as error:
+                # These are local generic transport/status messages, never upstream log content.
+                transient = str(error).startswith('HTTPS connection failed.') or bool(re.fullmatch(r'Request failed \(HTTP 5[0-9]{2}\)\.', str(error)))
+                if not args.follow or not transient: raise
+                print('Log connection interrupted; retrying the saved position.', file=sys.stderr); time.sleep(2); continue
+            if page.get('source') == 'none':
+                if not args.follow: completed = True; break
+                time.sleep(2); continue
+            source = require_object(page.get('stream'))
+            records = page.get('records'); next_cursor = page.get('cursor')
+            if not isinstance(records, list) or len(records) > 64 or not isinstance(next_cursor, str) or not OPAQUE_RE.fullmatch(next_cursor):
+                raise CliError('Invalid archive replay page.')
+            if not re.fullmatch(r'[a-f0-9]{64}', source.get('id', '')) or stream_id and stream_id != source['id']:
+                raise CliError('Archive source changed during replay.')
+            next_sequence = sequence; pieces = []
+            for r in records:
+                r = require_object(r); seq = r.get('sequence')
+                if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1: raise CliError('Invalid archive sequence.')
+                if next_sequence is not None and seq <= next_sequence: continue
+                if next_sequence is not None and seq != next_sequence + 1: raise CliError('Archive replay skipped a committed record.')
+                if r.get('kind') == 'data':
+                    value = r.get('data')
+                    if not isinstance(value, str) or len(value) > 21848: raise CliError('Archive record exceeds bounds.')
+                    try: decoded = base64.b64decode(value, validate=True)
+                    except ValueError: raise CliError('Invalid archive bytes.') from None
+                    if len(decoded) > 16384: raise CliError('Archive record exceeds bounds.')
+                    pieces.append(decoded)
+                elif r.get('kind') == 'gap':
+                    print('Log capture coverage boundary; original source bytes may be missing.', file=sys.stderr)
+                else: raise CliError('Invalid archive record.')
+                next_sequence = seq
+            output(b''.join(pieces))
+            cursor, sequence, stream_id = next_cursor, next_sequence, source['id']
+            if page.get('hasMore'): continue
+            if not args.follow or source.get('state') in ('closed', 'capped'): completed = True; break
+            time.sleep(2)
+    except KeyboardInterrupt:
+        completed = True
+    finally:
+        output(b'', final=True)
+        # Abrupt process death can replay the last invocation; stdout/checkpoint are not atomic.
+        if completed and checkpoint and cursor: checkpoint.save(cursor)
 
 def ignored(relative):
     return any(part in IGNORED or part.startswith(('.env', '.pai-', 'pai-checkpoint-')) for part in relative.split('/'))
@@ -404,7 +517,10 @@ def parser():
     submit.add_argument('--acknowledge-preflight', action='store_true', help='Confirm you reviewed image/runtime preflight findings for this workflow; blocked findings cannot be overridden.')
     for action in ('status', 'cancel'):
         item = workflows.add_parser(action); item.add_argument('id')
-    logs = workflows.add_parser('logs'); logs.add_argument('id'); logs.add_argument('--task', required=True); logs.add_argument('--tail', type=int, default=1000); logs.add_argument('--follow', action='store_true')
+    logs = workflows.add_parser('logs'); logs.add_argument('id'); logs.add_argument('--task', required=True); logs.add_argument('--follow', action='store_true')
+    logs.add_argument('--start', choices=('tail', 'beginning'), default='tail', help='Replay bounded archive tail or all committed bytes')
+    logs.add_argument('--attempt', type=int); logs.add_argument('--member', type=int); logs.add_argument('--container'); logs.add_argument('--stream')
+    logs.add_argument('--cursor'); logs.add_argument('--cursor-file', type=Path, help='Private resume checkpoint, saved after clean exit/output flush')
     sync = commands.add_parser('sync').add_subparsers(dest='action', required=True)
     for action in ('upload', 'download', 'watch'):
         item = sync.add_parser(action); item.add_argument('--workflow', required=True); item.add_argument('--task', required=True); item.add_argument('--local', type=Path, required=True); item.add_argument('--path', default=''); item.add_argument('--interval', type=float, default=2)
@@ -467,19 +583,7 @@ def main(argv=None):
                     if data.get('id') != args.id or not isinstance(data.get('status'), str): raise CliError('Invalid workflow cancellation response.')
                     print_json({'id': data.get('id'), 'status': data.get('status')})
                 else:
-                    if not ID_RE.fullmatch(args.task) or not 1 <= args.tail <= 5000: raise CliError('Invalid task or tail size.')
-                    previous = []
-                    while True:
-                        data = require_object(api.json('GET', path + '/tasks/' + args.task + '/logs?' + urllib.parse.urlencode({'tail': args.tail})))
-                        lines = data.get('lines')
-                        if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines): raise CliError('Log API is unavailable.')
-                        overlap = 0
-                        for size in range(min(len(previous), len(lines)), 0, -1):
-                            if previous[-size:] == lines[:size]: overlap = size; break
-                        for line in lines[overlap:]: print(redact(line))
-                        previous = lines
-                        if not args.follow: break
-                        time.sleep(2)
+                    replay_logs(api, path, args)
         else:
             if args.interval < 1: raise CliError('Watch interval must be at least one second.')
             safe_relative(args.path, root=True)

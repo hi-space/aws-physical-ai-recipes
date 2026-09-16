@@ -14,6 +14,7 @@ beforeEach(() => {
       ? { VersionId: 'source-version', ETag: '"source-etag"', ContentLength: 3 }
       : { VersionId: 'archive-version', ContentLength: 3, ChecksumSHA256: 'ZmFrZS1jaGVja3N1bQ==', ChecksumType: 'FULL_OBJECT' };
     if (command.constructor.name === 'CopyObjectCommand') return { VersionId: 'archive-version' };
+    if (command.constructor.name === 'PutObjectCommand') return { VersionId: 'manifest-version' };
     return {};
   });
 });
@@ -220,4 +221,32 @@ describe('immutable S3 snapshots', () => {
       : original(command, ...args));
     await expect(snapshotPrefix(input)).rejects.toThrow(/No data/);
   });
+});
+
+describe('selected runtime-compatible dataset versions',()=>{
+  it('copies only explicitly included relative paths and applies excludes before publication',async()=>{
+    const base=send.getMockImplementation()!;
+    send.mockImplementation(async command=>command.constructor.name==='ListObjectsV2Command'?{Contents:['train/a.bin','train/private/secret.bin','test/a.bin','train2/a.bin','labels.json'].map(path=>({Key:'data/'+path}))}:base(command));
+    const result=await snapshotPrefix({...input,selection:{include:['train/','labels.json'],exclude:['train/private/']}});
+    expect(result.manifest.objects.map(o=>o.path)).toEqual(['labels.json','train/a.bin']);
+    expect(result.manifest.selection).toEqual({include:['labels.json','train/'],exclude:['train/private/']});
+    const copies=send.mock.calls.map(([c])=>c).filter(c=>c.constructor.name==='CopyObjectCommand');
+    expect(copies).toHaveLength(2);
+  });
+  it('rejects an oversized selected inventory before any copies or READY manifest',async()=>{
+    const base=send.getMockImplementation()!;
+    send.mockImplementation(async command=>command.constructor.name==='ListObjectsV2Command'?{Contents:Array.from({length:1025},(_,i)=>({Key:`data/${i}.bin`}))}:base(command));
+    await expect(snapshotPrefix(input)).rejects.toThrow(/1024/);
+    expect(send.mock.calls.some(([c])=>['CopyObjectCommand','PutObjectCommand'].includes(c.constructor.name))).toBe(false);
+  });
+  it('does not reuse a manifest for a different include/exclude selection',async()=>{
+    send.mockImplementation(async command=>command.constructor.name==='GetObjectCommand'?{Body:{transformToString:async()=>JSON.stringify({schemaVersion:1,identity:input.identity,objects:[{path:'a'}],selection:{include:['old/'],exclude:[]}})}}:{});
+    await expect(snapshotPrefix({...input,selection:{include:['new/']}})).rejects.toThrow(/selection mismatch/);
+  });
+});
+it('does not adopt an upload snapshot whose pinned object version is gone or changed',async()=>{
+  const first=await snapshotPrefix(input),original=send.getMockImplementation()!;
+  send.mockImplementation(async command=>command.constructor.name==='GetObjectCommand'?{Body:{transformToString:async()=>JSON.stringify(first.manifest)}}:
+    command.constructor.name==='HeadObjectCommand'?{VersionId:'different',ContentLength:3,ChecksumSHA256:'changed'}:original(command));
+  await expect(snapshotPrefix(input)).rejects.toThrow(/version verification/);
 });

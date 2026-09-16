@@ -5,6 +5,7 @@ import { checkpointPath, checkpointSignature, checkpointURL, type CheckpointSour
 import type { BrokerDeps } from './broker';
 import { replicaIndex, type AuthContext } from './ledger';
 import { CheckpointService, checkpointIndexKey, type Plan, type CommittedCheckpointIndex } from './uploads';
+import { selectPlanPage, type PlanPage } from './plan-pages';
 
 const sourceSchema = z.object({
   workflowId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/),
@@ -67,7 +68,7 @@ export class CheckpointRestoreService {
     return candidates[0];
   }
 
-  async plan(token: string, replica: number, signal?: AbortSignal) {
+  async plan(token: string, replica: number, signal?: AbortSignal, page?: PlanPage) {
     const current = await this.authenticate(token);
     replicaIndex(current, replica);
     const parsed = z.array(sourceSchema).max(32).safeParse((current.task as RecoveryTask).checkpointRestoreSources ?? []);
@@ -89,28 +90,36 @@ export class CheckpointRestoreService {
         }
         const selected = await this.select(source, context, index, checkpointSignature(checkpoint));
         if (!selected) continue;
-        const verified = await service.readCommitted(context, selected, signal);
+        const verified = await service.readCommitted(context, selected, signal, false);
         if (verified.index !== index) throw new HttpError(409, 'Committed checkpoint slot mismatch');
         await this.authenticate(token);
-        const files = [];
-        for (const object of verified.manifest.objects) {
-          signal?.throwIfAborted();
-          files.push({
-            path: object.path, size: object.size, checksumSHA256: object.checksumSHA256,
-            checksumType: 'FULL_OBJECT' as const, versionId: object.versionId,
-            url: await service.storage.presignGet(verified.bucket, object.key, object.versionId, 300),
-          });
-        }
         checkpoints.push({
           index, path: checkpointPath(checkpoint, { outputPath: root, workflowId: current.workflow.id, task: current.claims.task }),
           destination: posix.join(root, '.pai-resume', `replica-${replica}`, `checkpoint-${index}`, selected.receipt!.manifestHash),
-          publicationId: selected.publicationId, manifestHash: selected.receipt!.manifestHash, source, files,
+          publicationId: selected.publicationId, manifestHash: selected.receipt!.manifestHash, source,
+          files: verified.manifest.objects.map(object => ({ ...object, bucket: verified.bucket })),
         });
         break;
       }
     }
     signal?.throwIfAborted();
+    const selected = selectPlanPage(checkpoints, current, this.deps.signingKey, `checkpoints:${replica}`, page);
+    const result = [];
+    for (const checkpoint of selected.groups) {
+      const files = [];
+      for (const object of checkpoint.files) {
+        signal?.throwIfAborted();
+        await service.verifyCommittedObject(object.bucket, object, signal);
+        await this.authenticate(token);
+        files.push({
+          path: object.path, size: object.size, checksumSHA256: object.checksumSHA256,
+          checksumType: 'FULL_OBJECT' as const, versionId: object.versionId,
+          url: await service.storage.presignGet(object.bucket, object.key, object.versionId, 300),
+        });
+      }
+      result.push({ ...checkpoint, files });
+    }
     await this.authenticate(token);
-    return { checkpoints };
+    return { checkpoints: result, ...(selected.nextCursor ? { nextCursor: selected.nextCursor } : {}) };
   }
 }

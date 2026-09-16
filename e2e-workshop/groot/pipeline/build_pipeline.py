@@ -102,6 +102,15 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     # (/opt/ml/checkpoints → S3 동기화 포함) 저장마다 수십 GB 가 S3 에 쌓이므로, 100 스텝 Quick
     # validation 은 기본 50 이 맞지만 6000 스텝 본격 학습은 500~1000 으로 올려 실행해야 한다.
     p_save_steps = ParameterInteger(name="SaveSteps", default_value=int(save_steps))
+    # Empty defaults keep non-dashboard invocations unscoped. The dashboard
+    # injects these reserved values from its authenticated project context.
+    p_project = ParameterString(name="DashboardProjectId", default_value="")
+    p_owner = ParameterString(name="DashboardOwnerSubject", default_value="")
+    training_env = dict(env or {})
+    training_env["PAI_PROJECT_ID"] = p_project
+    training_env["PAI_OWNER_SUBJECT"] = p_owner
+    if training_env.get("MLFLOW_TRACKING_URI"):
+        training_env["MLFLOW_EXPERIMENT_NAME"] = Join(on="/", values=["pai", p_project, exec_id])
 
     # 1) TransformDataset — FrameworkProcessor(SKLearn|PyTorch) + source_dir(requirements.txt 자동설치)
     transform_processor = _transform_processor(
@@ -134,7 +143,7 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
                          "num_gpus": p_num_gpus, "export_s3_uri": export_s3_uri,
                          # train.py 가 MLflow run 태그(sagemaker.checkpoint_s3_uri)로 기록
                          "checkpoint_s3_uri": checkpoint_s3},
-        sagemaker_session=session, environment=env or {})
+        sagemaker_session=session, environment=training_env)
     train_args = estimator.fit(inputs={"dataset": TrainingInput(s3_data=dataset_uri)})
     training_step = TrainingStep(
         name="GR00TFinetune", step_args=train_args,
@@ -195,7 +204,9 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     register_step = ModelStep(name="RegisterModel", step_args=model.register(
         content_types=["application/x-npy"], response_types=["application/json"],
         inference_instances=["ml.g6.4xlarge"], transform_instances=["ml.g6.4xlarge"],
-        model_package_group_name=model_package_group, approval_status="Approved"))
+        # Smoke validates shape/finite values only. Application quality approval
+        # and any explicit Registry propagation are separate authenticated actions.
+        model_package_group_name=model_package_group, approval_status="PendingManualApproval"))
     fail_step = FailStep(name="SmokeFailed",
                          error_message="Smoke eval failed — model not registered")
     # JsonGet(s3_uri) 는 스텝 속성 참조가 아니라서 의존성이 자동 생성되지 않는다 → depends_on 명시.
@@ -209,6 +220,6 @@ def build_pipeline(*, session, role, training_image_uri, bucket, source_root,
     return Pipeline(
         name=f"groot-sm-finetuning{('-' + alias) if alias else ''}",
         parameters=[p_embodiment, p_hf_dataset, p_train_inst, p_eval_inst,
-                    p_max_steps, p_global_batch, p_num_gpus, p_save_steps],
+                    p_max_steps, p_global_batch, p_num_gpus, p_save_steps, p_project, p_owner],
         steps=[transform_step, training_step, eval_step, gate],
         sagemaker_session=session)

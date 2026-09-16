@@ -31,6 +31,19 @@ def resources(namespaces):
         "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "physical-ai-discovery"},
         "subjects": [{"kind": "Group", "apiGroup": "rbac.authorization.k8s.io", "name": f"physical-ai:{role}"} for role in ["web", "controller", "gateway"]],
     }]
+    result.extend([{
+        "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole",
+        "metadata": {"name": "physical-ai-scaling", "labels": MANAGED},
+        "rules": [
+            {"apiGroups": [""], "resources": ["nodes"], "verbs": ["patch"]},
+            {"apiGroups": ["authorization.k8s.io"], "resources": ["selfsubjectaccessreviews"], "verbs": ["create"]},
+        ],
+    }, {
+        "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding",
+        "metadata": {"name": "physical-ai-scaling", "labels": MANAGED},
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "physical-ai-scaling"},
+        "subjects": [{"kind": "Group", "apiGroup": "rbac.authorization.k8s.io", "name": f"physical-ai:{role}"} for role in ["web", "controller"]],
+    }])
     for namespace in namespaces:
         meta = {"namespace": namespace, "labels": MANAGED}
         verbs = ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]

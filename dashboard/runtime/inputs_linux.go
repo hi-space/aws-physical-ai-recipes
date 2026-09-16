@@ -23,7 +23,8 @@ const receiptName = ".pai-input-receipt.json"
 const inputLockName = ".pai-input-lock"
 
 type inputPlan struct {
-	Inputs []input `json:"inputs"`
+	Inputs     []input `json:"inputs"`
+	NextCursor string  `json:"nextCursor,omitempty"`
 }
 type input struct {
 	Destination  string      `json:"destination,omitempty"`
@@ -64,8 +65,13 @@ func validateInputs(plan *inputPlan, projectID, root, token string) error {
 		scope = filepath.Join(scope, "projects", projectID)
 	}
 	destinations := map[string]bool{}
+	total := 0
 	for i := range plan.Inputs {
 		in := &plan.Inputs[i]
+		total += len(in.Files)
+		if total > maxPlanFiles {
+			return errors.New("input plan exceeds aggregate file limit")
+		}
 		if in.Destination == "" {
 			in.Destination = in.FSXPath
 		}
@@ -85,7 +91,7 @@ func validateInputs(plan *inputPlan, projectID, root, token string) error {
 		destinations[in.Destination] = true
 		paths := map[string]bool{}
 		for _, f := range in.Files {
-			if !safeRelativePath(f.Path) || paths[f.Path] || f.Size < 0 || f.Size == 1<<63-1 {
+			if !safeRelativePath(f.Path) || paths[f.Path] || f.Size < 0 || f.Size > maxCheckpointFileBytes {
 				return errors.New("invalid input file path or size")
 			}
 			for _, part := range strings.Split(f.Path, "/") {
@@ -147,8 +153,7 @@ func (r *runner) prepareInputs(parent context.Context) int {
 		}
 	}()
 	defer func() { cancel(context.Canceled); <-done }()
-	var plan inputPlan
-	err := r.broker.request(ctx, http.MethodGet, "/runtime/inputs", nil, &plan, 200)
+	plan, err := r.fetchInputPlan(ctx)
 	if err == nil {
 		err = validateInputs(&plan, r.contract.ProjectID, r.opts.inputRoot, r.broker.token)
 	}

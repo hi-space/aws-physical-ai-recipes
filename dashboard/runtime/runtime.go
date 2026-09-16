@@ -192,7 +192,11 @@ func (r *runner) run(parent context.Context, argv []string) int {
 		issue = context.Cause(session)
 	}
 	// Do not let action normalization mask lost leases or failed publication.
-	finalCtx, finish := context.WithTimeout(session, r.opts.finalTimeout)
+	finalBudget := r.opts.publicationTimeout
+	if errors.Is(issue, errExternalStop) || parent.Err() != nil {
+		finalBudget = r.opts.finalTimeout
+	}
+	finalCtx, finish := context.WithTimeout(session, finalBudget)
 	defer finish()
 	if session.Err() == nil && result != nil {
 		for _, cp := range r.contract.Checkpoint {

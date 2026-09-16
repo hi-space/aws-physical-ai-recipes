@@ -1,6 +1,7 @@
 import type { TopologyPlan } from '../workflow/topology/types';
 import type { TopologyDiagnostics } from '../workflow/topology/observe';
 import type { WorkflowSpec } from '../workflow/schema';
+import type { ExecutionProfilePin } from '../workflow/execution-profile-policy';
 export type WorkflowStatus = 'PENDING' | 'RUNNING' | 'CANCELLING' | 'FINALIZING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export type TaskPhase = 'WAITING' | 'LAUNCHING' | 'INITIALIZING' | 'RETRY_WAIT' | 'CANCELLING' | 'FINALIZING' | 'QUEUED' | 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'SKIPPED';
 export const TERMINAL_WF: ReadonlySet<WorkflowStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
@@ -30,6 +31,7 @@ export interface Workflow {
   backendConfigHash?: string;
   specHash?: string;
   imagePins?: TaskImagePins;
+  executionProfilePins?: Record<string, ExecutionProfilePin>;
   preflightReviewedBy?: string;
   preflightReviewedAt?: string;
   datasetSnapshots?: Record<string, Record<number, DatasetSnapshot>>;
@@ -111,6 +113,9 @@ export interface Dataset {
   format?: string;
 }
 export interface DatasetVersion {
+  /** Certified aggregate broker metadata bytes, excluding paginated signed URLs. */
+  hydrationBytes?: number;
+  selection?: { include?: string[]; exclude?: string[] };
   projectId?: string;
   ownerSubject?: string;
   dataset: string;
@@ -128,6 +133,7 @@ export interface DatasetVersion {
   publicationId?: string;
   producedAttempt?: number;
   manifestUri?: string;
+  manifestVersionId?: string;
   manifestHash?: string;
   verifiedAt?: string;
   state?: 'PENDING' | 'READY';
@@ -188,6 +194,8 @@ export interface Session {
   jobUid?: string;
   podName?: string;
   podUid?: string;
+  hostNetwork?: boolean;
+  trustedExecution?: boolean;
   container?: string;
   port?: number;
   portName?: string;
@@ -232,6 +240,8 @@ export interface DatasetSnapshot {
   manifestHash?: string;
 }
 export interface ArtifactReceipt {
+  manifestVersionId?: string;
+  hydrationBytes?: number;
   uri: string;
   manifestUri: string;
   manifestHash: string;

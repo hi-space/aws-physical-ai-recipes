@@ -2,6 +2,10 @@ import {
   DescribePipelineCommand,
   DescribePipelineExecutionCommand,
   DescribeTrainingJobCommand,
+  DescribeProcessingJobCommand,
+  DescribePipelineDefinitionForExecutionCommand,
+  DescribeModelPackageCommand,
+  UpdateModelPackageCommand,
   ListModelPackagesCommand,
   ListPipelineExecutionStepsCommand,
   ListPipelineExecutionsCommand,
@@ -54,12 +58,42 @@ export async function stopExecution(arn: string, clientRequestToken: string) {
 }
 
 export async function describeExecution(arn: string) {
+  async function pages<T>(fetch: (token?: string) => Promise<{ items: T[]; token?: string }>) {
+    const items: T[] = [], seen = new Set<string>(); let token: string | undefined;
+    do {
+      const page = await fetch(token); items.push(...page.items); token = page.token;
+      if (token && seen.has(token)) throw new Error('Repeated SageMaker pagination token');
+      if (token) seen.add(token);
+    } while (token);
+    return items;
+  }
   const [exec, steps, params] = await Promise.all([
     sagemaker().send(new DescribePipelineExecutionCommand({ PipelineExecutionArn: arn })),
-    sagemaker().send(new ListPipelineExecutionStepsCommand({ PipelineExecutionArn: arn, MaxResults: 100 })),
-    sagemaker().send(new ListPipelineParametersForExecutionCommand({ PipelineExecutionArn: arn, MaxResults: 50 })),
+    pages(async NextToken => {
+      const page = await sagemaker().send(new ListPipelineExecutionStepsCommand({ PipelineExecutionArn: arn, MaxResults: 100, NextToken }));
+      return { items: page.PipelineExecutionSteps ?? [], token: page.NextToken };
+    }),
+    pages(async NextToken => {
+      const page = await sagemaker().send(new ListPipelineParametersForExecutionCommand({ PipelineExecutionArn: arn, MaxResults: 50, NextToken }));
+      return { items: page.PipelineParameters ?? [], token: page.NextToken };
+    }),
   ]);
-  return { execution: exec, steps: steps.PipelineExecutionSteps ?? [], parameters: params.PipelineParameters ?? [] };
+  return { execution: exec, steps, parameters: params };
+}
+export async function definitionForExecution(arn: string) {
+  return sagemaker().send(new DescribePipelineDefinitionForExecutionCommand({ PipelineExecutionArn: arn }));
+}
+export async function describeProcessingJob(name: string) {
+  return sagemaker().send(new DescribeProcessingJobCommand({ ProcessingJobName: name }));
+}
+export async function describeModelPackage(arn: string) {
+  return sagemaker().send(new DescribeModelPackageCommand({ ModelPackageName: arn }));
+}
+export async function approveModelPackage(arn: string, token: string, description: string, metadata: Record<string, string>) {
+  return sagemaker().send(new UpdateModelPackageCommand({
+    ModelPackageArn: arn, ModelApprovalStatus: 'Approved', ClientToken: token,
+    ApprovalDescription: description, CustomerMetadataProperties: metadata,
+  }));
 }
 
 export async function describeTrainingJob(name: string) {

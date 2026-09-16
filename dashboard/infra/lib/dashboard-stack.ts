@@ -18,6 +18,7 @@ import { buildEnv, type DiscoveredOutputs } from './env-contract';
 import { OrchestrationConstruct } from './constructs/orchestration';
 import { WorkloadImages } from './constructs/workload-images';
 import { OperationsConstruct } from './constructs/operations';
+import { SourceBuildProject } from './constructs/source-build-project';
 
 export interface DashboardStackProps extends cdk.StackProps {
   accountId: string;
@@ -64,6 +65,14 @@ export class DashboardStack extends cdk.Stack {
     const workloadImages = new WorkloadImages(this, 'WorkloadImages', {
       repositoryRoot: path.resolve(props.webAppPath, '..', '..'),
       extended: props.extendedImages,
+      optionalImages: typeof this.node.tryGetContext('optionalImages') === 'string'
+        ? JSON.parse(this.node.tryGetContext('optionalImages')) : this.node.tryGetContext('optionalImages'),
+    });
+    const sourceDirectory = this.node.tryGetContext('sourceBuildDirectory');
+    if (sourceDirectory !== undefined && typeof sourceDirectory !== 'string') throw new Error('sourceBuildDirectory must be a local source path');
+    const sourceBuild = new SourceBuildProject(this, 'ResearcherSourceBuild', {
+      repositoryRoot: path.resolve(props.webAppPath, '..', '..'), projectId: 'workshop',
+      ...(sourceDirectory ? { sourceDirectory: path.resolve(props.webAppPath, '..', '..', sourceDirectory) } : {}),
     });
     const runtimeImage = new ecrAssets.DockerImageAsset(this, 'TaskRuntimeImage', {
       directory: path.resolve(props.webAppPath, '..', 'runtime'), platform: ecrAssets.Platform.LINUX_AMD64,
@@ -100,6 +109,8 @@ export class DashboardStack extends cdk.Stack {
       ...buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn }),
       ...workloadImages.environment,
       IMAGE_PROFILES_ENFORCED: '1',
+      LOG_ARCHIVE_ENABLED: '1',
+      SOURCE_BUILD_TARGETS_JSON: cdk.Stack.of(this).toJsonString([sourceBuild.target]),
       BACKEND_HOME_VPC_ID: vpc.vpcId,
       EKS_BACKENDS_JSON: JSON.stringify(typeof this.node.tryGetContext('eksBackends') === 'string'
         ? JSON.parse(this.node.tryGetContext('eksBackends')) : this.node.tryGetContext('eksBackends') ?? []),
@@ -145,6 +156,15 @@ export class DashboardStack extends cdk.Stack {
 
     // ------------------------------------------------------------------ IAM
     const role = svc.taskRole;
+    sourceBuild.grantControlPlane(role);
+    sourceBuild.grantControlPlane(svc.controllerRole);
+    if (d.hyperPodEks?.ClusterArn) for (const operator of [role, svc.controllerRole]) {
+      operator.addToPolicy(new iam.PolicyStatement({
+        sid: 'ReviewedHyperPodCapacity', actions: ['sagemaker:DescribeCluster', 'sagemaker:ListClusterNodes',
+          'sagemaker:UpdateCluster', 'sagemaker:BatchDeleteClusterNodes'],
+        resources: [d.hyperPodEks.ClusterArn],
+      }));
+    }
     const builds = environment.BUILD_PROJECTS.split(',');
     role.addToPolicy(new iam.PolicyStatement({
       actions: ['codebuild:BatchGetProjects', 'codebuild:ListBuildsForProject', 'codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
@@ -162,6 +182,15 @@ export class DashboardStack extends cdk.Stack {
     orchestration.queue.grantConsumeMessages(svc.controllerRole);
     orchestration.callbacks.grantReadWriteData(svc.controllerRole);
     orchestration.artifacts.grantReadWrite(svc.controllerRole);
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'CheckpointMultipartDiscovery', actions: ['s3:ListBucketMultipartUploads'],
+      resources: [orchestration.artifacts.bucketArn],
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'CheckpointMultipartLifecycle',
+      actions: ['s3:ListMultipartUploadParts', 's3:AbortMultipartUpload', 's3:GetObjectVersion', 's3:DeleteObjectVersion'],
+      resources: [orchestration.artifacts.arnForObjects('projects/*')],
+    }));
     orchestration.stateMachine.grantStartExecution(svc.controllerRole);
     svc.controllerRole.addToPolicy(new iam.PolicyStatement({
       actions: ['states:SendTaskSuccess', 'states:SendTaskFailure', 'states:SendTaskHeartbeat'], resources: ['*'],
@@ -243,6 +272,26 @@ export class DashboardStack extends cdk.Stack {
       actions: ['iam:PassRole'], resources: [d.groot.SageMakerRoleArn],
       conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
     }));
+    if (d.groot) {
+      const pipelineArn = `arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${d.groot.PipelineName ?? `groot-sm-finetuning-${props.accountId}`}`;
+      const packages = `arn:aws:sagemaker:${props.region}:${props.accountId}:model-package/groot-sm-models-${props.accountId}/*`;
+      for (const reader of [role, svc.controllerRole]) {
+        reader.addToPolicy(new iam.PolicyStatement({
+          sid: 'PipelineArchiveEvidence',
+          actions: ['sagemaker:DescribePipeline', 'sagemaker:DescribePipelineExecution', 'sagemaker:DescribePipelineDefinitionForExecution',
+            'sagemaker:ListPipelineExecutions', 'sagemaker:ListPipelineExecutionSteps', 'sagemaker:ListPipelineParametersForExecution'],
+          resources: [pipelineArn, `${pipelineArn}/execution/*`],
+        }));
+        reader.addToPolicy(new iam.PolicyStatement({
+          sid: 'PipelineJobEvidence', actions: ['sagemaker:DescribeTrainingJob', 'sagemaker:DescribeProcessingJob'],
+          resources: [`arn:aws:sagemaker:${props.region}:${props.accountId}:training-job/*`, `arn:aws:sagemaker:${props.region}:${props.accountId}:processing-job/*`],
+        }));
+        reader.addToPolicy(new iam.PolicyStatement({ sid: 'ConfiguredModelPackageEvidence',
+          actions: ['sagemaker:DescribeModelPackage'], resources: [packages] }));
+      }
+      role.addToPolicy(new iam.PolicyStatement({ sid: 'ExplicitVerifiedModelApproval',
+        actions: ['sagemaker:UpdateModelPackage'], resources: [packages] }));
+    }
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Eks', actions: ['eks:DescribeCluster', 'eks:ListAddons', 'eks:DescribeAddon', 'eks:ListClusters'], resources: ['*'] }));
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Sts', actions: ['sts:GetCallerIdentity'], resources: ['*'] }));
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Amp', actions: ['aps:QueryMetrics', 'aps:GetLabels', 'aps:GetSeries', 'aps:GetMetricMetadata', 'aps:DescribeWorkspace'], resources: ['*'] }));

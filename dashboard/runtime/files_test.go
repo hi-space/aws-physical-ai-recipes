@@ -352,6 +352,41 @@ func TestFileUploadLimitEnvironmentIsBounded(t *testing.T) {
 	}
 }
 
+func TestFilesDisabledEnvironmentRejectsInvalidValues(t *testing.T) {
+	for _, value := range []string{"", "0", "true", "false", "01", " 1"} {
+		t.Setenv("PAI_RUNTIME_FILES_DISABLED", value)
+		if _, err := fileOptionsFromEnvironment(); err == nil {
+			t.Fatalf("invalid disable flag accepted: %q", value)
+		}
+	}
+	t.Setenv("PAI_RUNTIME_FILES_DISABLED", "1")
+	options, err := fileOptionsFromEnvironment()
+	if err != nil || !options.disabled {
+		t.Fatalf("disable flag ignored: %+v %v", options, err)
+	}
+}
+
+func TestFilesDisabledRunsChildWithoutBindingOccupiedPort(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:8077")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	f := newFixture(t)
+	f.released.Store(true)
+	t.Setenv("PAI_RUNTIME_ENDPOINT", f.server.URL)
+	t.Setenv("PAI_RUNTIME_TOKEN", "test-secret")
+	t.Setenv("OSMO_TASK_REPLICA_INDEX", "0")
+	t.Setenv("PAI_RUNTIME_FILES_DISABLED", "1")
+	raw, _ := json.Marshal(map[string]any{"workflowId": "r", "task": "trainer", "attempt": 1, "outputPath": t.TempDir()})
+	var out, logs bytes.Buffer
+	code := runCLI(context.Background(), []string{"--contract", string(raw), "--", "/bin/sh", "-c", "printf child-ran"},
+		nil, &out, &logs, func(context.Context) error { return nil })
+	if code != 0 || out.String() != "child-ran" {
+		t.Fatalf("disabled service attempted to bind or blocked child: %d %s %s", code, out.String(), logs.String())
+	}
+}
+
 func TestPrepareInputsDoesNotStartFilesEvenWithOutputPath(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:8077")
 	if err != nil {

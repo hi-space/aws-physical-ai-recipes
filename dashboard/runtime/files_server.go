@@ -14,6 +14,7 @@ import (
 )
 
 type fileOptions struct {
+	disabled        bool
 	address         string
 	maxBytes        int64
 	transferTimeout time.Duration
@@ -24,6 +25,12 @@ func defaultFileOptions() fileOptions {
 }
 func fileOptionsFromEnvironment() (fileOptions, error) {
 	opts := defaultFileOptions()
+	if value, present := os.LookupEnv("PAI_RUNTIME_FILES_DISABLED"); present {
+		if value != "1" {
+			return opts, errors.New("invalid PAI_RUNTIME_FILES_DISABLED; only 1 or unset is supported")
+		}
+		opts.disabled = true
+	}
 	if value := os.Getenv("PAI_RUNTIME_FILES_MAX_BYTES"); value != "" {
 		n, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || n < 1 || n > maxFileBytes || !digits.MatchString(value) {
@@ -44,6 +51,9 @@ type fileService struct {
 }
 
 func startFileService(ctx context.Context, root string, opts fileOptions, onFailure func(error)) (*fileService, error) {
+	if opts.disabled {
+		return nil, nil
+	}
 	host, port, err := net.SplitHostPort(opts.address)
 	if err != nil || host != "127.0.0.1" || port == "" {
 		return nil, errors.New("file service must listen on IPv4 loopback")

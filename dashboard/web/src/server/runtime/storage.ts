@@ -1,17 +1,22 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3 } from '../aws/clients';
+import { multipartStorage, type MultipartStorage } from './multipart-storage';
 export interface FileDescription {
   path: string;
   size: number;
   checksumSHA256: string;
+  /** Stored transport checksum can be composite; checksumSHA256 remains full-file. */
+  storageChecksumSHA256?: string;
+  storageChecksumType?: 'FULL_OBJECT' | 'COMPOSITE';
 }
 export interface StoredManifest {
   body: string;
   versionId: string;
 }
 export interface ObjectStorage {
-  presignPut(bucket: string, key: string, file: FileDescription, expires: number): Promise<{
+  multipart?: MultipartStorage;
+  presignPut(bucket: string, key: string, file: FileDescription, expires: number, immutable?: boolean): Promise<{
     url: string;
     headers: Record<string, string>;
   }>;
@@ -20,19 +25,22 @@ export interface ObjectStorage {
     size: number;
     checksumSHA256: string;
     checksumType?: 'FULL_OBJECT' | 'COMPOSITE';
+    metadata?: Record<string, string>;
   }>;
   readManifest(bucket: string, key: string, signal?: AbortSignal, versionId?: string): Promise<StoredManifest | undefined>;
   writeManifest(bucket: string, key: string, body: string, signal?: AbortSignal): Promise<StoredManifest>;
   presignGet(bucket: string, key: string, versionId: string, expires: number): Promise<string>;
 }
 export const objectStorage: ObjectStorage = {
-  async presignPut(bucket, key, file, expires) {
+  multipart: multipartStorage,
+  async presignPut(bucket, key, file, expires, immutable) {
     const url = await getSignedUrl(s3(), new PutObjectCommand({
       Bucket: bucket,
       Key: key,
       ContentLength: file.size,
       ContentType: 'application/octet-stream',
-      ChecksumSHA256: file.checksumSHA256
+      ChecksumSHA256: file.checksumSHA256,
+      ...(immutable ? { IfNoneMatch: '*' } : {}),
     }), {
       expiresIn: expires,
       unhoistableHeaders: new Set(['x-amz-checksum-sha256'])
@@ -41,7 +49,8 @@ export const objectStorage: ObjectStorage = {
       url,
       headers: {
         'x-amz-checksum-sha256': file.checksumSHA256,
-        'content-type': 'application/octet-stream'
+        'content-type': 'application/octet-stream',
+        ...(immutable ? { 'if-none-match': '*' } : {}),
       }
     };
   },
@@ -59,7 +68,8 @@ export const objectStorage: ObjectStorage = {
       versionId: response.VersionId,
       size: response.ContentLength,
       checksumSHA256: response.ChecksumSHA256,
-      checksumType: response.ChecksumType ?? (response.ChecksumSHA256.includes('-') ? 'COMPOSITE' : 'FULL_OBJECT')
+      checksumType: response.ChecksumType ?? (response.ChecksumSHA256.includes('-') ? 'COMPOSITE' : 'FULL_OBJECT'),
+      metadata: response.Metadata,
     };
   },
   async readManifest(bucket, key, signal, versionId) {

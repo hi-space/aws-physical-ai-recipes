@@ -6,7 +6,7 @@ vi.mock('../aws/s3', () => ({
   presignPut: vi.fn(async () => 'https://upload.example.invalid'), headObject: head,
 }));
 vi.mock('../storage/snapshots', () => ({ snapshotPrefix: snapshot }));
-import { createDataset, createVersion, uploadUrl, refreshSize, finalizePendingVersions } from './datasets';
+import { createDataset, createVersion, uploadUrl, refreshSize, finalizePendingVersions, assertDatasetOwner } from './datasets';
 import { MemoryKV } from '../store/dynamo';
 import { Repo, setRepoForTests } from '../store/repo';
 import type { Project } from '../auth/projects';
@@ -18,7 +18,7 @@ beforeEach(async () => {
   head.mockReset().mockResolvedValue({ ContentLength: 3 });
   snapshot.mockReset().mockResolvedValue({
     hash: 'a'.repeat(64),
-    manifest: { createdAt: '2026-09-16T00:00:00Z', objects: [{ bytes: 3, versionId: 'pinned', checksumSHA256: 'abc' }] },
+    manifest: { createdAt: '2026-09-16T00:00:00Z', objects: [{ path: 'file', bytes: 3, versionId: 'pinned', checksumSHA256: Buffer.alloc(32).toString('base64'), checksumType: 'FULL_OBJECT' }] },
   });
   await createDataset({ name: 'demo' }, 'alice', project, 'alice-sub');
 });
@@ -48,4 +48,21 @@ describe('dataset publication', () => {
     expect((await repo.getVersion('demo', v.version))?.state).toBe('PENDING');
     expect(snapshot).not.toHaveBeenCalled();
   });
+});
+
+it('uses the immutable Cognito owner subject rather than a reused display username',async()=>{
+ await expect(assertDatasetOwner({user:'alice',subject:'other-sub',role:'researcher',email:''},'demo')).rejects.toMatchObject({status:403});
+ await expect(assertDatasetOwner({user:'renamed-alice',subject:'alice-sub',role:'researcher',email:''},'demo')).resolves.toBeUndefined();
+});
+it('retires permanently invalid finalization requests so later versions can publish',async()=>{
+ const {badRequest}=await import('../errors');
+ for(let i=0;i<11;i++){const version=await createVersion('demo',{},'alice');await refreshSize('demo',version.version);}
+ snapshot.mockRejectedValue(badRequest('Runtime input exceeds supported file count'));
+ await finalizePendingVersions();
+ expect(await repo.kv.queryGsi1('TYPE#DATASET_FINALIZATION')).toHaveLength(1);
+ snapshot.mockResolvedValue({hash:'a'.repeat(64),manifestVersionId:'manifest-v',manifest:{createdAt:'2026-09-16T00:00:00Z',objects:[{path:'file',bytes:3,versionId:'pinned',checksumSHA256:Buffer.alloc(32).toString('base64'),checksumType:'FULL_OBJECT'}]}});
+ await finalizePendingVersions();
+ expect(await repo.kv.queryGsi1('TYPE#DATASET_FINALIZATION')).toHaveLength(0);
+ expect((await repo.listVersions('demo')).filter(v=>v.state==='READY')).toHaveLength(1);
+ expect((await repo.listVersions('demo')).filter(v=>v.finalizationError)).toHaveLength(10);
 });

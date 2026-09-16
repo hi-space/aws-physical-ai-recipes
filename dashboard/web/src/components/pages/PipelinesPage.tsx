@@ -19,6 +19,7 @@ interface Pipeline {
   CreationTime: string;
   LastModifiedTime: string;
   parameters: PipelineParameter[];
+  projectTrackingSupported?: boolean;
 }
 
 interface ExecutionSummary {
@@ -77,6 +78,9 @@ export function PipelinesPage() {
       <PageHeader title="파이프라인" />
 
       {error && <ErrorBox error={error} />}
+      {data?.pipeline.projectTrackingSupported === false && <p className="mb-4 rounded border border-border p-3 text-xs text-warn">
+        현재 파이프라인 정의에는 프로젝트 실험 태그가 없습니다. 프로젝트 MLflow 비교를 사용하려면 새 정의를 적용해야 합니다. 기존 unscoped 실험은 관리자 전용입니다.
+      </p>}
 
       <div className="space-y-4">
         {/* Start button */}

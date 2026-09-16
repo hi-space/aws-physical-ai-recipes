@@ -23,6 +23,19 @@ def test_no_tracking_uri_means_no_mlflow_env():
     assert out == {}
 
 
+def test_dashboard_project_identity_overrides_untrusted_tracking_tags():
+    out = train.build_mlflow_env(TRAIN_ENV, environ={
+        "MLFLOW_TRACKING_URI": "arn:fixture",
+        "PAI_PROJECT_ID": "workshop",
+        "PAI_OWNER_SUBJECT": "caller-subject",
+        "MLFLOW_TAGS": json.dumps({"pai.project_id": "different-project", "team": "robotics"}),
+    })
+    tags = json.loads(out["MLFLOW_TAGS"])
+    assert tags["pai.project_id"] == "workshop"
+    assert tags["pai.owner_subject"] == "caller-subject"
+    assert tags["team"] == "robotics"
+
+
 def test_run_name_and_tags_link_run_to_training_job():
     environ = {"MLFLOW_TRACKING_URI": "arn:aws:sagemaker:ap-northeast-1:1:mlflow-tracking-server/x",
                "SM_TRAINING_ENV": SM_TRAINING_ENV}

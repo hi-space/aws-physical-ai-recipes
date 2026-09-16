@@ -13,6 +13,7 @@ import { inspectWorkflowImages, profilesRequired } from '@/server/services/profi
 import { productionTopologyInventory } from '@/server/workflow-adapters/topology';
 import { planTopology } from '@/server/workflow/topology/planner';
 import type { Workflow } from '@/server/store/types';
+import { executionProfilesService } from '@/server/services/execution-profiles';
 export const dynamic = 'force-dynamic';
 
 export const POST = route('viewer', async ({ req, session }) => {
@@ -28,6 +29,7 @@ export const POST = route('viewer', async ({ req, session }) => {
     const preflight = profilesRequired() ? await inspectWorkflowImages(session, spec, project) : undefined;
     if (preflight?.status === 'blocked') return { ok: false, error: '이미지 승인 또는 실행 환경 조건을 확인하세요.', preflight };
     if (preflight) for (const task of spec.workflow.tasks) task.image = preflight.resolvedImageDigests[task.name] ?? task.image;
+    const executionProfilePins = await executionProfilesService(session).bind(spec, project);
     for (const group of spec.workflow.groups ?? []) group.tasks = group.tasks.map((task) => spec.workflow.tasks.find((item) => item.name === task.name)!);
     if (!process.env.TASK_RUNTIME_IMAGE) return { ok: false, error: '작업 실행 런타임이 아직 배포되지 않았습니다.' };
     const contexts: Record<string, CompileContext> = {};
@@ -39,6 +41,7 @@ export const POST = route('viewer', async ({ req, session }) => {
         datasetPathsByInput[index] = (await snapshotDataset(getRepo(), input.dataset.name, input.dataset.version)).fsxPath;
       }
       contexts[task.name] = {
+        executionProfile: executionProfilePins[task.name],
         workflowId: 'preview0000000000', owner: session.user, namespace: ns, projectId: project.id, backendId: project.backendId,
         artifactBucket: process.env.DASHBOARD_ARTIFACT_BUCKET,
         queue: project.queue, priority: spec.workflow.priority, attempt: 1, epoch: 'preview-epoch',

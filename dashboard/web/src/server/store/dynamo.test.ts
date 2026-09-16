@@ -47,3 +47,19 @@ it('follows service pagination and emits strongly consistent primary-key reads',
   });
   expect(commands[1].input.ConsistentRead).toBe(true);
 });
+it('uses strong primary-table scan pages for historical protection even when a page matches no workflows',async()=>{
+  const commands:any[]=[];let count=0;
+  const proto=(DynamoDBDocumentClient.prototype as any);
+  const fake={send:async(command:any)=>{commands.push(command);return ++count===1?{Items:[],LastEvaluatedKey:{pk:'OTHER#row',sk:'META'}}:{Items:[{pk:'WF#old',sk:'META'}]};}};
+  // Each test client is supplied before the lazily initialized SDK document client.
+  vi.spyOn(proto,'send').mockImplementation(fake.send);
+  vi.spyOn(DynamoDBDocumentClient,'from').mockReturnValue(fake as unknown as DynamoDBDocumentClient);
+  // The module may already hold the previous test's document-client fake; isolated
+  // module loading gives this test its own lazy instance.
+  vi.resetModules();const {DynamoKV:FreshKV}=await import('./dynamo');
+  const kv=new FreshKV('table'),first=await kv.scanPage();
+  expect(first.items).toEqual([]);expect(first.cursor).toBeDefined();
+  const last=await kv.scanPage(first.cursor);expect(last.items[0].pk).toBe('WF#old');
+  expect(commands.every(c=>c.constructor.name==='ScanCommand'&&c.input.ConsistentRead===true&&!c.input.IndexName)).toBe(true);
+  expect(commands[1].input.ExclusiveStartKey).toEqual({pk:'OTHER#row',sk:'META'});
+});

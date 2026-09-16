@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,13 +33,17 @@ type fileManifest struct {
 }
 
 type publication struct {
-	Files       []fileManifest `json:"files"`
-	Purpose     string         `json:"purpose"`
-	Destination string         `json:"destination"`
+	Files           []fileManifest `json:"files"`
+	Purpose         string         `json:"purpose"`
+	Destination     string         `json:"destination"`
+	ProtocolVersion int            `json:"protocolVersion,omitempty"`
+	SnapshotID      string         `json:"snapshotId,omitempty"`
 }
 
 type uploadPlan struct {
-	Uploads []upload `json:"uploads"`
+	Uploads       []upload `json:"uploads"`
+	PublicationID string   `json:"publicationId,omitempty"`
+	State         string   `json:"state,omitempty"`
 }
 type upload struct {
 	Path    string            `json:"path"`
@@ -166,8 +173,8 @@ func takeSnapshot(ctx context.Context, cp checkpoint, outputRoot string) (*snaps
 		if err != nil || !before.Mode().IsRegular() {
 			return errors.New("checkpoint file is no longer regular")
 		}
-		if before.Size() > maxFileBytes {
-			return errors.New("checkpoint file exceeds 5 GiB; multipart upload is unsupported")
+		if before.Size() > maxCheckpointFileBytes {
+			return errors.New("checkpoint file exceeds supported 1 TiB limit")
 		}
 		stage := filepath.Join(dir, strconv.Itoa(len(s.files)))
 		out, err := os.OpenFile(stage, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -176,13 +183,13 @@ func takeSnapshot(ctx context.Context, cp checkpoint, outputRoot string) (*snaps
 		}
 		hash := sha256.New()
 		n, copyErr := io.CopyBuffer(io.MultiWriter(out, hash),
-			io.LimitReader(contextReader{ctx: ctx, reader: f}, maxFileBytes+1), make([]byte, 128*1024))
+			io.LimitReader(contextReader{ctx: ctx, reader: f}, maxCheckpointFileBytes+1), make([]byte, 128*1024))
 		closeErr := out.Close()
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
-		if n > maxFileBytes {
-			return errors.New("checkpoint file exceeds 5 GiB; multipart upload is unsupported")
+		if n > maxCheckpointFileBytes {
+			return errors.New("checkpoint file exceeds supported 1 TiB limit")
 		}
 		if copyErr != nil || closeErr != nil {
 			return errors.New("checkpoint snapshot read/write failed")
@@ -273,8 +280,16 @@ func takeSnapshot(ctx context.Context, cp checkpoint, outputRoot string) (*snaps
 }
 
 func safeRelativePath(path string) bool {
-	return path != "" && len(path) <= 4096 && !filepath.IsAbs(path) && filepath.Clean(path) == path &&
-		path != "." && path != ".." && !strings.HasPrefix(path, "../") && !strings.ContainsAny(path, "\x00\r\n\\")
+	if path == "" || len(path) > 1024 || filepath.IsAbs(path) || filepath.Clean(path) != path ||
+		path == "." || path == ".." || strings.HasPrefix(path, "../") || strings.ContainsAny(path, "\\%") {
+		return false
+	}
+	for _, ch := range path {
+		if ch < 32 || ch == 127 {
+			return false
+		}
+	}
+	return true
 }
 
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
@@ -332,16 +347,66 @@ func validatePlan(plan uploadPlan, s *snapshot, token string) error {
 	return nil
 }
 
-func (r *runner) publish(ctx context.Context, cp checkpoint) error {
+func (r *runner) publish(ctx context.Context, cp checkpoint) (result error) {
 	s, err := takeSnapshot(ctx, cp, r.contract.OutputPath)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(s.directory)
-	request := publication{Files: s.files, Purpose: "checkpoint", Destination: cp.URL}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return errors.New("cannot create checkpoint snapshot identity")
+	}
+	request := publication{Files: s.files, Purpose: "checkpoint", Destination: cp.URL, ProtocolVersion: 2, SnapshotID: hex.EncodeToString(nonce[:])}
+	if body, err := json.Marshal(request); err != nil || len(body) > maxCheckpointMetadata {
+		return errors.New("checkpoint manifest exceeds supported metadata limit")
+	}
 	var plan uploadPlan
 	if err := r.broker.request(ctx, http.MethodPost, "/runtime/uploads", request, &plan, 200); err != nil {
-		return err
+		var status *brokerHTTPError
+		if !errors.As(err, &status) || (status.status != 400 && status.status != 404) {
+			return err
+		}
+		for _, file := range s.files {
+			if file.Size > maxFileBytes {
+				return errors.New("broker does not support multipart checkpoint protocol; large upload was not started")
+			}
+		}
+		// During a rolling deployment an old broker rejects the v2 fields.
+		// Only bounded single PUTs may retry the exact legacy request shape.
+		request.ProtocolVersion, request.SnapshotID = 0, ""
+		if err := r.broker.request(ctx, http.MethodPost, "/runtime/uploads", request, &plan, 200); err != nil {
+			return err
+		}
+	}
+	if plan.PublicationID != "" {
+		if !validHexSHA(plan.PublicationID) || (plan.State != "PENDING" && plan.State != "READY") || len(plan.Uploads) != 0 {
+			return errors.New("invalid checkpoint registration")
+		}
+		if plan.State == "READY" {
+			return r.finishPublication(ctx, request, plan.PublicationID)
+		}
+		defer func() {
+			if result != nil {
+				cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				if err := r.broker.request(cleanup, http.MethodPost, "/runtime/uploads/abort",
+					map[string]string{"publicationId": plan.PublicationID}, nil, 200); err != nil {
+					r.log(errors.New("checkpoint abort needs broker cleanup"))
+				}
+			}
+		}()
+		for _, file := range s.files {
+			if err := r.uploadFile(ctx, plan.PublicationID, file, s.staged[file.Path]); err != nil {
+				return err
+			}
+		}
+		return r.finishPublication(ctx, request, plan.PublicationID)
+	}
+	for _, file := range s.files {
+		if file.Size > maxFileBytes {
+			return errors.New("broker does not support multipart checkpoints")
+		}
 	}
 	if err := validatePlan(plan, s, r.broker.token); err != nil {
 		return err

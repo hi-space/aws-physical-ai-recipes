@@ -3,6 +3,7 @@ import { notFound } from '@/server/errors';
 import { assertOwner } from '@/server/auth/session';
 import { getRepo } from '@/server/store/repo';
 import { deleteWorkflow } from '@/server/workflow/controller';
+import { productionControllerDeps } from '@/server/workflow-adapters/dependencies';
 export const dynamic = 'force-dynamic';
 
 export const GET = route<{ id: string }>('viewer', async ({ params }) => {
@@ -17,6 +18,6 @@ export const DELETE = route<{ id: string }>('researcher', async ({ params, sessi
   const wf = await getRepo().getWorkflow(params.id);
   if (!wf) throw notFound(`workflow ${params.id}`);
   assertOwner(session, wf.owner, 'workflow');
-  await deleteWorkflow(params.id);
+  await deleteWorkflow(params.id, productionControllerDeps());
   return { ok: true };
 }, { audit: 'workflow.delete' });

@@ -6,7 +6,8 @@ import { Repo,setRepoForTests } from '../store/repo';import { MemoryKV } from '.
 import { finalizePendingVersions,uploadUrl } from './datasets';
 let repo:Repo;
 beforeEach(async()=>{
-  vi.stubEnv('DASHBOARD_ARTIFACT_BUCKET','archive');repo=new Repo(new MemoryKV());setRepoForTests(repo);head.mockReset().mockResolvedValue({});snapshot.mockReset().mockResolvedValue({hash:'a'.repeat(64),manifest:{createdAt:'x',objects:[{bytes:3}]}});
+  vi.stubEnv('DASHBOARD_ARTIFACT_BUCKET','archive');repo=new Repo(new MemoryKV());setRepoForTests(repo);head.mockReset().mockResolvedValue({});snapshot.mockReset().mockResolvedValue({hash:'a'.repeat(64),manifest:{createdAt:'x',objects:[{path:'file',bytes:3,versionId:'v',checksumSHA256:Buffer.alloc(32).toString('base64'),checksumType:'FULL_OBJECT'}]}});
+  await repo.putDataset({name:'data',projectId:'p',owner:'a',tags:[],latestVersion:1,createdAt:'x',updatedAt:'x'});
   await repo.putVersion({dataset:'data',version:1,projectId:'p',state:'PENDING',uri:'s3://archive/projects/p/datasets/data/uploads/draft/',createdAt:'x',createdBy:'a',tags:[]});
   await repo.kv.put({pk:'DS#data',sk:'FINALIZE#1',dataset:'data',version:1,gsi1pk:'TYPE#DATASET_FINALIZATION',gsi1sk:'1'});
 });

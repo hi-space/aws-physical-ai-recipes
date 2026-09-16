@@ -116,7 +116,7 @@ it('rejects malformed payloads and replica indices without exposing credentials'
   });
   expect(malformed.status).toBe(400);
 });
-it.each([['POST', '/runtime/state'], ['POST', '/runtime/heartbeat'], ['GET', '/runtime/barrier?replica=0'], ['POST', '/runtime/uploads'], ['POST', '/runtime/uploads/complete'], ['GET', '/runtime/inputs'], ['GET', '/runtime/checkpoints?replica=0']])('rejects metrics capability at %s %s', async (method, path) => {
+it.each([['POST', '/runtime/state'], ['POST', '/runtime/heartbeat'], ['GET', '/runtime/barrier?replica=0'], ['POST', '/runtime/uploads'], ['POST', '/runtime/uploads/complete'], ['POST', '/runtime/uploads/file'], ['POST', '/runtime/uploads/part'], ['POST', '/runtime/uploads/file/complete'], ['POST', '/runtime/uploads/abort'], ['GET', '/runtime/inputs'], ['GET', '/runtime/checkpoints?replica=0']])('rejects metrics capability at %s %s', async (method, path) => {
   const response = await fetch(url + path, {
     method,
     headers: {

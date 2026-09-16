@@ -64,6 +64,7 @@ async function context(wf: Workflow, ts: TaskSpec, task: Task, all: Task[], deps
   }
   return {
     workflowId: wf.id,
+    executionProfile: wf.executionProfilePins?.[ts.name],
     projectId: wf.projectId,
     backendId: wf.backendId,
     attempt: task.attempts,
@@ -164,9 +165,15 @@ async function launch(wf: Workflow, unit: Unit, ts: Task[], all: Task[], deps: C
       if (item.configMap) await deps.k8s.upsertConfigMap(wf.namespace, item.configMap.name, item.configMap.data, {
         [LABEL_WF]: wf.id
       });
-      if (item.secret) await deps.k8s.upsertSecret(wf.namespace, item.secret.name, item.secret.data, {
-        [LABEL_WF]: wf.id
-      });
+      if (item.secret) {
+        if (deps.k8s.ensureAttemptSecret) {
+          const job = item.job as unknown as Job;
+          const secret = await deps.k8s.ensureAttemptSecret(wf.namespace, item.secret.name, item.secret.data, job.metadata.labels ?? {});
+          job.spec.template.metadata ??= { name: '' };
+          job.spec.template.metadata.annotations = { ...job.spec.template.metadata.annotations,
+            'pai.aws/attempt-secret-name': item.secret.name, 'pai.aws/attempt-secret-uid': secret.uid };
+        } else await deps.k8s.upsertSecret(wf.namespace, item.secret.name, item.secret.data, { [LABEL_WF]: wf.id });
+      }
     }
     await guard.check();
     if (await deps.repo.cancellation(wf.id)) return ts;
@@ -207,6 +214,9 @@ async function cleanup(wf: Workflow, unit: Unit, tasks: Task[], deps: Controller
   await guard.check();
   const first = tasks[0];
   if (unit.group && first.attemptEpoch) await deps.groupRuntime!.fence(wf, unit.name, first.attemptEpoch, guard.signal);
+  if (deps.cleanupCheckpointUploads && !await deps.cleanupCheckpointUploads(wf, {
+    signal: guard.signal, taskNames: tasks.map(task => task.name), attempt: first.attempts,
+  })) return false;
   // Successful computation must retain publication permission through
   // FINALIZING. Other cleanup paths also wait for collectors when the original
   // workload Job is already absent.
@@ -220,6 +230,8 @@ async function cleanup(wf: Workflow, unit: Unit, tasks: Task[], deps: Controller
     groupId: unit.group?.name,
     attempt: first.attempts
   }))) return false;
+  await deps.logs?.drain(wf, tasks.map(task => task.name), first.attempts);
+  await guard.check();
   if (!first.jobName) return true;
   const get = () => unit.group ? deps.k8s.getJobSet!(wf.namespace, first.jobName!) : deps.k8s.getJob(wf.namespace, first.jobName!);
   const root = await get();
@@ -451,7 +463,12 @@ export async function reconcileWorkflowInternal(wfIn: Workflow, deps: Controller
   const current = await deps.repo.getWorkflow(wfIn.id);
   if (!current) throw notFound(`workflow ${wfIn.id}`);
   await assertWorkflowBackend(current, deps.repo);
-  return runOnBackend(current, () => reconcileBoundWorkflow(current, { ...deps, dataBucket: backendConfig().eks?.dataBucket ?? deps.dataBucket }), deps.repo, deps.now, 'observe');
+  return runOnBackend(current, async () => {
+    await deps.logs?.reconcile(current);
+    const result = await reconcileBoundWorkflow(current, { ...deps, dataBucket: backendConfig().eks?.dataBucket ?? deps.dataBucket });
+    await deps.logs?.reconcile(result);
+    return result;
+  }, deps.repo, deps.now, 'observe');
 }
 async function reconcileBoundWorkflow(wfIn: Workflow, deps: ControllerDeps): Promise<Workflow> {
   const result = await withRunLease(wfIn.id, deps, async guard => {

@@ -2,6 +2,8 @@ import type { Repo } from '../store/repo';
 import type { Duplex } from 'node:stream';
 import { HttpError } from '../errors';
 import type { CurrentUserAuthorization } from '../aws/cognito';
+import type { validateExecutionProfile } from '../services/execution-profiles';
+import type { getPod } from '../k8s/resources';
 
 export interface DerivedTokenBinding {
   authMethod: 'token';
@@ -32,6 +34,9 @@ export interface GatewaySession {
   taskName?: string;
   attemptEpoch?: string;
   podUid?: string;
+  hostNetwork?: boolean;
+  trustedExecution?: boolean;
+  replicaIndex?: number;
   revokedAt?: string;
   status?: string;
   createdAt?: string;
@@ -47,6 +52,8 @@ export interface AuthOptions {
   now?: () => number;
   baseDomain?: string;
   currentUser?: (username: string) => Promise<CurrentUserAuthorization>;
+  validateExecutionProfile?: typeof validateExecutionProfile;
+  getPod?: typeof getPod;
 }
 
 export class GatewayError extends HttpError {

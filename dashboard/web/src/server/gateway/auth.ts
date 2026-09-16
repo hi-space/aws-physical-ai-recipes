@@ -5,6 +5,7 @@ import { GatewayError, type AuthOptions, type GatewaySession } from './types';
 import { assertTokenLaunchPrincipal, authorizeDerivedToken, hasTokenBinding, matchesTokenGrant, tokenGrantFields, type GatewayPrincipal } from './token-grants';
 import { backendId } from '../backends/registry';
 import { assertWorkflowBackend } from '../backends/binding';
+import { authorizeExecutionSession } from './execution-session';
 
 export const COOKIE_NAME = '__Host-pai-session';
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -48,6 +49,7 @@ export function sessionBinding(s: GatewaySession): string {
   if (s.backendId || s.backendConfigHash) binding.push(s.backendId, s.backendConfigHash);
   // Preserve existing browser grant digests; only derived grants append source authority.
   if (hasTokenBinding(s)) binding.push(s.authMethod, s.tokenId, s.tokenProjectId, s.tokenRole, s.tokenExpiresAt);
+  if (s.trustedExecution) binding.push('trusted-execution');
   return digest(JSON.stringify(binding));
 }
 
@@ -58,6 +60,7 @@ function validateSession(value: unknown, now: number): GatewaySession {
     !kinds.has(s.kind) || s.revokedAt ||
     ['revoked', 'expired', 'deleted', 'stopped', 'failed', 'terminated'].includes(s.status?.toLowerCase() ?? '')) throw invalid();
   if (s.attempt !== undefined && (!Number.isSafeInteger(s.attempt) || s.attempt < 0)) throw invalid();
+  if (s.hostNetwork && s.kind !== 'terminal' && s.kind !== 'dcv') throw invalid();
   if (s.kind === 'dcv') {
     if (!s.nodeName || !s.ssmTarget || !s.dcvSessionId) throw new GatewayError(503, 'DCV session target is not registered');
   } else {
@@ -89,6 +92,8 @@ async function currentSession(repo: Repo, id: string, now: () => number, options
     ]);
     if (!workflow || cancellation || backendId(workflow.backendId) !== backendId(s.backendId) || workflow.backendConfigHash !== s.backendConfigHash ||
       workflow.namespace !== s.namespace || workflow.projectId !== s.projectId || ['SUCCEEDED', 'FAILED', 'CANCELLED', 'CANCELLING'].includes(workflow.status)) throw invalid();
+    const pinned = (workflow as { executionProfilePins?: Record<string, { policy?: { hostNetwork?: boolean } }> }).executionProfilePins;
+    if (s.kind !== 'terminal' && s.kind !== 'dcv' && s.taskName && pinned?.[s.taskName]?.policy?.hostNetwork) throw invalid();
     if (s.taskName) {
       const task = await repo.kv.get(`WF#${s.workflowId}`, `TASK#${s.taskName}`);
       if (!task || task.phase !== 'RUNNING' ||
@@ -96,6 +101,7 @@ async function currentSession(repo: Repo, id: string, now: () => number, options
         s.attemptEpoch !== undefined && task.attemptEpoch !== s.attemptEpoch) throw invalid();
     }
   }
+  await authorizeExecutionSession(s, { ...options, repo, now });
   return validateSession(s, now());
 }
 
@@ -108,6 +114,7 @@ export async function issueLaunchTicket(
     throw new GatewayError(403, 'Only the verified session owner may launch this session');
   }
   assertTokenLaunchPrincipal(sessionRecord, principal);
+  await authorizeExecutionSession(sessionRecord, options, principal);
   const { repo, now } = context(options);
   const host = sessionHost(sessionRecord.id, options);
   const session = await currentSession(repo, sessionRecord.id, now, options);

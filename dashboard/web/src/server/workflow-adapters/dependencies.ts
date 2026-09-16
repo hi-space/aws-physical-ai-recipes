@@ -1,25 +1,32 @@
 import { realDeps, type ControllerDeps } from '../workflow/controller';
 import { artifactPublisher, cancelArtifactCollectors } from './artifacts';
 import { dispatchWorkflow, completeWorkflow } from './dispatch';
-import { runtimeEnvironment, groupRuntime, mintMetricsCapability } from '../runtime';
+import { runtimeEnvironment, groupRuntime, mintMetricsCapability, cleanupRuntimeUploads } from '../runtime';
 import { getJobSet, createJobSet, deleteJobSet } from '../k8s/resources';
 import { validateTaskImagePolicy } from '../services/profile-binding';
+import { validateExecutionProfile } from '../services/execution-profiles';
 import { enqueueWorkflowWebhook } from '../services/webhooks';
 import { getRepo } from '../store/repo';
 import { productionTopologyInventory } from './topology';
+import { workflowLogHooks } from './logs';
 
 export function productionControllerDeps(): ControllerDeps {
   const base = realDeps();
   return {
     ...base, artifactPublisher, dispatchWorkflow,
+    ...(process.env.LOG_ARCHIVE_ENABLED === '1' ? { logs: workflowLogHooks(base.repo) } : {}),
     completeWorkflow: async (workflow, context) => {
       await completeWorkflow(workflow, context);
       context.signal.throwIfAborted();
       await enqueueWorkflowWebhook(await getRepo().getWorkflow(workflow.id) ?? workflow);
     },
-    validateTaskPolicy: validateTaskImagePolicy,
+    validateTaskPolicy: async (workflow, task) => {
+      await validateTaskImagePolicy(workflow, task);
+      await validateExecutionProfile(workflow, task);
+    },
     topologyInventory: productionTopologyInventory,
     cancelArtifacts: cancelArtifactCollectors,
+    cleanupCheckpointUploads: cleanupRuntimeUploads,
     artifactBucket: process.env.DASHBOARD_ARTIFACT_BUCKET,
     runtimeImage: process.env.TASK_RUNTIME_IMAGE,
     runtimeCommand: '/opt/pai/runtime',

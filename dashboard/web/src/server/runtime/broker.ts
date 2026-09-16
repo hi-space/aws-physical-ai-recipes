@@ -5,6 +5,7 @@ import type { ObjectStorage } from './storage';
 import { z } from 'zod';
 import { HttpError } from '../errors';
 import type { Repo } from '../store/repo';
+import type { Write } from '../store/atomic';
 import { TERMINAL_WF, type Workflow } from '../store/types';
 import type { TaskSpec } from '../workflow/schema';
 import type { GroupRuntimeState } from '../workflow/ports';
@@ -18,6 +19,8 @@ export interface BrokerDeps {
   apiUrl: string;
   artifactBucket?: string;
   storage?: ObjectStorage;
+  /** Recheck privileged task approval after admission, immediately before application start. */
+  validateTaskPolicy?: (workflow: Workflow, task: TaskSpec) => Promise<void | Write[]>;
 }
 const stateSchema = z.object({
   phase: z.enum(['INITIALIZING', 'RUNNING', 'SUCCEEDED', 'FAILED']),
@@ -78,6 +81,8 @@ export class RuntimeBroker {
     for (let tries = 0; tries < 12; tries++) {
       const ctx = await this.authenticate(token);
       replicaIndex(ctx, input.replica);
+      const policy = input.phase === 'RUNNING' ? await this.deps.validateTaskPolicy?.(ctx.workflow, ctx.spec) : undefined;
+      const policyChecks = Array.isArray(policy) ? policy : [];
       const {
         claims
       } = ctx;
@@ -88,14 +93,14 @@ export class RuntimeBroker {
         meta = stored ?? emptyMeta(ctx);
       if (old && ['SUCCEEDED', 'FAILED'].includes(old.phase)) {
         if (['SUCCEEDED', 'FAILED'].includes(input.phase) && (old.phase !== input.phase || old.exitCode !== input.exitCode)) throw new HttpError(409, 'Terminal participant outcome is immutable');
-        if (!(await this.deps.repo.kv.transaction(guardChecks(ctx)))) {
+        if (!(await this.deps.repo.kv.transaction([...guardChecks(ctx), ...policyChecks]))) {
           await this.authenticate(token);
           continue;
         }
         return;
       }
       if (old?.phase === 'RUNNING' && input.phase === 'INITIALIZING') {
-        if (await this.deps.repo.kv.transaction(guardChecks(ctx))) return;
+        if (await this.deps.repo.kv.transaction([...guardChecks(ctx), ...policyChecks])) return;
         continue;
       }
       if (input.phase === 'RUNNING' && (!old?.readyEver || ctx.group?.barrier !== false && !meta.released)) throw new HttpError(409, 'Participant barrier has not released');
@@ -134,7 +139,7 @@ export class RuntimeBroker {
           if (next.leadComplete === ctx.spec.parallelism) next.stopped = true;
         } else if (action !== 'COMPLETE' && (isLead || !ctx.group?.ignoreNonleadStatus)) next.stopped = true;
       }
-      const ok = await this.deps.repo.kv.transaction([...guardChecks(ctx), {
+      const ok = await this.deps.repo.kv.transaction([...guardChecks(ctx), ...policyChecks, {
         kind: 'put',
         item: member,
         condition: old ? {
@@ -175,6 +180,8 @@ export class RuntimeBroker {
       const keyMember = memberKey(claims.workflowId, claims.epoch, claims.task, replica),
         member = (await this.deps.repo.kv.get(keyMember.pk, keyMember.sk)) as Participant | undefined;
       const ready = !!member?.readyEver && (ctx.group?.barrier === false || !ctx.group || meta.readyCount === meta.expected);
+      const policy = ready && !meta.stopped && !member?.processStarted ? await this.deps.validateTaskPolicy?.(ctx.workflow, ctx.spec) : undefined;
+      const policyChecks = Array.isArray(policy) ? policy : [];
       if (ready && !meta.stopped && !meta.released) {
         const next = {
           ...meta,
@@ -182,7 +189,7 @@ export class RuntimeBroker {
           released: true,
           releasedAt: this.deps.now().toISOString()
         };
-        if (!(await this.deps.repo.kv.transaction([...guardChecks(ctx), {
+        if (!(await this.deps.repo.kv.transaction([...guardChecks(ctx), ...policyChecks, {
           kind: 'put',
           item: next,
           condition: stored ? {
@@ -198,7 +205,7 @@ export class RuntimeBroker {
           stopped: false
         };
       }
-      if (!(await this.deps.repo.kv.transaction(guardChecks(ctx)))) continue;
+      if (!(await this.deps.repo.kv.transaction([...guardChecks(ctx), ...policyChecks]))) continue;
       return {
         released: !!meta.released && !!member?.readyEver,
         stopped: !!meta.stopped

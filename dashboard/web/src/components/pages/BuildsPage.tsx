@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { api, useApi, useMe } from '@/lib/api-client';
-import { Button, Card, ErrorBox, EmptyState, StatusPill } from '@/components/ui';
+import { Button, Card, ErrorBox, EmptyState, LinkButton, StatusPill } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import type { SourceBuildView, SourceRegistrationView } from '@/server/services/source-builds';
 
@@ -33,6 +33,8 @@ export function BuildsPage() {
   useEffect(() => {
     setTargetId(''); setName(''); setSourceId(''); setCommit(''); setSelectedRun(''); setRecoveryId('');
     setSourceCursor(undefined); setHistoryCursor(undefined); setError(undefined); setNotice(''); request.current = undefined;
+    const requested = new URLSearchParams(window.location.search).get('run');
+    if (scope && requested && /^sb-[a-f0-9]{32}$/.test(requested)) setSelectedRun(requested);
   }, [scope]);
   async function registerSource() {
     if (!canRegister || busy) return;
@@ -146,6 +148,10 @@ export function BuildsPage() {
             <dt className="text-fg-muted">Dockerfile SHA256</dt><dd>{detail.data.provenance.dockerfileSha256}</dd>
             <dt className="text-fg-muted">실행 환경</dt><dd>모델·워크플로 실행은 검증하지 않았습니다. 외부 의존성의 동일한 재해석도 보장하지 않습니다.</dd>
           </dl>}
+          {admin && detail.data.state === 'SUCCEEDED' && detail.data.provenance && <LinkButton className="mt-3" size="sm"
+            href={`/image-profiles?${new URLSearchParams({ sourceBuildId: detail.data.id, image: detail.data.provenance.output.resolvedImage })}`}>
+            소스 계보를 연결해 이미지 승인 검토
+          </LinkButton>}
           <ErrorBox error={output.error} />
           {detail.data.buildId && <pre aria-label="소스 빌드 로그" className="mt-4 max-h-96 overflow-auto rounded border border-border bg-bg p-3 text-xs">{output.data?.lines.join('\n') || '로그를 불러오는 중…'}</pre>}
           {output.data?.truncated && <p className="text-xs text-fg-muted">응답 크기 제한으로 로그 일부만 표시합니다.</p>}

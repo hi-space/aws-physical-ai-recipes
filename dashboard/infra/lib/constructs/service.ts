@@ -93,7 +93,7 @@ export class ServiceConstruct extends Construct {
       new ecrAssets.DockerImageAsset(this, 'Image', {
         directory: props.webAppPath,
         platform: ecrAssets.Platform.LINUX_AMD64,
-        exclude: ['node_modules', '.next', 'dist', '*.tsbuildinfo', 'e2e', 'playwright-report', 'test-results'],
+        exclude: ['node_modules', '.next', 'dist', '*.tsbuildinfo', 'next-env.d.ts', '.env*', '.results', 'e2e', 'playwright-report', 'test-results'],
       }),
     );
 

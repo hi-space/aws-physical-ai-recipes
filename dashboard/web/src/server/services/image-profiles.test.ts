@@ -35,6 +35,25 @@ beforeEach(async () => {
 });
 
 describe('immutable, project-owned image approval', () => {
+  it('links only completed, same-project source provenance for the inspected digest into the immutable profile', async () => {
+    const id = `sb-${'1'.repeat(32)}`, image = await d.inspectImage(uri);
+    const provenance = { schemaVersion: 1, projectId: project.id, registrationId: `src-${'2'.repeat(32)}`,
+      registrationHash: '3'.repeat(64), sourceType: 'S3', snapshot: { bucket: 'assets', key: 'source.zip', versionId: 'source-v1', sha256: '4'.repeat(64), bytes: 3 },
+      sourceArchiveSha256: '4'.repeat(64), dockerfileSha256: '5'.repeat(64), buildId: 'job:00000000-0000-0000-0000-000000000001',
+      buildArn: 'arn:aws:codebuild:us-east-1:123456789012:build/job:00000000-0000-0000-0000-000000000001',
+      buildspecSha256: '6'.repeat(64), builderImage: 'aws/codebuild/standard:7.0', configurationHash: '7'.repeat(64),
+      verifiedAt: d.now().toISOString(), output: image, builderImagePinned: false, dependencyResolution: 'not-attested', runtimeValidation: 'not-performed' };
+    const row = { pk: `SOURCE_BUILD#${id}`, sk: 'META', id, projectId: project.id, state: 'SUCCEEDED', provenance };
+    await d.repo.kv.put(row);
+    const service = imageProfilesService(admin, d);
+    const profile = await service.approve({ ...input(), sourceBuildId: id }, project);
+    expect(profile.sourceBuild).toEqual({ id, provenance });
+    expect((await service.get(profile.id, project, profile.version)).sourceBuild).toEqual(profile.sourceBuild);
+    await d.repo.kv.put({ ...row, state: 'RUNNING' });
+    await expect(service.approve({ ...input(), sourceBuildId: id, expectedVersion: 1 }, project)).rejects.toMatchObject({ status: 409 });
+    await d.repo.kv.put({ ...row, projectId: 'other' });
+    await expect(service.approve({ ...input(), sourceBuildId: id, expectedVersion: 1 }, project)).rejects.toMatchObject({ status: 404 });
+  });
   it('retains immutable revisions and deduplicates identical approvals', async () => {
     const service = imageProfilesService(admin, d);
     const first = await service.approve(input(), project);

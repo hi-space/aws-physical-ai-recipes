@@ -51,7 +51,10 @@ GET /runtime/checkpoints?replica=0
 ```
 
 Selection only uses READY publications, validates the exact manifest version
-and digest, and rechecks every object's pinned version/size/whole-file checksum.
+and digest, and rechecks every object's pinned version, size and storage
+checksum. For multipart objects the storage checksum is COMPOSITE; a separate
+full SHA256 was independently streamed/verified before commitment and is
+recomputed by the Go downloader. See `MULTIPART.md` for this distinction.
 Source lineage is checked against the current project/namespace. Missing READY
 history permits an explicitly reported cold start; a corrupt committed
 publication fails instead of silently falling back. A newly committed pointer
@@ -61,6 +64,11 @@ New publications atomically update a small per-epoch/task/checkpoint index with
 the READY plan. Legacy fallback is limited to 1000 plans from a recorded source
 epoch and fails rather than truncating larger history. Retry lineage is bounded
 to 32 source attempts. Each object verification batch has at most eight HEADs.
+
+New clients request `pageSize=64` and follow the signed `nextCursor`; metadata
+and source identity must remain identical across all pages. Negotiated plans
+support 1024 total files and 1 TiB per file. Legacy unpaged response shapes are
+preserved. The runtime assembles and validates the full plan before readiness.
 
 Downloads use bounded concurrency and checksum verification, private paths
 under the **new** output directory, and atomic files/receipts. A 403 refresh

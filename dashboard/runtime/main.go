@@ -48,7 +48,12 @@ func runCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	// Keep the scoped credential solely in the broker client.
 	os.Unsetenv("PAI_RUNTIME_TOKEN")
 	o := defaultOptions()
-	if !prepare && c.OutputPath != "" {
+	o, err = checkpointOptionsFromEnvironment(o)
+	if err != nil {
+		fmt.Fprintln(stderr, "pai-runtime:", err)
+		return 125
+	}
+	if !prepare {
 		o.files, err = fileOptionsFromEnvironment()
 		if err != nil {
 			fmt.Fprintln(stderr, "pai-runtime:", err)

@@ -1,7 +1,11 @@
+import { datasetGuard } from '../store/dataset-references';
+import { immutableFiles, versionNumber } from '../data/versions';
+import { normalizeSelection, safeDataPath, type PathSelection } from '../data/selection';
+import { assertConsumableObjects } from '../data/limits';
 import { freezeVersionUploads, reopenVersionUploads, registerSingleUpload } from './multipart-uploads';
 import { backendConfig as config } from '../backends/context';
 import { runOnBackend } from '../backends/context';
-import { badRequest, notConfigured, notFound } from '../errors';
+import { badRequest, forbidden, HttpError, notConfigured, notFound } from '../errors';
 import * as s3 from '../aws/s3';
 import { getRepo } from '../store/repo';
 import { assertOwner, type Session } from '../auth/session';
@@ -33,7 +37,7 @@ export async function createDataset(input: { name: string; description?: string;
   return ds;
 }
 
-export interface NewVersionInput {
+export interface NewVersionInput extends PathSelection {
   /** Register an existing S3 prefix (s3://bucket/prefix/) instead of creating a fresh upload prefix. */
   uri?: string;
   note?: string;
@@ -57,7 +61,8 @@ export async function createVersion(name: string, input: NewVersionInput, actor:
     const prefix = `projects/${ds.projectId ?? 'legacy'}/datasets/${name}/uploads/${uploadId}/`;
     uri = `s3://${bucket}/${prefix}`;
   }
-  const draft = { dataset: name, uri, projectId: ds.projectId, ownerSubject: ds.ownerSubject, state: 'PENDING' as const, tags: input.tags ?? [], createdAt: now, createdBy: actor, note: input.note, versionRevision: 0, imported: Boolean(input.uri) };
+  const selection = normalizeSelection(input);
+  const draft = { selection, dataset: name, uri, projectId: ds.projectId, ownerSubject: ds.ownerSubject, state: 'PENDING' as const, tags: input.tags ?? [], createdAt: now, createdBy: actor, note: input.note, versionRevision: 0, imported: Boolean(input.uri) };
   const v = await repo.publishDatasetVersion(ds, draft, `upload:${uploadId}`);
   if (input.uri) await queueFinalization(name, v.version);
   return v;
@@ -70,15 +75,20 @@ export async function uploadUrl(name: string, version: number, filename: string,
   if (v.state !== 'PENDING' || (v as UploadVersion).imported) throw badRequest('Committed or imported versions are immutable. Create a new upload version.');
   const { bucket, key } = s3.parseS3Uri(v.uri);
   const safe = filename;
-  if (!safe || safe.startsWith('/') || safe.includes('\\') || safe.split('/').some((part) => !part || part === '.' || part === '..') || safe === 'manifest.json') throw badRequest('Invalid relative filename');
+  if (!safeDataPath(safe) || Buffer.byteLength(key + safe) > 1024) throw badRequest('Invalid relative filename for an immutable runtime dataset');
   const fullKey = `${key}${safe}`;
   await registerSingleUpload(name, version, safe, bucket, fullKey, repo);
   return { url: await s3.presignPut(bucket, fullKey, contentType), key: fullKey };
 }
 
 export async function listFiles(name: string, version: number, sub = '', token?: string) {
-  const v = await getRepo().getVersion(name, version);
-  if (!v) throw notFound(`dataset ${name} v${version}`);
+  version = versionNumber(version);
+  const repo = getRepo();
+  const v = await repo.getVersion(name, version);
+  const ds = await repo.getDataset(name);
+  if (!ds || !v || (ds.projectId ?? '') !== (v.projectId ?? '')) throw notFound(`dataset ${name} v${version}`);
+  if (v.state === 'READY') return immutableFiles(repo, name, version, sub, token);
+  if (v.state !== 'PENDING') throw badRequest('This legacy version has no verified immutable browser; publish a new version');
   const { bucket, key } = s3.parseS3Uri(v.uri);
   if (sub.startsWith(key)) sub = sub.slice(key.length);
   if (sub.startsWith('/') || sub.includes('..') || sub.includes('\\')) throw badRequest('Invalid dataset subdirectory');
@@ -119,13 +129,8 @@ export async function deleteDataset(name: string, purge: boolean): Promise<void>
   const repo = getRepo();
   const ds = await repo.getDataset(name);
   if (!ds) return;
-  if ((await lineage(name)).consumers.length) throw badRequest('This dataset is referenced by experiment history and cannot be deleted.');
-  if (purge) {
-    for (const v of await repo.listVersions(name)) {
-      const { bucket, key } = s3.parseS3Uri(v.uri);
-      if (key.startsWith(`datasets/${name}/`)) await s3.deletePrefix(bucket, key);
-    }
-  }
+  // Immutable versions are retained; metadata deletion is a guarded tombstone.
+  if (purge) throw badRequest('Archive purge is disabled for immutable versions; use the version retention policy');
   await repo.deleteDataset(name);
 }
 
@@ -160,13 +165,14 @@ export async function finalizePendingVersions(signal?: AbortSignal) {
     const name = String(request.dataset);
     const version = Number(request.version);
     const v = await repo.getVersion(name, version) as UploadVersion | undefined;
-    if (!v || v.state === 'READY') { await repo.kv.del(request.pk, request.sk); continue; }
+    if (!v || v.state === 'READY' || !await repo.getDataset(name)) { await repo.kv.del(request.pk, request.sk); continue; }
     try {
       const project = v.projectId ? await repo.kv.get(`PROJECT#${v.projectId}`, 'META') : undefined;
       await runOnBackend({ backendId: project?.backendId as string | undefined, backendConfigHash: project?.backendConfigHash as string | undefined }, async () => {
       const bucket = process.env.DASHBOARD_ARTIFACT_BUCKET;
       if (!bucket) throw notConfigured('dashboard artifact bucket');
       await freezeVersionUploads(name, version, repo);
+      const guard = await datasetGuard(repo.kv, name);
       const source = s3.parseS3Uri(v.uri);
       const registrations = await repo.kv.query(`DS#${name}`, `UPLOAD#${version}#`);
       for (const registration of registrations) {
@@ -177,18 +183,19 @@ export async function finalizePendingVersions(signal?: AbortSignal) {
       const prefix = `projects/${v.projectId ?? 'legacy'}/datasets/${name}/versions/v${version}/`;
       const snapshot = await snapshotPrefix({
         sourceBucket: source.bucket, sourcePrefix: source.key, targetBucket: bucket,
-        targetPrefix: prefix, identity: `dataset:${name}:v${version}`, signal,
+        targetPrefix: prefix, identity: `dataset:${name}:v${version}`, selection: v.selection, signal,
       });
       const current = await repo.getVersion(name, version) as UploadVersion;
       const updated = {
-        ...current, uri: `s3://${bucket}/${prefix}`, state: 'READY' as const,
+        ...current, hydrationBytes: assertConsumableObjects(snapshot.manifest.objects), uri: `s3://${bucket}/${prefix}`, state: 'READY' as const,
         fsxPath: `/fsx/datasets/projects/${v.projectId ?? 'legacy'}/${name}/v${version}`,
-        manifestUri: `s3://${bucket}/${prefix}manifest.json`, manifestHash: snapshot.hash,
+        manifestUri: `s3://${bucket}/${prefix}manifest.json`, manifestHash: snapshot.hash, manifestVersionId: snapshot.manifestVersionId,
         verifiedAt: snapshot.manifest.createdAt, objectCount: snapshot.manifest.objects.length,
         sizeBytes: snapshot.manifest.objects.reduce((sum, file) => sum + file.bytes, 0),
         versionRevision: (current.versionRevision ?? 0) + 1, finalizationError: undefined,
       };
       const done = await repo.kv.transaction([
+        { kind: 'check', pk: guard.pk, sk: guard.sk, condition: { equals: { state: 'ACTIVE' } } },
         { kind: 'put', item: { pk: `DS#${name}`, sk: `V#${String(version).padStart(6, '0')}`, ...updated }, condition: { equals: { state: 'PENDING', uri: v.uri, versionRevision: current.versionRevision ?? 0 } } },
         { kind: 'delete', pk: request.pk, sk: request.sk },
       ]);
@@ -203,7 +210,10 @@ export async function finalizePendingVersions(signal?: AbortSignal) {
           kind: 'put',
           item: { pk: `DS#${name}`, sk: `V#${String(version).padStart(6, '0')}`, ...current, finalizationError: (error as Error).message.slice(0, 500), versionRevision: (current.versionRevision ?? 0) + 1 },
           condition: { equals: { uri: current.uri, state: 'PENDING', versionRevision: current.versionRevision ?? 0 } },
-        }]);
+        }, ...(error instanceof HttpError && error.status >= 400 && error.status < 500 ? [{
+          kind: 'delete' as const, pk: request.pk, sk: request.sk,
+          condition: { equals: { gsi1sk: request.gsi1sk } },
+        }] : [])]);
       }
     }
   }
@@ -211,24 +221,16 @@ export async function finalizePendingVersions(signal?: AbortSignal) {
 
 /** Lineage: which workflows consumed or produced this dataset. */
 export async function lineage(name: string) {
-  const repo = getRepo();
-  const versions = await repo.listVersions(name);
-  const produced = versions.filter((v) => v.producedBy).map((v) => ({ version: v.version, ...v.producedBy! }));
-  const consumers: { workflowId: string; workflowName: string; task: string; version: 'latest' | number; status: string }[] = [];
-  for (const wf of await repo.listWorkflows({ limit: 200 })) {
-    for (const t of wf.spec.workflow.tasks) {
-      for (const i of t.inputs) {
-        if ('dataset' in i && i.dataset.name === name) consumers.push({ workflowId: wf.id, workflowName: wf.name, task: t.name, version: i.dataset.version, status: wf.status });
-      }
-    }
-  }
-  return { produced, consumers };
+  return getRepo().datasetLineage(name);
 }
 
 /** Datasets are writable by their owner or an admin; everyone can read. */
 export async function assertDatasetOwner(session: Session, name: string): Promise<void> {
   const ds = await getRepo().getDataset(name);
   if (!ds) throw notFound(`dataset ${name}`);
-  if (ds.ownerSubject && ds.ownerSubject === session.subject) return;
+  if (ds.ownerSubject) {
+    if (session.role === 'admin' || ds.ownerSubject === session.subject) return;
+    throw forbidden('Only the dataset owner or an administrator can modify it');
+  }
   assertOwner(session, ds.owner, 'dataset');
 }

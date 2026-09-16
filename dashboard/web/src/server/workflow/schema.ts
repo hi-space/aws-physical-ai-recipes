@@ -54,6 +54,10 @@ export const taskOutputSchema = z.union([z.object({
 }).strict()]);
 export const taskSchema = z.object({
   name: z.string().regex(dns1123).max(40),
+  executionProfile: z.object({
+    id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/),
+    version: z.number().int().positive(),
+  }).strict().optional(),
   resource: z.string().min(1).default('default'),
   image: z.string().min(1),
   command: z.array(z.string()).optional(),

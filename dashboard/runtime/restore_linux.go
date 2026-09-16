@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,6 +30,7 @@ type restoredCheckpoint struct {
 }
 type restorePlan struct {
 	Checkpoints []restoredCheckpoint `json:"checkpoints"`
+	NextCursor  string               `json:"nextCursor,omitempty"`
 }
 type restoreReceipt struct {
 	Version       int              `json:"version"`
@@ -44,8 +44,7 @@ type restoreReceipt struct {
 var hexDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func (r *runner) fetchRestores(ctx context.Context) (restorePlan, error) {
-	var plan restorePlan
-	err := r.broker.request(ctx, http.MethodGet, "/runtime/checkpoints?replica="+strconv.Itoa(r.replica), nil, &plan, 200)
+	plan, err := r.fetchRestorePages(ctx)
 	if err != nil {
 		return plan, err
 	}
@@ -77,7 +76,7 @@ func (r *runner) fetchRestores(ctx context.Context) (restorePlan, error) {
 			return plan, errors.New("committed checkpoint has no files")
 		}
 		for _, file := range cp.Files {
-			if file.Size > maxFileBytes || file.VersionID == "" || file.VersionID == "null" ||
+			if file.Size > maxCheckpointFileBytes || file.VersionID == "" || file.VersionID == "null" ||
 				file.ChecksumType != "FULL_OBJECT" || !validDigest(file.ChecksumSHA256) {
 				return plan, errors.New("checkpoint restore requires bounded files with pinned full-object checksums")
 			}

@@ -9,11 +9,13 @@ import { config } from '../config';
 import type { WorkflowSpec } from '../workflow/schema';
 import { inspectEcrImage, parsePrivateEcrImage, type ImageInspection, type ImageScope } from '../aws/ecr-inspection';
 import { inspectHardware, instanceType, quantity, type HardwareNode, type HardwareSnapshot } from '../aws/hardware-inspection';
+import type { SourceBuildProvenance } from './source-builds-contract';
 
 const idSchema = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/);
 export const imageProfileInputSchema = z.object({
   id: idSchema, name: z.string().trim().min(1).max(100), image: z.string().min(1).max(600),
   expectedVersion: z.number().int().positive().optional(),
+  sourceBuildId: z.string().regex(/^sb-[a-f0-9]{32}$/).optional(),
   requirements: z.object({
     minCpu: z.number().positive().max(1024).default(1),
     minMemoryMiB: z.number().positive().max(32 * 1024 * 1024).default(1024),
@@ -28,6 +30,7 @@ export interface ImageProfile {
   requirements: z.output<typeof imageProfileInputSchema>['requirements'];
   approved: boolean; approvedBy?: string; createdBy: string; createdAt: string;
   source: 'admin' | 'deployment-env'; contentHash: string; enabled: boolean;
+  sourceBuild?: { id: string; provenance: SourceBuildProvenance };
 }
 export interface ProfileFinding { code: string; severity: 'error' | 'warning' | 'unknown'; message: string; task?: string }
 export interface TaskPreflight {
@@ -96,8 +99,16 @@ export function imageProfilesService(session: Session, d: ImageProfileDeps = def
     const value = parsed.data;
     parsePrivateEcrImage(value.image, d.scope);
     const image = await d.inspectImage(value.image);
+    let sourceBuild: ImageProfile['sourceBuild'];
+    if (value.sourceBuildId) {
+      const { sourceBuildService, sourceBuildDefaults } = await import('./source-builds');
+      sourceBuild = { id: value.sourceBuildId, provenance: await sourceBuildService(session, {
+        ...sourceBuildDefaults(), repo: d.repo,
+      }).provenance(value.sourceBuildId, image.resolvedImage, p) };
+    }
     const requirements = { ...value.requirements, platforms: [...new Set(value.requirements.platforms.map(v => instanceType(v)!))].sort() };
-    const contentHash = hash([value.name, image.requestedImage, image.digest, image.architectures, requirements, approved]);
+    const contentHash = hash([value.name, image.requestedImage, image.digest, image.architectures, requirements, approved,
+      ...(sourceBuild ? [sourceBuild] : [])]);
     const key = headKey(p.id, value.id), old = await d.repo.kv.get(key.pk, key.sk);
     if (value.expectedVersion !== undefined && value.expectedVersion !== Number(old?.version ?? 0)) throw conflict();
     if (old?.contentHash === contentHash && old.enabled !== false) return get(value.id, p);
@@ -107,6 +118,7 @@ export function imageProfilesService(session: Session, d: ImageProfileDeps = def
       id: value.id, name: value.name, projectId: p.id, version, requirements, image, approved,
       ...(approved ? { approvedBy: session.subject } : {}), createdBy: session.subject!, createdAt: d.now().toISOString(),
       source: approved ? 'admin' : 'deployment-env', contentHash, enabled: true,
+      ...(sourceBuild ? { sourceBuild } : {}),
     };
     const current = await authorize(project, true);
     const saved = await d.repo.kv.transaction([

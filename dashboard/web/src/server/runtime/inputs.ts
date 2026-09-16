@@ -6,7 +6,9 @@ import type { AuthContext } from './ledger';
 import { objectStorage } from './storage';
 import { safeRelative } from './uploads';
 import { inputChecksumType, type InputChecksumType } from './checksums';
-export async function inputPlan(deps: BrokerDeps, context: AuthContext) {
+import { RUNTIME_LIMITS } from './limits';
+import { selectPlanPage, type PlanPage } from './plan-pages';
+export async function inputPlan(deps: BrokerDeps, context: AuthContext, page?: PlanPage) {
   const storage = deps.storage ?? objectStorage,
     inputs: {
       index: number;
@@ -19,7 +21,8 @@ export async function inputPlan(deps: BrokerDeps, context: AuthContext) {
         checksumSHA256: string;
         checksumType: InputChecksumType;
         versionId: string;
-        url: string;
+        bucket: string;
+        key: string;
       }[];
     }[] = [];
   const snapshots = context.workflow.datasetSnapshots?.[context.spec.name] ?? {};
@@ -68,7 +71,7 @@ export async function inputPlan(deps: BrokerDeps, context: AuthContext) {
     }
     const schema1 = manifest.schemaVersion === 1;
     const identityValid = schema1 ? typeof manifest.identity === 'string' && !!manifest.identity && typeof manifest.source?.bucket === 'string' && typeof manifest.source.prefix === 'string' : manifest.schemaVersion === undefined && manifest.projectId === context.claims.projectId;
-    if (!identityValid || !Array.isArray(manifest.objects) || !manifest.objects.length || manifest.objects.length > 1024) throw new HttpError(409, 'Input manifest has no verified object set');
+    if (!identityValid || !Array.isArray(manifest.objects) || !manifest.objects.length || manifest.objects.length > RUNTIME_LIMITS.files) throw new HttpError(409, 'Input manifest has no verified object set');
     const files: typeof inputs[number]['files'] = [],
       seen = new Set<string>();
     for (const object of manifest.objects) {
@@ -76,17 +79,16 @@ export async function inputPlan(deps: BrokerDeps, context: AuthContext) {
       const path = schema1 ? object.path ?? '' : relative;
       const checksumType = inputChecksumType(object.checksumType, object.checksumSHA256);
       const size = object.bytes ?? object.size;
-      if (!safeRelative(path) || path !== relative || path.split('/').some(segment => segment.startsWith('.pai-input-')) || seen.has(path) || !object.versionId || object.versionId === 'null' || !Number.isSafeInteger(size) || (size ?? -1) < 0 || !checksumType) throw new HttpError(409, 'Input manifest contains an invalid object');
+      if (!safeRelative(path) || path !== relative || path.split('/').some(segment => segment.startsWith('.pai-input-')) || seen.has(path) || !object.versionId || object.versionId === 'null' || !Number.isSafeInteger(size) || (size ?? -1) < 0 || size! > RUNTIME_LIMITS.fileBytes || !checksumType) throw new HttpError(409, 'Input manifest contains an invalid object');
       seen.add(path);
-      const head = await storage.head(uri.hostname, object.key, object.versionId);
-      if (inputChecksumType(head.checksumType, head.checksumSHA256) !== checksumType || head.versionId !== object.versionId || head.size !== size || head.checksumSHA256 !== object.checksumSHA256) throw new HttpError(409, 'Pinned input object verification failed');
       files.push({
         path,
         size: size!,
         checksumSHA256: object.checksumSHA256,
         checksumType,
         versionId: object.versionId,
-        url: await storage.presignGet(uri.hostname, object.key, object.versionId, 300)
+        bucket: uri.hostname,
+        key: object.key,
       });
     }
     inputs.push({
@@ -97,7 +99,20 @@ export async function inputPlan(deps: BrokerDeps, context: AuthContext) {
       files
     });
   }
-  return {
-    inputs
-  };
+  const selected = selectPlanPage(inputs, context, deps.signingKey, 'inputs', page);
+  const result = [];
+  for (const input of selected.groups) {
+    const files = [];
+    for (const file of input.files) {
+      const head = await storage.head(file.bucket, file.key, file.versionId);
+      if (inputChecksumType(head.checksumType, head.checksumSHA256) !== file.checksumType ||
+        head.versionId !== file.versionId || head.size !== file.size || head.checksumSHA256 !== file.checksumSHA256) {
+        throw new HttpError(409, 'Pinned input object verification failed');
+      }
+      const { bucket, key, ...metadata } = file;
+      files.push({ ...metadata, url: await storage.presignGet(bucket, key, file.versionId, 300) });
+    }
+    result.push({ ...input, files });
+  }
+  return { inputs: result, ...(selected.nextCursor ? { nextCursor: selected.nextCursor } : {}) };
 }

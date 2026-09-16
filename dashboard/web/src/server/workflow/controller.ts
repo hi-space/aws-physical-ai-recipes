@@ -4,6 +4,7 @@ import { GetParameterCommand } from '@aws-sdk/client-ssm';
 import { ssm } from '../aws/clients';
 import { config } from '../config';
 import * as k8sRes from '../k8s/resources';
+import { ensureAttemptSecret } from '../k8s/attempt-secrets';
 import { workloadForJob, workloadState } from '../k8s/kueue';
 import { notify } from '../notify';
 import { getRepo } from '../store/repo';
@@ -48,7 +49,7 @@ export function configureController(overrides: Partial<Omit<ControllerDeps, 'rep
 export function realDeps(): ControllerDeps {
   return {
     repo: getRepo(),
-    k8s: realK8s,
+    k8s: { ...realK8s, ...(process.env.LOG_ARCHIVE_ENABLED === '1' ? { ensureAttemptSecret } : {}) },
     now: () => new Date(),
     notify,
     resolveCredential: resolveCredentialFromSsm,

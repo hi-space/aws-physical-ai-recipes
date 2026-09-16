@@ -322,9 +322,11 @@ function LogViewer({
   const pods = job.pods ?? [];
   const pod = pods[podIdx];
   const [searchTerm, setSearchTerm] = React.useState('');
-  const logsUrl = pod ? `/api/k8s/pods/${job.namespace}/${pod.name}/logs?tail=1000${follow ? '&follow=1' : ''}` : '';
+  const me = useMe();
+  const [retained, setRetained] = React.useState(false);
+  const logsUrl = pod ? `/api/k8s/pods/${job.namespace}/${pod.name}/logs?tail=1000${follow ? '&follow=1' : ''}${retained ? '&source=retained' : ''}` : '';
 
-  const { data: logsData, isLoading } = useApi<{ source: string; phase?: string; lines: string[] }>(logsUrl, { refetch: follow ? 1000 : 0 });
+  const { data: logsData, isLoading, error: logsError } = useApi<{ source: string; phase?: string; lines: string[] }>(logsUrl, { refetch: follow ? 1000 : 0 });
 
   const filteredLines = React.useMemo(() => {
     if (!logsData?.lines) return [];
@@ -347,6 +349,11 @@ function LogViewer({
           ))}
         </select>
       </div>
+      {me.data?.role === 'admin' && <label className="flex items-center gap-2 text-xs text-fg-muted">
+        <input type="checkbox" checked={retained} onChange={event => setRetained(event.target.checked)} />
+        기존 Kubernetes 작업의 현재 로그 보기 · 보관 이력과 비밀값 필터 없음
+      </label>}
+      <ErrorBox error={logsError} />
 
       {/* Log Viewer Controls */}
       <div className="flex gap-2 items-center">

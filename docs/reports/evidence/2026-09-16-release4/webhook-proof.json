@@ -1,0 +1,30 @@
+{
+  "runId": "da3408a8e258faee",
+  "hookId": "wh-f68f9f32db3acca4f854f5cb31ad8e31",
+  "receiverTestId": "11f865ceeaa0",
+  "delivery": {
+    "id": "1789581680268-fcdc04cd835df5961812738805b2a2b94b896dc4b7f4a1edd92d9c8d6696bbbd",
+    "eventId": "evt-7dd2f117e2bb7e87bdaf790b5303a1f8ab813f4d2260a196d82a2dae80a706ed",
+    "runId": "da3408a8e258faee",
+    "eventStatus": "SUCCEEDED",
+    "state": "DELIVERED",
+    "attempts": 1,
+    "totalAttempts": 1,
+    "redrives": 0,
+    "createdAt": "2026-09-16T18:01:20.268Z",
+    "updatedAt": "2026-09-16T18:01:24.948Z",
+    "deliveredAt": "2026-09-16T18:01:24.948Z",
+    "lastHttpStatus": 200
+  },
+  "receipt": {
+    "kind": "pai-webhook-receipt",
+    "eventId": "evt-7dd2f117e2bb7e87bdaf790b5303a1f8ab813f4d2260a196d82a2dae80a706ed",
+    "deliveryId": "1789581680268-fcdc04cd835df5961812738805b2a2b94b896dc4b7f4a1edd92d9c8d6696bbbd",
+    "runId": "da3408a8e258faee",
+    "projectId": "workshop",
+    "status": "SUCCEEDED",
+    "signatureVerified": true,
+    "bodySHA256": "5bad739e352a96a24d681459dc54e8c39bae27b00fb0ccb2d189bc3178db6133"
+  },
+  "noExternalRecipient": true
+}

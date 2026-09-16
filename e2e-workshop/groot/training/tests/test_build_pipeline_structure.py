@@ -40,6 +40,30 @@ def test_gate_branches(pipeline):
     assert gate.else_steps[0].name == "SmokeFailed"
 
 
+def test_smoke_registers_pending_and_project_tracking_is_parameterized(monkeypatch):
+    import build_pipeline
+    approvals = []
+    original = build_pipeline.Model.register
+
+    def record(model, *args, **kwargs):
+        approvals.append(kwargs.get("approval_status"))
+        return original(model, *args, **kwargs)
+
+    monkeypatch.setattr(build_pipeline.Model, "register", record)
+    session = PipelineSession(boto_session=boto3.Session(region_name="us-east-1"))
+    result = build_pipeline.build_pipeline(
+        session=session, role="arn:aws:iam::111111111111:role/Fixture",
+        training_image_uri="111111111111.dkr.ecr.us-east-1.amazonaws.com/groot:fixture",
+        bucket="fixture-bucket", source_root=str(ROOT),
+        env={"MLFLOW_TRACKING_URI": "arn:fixture"})
+    assert approvals == ["PendingManualApproval"]
+    assert {"DashboardProjectId", "DashboardOwnerSubject"} <= {p.name for p in result.parameters}
+    training = next(s for s in result.steps if s.name == "GR00TFinetune")
+    environment = training.step_args.func_args[0].environment
+    assert environment["PAI_PROJECT_ID"].name == "DashboardProjectId"
+    assert environment["MLFLOW_EXPERIMENT_NAME"].values[0] == "pai"
+
+
 def test_train_depends_on_transform(pipeline):
     train = next(s for s in pipeline.steps if s.name == "GR00TFinetune")
     # transform 출력이 학습 입력으로 배선되면 depends_on 또는 property 참조가 존재

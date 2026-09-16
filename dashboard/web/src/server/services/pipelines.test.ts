@@ -58,3 +58,41 @@ it('validates declared parameters before creating an execution intent', async ()
   await expect(startProjectPipeline(alice, project, { parameters: { MaxSteps: '-1' } }, 'request', d)).rejects.toMatchObject({ status: 400 });
   expect(d.aws.startExecution).not.toHaveBeenCalled();
 });
+it('injects project tracking identity from the server and rejects client overrides', async () => {
+  vi.mocked(d.aws.describePipeline).mockResolvedValue({ parameters: [
+    { Name: 'MaxSteps', Type: 'Integer' }, { Name: 'DashboardProjectId', Type: 'String' }, { Name: 'DashboardOwnerSubject', Type: 'String' },
+  ] } as Awaited<ReturnType<typeof d.aws.describePipeline>>);
+  await expect(startProjectPipeline(alice, project, { parameters: { DashboardProjectId: 'other' } }, 'spoof', d)).rejects.toMatchObject({ status: 400 });
+  await startProjectPipeline(alice, project, { parameters: { MaxSteps: '100' } }, 'scoped', d);
+  expect(d.aws.startExecution).toHaveBeenCalledWith({
+    DashboardOwnerSubject: 'alice-sub', DashboardProjectId: 'lab', MaxSteps: '100',
+  }, expect.any(String), expect.any(String));
+});
+it('does no discovery or dispatch when reconciliation starts after shutdown', async () => {
+  const shutdown = new AbortController(); shutdown.abort();
+  const query = vi.spyOn(d.kv, 'queryGsi1');
+  await reconcilePipelineIntents(d, shutdown.signal);
+  expect(query).not.toHaveBeenCalled();
+  expect(d.aws.startExecution).not.toHaveBeenCalled();
+});
+it('does not dispatch queued intents when shutdown arrives during discovery', async () => {
+  vi.mocked(d.aws.startExecution).mockRejectedValueOnce(new Error('lost response'));
+  await expect(startProjectPipeline(alice, project, { parameters: {} }, 'shutdown', d)).rejects.toThrow('lost response');
+  vi.mocked(d.aws.startExecution).mockClear();
+  const shutdown = new AbortController(), original = d.kv.queryGsi1.bind(d.kv);
+  vi.spyOn(d.kv, 'queryGsi1').mockImplementation(async (...args) => {
+    const rows = await original(...args); shutdown.abort(); return rows;
+  });
+  await reconcilePipelineIntents(d, shutdown.signal);
+  expect(d.aws.startExecution).not.toHaveBeenCalled();
+  expect(await d.kv.get(`PIPELINE_EXECUTION#${arn}`, 'META')).toBeUndefined();
+});
+it('retains an accepted dispatch receipt if shutdown happens while its reply arrives', async () => {
+  vi.mocked(d.aws.startExecution).mockRejectedValueOnce(new Error('lost response'));
+  await expect(startProjectPipeline(alice, project, { parameters: {} }, 'accepted', d)).rejects.toThrow('lost response');
+  const shutdown = new AbortController();
+  vi.mocked(d.aws.startExecution).mockImplementationOnce(async () => { shutdown.abort(); return arn; });
+  await reconcilePipelineIntents(d, shutdown.signal);
+  expect(await d.kv.get(`PIPELINE_EXECUTION#${arn}`, 'META')).toMatchObject({ projectId: project.id, ownerSubject: 'alice-sub' });
+  expect(d.aws.stopExecution).not.toHaveBeenCalled();
+});

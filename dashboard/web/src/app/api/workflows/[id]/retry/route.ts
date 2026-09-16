@@ -11,6 +11,8 @@ export const dynamic = 'force-dynamic';
 export const POST = route<{ id: string }>('researcher', async ({ params, session, req }) => {
   const original = await getRepo().getWorkflow(params.id);
   if (!original) throw notFound('workflow');
+  if (original.spec.workflow.tasks.some(task => task.executionProfile) &&
+    (session.role !== 'admin' || session.authMethod === 'token')) throw new HttpError(403, '특수 실행 프로필의 재실행에는 관리자 브라우저 로그인이 필요합니다.');
   if (profilesRequired() && !original.imagePins) throw new HttpError(428, '이전 실행을 복제하고 현재 이미지 프로필을 검토한 뒤 제출하세요.', 'image_preflight_review');
   const project = original.projectId ? undefined : await requestProject(req, session, 'researcher');
   const credentialProject = project ?? await resolveProject(session, original.projectId, getRepo(), 'researcher');

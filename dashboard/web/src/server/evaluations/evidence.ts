@@ -4,6 +4,7 @@ import { badRequest, notConfigured } from '../errors';
 import type { DatasetVersion } from '../store/types';
 import { safeRelativePath, sha256Schema } from './report';
 import type { DatasetPin, ObjectPin } from './types';
+import { inputChecksumType } from '../runtime/checksums';
 
 export interface ObjectReference { bucket: string; key: string; versionId?: string }
 export interface ObjectMetadata {
@@ -23,6 +24,7 @@ const objectSchema = z.object({
   bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   checksumSHA256: z.string().min(1).max(256),
   checksumType: z.enum(['FULL_OBJECT', 'COMPOSITE']),
+  fullSHA256: sha256Schema.optional(),
 });
 const manifestSchema = z.object({
   schemaVersion: z.literal(1), identity: z.string().min(1),
@@ -44,13 +46,13 @@ function fullDigest(checksum: string): string {
 }
 function checksumDigest(checksum: string, type: string): string | undefined {
   if (type === 'FULL_OBJECT') return fullDigest(checksum);
-  if (type !== 'COMPOSITE' || !/^[A-Za-z0-9+/]{43}=-[1-9]\d*$/.test(checksum)) throw badRequest('Invalid composite SHA256 checksum');
+  if (inputChecksumType(type, checksum) !== 'COMPOSITE') throw badRequest('Invalid composite SHA256 checksum');
   return undefined;
 }
 function checkHead(expected: ObjectPin, actual: ObjectMetadata) {
   if (actual.versionId !== expected.versionId || actual.bytes !== expected.bytes ||
       actual.checksumSHA256 !== expected.checksumSHA256 ||
-      (actual.checksumType ?? 'FULL_OBJECT') !== expected.checksumType) throw badRequest('Published object VersionId/checksum does not match the snapshot');
+      inputChecksumType(actual.checksumType, actual.checksumSHA256) !== expected.checksumType) throw badRequest('Published object VersionId/checksum does not match the snapshot');
 }
 function parseJson(body: Uint8Array): unknown {
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)); }
@@ -65,17 +67,21 @@ export interface VerifiedSnapshot {
 export class EvidenceReader {
   constructor(readonly objects: ObjectStorage, readonly bucket: string) {}
 
-  async snapshot(projectId: string, version: DatasetVersion): Promise<VerifiedSnapshot> {
+  async snapshot(projectId: string, version: DatasetVersion, external?: { identity: string; manifestVersionId: string }): Promise<VerifiedSnapshot> {
     if (version.state !== 'READY' || !version.manifestUri || !version.manifestHash ||
         !sha256Schema.safeParse(version.manifestHash).success) throw badRequest('A READY version with a verified publication manifest is required');
     const root = scopedS3(version.uri, projectId, this.bucket);
     const reference = scopedS3(version.manifestUri, projectId, this.bucket);
     if (!root.key.endsWith('/') || reference.key !== root.key + 'manifest.json') throw badRequest('Manifest must belong to this exact dataset snapshot');
-    const head = await this.objects.head(reference);
+    const manifestVersionId = external?.manifestVersionId ?? version.manifestVersionId;
+    const head = await this.objects.head({ ...reference, ...(manifestVersionId ? { versionId: manifestVersionId } : {}) });
+    if (manifestVersionId && head.versionId !== manifestVersionId) throw badRequest('Pinned manifest version does not match');
     if (!head.versionId || head.versionId === 'null' || !head.checksumSHA256 || head.bytes <= 0 || head.bytes > 8 * 1024 * 1024) throw badRequest('Versioned manifest with checksum is required (maximum 8 MiB)');
+    const manifestChecksumType = inputChecksumType(head.checksumType, head.checksumSHA256);
+    if (!manifestChecksumType) throw badRequest('Invalid manifest checksum');
     const manifestPin: ObjectPin = {
       ...reference, path: 'manifest.json', versionId: head.versionId, bytes: head.bytes,
-      checksumSHA256: head.checksumSHA256, checksumType: head.checksumType === 'COMPOSITE' ? 'COMPOSITE' : 'FULL_OBJECT',
+      checksumSHA256: head.checksumSHA256, checksumType: manifestChecksumType,
     };
     // Dataset's committed full content hash is authoritative, including for a multipart manifest.
     const fetched = await this.objects.get(manifestPin, 8 * 1024 * 1024);
@@ -84,13 +90,21 @@ export class EvidenceReader {
     manifestPin.sha256 = version.manifestHash.toLowerCase();
     const parsed = manifestSchema.safeParse(parseJson(fetched.body));
     if (!parsed.success) throw badRequest('Invalid published snapshot manifest');
-    if (!version.publicationId || !version.producedAttempt ||
-        parsed.data.identity !== `workflow:${version.publicationId}:${version.producedAttempt}`) throw badRequest('Manifest is not the declared runtime publication');
+    if (external ? parsed.data.identity !== external.identity || head.versionId !== external.manifestVersionId :
+      !version.publicationId || !version.producedAttempt || parsed.data.identity !== `workflow:${version.publicationId}:${version.producedAttempt}`) {
+      throw badRequest('Manifest is not the declared trusted publication');
+    }
     const objects = new Map<string, ObjectPin>();
     for (const entry of parsed.data.objects) {
       safeRelativePath(entry.path);
       if (entry.key !== root.key + entry.path || objects.has(entry.path)) throw badRequest('Snapshot contains an escaping or duplicate object path');
-      objects.set(entry.path, { ...entry, bucket: root.bucket, sha256: checksumDigest(entry.checksumSHA256, entry.checksumType) });
+      const full = checksumDigest(entry.checksumSHA256, entry.checksumType);
+      if (full && entry.fullSHA256 && full !== entry.fullSHA256) throw badRequest('Publication full digest conflicts with S3 checksum');
+      // Only reached after a caller verifies the source receipt and we verify
+      // its committed manifest hash/identity. fullSHA256 is the publisher's
+      // independently streamed digest; COMPOSITE remains COMPOSITE.
+      objects.set(entry.path, { ...entry, bucket: root.bucket, sha256: full ?? entry.fullSHA256,
+        ...(!full && entry.fullSHA256 ? { sha256Verification: 'streamed-version' as const } : {}) });
     }
     return {
       dataset: { name: version.dataset, version: version.version, uri: version.uri,
