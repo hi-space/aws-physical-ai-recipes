@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useMemo } from 'react';
-import { ReactFlow, Background, Controls, useReactFlow, useNodesState, useEdgesState, type Node, type Edge } from '@xyflow/react';
+import { ReactFlow, ReactFlowProvider, Background, Controls, useReactFlow, useNodesState, useEdgesState, type Node, type Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { Task, TaskPhase } from '@/server/store/types';
 import type { WorkflowSpec } from '@/server/workflow/schema';
@@ -13,7 +13,16 @@ interface DagViewProps {
   onSelectTask?: (name: string) => void;
 }
 
-export function DagView({ spec, tasks, selectedTask, onSelectTask }: DagViewProps) {
+/** React Flow hooks (useReactFlow) need a provider above the component that calls them. */
+export function DagView(props: DagViewProps) {
+  return (
+    <ReactFlowProvider>
+      <DagViewInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function DagViewInner({ spec, tasks, selectedTask, onSelectTask }: DagViewProps) {
   const taskMap = new Map(tasks.map((t) => [t.name, t]));
   const byName = new Map(spec.workflow.tasks.map((t) => [t.name, t]));
 

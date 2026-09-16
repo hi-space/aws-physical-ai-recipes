@@ -227,7 +227,7 @@ export function ComputePage() {
                   >
                     {k8sNodes.map((n) => (
                       <tr key={n.name}>
-                        <td className="mono text-[11px]">{shortId(n.name)}</td>
+                        <td className="mono text-[11px]">{n.name}</td>
                         <td className="text-xs text-fg-muted">{n.group ?? '—'}</td>
                         <td>
                           <Badge tone={n.ready ? 'ok' : 'err'}>{n.ready ? 'Ready' : 'NotReady'}</Badge>
@@ -235,8 +235,8 @@ export function ComputePage() {
                         <td className="num">{n.gpuAllocatable}/{n.gpuCapacity}</td>
                         <td>
                           {n.health && (
-                            <Badge tone={n.health === 'Healthy' ? 'ok' : 'err'}>
-                              {n.unschedulable ? 'Unschedulable' : 'Schedulable'}
+                            <Badge tone={n.health === 'Schedulable' && !n.unschedulable ? 'ok' : 'err'}>
+                              {n.unschedulable ? 'Cordoned' : n.health}
                             </Badge>
                           )}
                         </td>
