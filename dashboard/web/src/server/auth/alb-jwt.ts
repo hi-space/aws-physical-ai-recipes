@@ -10,7 +10,8 @@
  * The ALB JWT uses base64url with padding in some versions and a non-standard
  * header; `jose` handles both once the padding is stripped.
  */
-import { createRemoteJWKSet, decodeProtectedHeader, importSPKI, jwtVerify } from 'jose';
+import { createPublicKey, verify as cryptoVerify, type KeyObject } from 'node:crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 export interface OidcIdentity {
   sub: string;
@@ -21,7 +22,7 @@ export interface OidcIdentity {
 
 type KeyFetcher = (kid: string) => Promise<string>;
 
-const albKeyCache = new Map<string, Promise<CryptoKey>>();
+const albKeyCache = new Map<string, Promise<KeyObject>>();
 
 async function defaultAlbKeyFetcher(region: string, kid: string): Promise<string> {
   const res = await fetch(`https://public-keys.auth.elb.${region}.amazonaws.com/${kid}`);
@@ -37,38 +38,65 @@ export function normalizeAlbJwt(jwt: string): string {
     .join('.');
 }
 
+const b64 = (s: string) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+
+/**
+ * Verify an ALB-signed JWT. The ALB signs the *padded* base64 segments, which
+ * standard JWS libraries reject, so the ES256 signature (raw r||s) is checked
+ * with node:crypto over the segments exactly as received, falling back to the
+ * unpadded form for forward compatibility.
+ */
 export async function verifyAlbOidcData(
   jwt: string,
   region: string,
   opts: { expectedSigner: string; fetchKey?: KeyFetcher },
 ): Promise<OidcIdentity> {
   if (!opts.expectedSigner) throw new Error('ALB signer (load balancer ARN) is not configured; refusing to accept identity headers');
-  const token = normalizeAlbJwt(jwt);
-  const header = decodeProtectedHeader(token) as { kid?: string; signer?: string; alg?: string };
-  if (!header.kid) throw new Error('ALB JWT missing kid');
+  const parts = jwt.trim().split('.');
+  if (parts.length !== 3) throw new Error('ALB JWT malformed');
+  let header: { kid?: string; signer?: string; alg?: string };
+  let payload: Record<string, unknown>;
+  try {
+    header = JSON.parse(b64(parts[0]).toString('utf8'));
+    payload = JSON.parse(b64(parts[1]).toString('utf8'));
+  } catch {
+    throw new Error('ALB JWT is not decodable');
+  }
+  if (!header.kid || !/^[A-Za-z0-9_-]{1,128}$/.test(header.kid)) throw new Error('ALB JWT missing kid');
   if (header.alg !== 'ES256') throw new Error(`ALB JWT unexpected alg ${header.alg}`);
   if (header.signer !== opts.expectedSigner) throw new Error('ALB JWT signer mismatch');
+
   const cacheKey = `${region}:${header.kid}`;
   let keyP = albKeyCache.get(cacheKey);
   if (!keyP) {
     const fetcher = opts.fetchKey ?? ((kid) => defaultAlbKeyFetcher(region, kid));
-    keyP = fetcher(header.kid).then((pem) => importSPKI(pem, 'ES256'));
+    keyP = fetcher(header.kid).then((pem) => createPublicKey(pem));
     albKeyCache.set(cacheKey, keyP);
     keyP.catch(() => albKeyCache.delete(cacheKey));
   }
   const key = await keyP;
-  const { payload } = await jwtVerify(token, key, { algorithms: ['ES256'] });
+  const signature = b64(parts[2]);
+  const candidates = [`${parts[0]}.${parts[1]}`, `${parts[0].replace(/=+$/g, '')}.${parts[1].replace(/=+$/g, '')}`];
+  const ok = candidates.some((input) => {
+    try {
+      return cryptoVerify('sha256', Buffer.from(input, 'utf8'), { key, dsaEncoding: 'ieee-p1363' }, signature);
+    } catch {
+      return false;
+    }
+  });
+  if (!ok) throw new Error('signature verification failed');
+  const exp = typeof payload.exp === 'number' ? payload.exp : undefined;
+  if (exp !== undefined && exp * 1000 < Date.now() - 30_000) throw new Error('ALB JWT expired');
   return {
     sub: String(payload.sub ?? ''),
     email: typeof payload.email === 'string' ? payload.email : undefined,
-    username: typeof payload.username === 'string' ? payload.username : (typeof payload['cognito:username'] === 'string' ? (payload['cognito:username'] as string) : undefined),
-    exp: payload.exp,
+    username: typeof payload.username === 'string' ? payload.username : typeof payload['cognito:username'] === 'string' ? (payload['cognito:username'] as string) : undefined,
+    exp,
   };
 }
 
-const jwksCache = new Map<string, Jwks>();
-
 type Jwks = Parameters<typeof jwtVerify>[1];
+const jwksCache = new Map<string, Jwks>();
 
 /**
  * Read Cognito groups from the access token after verifying its signature

@@ -163,12 +163,12 @@ export async function getDeployment(ns: string, name: string) {
 
 export async function podLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; sinceSeconds?: number; previous?: boolean } = {}): Promise<string> {
   const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 2000, sinceSeconds: opts.sinceSeconds, previous: opts.previous ? 'true' : undefined, timestamps: 'true' })}`, {
-    headers: { accept: 'text/plain' },
+    headers: { accept: '*/*' },
   });
   return res.text();
 }
 export async function streamPodLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number } = {}): Promise<ReadableStream<Uint8Array>> {
-  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, follow: 'true', timestamps: 'true' })}`, { headers: { accept: 'text/plain' } });
+  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, follow: 'true', timestamps: 'true' })}`, { headers: { accept: '*/*' } });
   return res.body as ReadableStream<Uint8Array>;
 }
 

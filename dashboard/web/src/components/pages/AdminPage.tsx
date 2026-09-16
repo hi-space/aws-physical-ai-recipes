@@ -116,9 +116,13 @@ function UsersTab({ setToast }: { setToast: any }) {
 
   const generatePassword = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    // Cryptographic RNG with rejection sampling (no modulo bias).
+    const limit = 256 - (256 % chars.length);
     let pwd = '';
-    for (let i = 0; i < 16; i++) {
-      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    while (pwd.length < 16) {
+      const buf = new Uint8Array(32);
+      crypto.getRandomValues(buf);
+      for (const b of buf) if (b < limit && pwd.length < 16) pwd += chars.charAt(b % chars.length);
     }
     setNewUserForm((p) => ({ ...p, password: pwd }));
   };

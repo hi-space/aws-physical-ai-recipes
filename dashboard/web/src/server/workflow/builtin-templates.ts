@@ -185,7 +185,8 @@ workflow:
         - |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq && apt-get install -y -qq libosmesa6 >/dev/null
-          CKPT=$(ls -d {{input:0}}/*/model_best.zip | head -1)
+          CKPT=$(find {{input:0}} -name model_best.zip | head -1)
+          [ -n "$CKPT" ] || { echo "no model_best.zip under {{input:0}}"; find {{input:0}} -maxdepth 3 | head -30; exit 1; }
           echo "rendering $CKPT"
           exec /fsx/envs/mujoco/bin/python ${HP}/examples/rl/play_mujoco.py --task "{{ task }}" --episodes "{{ episodes }}" --checkpoint "$CKPT"
       environment:
