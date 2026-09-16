@@ -12,6 +12,7 @@ AWS 인프라를 활용한 Physical AI 워크로드(시뮬레이션, 학습, 배
 |----------|--------|------|-----------------|------|
 | End-to-End Workshop | [e2e-workshop](./e2e-workshop/) | Isaac Lab 시뮬레이션 + GR00T 파인튜닝 + 추론 + Greengrass 엣지 배포 통합 워크숍 | EC2 (GPU), CDK, SageMaker, CodeBuild, ECR, IoT Greengrass | Available |
 | Distributed Training | [hyperpod-training](./hyperpod-training/) | SageMaker HyperPod 기반 VLA/RL 분산 학습 인프라 — Slurm 경로(FSx, MLflow) 또는 EKS 경로(observability 애드온 + task governance) | SageMaker HyperPod, EKS, FSx for Lustre, S3, AMP, AMG | Available |
+| 대시보드 | [dashboard](./dashboard/) | OSMO 스타일 웹 컨트롤 플레인: 워크플로(YAML DAG → HyperPod EKS Job), 데이터셋, 컴퓨트, 큐/쿼터, 메트릭, MLflow, DCV 세션, Greengrass — ALB + Cognito 인증 | ECS Fargate, ALB, Cognito, DynamoDB, EKS, SageMaker, AMP, S3, FSx | 사용 가능 |
 | Tools | [tools](./tools/) | 로컬 → EC2 SSH 접속, EC2 개발 환경 설정 (Bedrock, Claude Code, 플러그인/MCP) | EC2, Bedrock | Available |
 | Docs | [docs](./docs/) | 워크숍 실행 전 서비스 쿼터 요청 가이드 및 자동화 스크립트 | Service Quotas | Available |
 

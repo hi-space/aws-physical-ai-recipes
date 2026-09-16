@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { DescribeSubnetsCommand, DescribeVpcsCommand, EC2Client } from '@aws-sdk/client-ec2';
+import { DescribeClusterCommand, EKSClient } from '@aws-sdk/client-eks';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { DashboardStack } from '../lib/dashboard-stack';
 import type { DiscoveredOutputs } from '../lib/env-contract';
@@ -86,6 +87,14 @@ async function main() {
 
   const buckets = [hyperPodEks?.S3BucketName, groot?.BucketName, hyperPodSlurm?.S3BucketName].filter(Boolean) as string[];
 
+  // The EKS control-plane ENIs sit behind the cluster security group; the Fargate task must be allowed in on 443
+  // or every Kubernetes call from inside the VPC times out (DNS resolves the private endpoint).
+  let eksClusterSecurityGroupId: string | undefined;
+  if (hyperPodEks?.EksClusterName) {
+    const eksOut = await new EKSClient({ region }).send(new DescribeClusterCommand({ name: hyperPodEks.EksClusterName }));
+    eksClusterSecurityGroupId = eksOut.cluster?.resourcesVpcConfig?.clusterSecurityGroupId;
+  }
+
   new DashboardStack(app, 'PhysicalAiDashboard', {
     stackName: `PhysicalAiDashboard-${accountId}`,
     env: { account: accountId, region },
@@ -102,6 +111,7 @@ async function main() {
     notifyEmail: app.node.tryGetContext('notifyEmail') as string | undefined,
     webAppPath: path.resolve(__dirname, '..', '..', 'web'),
     buckets,
+    eksClusterSecurityGroupId,
   });
   app.synth();
 }

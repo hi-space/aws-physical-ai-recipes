@@ -30,7 +30,8 @@ test('login and visit every page', async ({ page }) => {
   await login(page);
   for (const p of PAGES) {
     await page.goto(p);
-    await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => undefined);
+    await page.waitForLoadState('load', { timeout: 60_000 }).catch(() => undefined);
+    await page.waitForTimeout(2500);
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
     const status = await page.evaluate(() => document.body.innerText.includes('401') && document.body.innerText.includes('Unauthorized'));
     expect(status, `${p} should not be a 401 page`).toBe(false);
@@ -43,4 +44,27 @@ test('api /me reflects the Cognito session', async ({ page }) => {
   const me = await page.evaluate(async () => (await fetch('/api/me')).json());
   expect(me.role).toBe('admin');
   expect(me.features.eks).toBe(true);
+});
+
+test('submit the built-in custom workflow through the deployed API and wait for SUCCEEDED', async ({ page }) => {
+  test.setTimeout(600_000);
+  await login(page);
+  const result = await page.evaluate(async () => {
+    const tpl = await (await fetch('/api/templates/custom')).json();
+    const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: tpl.yaml, overrides: { who: 'playwright' }, templateId: 'custom' }) });
+    return { status: res.status, body: await res.json() };
+  });
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  const id = result.body.id as string;
+  let status = result.body.status as string;
+  for (let i = 0; i < 60 && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(status); i++) {
+    await page.waitForTimeout(5000);
+    status = await page.evaluate(async (wfId) => (await (await fetch(`/api/workflows/${wfId}`)).json()).workflow.status, id);
+  }
+  expect(status).toBe('SUCCEEDED');
+  const logs = await page.evaluate(async (wfId) => (await (await fetch(`/api/workflows/${wfId}/tasks/hello/logs`)).json()), id);
+  expect(JSON.stringify(logs.lines)).toContain('hello from playwright');
+  await page.goto(`/workflows/${id}`);
+  await expect(page.locator('h1').first()).toBeVisible();
+  await page.screenshot({ path: 'test-results/page_workflow_detail.png', fullPage: true });
 });

@@ -12,6 +12,7 @@ From standing up a robot simulation environment to fine-tuning a Vision-Language
 |----------|--------|-------------|------------------|--------|
 | End-to-End Workshop | [e2e-workshop](./e2e-workshop/) | Combined workshop: Isaac Lab simulation, GR00T fine-tuning, inference, and Greengrass edge deployment | EC2 (GPU), CDK, SageMaker, CodeBuild, ECR, IoT Greengrass | Available |
 | Distributed Training | [hyperpod-training](./hyperpod-training/) | VLA/RL distributed training on SageMaker HyperPod — Slurm path (FSx, MLflow) or EKS path (observability add-ons + task governance) | SageMaker HyperPod, EKS, FSx for Lustre, S3, AMP, AMG | Available |
+| Dashboard | [dashboard](./dashboard/) | OSMO-style web control plane: workflows (YAML DAG → HyperPod EKS Jobs), datasets, compute, queues, metrics, MLflow, DCV sessions, Greengrass — behind ALB + Cognito | ECS Fargate, ALB, Cognito, DynamoDB, EKS, SageMaker, AMP, S3, FSx | Available |
 | Tools | [tools](./tools/) | SSH access from your laptop to EC2, plus development environment setup (Bedrock, Claude Code, plugins/MCP) | EC2, Bedrock | Available |
 | Docs | [docs](./docs/) | Service quota request guides and automation to run before the workshop | Service Quotas | Available |
 
@@ -34,6 +35,10 @@ aws-physical-ai-recipes/
 │   ├── edge/                          #   AWS IoT Greengrass edge deployment
 │   │   └── workshop-components/       #     GR00T inference component recipes (N1.6)
 │   └── assets/                        #   Screenshots for the README and guide
+│
+├── dashboard/                         # Physical AI Dashboard (Next.js 16 + CDK): OSMO-style control plane for everything below
+│   ├── web/                           #   Next.js app (UI, API routes, workflow controller)
+│   └── infra/                         #   CDK: PhysicalAiDashboard-<acct> (ALB + Cognito, Fargate, DynamoDB)
 │
 ├── hyperpod-training/                 # SageMaker HyperPod distributed training infrastructure
 │   ├── infra/                         #   CDK stacks (Slurm: HyperPod-<acct> / EKS: HyperPodEks-<acct>, -c orchestrator=eks)

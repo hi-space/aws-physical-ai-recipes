@@ -414,7 +414,13 @@ const cap = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 // ---------------------------------------------------------------------------
 
 export interface ControllerStatus { running: boolean; holder: string; lastTick?: string; lastError?: string; ticks: number; leased: boolean }
-const status: ControllerStatus = { running: false, holder: `${process.pid}-${randomBytes(2).toString('hex')}`, ticks: 0, leased: false };
+/**
+ * Shared on globalThis: Next.js bundles instrumentation and route handlers into
+ * separate module graphs, so a module-level singleton would not be visible to
+ * the API routes.
+ */
+const g = globalThis as unknown as { __paiController?: ControllerStatus; __paiControllerTimer?: NodeJS.Timeout };
+const status: ControllerStatus = (g.__paiController ??= { running: false, holder: `${process.pid}-${randomBytes(2).toString('hex')}`, ticks: 0, leased: false });
 export const controllerStatus = () => status;
 
 export async function reconcileAll(deps: ControllerDeps = realDeps()): Promise<number> {
@@ -430,9 +436,8 @@ export async function reconcileAll(deps: ControllerDeps = realDeps()): Promise<n
   return wfs.length;
 }
 
-let timer: NodeJS.Timeout | undefined;
 export function startController(intervalMs = 10_000): void {
-  if (timer) return;
+  if (g.__paiControllerTimer) return;
   status.running = true;
   const tick = async () => {
     try {
@@ -449,11 +454,11 @@ export function startController(intervalMs = 10_000): void {
       console.error('controller tick failed', e);
     }
   };
-  timer = setInterval(tick, intervalMs);
+  g.__paiControllerTimer = setInterval(tick, intervalMs);
   void tick();
 }
 export function stopController(): void {
-  if (timer) clearInterval(timer);
-  timer = undefined;
+  if (g.__paiControllerTimer) clearInterval(g.__paiControllerTimer);
+  g.__paiControllerTimer = undefined;
   status.running = false;
 }

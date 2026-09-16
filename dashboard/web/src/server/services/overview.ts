@@ -59,7 +59,20 @@ export async function overview() {
     queues: { clusterQueues: cqs.value.length, pendingWorkloads: pending, admitted: cqs.value.reduce((a, q) => a + (q.status?.admittedWorkloads ?? 0), 0) },
     recentEvents,
     cost: costCache?.value,
-    controller: controllerStatus(),
+    controller: await controllerHealth(),
     errors: [clusters.error, workflows.error, cqs.error, workloads.error].filter(Boolean),
   };
+}
+
+/** Lease-based health: true when some replica renewed the CONTROLLER lease recently. */
+export async function controllerHealth() {
+  const local = controllerStatus();
+  try {
+    const lease = await getRepo().getLease('CONTROLLER');
+    const now = Math.floor(Date.now() / 1000);
+    const alive = Boolean(lease?.expires && lease.expires >= now);
+    return { ...local, running: alive || local.running, leased: alive, holder: lease?.holder ?? local.holder, leaseExpires: lease?.expires ? new Date(lease.expires * 1000).toISOString() : undefined };
+  } catch {
+    return local;
+  }
 }
