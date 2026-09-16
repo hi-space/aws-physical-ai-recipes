@@ -1,0 +1,34 @@
+[
+  {
+    "title": "project API token uses live authorization, cannot elevate, and is revoked immediately",
+    "status": "passed",
+    "durationMs": 2956,
+    "endedAt": "2026-09-16T22:46:35.570Z",
+    "proofs": [
+      "token-authorization.json"
+    ]
+  },
+  {
+    "title": "Cognito browser session opens the registered DCV desktop through the gateway",
+    "status": "passed",
+    "durationMs": 16565,
+    "endedAt": "2026-09-16T22:46:56.501Z",
+    "proofs": [
+      "dcv-connection.json"
+    ]
+  },
+  {
+    "title": "login and visit every page",
+    "status": "passed",
+    "durationMs": 46757,
+    "endedAt": "2026-09-16T22:47:43.713Z",
+    "proofs": []
+  },
+  {
+    "title": "api /me reflects the Cognito session",
+    "status": "passed",
+    "durationMs": 4002,
+    "endedAt": "2026-09-16T22:47:47.726Z",
+    "proofs": []
+  }
+]

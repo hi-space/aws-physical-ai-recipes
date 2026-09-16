@@ -1,0 +1,10 @@
+{
+  "executionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+  "projectId": "workshop",
+  "ownershipSource": "administrator-import",
+  "importedAt": "2026-09-16T21:56:58.000206+00:00",
+  "nativeExecutionStarted": false,
+  "nativeMetadataChanged": false,
+  "sourceExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6",
+  "purpose": "Validate archival of the existing workshop training artifact; this is not a new training run."
+}

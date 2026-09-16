@@ -1,0 +1,43 @@
+{
+  "at": "2026-09-16T23:12:57.099958+00:00",
+  "sourceCommit": "6792484",
+  "imageDigest": "sha256:8f117e39436c3a91193785f5ad5b6efc91284d9610c31fb7e3474f41cd55caf7",
+  "hyperpodGroups": [
+    {
+      "name": "cpu-c5-4x",
+      "type": "ml.c5.4xlarge",
+      "current": 2,
+      "target": 2
+    },
+    {
+      "name": "gpu-g5-8x",
+      "type": "ml.g5.8xlarge",
+      "current": 1,
+      "target": 1
+    }
+  ],
+  "nodes": [
+    {
+      "name": "hyperpod-i-00f3cbe8dfee6b675",
+      "ready": "True",
+      "gpu": "0"
+    },
+    {
+      "name": "hyperpod-i-0e723d11c740c3b1d",
+      "ready": "True",
+      "gpu": "0"
+    },
+    {
+      "name": "hyperpod-i-0f190b8fa232cef49",
+      "ready": "True",
+      "gpu": "1"
+    }
+  ],
+  "activeDashboardPods": [],
+  "retainedTerminalPodCount": 35,
+  "dcvInstance": {
+    "id": "i-048cffe4cd6ad4f3e",
+    "state": "running"
+  },
+  "mutations": "None by audit; completed data and terminal pods retained"
+}

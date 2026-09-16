@@ -1,0 +1,184 @@
+{
+  "archive": {
+    "checkpoint": {
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "path": "model/model.tar.gz",
+      "versionId": "SdW_EQ5KfJLZ6TS4JbiCfZ3QdIdSzwpO",
+      "sha256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+      "checksumSHA256": "Z92vp1LUN3RGGmLjg17mKixawRSrsdfZA0m46b3LBb0=-20",
+      "bytes": 10445217162,
+      "fullSHA256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+      "checksumType": "COMPOSITE",
+      "sha256Verification": "streamed-version",
+      "key": "projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/model/model.tar.gz"
+    },
+    "executionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+    "sourceObject": {
+      "bucket": "groot-sm-artifacts-913524902871-us-east-1",
+      "versionId": "f_5ylYJL8Kai3WcAol2XMTw0iB995Rfa",
+      "sha256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+      "bytes": 10445217162,
+      "etag": "\"b89636b5a351b99bd4ccb50d66d35c2b-1246\"",
+      "uri": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz",
+      "key": "output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+    },
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "id": "b0a91809624375325e512ff19809a901",
+    "reportSteps": [],
+    "provenance": {
+      "pipelineName": "groot-sm-finetuning-913524902871",
+      "reports": [],
+      "completedAt": "2026-09-14T23:02:39.405Z",
+      "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+      "executionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+      "training": {
+        "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "completedAt": "2026-09-14T19:57:23.849Z",
+        "inputs": [
+          {
+            "channel": "dataset",
+            "uri": "s3://groot-sm-artifacts-913524902871-us-east-1/processed/ml4xq8v9ahl6",
+            "verification": "backend-declared-uri"
+          }
+        ],
+        "step": "GR00TFinetune",
+        "jobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ",
+        "jobType": "training",
+        "selectiveExecutionSourceArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6",
+        "artifactUri": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+      },
+      "definitionHash": "107cdb13df6f8d12d40e5fc04374061e7442ceec1e3bd9389c243406564b367f"
+    },
+    "reports": [],
+    "updatedAt": "2026-09-16T23:11:42.448Z",
+    "dataset": {
+      "name": "sm-output-b0a91809624375325e512ff19809a901",
+      "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/manifest.json",
+      "version": 1,
+      "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/",
+      "manifestVersionId": "FkJzgm3YNeqnT0eMO9YoKB0D_DkmnjNX",
+      "manifestHash": "6fb21caa7a6f77b88c1cff0cd6756d7c5072176d8d6c4889e2c7b951aaea818c"
+    },
+    "version": 1,
+    "directory": {
+      "digest": "49950f3a7887de2b727f6566997da230ab99f476721862fd1499553831e25fef",
+      "schemaVersion": 1,
+      "fileCount": 31,
+      "algorithm": "pai-directory-sha256-v1"
+    },
+    "directoryManifest": {
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "path": "model/bundle.json",
+      "versionId": "Eq9caj1nbSZADmsqYmUo1g_dzwt22soQ",
+      "sha256": "cc7403a2539cca76f051640bacda5aa044bfc7dfcfed0f0940833acf30a5ec88",
+      "checksumSHA256": "zHQDolOcynbwUWQLrNpaoES/x9/P7Q8JQIM6zzCl7Ig=",
+      "bytes": 4445,
+      "fullSHA256": "cc7403a2539cca76f051640bacda5aa044bfc7dfcfed0f0940833acf30a5ec88",
+      "checksumType": "FULL_OBJECT",
+      "key": "projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/model/bundle.json"
+    },
+    "status": "READY",
+    "trainingStep": "GR00TFinetune",
+    "owner": "admin",
+    "datasetName": "sm-output-b0a91809624375325e512ff19809a901",
+    "projectId": "workshop",
+    "createdAt": "2026-09-16T22:12:35.853Z"
+  },
+  "model": {
+    "id": "mdl-1748273716578bb4e575c413",
+    "name": "Imported workshop GR00T checkpoint",
+    "projectId": "workshop",
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "createdAt": "2026-09-16T23:11:43.368Z",
+    "revision": 1,
+    "source": {
+      "kind": "sagemaker-pipeline",
+      "task": "GR00TFinetune",
+      "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+      "dataset": {
+        "name": "sm-output-b0a91809624375325e512ff19809a901",
+        "version": 1,
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/manifest.json",
+        "manifestHash": "6fb21caa7a6f77b88c1cff0cd6756d7c5072176d8d6c4889e2c7b951aaea818c",
+        "manifestVersionId": "FkJzgm3YNeqnT0eMO9YoKB0D_DkmnjNX"
+      },
+      "inputs": [],
+      "upstreamTasks": [],
+      "pipeline": {
+        "pipelineName": "groot-sm-finetuning-913524902871",
+        "reports": [],
+        "completedAt": "2026-09-14T23:02:39.405Z",
+        "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+        "executionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+        "training": {
+          "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+          "completedAt": "2026-09-14T19:57:23.849Z",
+          "inputs": [
+            {
+              "channel": "dataset",
+              "uri": "s3://groot-sm-artifacts-913524902871-us-east-1/processed/ml4xq8v9ahl6",
+              "verification": "backend-declared-uri"
+            }
+          ],
+          "step": "GR00TFinetune",
+          "jobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ",
+          "jobType": "training",
+          "selectiveExecutionSourceArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6",
+          "artifactUri": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+        },
+        "definitionHash": "107cdb13df6f8d12d40e5fc04374061e7442ceec1e3bd9389c243406564b367f",
+        "archiveId": "b0a91809624375325e512ff19809a901",
+        "sourceObject": {
+          "bucket": "groot-sm-artifacts-913524902871-us-east-1",
+          "versionId": "f_5ylYJL8Kai3WcAol2XMTw0iB995Rfa",
+          "sha256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+          "bytes": 10445217162,
+          "etag": "\"b89636b5a351b99bd4ccb50d66d35c2b-1246\"",
+          "uri": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz",
+          "key": "output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+        }
+      }
+    },
+    "checkpoint": {
+      "path": "model/model.tar.gz",
+      "key": "projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/model/model.tar.gz",
+      "versionId": "SdW_EQ5KfJLZ6TS4JbiCfZ3QdIdSzwpO",
+      "bytes": 10445217162,
+      "checksumSHA256": "Z92vp1LUN3RGGmLjg17mKixawRSrsdfZA0m46b3LBb0=-20",
+      "checksumType": "COMPOSITE",
+      "fullSHA256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+      "sha256Verification": "streamed-version"
+    },
+    "checkpointBundle": {
+      "path": "model/model.tar.gz",
+      "manifest": {
+        "path": "model/bundle.json",
+        "key": "projects/workshop/pipeline-archives/b0a91809624375325e512ff19809a901/model/bundle.json",
+        "versionId": "Eq9caj1nbSZADmsqYmUo1g_dzwt22soQ",
+        "bytes": 4445,
+        "checksumSHA256": "zHQDolOcynbwUWQLrNpaoES/x9/P7Q8JQIM6zzCl7Ig=",
+        "checksumType": "FULL_OBJECT",
+        "fullSHA256": "cc7403a2539cca76f051640bacda5aa044bfc7dfcfed0f0940833acf30a5ec88",
+        "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+        "sha256": "cc7403a2539cca76f051640bacda5aa044bfc7dfcfed0f0940833acf30a5ec88"
+      },
+      "directory": {
+        "digest": "49950f3a7887de2b727f6566997da230ab99f476721862fd1499553831e25fef",
+        "schemaVersion": 1,
+        "fileCount": 31,
+        "algorithm": "pai-directory-sha256-v1"
+      }
+    },
+    "evaluationLaunch": {
+      "template": "leisaac-evaluate",
+      "href": "/workflows/new?template=leisaac-evaluate&model_id=mdl-1748273716578bb4e575c413&dataset_name=sm-output-b0a91809624375325e512ff19809a901&dataset_version=1&checkpoint_bundle=model%2Fmodel.tar.gz&episodes=20&eval_seed=2042"
+    },
+    "evaluationUnavailableReason": "Directory bundle is archived. LeIsaac evaluation requires provisioned policy/simulator GPU images, compatible embodiment and scene assets; no live GR00T training/evaluation success is inferred."
+  },
+  "newTrainingStarted": false,
+  "qualityApproved": false,
+  "registryApprovalRequested": false
+}

@@ -1,0 +1,93 @@
+{
+  "sourceCommit": "6792484",
+  "imageDigest": "sha256:8f117e39436c3a91193785f5ad5b6efc91284d9610c31fb7e3474f41cd55caf7",
+  "completedAt": "2026-09-16T23:14:48.913545+00:00",
+  "files": {
+    "source-build-proof.json": {
+      "sha256": "556d5e697ec052367d962fe891a4329584ea7efdc813848662cb3703d7ee20da",
+      "sourceSha256": "556d5e697ec052367d962fe891a4329584ea7efdc813848662cb3703d7ee20da",
+      "curated": false
+    },
+    "historical-pipeline-archive-proof.json": {
+      "sha256": "3c8214dd8a42bed4c1f084407556b784186c67af8662a0953f434b028ae86e27",
+      "sourceSha256": "3c8214dd8a42bed4c1f084407556b784186c67af8662a0953f434b028ae86e27",
+      "curated": false
+    },
+    "token-authorization.json": {
+      "sha256": "3ddceb4f3cd8b3861de737528d252f2b1d37df15d83127a3170bc20e933875d8",
+      "sourceSha256": "3ddceb4f3cd8b3861de737528d252f2b1d37df15d83127a3170bc20e933875d8",
+      "curated": false
+    },
+    "dcv-connection.json": {
+      "sha256": "7364c6cf3b838d4e1501d4fb8f9535553c5b567c83e05aa277daa1c240761c92",
+      "sourceSha256": "7364c6cf3b838d4e1501d4fb8f9535553c5b567c83e05aa277daa1c240761c92",
+      "curated": false
+    },
+    "hotfix-archive-final-audit.json": {
+      "sha256": "f32d9dca97fa6386464a6e7775277499bc489d99a76f8de516a55d31ce6bfbbb",
+      "sourceSha256": "f32d9dca97fa6386464a6e7775277499bc489d99a76f8de516a55d31ce6bfbbb",
+      "curated": false
+    },
+    "hotfix-owned-cleanup.json": {
+      "sha256": "e1821c2ce5367243eb6fd1292fdf1c69df927596e702093bedd622a372601e63",
+      "sourceSha256": "e1821c2ce5367243eb6fd1292fdf1c69df927596e702093bedd622a372601e63",
+      "curated": false
+    },
+    "hotfix-dcv-final-audit.json": {
+      "sha256": "d3f47b6cf6198c44af8248558927603741d66e5a7141b07b7e10083c0506d3a2",
+      "sourceSha256": "d3f47b6cf6198c44af8248558927603741d66e5a7141b07b7e10083c0506d3a2",
+      "curated": false
+    },
+    "hotfix-resource-audit.json": {
+      "sha256": "244a1cdf01550b078c2c6fa5e66f3ee7c59b7bcb0db929e7525b74dd90bd5541",
+      "sourceSha256": "244a1cdf01550b078c2c6fa5e66f3ee7c59b7bcb0db929e7525b74dd90bd5541",
+      "curated": false
+    },
+    "historical-native-metrics.json": {
+      "sha256": "d2c678cfcfdbcb9a9d4e7d8b249845692e3fca5446ecd0d2377fa94fc24f3f09",
+      "sourceSha256": "d2c678cfcfdbcb9a9d4e7d8b249845692e3fca5446ecd0d2377fa94fc24f3f09",
+      "curated": false
+    },
+    "release4-unit-tests.log": {
+      "sha256": "0f3a92626f492cfd1152d03dcd21079c110abffa776c7cba3b2adb18a30ea71e",
+      "sourceSha256": "c6b465bd4c89afa666f7dd7d1f2d8106d5dd6693f261117daa50a85ee8ca129d",
+      "curated": true,
+      "curation": "Removed trailing blank line only"
+    },
+    "hotfix-unit-tests.log": {
+      "sha256": "d121d5644e87ca15c7714c315cafe3f861f0d34de86c3b114df7908de870bafb",
+      "sourceSha256": "9446bf5662a1192f5ece346a5d3b1e2321466fdc8fd3b16bccd3892745389032",
+      "curated": true,
+      "curation": "Removed trailing blank line only"
+    },
+    "hotfix-deployment-proof.json": {
+      "sha256": "e00ae118cbf50de0e92d20186cbd51aef7e83701b899251fc59f720e78b47db4",
+      "sourceSha256": "b4bb70ce22ddbb38b62bda8a90f3b05fedabe8e840434a2e27a33463265cdb59",
+      "curated": true
+    },
+    "hotfix-source-freeze.json": {
+      "sha256": "dd43649105b16d043af222b2144c50e4940e36d5ac7934308bac8bad180283af",
+      "sourceSha256": "9ee5c560838dd02bf643cbb238ba01f3636ceac7ac110c018e15de1db282cefb",
+      "curated": true
+    },
+    "hotfix-core-results.json": {
+      "sha256": "05ab132b4bae6744295e8c21e3ba050d8a9eec6a0c406949109f1d19eeb5f7b2",
+      "sourceSha256": "de351fd5d13a51fa0c9a57ac50ab99c1938454e8e6bb02c37c99f3bfd9db21a8",
+      "curated": true
+    },
+    "hotfix-smoke-results.json": {
+      "sha256": "a3940bec22b57bb773d3ae157972dd18807c726ac4009ca368fbfd559a215108",
+      "sourceSha256": "d7a6f701de92e59a5582d2a05d9d8af0c4eb03e45d22b83573c6935bf7bd36c7",
+      "curated": true
+    },
+    "local-validation.json": {
+      "sha256": "c7382567310d43aae14d30b7367f5b073e153cc8a06ea2e1e36ec7e079a4ac63",
+      "curated": true
+    },
+    "final-original-preservation.json": {
+      "sha256": "07f0b9755eecd40bf876e1ab10854bb3753582dec8eb4fc8c9e90a4990fdaace",
+      "sourceSha256": "07f0b9755eecd40bf876e1ab10854bb3753582dec8eb4fc8c9e90a4990fdaace",
+      "curated": false
+    }
+  }
+}

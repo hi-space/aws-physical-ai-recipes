@@ -1,0 +1,234 @@
+
+ RUN  v3.2.7 /home/ubuntu/workspace/aws-physical-ai-dashboard-implementation/dashboard/web
+
+ ✓ src/components/workflows/log-replay.test.ts (4 tests) 213ms
+ ✓ src/server/runtime/http.test.ts (14 tests) 188ms
+ ✓ src/server/runtime/multipart.test.ts (12 tests) 238ms
+ ✓ src/server/gateway/kubernetes.test.ts (4 tests) 238ms
+ ✓ src/server/workflow-adapters/artifacts.test.ts (18 tests) 1022ms
+ ✓ src/server/services/webhooks.test.ts (17 tests) 479ms
+ ✓ src/server/logs/collector.test.ts (10 tests) 327ms
+ ✓ src/server/services/image-profiles.test.ts (17 tests) 362ms
+   ✓ immutable, project-owned image approval > links only completed, same-project source provenance for the inspected digest into the immutable profile  324ms
+ ✓ src/app/api/edge/devices.test.ts (18 tests) 254ms
+ ✓ src/server/workflow/integration-review.test.ts (12 tests) 194ms
+ ✓ src/server/evaluations/models.test.ts (24 tests) 182ms
+ ✓ src/server/workflow/controller.test.ts (9 tests) 226ms
+ ✓ src/server/gateway/dcv.test.ts (6 tests) 282ms
+ ✓ src/server/workflow-adapters/artifact-inventory.test.ts (14 tests) 833ms
+ ✓ src/server/evaluations/bundles.test.ts (12 tests) 930ms
+ ✓ src/components/pages/BuildsPage.browser.test.ts (2 tests) 1864ms
+   ✓ requires an immutable Git commit and retries an interrupted response with the same request identity  654ms
+   ✓ starts the registered local snapshot without inventing a Git commit or claiming runtime readiness  501ms
+ ✓ src/server/workflow/reliability.test.ts (34 tests) 373ms
+ ✓ src/server/gateway/connect-timeout.test.ts (7 tests) 708ms
+ ✓ src/server/gateway/server.test.ts (17 tests) 725ms
+ ✓ src/server/workflow/builtin-templates.test.ts (12 tests | 1 skipped) 945ms
+   ✓ researcher recipe catalog > parses and semantically validates every recipe after binding the run identity  301ms
+ ✓ src/server/services/source-builds-contract.test.ts (6 tests) 285ms
+ ✓ src/server/gateway/token-lifetime.test.ts (8 tests) 763ms
+   ✓ live token-derived connections > ends an established connection at the source-bound session expiry  504ms
+ ✓ src/server/evaluations/pipeline-api-ui.test.ts (5 tests) 537ms
+ ✓ src/app/api/workflows/list.test.ts (2 tests) 226ms
+ ✓ src/components/pages/WebhooksPage.browser.test.ts (1 test) 1568ms
+   ✓ registers without echoing secrets, displays dead letters, explicitly redrives, and rotates safely  1038ms
+ ✓ src/components/pages/NewWorkflowPage.test.ts (15 tests) 121ms
+ ✓ src/server/auth/alb-jwt.test.ts (11 tests) 77ms
+ ✓ src/components/pages/OverviewPage.test.ts (10 tests) 122ms
+ ✓ src/server/logs/redaction.test.ts (8 tests) 76ms
+ ✓ src/server/backends/routing.test.ts (8 tests) 500ms
+ ✓ src/server/workflow/image-pins.test.ts (8 tests) 166ms
+ ✓ src/server/runtime/broker.test.ts (15 tests) 149ms
+ ✓ src/server/services/execution-profiles.test.ts (18 tests) 176ms
+ ✓ src/app/api/templates/templates.test.ts (7 tests) 183ms
+ ✓ src/server/workflow/topology/execution.test.ts (8 tests) 236ms
+ ✓ src/server/services/scaling-plans.test.ts (24 tests) 88ms
+ ✓ src/server/logs/http.test.ts (11 tests) 118ms
+ ✓ src/components/pages/ui-contracts.test.ts (9 tests) 127ms
+ ✓ src/components/pages/ImageProfilesPage.browser.test.ts (2 tests) 2169ms
+   ✓ image profile browser contracts > approves revisions, refreshes displayed evidence, and preflights without submitting workflows  1105ms
+   ✓ image profile browser contracts > keeps administrator approval controls unavailable to researchers  373ms
+ ✓ src/server/runtime/uploads.test.ts (10 tests) 125ms
+ ✓ src/server/gateway/execution-session.test.ts (17 tests) 105ms
+ ✓ src/app/api/edge/api.test.ts (3 tests) 148ms
+ ✓ src/server/evaluations/api.test.ts (5 tests) 109ms
+ ✓ src/components/workflows/LogViewer.browser.test.ts (1 test) 3654ms
+   ✓ local log replay browser > keeps existing lines across a real SSE disconnect and sends the applied cursor on reconnect  2835ms
+ ✓ src/app/api/sessions/lifecycle.test.ts (23 tests) 99ms
+ ✓ src/server/runtime/restore.test.ts (7 tests) 109ms
+ ✓ src/components/workflows/TaskConnections.test.ts (12 tests) 61ms
+ ✓ src/server/evaluations/pipeline-integration.test.ts (47 tests) 3240ms
+ ✓ src/server/workflow/schema-reliability.test.ts (14 tests) 89ms
+ ✓ src/server/backends/registry.test.ts (9 tests) 102ms
+ ✓ src/server/auth/api-tokens.test.ts (21 tests) 89ms
+ ✓ src/server/tracking-proxy.test.ts (3 tests) 82ms
+ ✓ src/server/store/dynamo.test.ts (2 tests) 82ms
+ ✓ src/server/workflow/checkpoint-lineage.test.ts (2 tests) 105ms
+ ✓ src/server/storage/snapshots.test.ts (22 tests) 46ms
+ ✓ src/app/api/project-boundaries.test.ts (15 tests) 90ms
+ ✓ src/app/api/edge/ui.test.ts (4 tests) 111ms
+ ✓ src/server/workflow/artifact-cleanup.test.ts (6 tests) 79ms
+ ✓ src/server/gateway/token-sessions.test.ts (7 tests) 55ms
+ ✓ src/server/gateway/terminal.test.ts (7 tests) 98ms
+ ✓ src/server/services/credentials.test.ts (8 tests) 85ms
+ ✓ src/app/api/credentials/routes.test.ts (4 tests) 55ms
+ ✓ src/server/store/dataset-lineage.test.ts (9 tests) 73ms
+ ✓ src/server/services/workflow-list.test.ts (8 tests) 61ms
+ ✓ src/server/services/webhook-http.test.ts (47 tests) 30ms
+ ✓ src/server/evaluations/models-ui.test.ts (4 tests) 88ms
+ ✓ src/server/workflow/compile.test.ts (17 tests) 77ms
+ ✓ src/app/api/image-profiles/routes.test.ts (4 tests) 71ms
+ ✓ src/server/workflow/topology/planner.test.ts (12 tests) 59ms
+ ✓ src/app/api/workflows/topology-preview.test.ts (2 tests) 66ms
+ ✓ src/server/services/usage.test.ts (6 tests) 49ms
+ ✓ src/app/api/webhooks/routes.test.ts (3 tests) 45ms
+ ✓ src/server/services/source-builds.test.ts (21 tests) 75ms
+ ✓ src/components/pages/AccessPage.test.ts (2 tests) 38ms
+ ✓ src/app/api/mlflow/project-access.test.ts (6 tests) 56ms
+ ✓ src/server/aws/ecr-inspection.test.ts (13 tests) 39ms
+ ✓ src/components/pages/multipart-ui.test.ts (1 test) 30ms
+ ✓ src/server/data/versions.test.ts (5 tests) 31ms
+ ✓ src/server/workflow/execution-profile-compile.test.ts (3 tests) 43ms
+ ✓ src/lib/api-client.test.ts (5 tests) 21ms
+ ✓ src/components/pages/immutable-dataset-ui.test.ts (1 test) 36ms
+ ✓ src/components/pages/UsageScaling.browser.test.ts (5 tests) 4377ms
+   ✓ F41 usage and scaling browser contracts > shows project/run estimates, unknown totals, and timestamped official rate basis without claiming account billing  621ms
+   ✓ F41 usage and scaling browser contracts > retains visible source timestamps when an admin price refresh fails  546ms
+   ✓ F41 usage and scaling browser contracts > shows blockers, resets review on edits, and treats unknown capacity responses as unknown until separately observed  1081ms
+   ✓ F41 usage and scaling browser contracts > requires explicit idle opt-in and retains an existing configured GPU baseline  708ms
+   ✓ F41 usage and scaling browser contracts > prefills the observed baseline and permits an explicit zero policy and reviewed all-node plan without enabling idle  885ms
+ ✓ src/server/workflow/groups.test.ts (3 tests) 46ms
+ ✓ src/server/evaluations/report.test.ts (14 tests) 42ms
+ ✓ src/server/services/tracking-access.test.ts (20 tests) 32ms
+ ✓ src/server/services/pipelines.test.ts (9 tests) 32ms
+ ✓ src/components/pages/BackendsPage.browser.test.ts (6 tests) 5723ms
+   ✓ backend administration and project browser contracts > keeps the configured default usable with no additional targets and shows an admin-only sidebar link  922ms
+   ✓ backend administration and project browser contracts > registers and checks using current revisions, displays UNREADY evidence, and never manufactures readiness  1024ms
+   ✓ backend administration and project browser contracts > resets queue selection on backend changes, allows same namespace on another backend, and preserves form input after HTTP errors  794ms
+   ✓ backend administration and project browser contracts > uses existing global project selection to retrieve another backend queues without silently changing cookies  826ms
+   ✓ backend administration and project browser contracts > shows API absence and CAS conflicts as errors without silently retrying mutations  789ms
+   ✓ backend administration and project browser contracts > hides backend administration and creation controls from a researcher without requesting admin APIs  672ms
+ ✓ src/server/runtime/plan-pages.test.ts (9 tests) 12ms
+ ✓ src/server/services/multipart-uploads.test.ts (8 tests) 38ms
+stderr | src/server/services/datasets.test.ts > dataset publication > does not commit while an expected upload is missing
+[dataset] finalization failed demo 1 NotFound
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 1 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 2 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 3 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 4 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 5 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 6 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 7 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 8 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 9 Error
+
+stderr | src/server/services/datasets.test.ts > retires permanently invalid finalization requests so later versions can publish
+[dataset] finalization failed demo 10 Error
+
+ ✓ src/components/pages/workflow-search-label.test.ts (1 test) 24ms
+ ✓ src/server/services/datasets.test.ts (5 tests) 39ms
+ ✓ src/server/aws/hyperpod-scale.test.ts (4 tests) 24ms
+ ✓ src/components/pages/ImageProfilesPage.test.ts (2 tests) 27ms
+ ✓ src/server/logs/capture.test.ts (4 tests) 30ms
+ ✓ src/server/store/template-revisions.test.ts (8 tests) 34ms
+ ✓ src/server/aws/source-builds.test.ts (10 tests) 37ms
+ ✓ src/server/gateway/token-grants.test.ts (18 tests) 48ms
+ ✓ src/app/api/sessions/routes.test.ts (5 tests) 48ms
+ ✓ src/components/pages/execution-profile-choice.test.ts (1 test) 29ms
+ ✓ src/lib/multipart-upload.test.ts (2 tests) 13ms
+ ✓ src/server/gateway/auth.test.ts (17 tests) 30ms
+ ✓ src/components/pages/BuildsPage.test.ts (2 tests) 21ms
+ ✓ src/components/workflows/clone.test.ts (1 test) 21ms
+ ✓ src/server/workflow-adapters/dispatch.test.ts (3 tests) 22ms
+ ✓ src/server/store/reliability.test.ts (5 tests) 39ms
+ ✓ src/server/runtime/multipart-storage.test.ts (9 tests) 34ms
+ ✓ src/server/runtime/metrics.test.ts (2 tests) 42ms
+ ✓ src/server/aws/cost.test.ts (2 tests) 12ms
+ ✓ src/server/data/limits.test.ts (3 tests) 13ms
+ ✓ src/components/pages/backend-ui.test.ts (3 tests) 6ms
+ ✓ src/server/logs/archive.test.ts (6 tests) 32ms
+ ✓ src/components/pages/WebhooksPage.test.ts (2 tests) 24ms
+ ✓ src/components/pages/dataset-paths.test.ts (3 tests) 4ms
+ ✓ src/app/api/mlflow/client-filters.test.ts (2 tests) 11ms
+ ✓ src/server/workflow/checkpoint-recovery.test.ts (3 tests) 43ms
+ ✓ src/server/data/selection.test.ts (12 tests) 8ms
+ ✓ src/components/pages/experiment-compare.test.ts (4 tests) 5ms
+ ✓ src/app/api/datasets/immutable.test.ts (2 tests) 24ms
+ ✓ src/server/config.test.ts (7 tests) 9ms
+ ✓ src/app/api/edge/benchmark.test.ts (8 tests) 8ms
+ ✓ src/server/backends/token-routing.test.ts (1 test) 4ms
+ ✓ src/app/api/builds/source-builds.test.ts (3 tests) 40ms
+ ✓ src/server/auth/api-tokens-cognito.test.ts (2 tests) 7ms
+ ✓ src/server/store/atomic.test.ts (1 test) 8ms
+ ✓ src/server/runtime/storage.test.ts (3 tests) 10ms
+ ✓ src/server/workflow/topology/observe.test.ts (2 tests) 6ms
+ ✓ src/server/evaluations/promotion-policy.test.ts (4 tests) 9ms
+ ✓ src/server/store/repo.test.ts (4 tests) 17ms
+ ✓ src/server/aws/hyperpod-rates.test.ts (3 tests) 13ms
+ ✓ src/server/logs/kubernetes.test.ts (2 tests) 17ms
+ ✓ src/server/auth/projects.test.ts (4 tests) 14ms
+ ✓ src/server/auth/request-policy.test.ts (2 tests) 11ms
+ ✓ src/server/sse.test.ts (1 test) 16ms
+ ✓ src/app/api/edge/greengrass.test.ts (2 tests) 14ms
+stderr | src/server/services/multipart-finalization.test.ts > blocks the real worker on unfinished registrations even if some objects already exist
+[dataset] finalization failed data 1 Error
+
+stderr | src/server/services/multipart-finalization.test.ts > ignores confirmed aborts and never permits new uploads after snapshot publication begins
+[dataset] finalization failed data 1 Error
+
+ ✓ src/server/workflow-adapters/logs.test.ts (1 test) 17ms
+ ✓ src/server/services/multipart-finalization.test.ts (3 tests) 14ms
+ ✓ src/server/workflow-adapters/topology.test.ts (4 tests) 12ms
+ ✓ src/server/logs/retained.test.ts (2 tests) 9ms
+ ✓ src/server/runtime/k8s.test.ts (3 tests) 10ms
+ ✓ src/server/services/scaling-node.test.ts (2 tests) 5ms
+ ✓ src/server/aws/hardware-inspection.test.ts (4 tests) 8ms
+ ✓ src/server/k8s/token.test.ts (4 tests) 7ms
+ ✓ src/server/workflow-adapters/log-secrets.test.ts (2 tests) 5ms
+ ✓ src/server/data/admission.test.ts (1 test) 6ms
+ ✓ src/server/gateway/lifetime.test.ts (1 test) 9ms
+ ✓ src/server/k8s/attempt-secrets.test.ts (2 tests) 8ms
+ ✓ src/server/aws/hyperpod.test.ts (4 tests) 6ms
+ ✓ src/server/k8s/topology-inventory.test.ts (2 tests) 5ms
+ ✓ src/server/workflow/topology/inventory.test.ts (2 tests) 6ms
+ ✓ src/server/services/profile-binding.test.ts (3 tests) 5ms
+ ↓ src/server/runtime/roundtrip.test.ts (1 test | 1 skipped)
+ ✓ src/server/services/scaling.test.ts (4 tests) 4ms
+ ✓ src/components/workflows/TaskConnections.browser.test.ts (5 tests) 7977ms
+   ✓ task connections browser flow > prepares finished results from outputPath, waits for READY, then requests a fresh launch each time  776ms
+   ✓ task connections browser flow > prefills a live terminal and removes its open action when the workflow finishes  553ms
+   ✓ task connections browser flow > keeps checking when a newly created session is not visible in the first list response  2776ms
+   ✓ task connections browser flow > prefills the reserved file service and blocks opening an expired session  2769ms
+   ✓ task connections browser flow > surfaces create and launch authorization errors without showing a successful navigation  405ms
+ ✓ src/components/pages/NewWorkflowPage.browser.test.ts (9 tests) 16706ms
+   ✓ NewWorkflowPage browser contracts > requires explicit preflight review and resets it after parameter, raw YAML, and inspection changes  4520ms
+   ✓ NewWorkflowPage browser contracts > never permits a blocked image preflight, even when validation ok=false  1284ms
+   ✓ NewWorkflowPage browser contracts > never permits a blocked image preflight, even when validation ok=true  1333ms
+   ✓ NewWorkflowPage browser contracts > clears consent and fetches a new inspection after HTTP 428 without silently resubmitting  1910ms
+   ✓ NewWorkflowPage browser contracts > opens the explicit CPU quick preset and submits its real values only after review  1265ms
+   ✓ NewWorkflowPage browser contracts > pins the real evaluation input and keeps manual YAML edits across catalog refresh  1222ms
+   ✓ NewWorkflowPage browser contracts > requires an explicit registered credential and never renders API value fields  1246ms
+   ✓ NewWorkflowPage browser contracts > invalidates an old validation immediately and ignores an obsolete validation response  3001ms
+
+ Test Files  153 passed | 1 skipped (154)
+      Tests  1178 passed | 2 skipped (1180)
+   Start at  22:35:17
+   Duration  18.27s (transform 18.35s, setup 1.20s, collect 167.55s, tests 64.15s, environment 35ms, prepare 15.81s)

@@ -1,0 +1,12 @@
+{
+  "runId": "663accac8b444e5a",
+  "streamId": "be1201d30e03762ec02874d0746ac2c01f7d16a7ee5739f98fb72c3b360b19d4",
+  "podUid": "b3fa32b1-e1ad-4681-86d7-d91c664b4863",
+  "opens": 2,
+  "records": 4,
+  "logSHA256": "eaa58d5e392c5e373fd1fe7ee5a0f2a658ddd9ea987fcbe07bd4eded677e79d1",
+  "redacted": true,
+  "duplicatesAndBlankLinesPreserved": true,
+  "ordinaryURLPreserved": true,
+  "replayAfterPodRemoval": true
+}

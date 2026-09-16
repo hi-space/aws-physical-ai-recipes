@@ -1,0 +1,34 @@
+{
+  "scope": "Recorded local validation; no tests rerun during documentation curation",
+  "runtime": {
+    "typescriptTestsPassed": 83,
+    "actualStaticGoNodeBrokerRoundtrip": "PASS",
+    "goRaceSuite": "PASS",
+    "goVet": "PASS",
+    "staticElfArchitectures": [
+      "amd64",
+      "arm64"
+    ],
+    "sourceReportSha256": "8d5dd0af55edbc7dc3416e327695b417512ad26c326ab39a5f893f69ec16d739"
+  },
+  "scaling": {
+    "testsPassed": 46,
+    "wholeWebTypecheck": "PASS",
+    "liveCapacityChanges": false,
+    "sourceReportSha256": "461e0da1b637f67969d28fe8cc9951b8eba8d10c827827d5ef344d7e1c92ff36"
+  },
+  "release4": {
+    "testsPassed": 1150,
+    "testsSkipped": 2,
+    "testLog": "release4-unit-tests.log"
+  },
+  "hotfix": {
+    "testsPassed": 1178,
+    "testsSkipped": 2,
+    "focusedTestsPassed": 92,
+    "infraTestsPassed": 6,
+    "webE2eInfraTypes": "PASS",
+    "nextServicesDockerBuilds": "PASS",
+    "testLog": "hotfix-unit-tests.log"
+  }
+}

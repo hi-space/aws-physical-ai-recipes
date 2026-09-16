@@ -1,0 +1,18 @@
+{
+  "pipeline": "groot-sm-finetuning-913524902871",
+  "checkedAt": "2026-09-16T21:37:05.769725+00:00",
+  "beforeSHA256": "107cdb13df6f8d12d40e5fc04374061e7442ceec1e3bd9389c243406564b367f",
+  "afterSHA256": "98ea702da81c87809846826a0a0e9c43a4ff147265e44dc91148f9f414ee40c2",
+  "identityParameters": [
+    "DashboardProjectId",
+    "DashboardOwnerSubject"
+  ],
+  "trainingEnvironmentKeys": [
+    "PAI_PROJECT_ID",
+    "PAI_OWNER_SUBJECT",
+    "MLFLOW_EXPERIMENT_NAME"
+  ],
+  "defaultApproval": "PendingManualApproval",
+  "otherDefinitionFieldsPreserved": true,
+  "executionsStarted": 0
+}

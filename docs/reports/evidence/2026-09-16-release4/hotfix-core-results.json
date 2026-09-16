@@ -1,0 +1,20 @@
+[
+  {
+    "title": "the project source snapshot builds in CodeBuild and binds inspected image provenance",
+    "status": "passed",
+    "durationMs": 46853,
+    "endedAt": "2026-09-16T22:45:16.844Z",
+    "proofs": [
+      "source-build-proof.json"
+    ]
+  },
+  {
+    "title": "an administratively imported historical SageMaker artifact becomes a pinned project model",
+    "status": "passed",
+    "durationMs": 1633880,
+    "endedAt": "2026-09-16T23:11:43.594Z",
+    "proofs": [
+      "historical-pipeline-archive-proof.json"
+    ]
+  }
+]

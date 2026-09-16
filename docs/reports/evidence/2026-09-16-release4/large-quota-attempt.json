@@ -1,0 +1,6 @@
+{
+  "runId": "bf4fa76442c8e256",
+  "cause": "ephemeral-storage unavailable in existing ClusterQueue",
+  "action": "cancelled owned pending test; queue configuration preserved",
+  "largeFileWasWritten": false
+}

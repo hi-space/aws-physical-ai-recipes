@@ -1,0 +1,29 @@
+{
+  "at": "2026-09-16T23:12:59.412032+00:00",
+  "sourceCommit": "6792484",
+  "stackStatus": "UPDATE_COMPLETE",
+  "services": [
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebServiceD04B5F3E-CB0rRU6ETVDC",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebTaskDefD0130F4C:20",
+      "running": 1,
+      "health": "HEALTHY",
+      "digest": "sha256:8f117e39436c3a91193785f5ad5b6efc91284d9610c31fb7e3474f41cd55caf7"
+    },
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebControllerService9BC9A713-2nUkfQMC7miw",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebControllerTaskE9024EAA:10",
+      "running": 1,
+      "health": "HEALTHY",
+      "digest": "sha256:8f117e39436c3a91193785f5ad5b6efc91284d9610c31fb7e3474f41cd55caf7"
+    },
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebGatewayServiceBF31E39B-qMBUDOKeRJ2F",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebGatewayTask10DBE637:10",
+      "running": 1,
+      "health": "HEALTHY",
+      "digest": "sha256:8f117e39436c3a91193785f5ad5b6efc91284d9610c31fb7e3474f41cd55caf7"
+    }
+  ],
+  "frozenFilesReverified": 543
+}

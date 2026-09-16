@@ -1,0 +1,76 @@
+{
+  "executionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+  "steps": [
+    {
+      "name": "SmokeGate",
+      "status": "Succeeded",
+      "metadata": {
+        "Condition": {
+          "Outcome": "True"
+        }
+      }
+    },
+    {
+      "name": "SmokeEval",
+      "status": "Succeeded",
+      "metadata": {
+        "TrainingJob": {
+          "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9"
+        }
+      },
+      "training": {
+        "status": "Completed",
+        "instanceType": "ml.g6.4xlarge",
+        "hyperparameters": {},
+        "metrics": [],
+        "artifactUri": "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval/pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9/output/model.tar.gz"
+      },
+      "artifact": {
+        "exists": false
+      }
+    },
+    {
+      "name": "GR00TFinetune",
+      "status": "Succeeded",
+      "metadata": {
+        "TrainingJob": {
+          "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ"
+        }
+      },
+      "training": {
+        "status": "Completed",
+        "instanceType": "ml.g5.12xlarge",
+        "hyperparameters": {
+          "export_s3_uri": "s3://groot-sm-artifacts-913524902871-us-east-1/models/groot-sm/ml4xq8v9ahl6",
+          "global_batch_size": "4",
+          "max_steps": "100",
+          "num_gpus": "0"
+        },
+        "metrics": [
+          {
+            "MetricName": "train:grad_norm",
+            "Value": 0.9946997165679932,
+            "Timestamp": "2026-09-14 19:54:31+00:00"
+          },
+          {
+            "MetricName": "train:loss",
+            "Value": 1.0733000040054321,
+            "Timestamp": "2026-09-14 19:54:31+00:00"
+          },
+          {
+            "MetricName": "train:learning_rate",
+            "Value": 2.7337133445826112e-08,
+            "Timestamp": "2026-09-14 19:54:31+00:00"
+          }
+        ],
+        "artifactUri": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+      },
+      "artifact": {
+        "exists": true,
+        "bytes": 10445217162,
+        "versionId": "f_5ylYJL8Kai3WcAol2XMTw0iB995Rfa",
+        "etag": "\"b89636b5a351b99bd4ccb50d66d35c2b-1246\""
+      }
+    }
+  ]
+}

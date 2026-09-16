@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-16T23:13:17.360Z",
+  "archive": {
+    "id": "b0a91809624375325e512ff19809a901",
+    "status": "READY",
+    "version": 1,
+    "activeLease": false
+  },
+  "dataset": {
+    "name": "sm-output-b0a91809624375325e512ff19809a901",
+    "version": 1,
+    "state": "READY"
+  },
+  "model": {
+    "id": "mdl-1748273716578bb4e575c413",
+    "durableRecordFound": true,
+    "projectId": "workshop",
+    "archiveId": "b0a91809624375325e512ff19809a901",
+    "checkpointSha256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5",
+    "qualityGateCount": 0
+  },
+  "checkpointHead": {
+    "versionId": "SdW_EQ5KfJLZ6TS4JbiCfZ3QdIdSzwpO",
+    "bytes": 10445217162,
+    "checksumType": "COMPOSITE",
+    "checksumSHA256": "Z92vp1LUN3RGGmLjg17mKixawRSrsdfZA0m46b3LBb0=-20",
+    "streamedFullSHA256": "73adc13454d50a67b750f0c94600da1ce7377bcc37b2bab12c8b436ded7ee4d5"
+  },
+  "sourceSlots": 0,
+  "archiveMultipartUploads": 0,
+  "completedDataRetained": true,
+  "modelVerifiedAt": "2026-09-16T23:14:01.068Z"
+}

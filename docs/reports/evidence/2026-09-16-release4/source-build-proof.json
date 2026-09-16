@@ -1,0 +1,99 @@
+{
+  "source": {
+    "id": "src-8f459581b47e9b39d5f743942fae7c3c",
+    "name": "Source verification 0fe0610311cf",
+    "projectId": "workshop",
+    "targetId": "workshop",
+    "sourceType": "S3",
+    "snapshot": {
+      "bucket": "cdk-hnb659fds-assets-913524902871-us-east-1",
+      "key": "7b01dcb41a718e86dcb540c4d0ea43d45d2ff922e75ab9f3e9c91da3b1d5c1c9.zip",
+      "versionId": "U..fJUR0QzywzEg7AWZG4Q_lsq.VXFeB",
+      "bytes": 439,
+      "sha256": "c2ff0f966f3dc32b32fd7125ab41e45172c5c9039bd4847bf1b9ff6803c3f3c8"
+    },
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "contentHash": "8f459581b47e9b39d5f743942fae7c3cbf8415ec5ee78740103857fc48c440a9",
+    "buildspecSha256": "e2421d0e2e73daf260ae9d5a5c3f6074263ac854694d9a1e7276f829fe99a8b6",
+    "configurationHash": "7e6d89466b3ed77ec3e46ea60c4384bafaf7e86adaf3474171e24e521835a50c",
+    "codeBuildProjectName": "physical-ai-source-workshop-913524902871",
+    "createdAt": "2026-09-16T22:44:31.563Z",
+    "createdBy": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "current": true
+  },
+  "run": {
+    "id": "sb-65b0c0beacf027069361db0132332186",
+    "projectId": "workshop",
+    "registrationId": "src-8f459581b47e9b39d5f743942fae7c3c",
+    "actor": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "codeBuildProjectName": "physical-ai-source-workshop-913524902871",
+    "sourceType": "S3",
+    "snapshot": {
+      "bucket": "cdk-hnb659fds-assets-913524902871-us-east-1",
+      "versionId": "U..fJUR0QzywzEg7AWZG4Q_lsq.VXFeB",
+      "sha256": "c2ff0f966f3dc32b32fd7125ab41e45172c5c9039bd4847bf1b9ff6803c3f3c8",
+      "bytes": 439,
+      "key": "7b01dcb41a718e86dcb540c4d0ea43d45d2ff922e75ab9f3e9c91da3b1d5c1c9.zip"
+    },
+    "state": "SUCCEEDED",
+    "buildId": "physical-ai-source-workshop-913524902871:6c03f42e-fc97-4cf0-a897-5d0cb3f882eb",
+    "buildStatus": "SUCCEEDED",
+    "phase": "BUILD",
+    "createdAt": "2026-09-16T22:44:32.538Z",
+    "updatedAt": "2026-09-16T22:45:14.741Z",
+    "provenance": {
+      "dependencyResolution": "not-attested",
+      "configurationHash": "7e6d89466b3ed77ec3e46ea60c4384bafaf7e86adaf3474171e24e521835a50c",
+      "schemaVersion": 1,
+      "registrationHash": "8f459581b47e9b39d5f743942fae7c3cbf8415ec5ee78740103857fc48c440a9",
+      "dockerfileSha256": "34bdeb0fefa48f52ae411de6e0c846cfd864b4f1117b4a4563f7de0f524e9628",
+      "buildspecSha256": "e2421d0e2e73daf260ae9d5a5c3f6074263ac854694d9a1e7276f829fe99a8b6",
+      "verifiedAt": "2026-09-16T22:45:14.741Z",
+      "startedAt": "2026-09-16T22:44:35.635Z",
+      "buildId": "physical-ai-source-workshop-913524902871:6c03f42e-fc97-4cf0-a897-5d0cb3f882eb",
+      "finishedAt": "2026-09-16T22:45:12.661Z",
+      "sourceArchiveSha256": "c2ff0f966f3dc32b32fd7125ab41e45172c5c9039bd4847bf1b9ff6803c3f3c8",
+      "builderImage": "aws/codebuild/standard:7.0",
+      "output": {
+        "architectures": [
+          "amd64"
+        ],
+        "accountId": "913524902871",
+        "inspectedAt": "2026-09-16T22:45:14.741Z",
+        "digest": "sha256:1c31a1f298ef64190d287c13357ab8fdfa3fb3023687da3dbe8e00866cbf2f67",
+        "manifests": [
+          {
+            "digest": "sha256:1c31a1f298ef64190d287c13357ab8fdfa3fb3023687da3dbe8e00866cbf2f67",
+            "configDigest": "sha256:a0de5b2770ac6e1829772650a6f19b4b0d350e08e5c5660b11a26831f97a22e6",
+            "os": "linux",
+            "architecture": "amd64"
+          }
+        ],
+        "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/physical-ai/projects/workshop/source-images@sha256:1c31a1f298ef64190d287c13357ab8fdfa3fb3023687da3dbe8e00866cbf2f67",
+        "source": "ecr-manifest-config",
+        "region": "us-east-1",
+        "repository": "physical-ai/projects/workshop/source-images",
+        "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/physical-ai/projects/workshop/source-images@sha256:1c31a1f298ef64190d287c13357ab8fdfa3fb3023687da3dbe8e00866cbf2f67"
+      },
+      "sourceType": "S3",
+      "buildArn": "arn:aws:codebuild:us-east-1:913524902871:build/physical-ai-source-workshop-913524902871:6c03f42e-fc97-4cf0-a897-5d0cb3f882eb",
+      "registrationId": "src-8f459581b47e9b39d5f743942fae7c3c",
+      "runtimeValidation": "not-performed",
+      "projectId": "workshop",
+      "snapshot": {
+        "bucket": "cdk-hnb659fds-assets-913524902871-us-east-1",
+        "versionId": "U..fJUR0QzywzEg7AWZG4Q_lsq.VXFeB",
+        "sha256": "c2ff0f966f3dc32b32fd7125ab41e45172c5c9039bd4847bf1b9ff6803c3f3c8",
+        "bytes": 439,
+        "key": "7b01dcb41a718e86dcb540c4d0ea43d45d2ff922e75ab9f3e9c91da3b1d5c1c9.zip"
+      },
+      "builderImagePinned": false
+    },
+    "cancelRequested": false,
+    "runtimeValidation": "not-performed"
+  },
+  "profileId": "e2e-source-0fe0610311cf",
+  "profileVersion": 1,
+  "profileDisabled": true
+}

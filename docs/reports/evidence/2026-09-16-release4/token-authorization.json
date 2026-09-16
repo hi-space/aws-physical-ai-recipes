@@ -1,0 +1,8 @@
+{
+  "project": "workshop",
+  "delegatedRole": "researcher",
+  "writeDenied": true,
+  "adminDenied": true,
+  "foreignNamespaceDenied": true,
+  "revocationObserved": true
+}

@@ -1,0 +1,12 @@
+{
+  "bytes": 5369757696,
+  "manifestHash": "220093083b24bdd16129e7aae8bc931f9c322572e1767b6501bef291456dc9f4",
+  "publicationId": "9eaf456bf0176af716724448ec205bba1e1c211ecee1aa0d84e8d5cd0475f343",
+  "runId": "4b52f39c9f1a25f5",
+  "sha256": "a81fcc42cd9781340440e780df1bb20b1b783d06b1d3bddcd84f4e1ae3e038b4",
+  "sourceAttempt": 1,
+  "targetAttempt": 2,
+  "verified": true,
+  "dataset": "e2e-large-proof-d3647a1d1743",
+  "datasetVersion": 1
+}
