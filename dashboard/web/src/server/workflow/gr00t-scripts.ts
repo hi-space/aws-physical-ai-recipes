@@ -46,12 +46,20 @@ def finish(code: int) -> None:
 
 
 def pick_model_dir(root: str) -> str:
+    """Gr00tPolicy needs weights *and* processor files in one directory. launch_finetune writes the
+    weights to the output root but keeps the processor under processor/ and copies it into every
+    checkpoint-N, so the newest checkpoint is the loadable one (root only works after an export)."""
+    ckpts = [p for p in glob.glob(os.path.join(root, "checkpoint-*")) if p.rsplit("-", 1)[-1].isdigit()]
+    ckpts.sort(key=lambda p: int(p.rsplit("-", 1)[-1]))
+    loadable = lambda d: os.path.isfile(os.path.join(d, "config.json")) and os.path.isfile(os.path.join(d, "processor_config.json"))
+    for cand in [*reversed(ckpts), root]:
+        if loadable(cand):
+            return cand
+    if ckpts:
+        return ckpts[-1]
     if os.path.isfile(os.path.join(root, "config.json")):
         return root
-    ckpts = [p for p in glob.glob(os.path.join(root, "checkpoint-*")) if p.rsplit("-", 1)[-1].isdigit()]
-    if not ckpts:
-        raise FileNotFoundError(f"no config.json or checkpoint-N under {root}")
-    return max(ckpts, key=lambda p: int(p.rsplit("-", 1)[-1]))
+    raise FileNotFoundError(f"no config.json or checkpoint-N under {root}")
 
 
 try:
@@ -188,16 +196,31 @@ def copy_filtered(src: Path, dst: Path) -> int:
 
 
 root = Path(args.model_root)
-if not (root / "config.json").is_file():
-    ckpts = [p for p in root.glob("checkpoint-*") if p.name.rsplit("-", 1)[-1].isdigit()]
-    if not ckpts:
+# Prefer the newest checkpoint-N: it holds weights + processor files together (the output root keeps
+# the processor under processor/ only). Same choice the evaluate step made.
+ckpts = sorted((p for p in root.glob("checkpoint-*") if p.name.rsplit("-", 1)[-1].isdigit()), key=lambda p: int(p.name.rsplit("-", 1)[-1]))
+src_root = next((c for c in reversed(ckpts) if (c / "config.json").is_file() and (c / "processor_config.json").is_file()), None)
+if src_root is None:
+    if (root / "config.json").is_file():
+        src_root = root
+    elif ckpts:
+        src_root = ckpts[-1]
+    else:
         sys.exit(f"no final model or checkpoint under {root}")
-    root = max(ckpts, key=lambda p: int(p.name.rsplit("-", 1)[-1]))
 export = Path(args.output) / "model"
 if export.exists():
     shutil.rmtree(export)
-print(f"exporting inference files from {root} -> {export}")
-count = copy_filtered(root, export)
+print(f"exporting inference files from {src_root} -> {export}")
+count = copy_filtered(src_root, export)
+# mirror train.py: processor files must sit at the export root for Gr00tPolicy / the policy server
+proc = export / "processor"
+if src_root != root and (root / "processor").is_dir() and not proc.exists():
+    shutil.copytree(root / "processor", proc)
+if proc.is_dir() and not (export / "processor_config.json").is_file():
+    for f in proc.iterdir():
+        if f.is_file() and not (export / f.name).exists():
+            shutil.copy2(f, export / f.name)
+            count += 1
 
 # what the policy server / IsaacSim side needs next to the weights
 for rel in ["modality_config.py", "meta/modality.json"]:
