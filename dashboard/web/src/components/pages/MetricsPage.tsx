@@ -2,10 +2,10 @@
 import * as React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Badge, Button, Card, CodeBlock, EmptyState, Spinner, Tabs } from '@/components/ui';
+import { Button, Card, CodeBlock, EmptyState, ErrorBox, Spinner, Tabs } from '@/components/ui';
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
-import { fmtBytes, fmtNum } from '@/lib/format';
-import { useApi } from '@/lib/api-client';
+import { fmtBytes } from '@/lib/format';
+import { useApi, useMe } from '@/lib/api-client';
 import Link from 'next/link';
 
 interface MetricsResult {
@@ -16,17 +16,25 @@ interface MetricsResult {
 }
 
 export function MetricsPage() {
+  const me = useMe();
+  const admin = me.data?.role === 'admin';
   const [timeRange, setTimeRange] = React.useState<'15m' | '1h' | '3h' | '6h' | '24h' | '7d'>('1h');
   const [autoRefresh, setAutoRefresh] = React.useState(false);
   const [nodeFilter, setNodeFilter] = React.useState('');
   const [tab, setTab] = React.useState<'dashboards' | 'grafana'>('dashboards');
+  const [now, setNow] = React.useState(() => Math.floor(Date.now() / 1000));
+
+  React.useEffect(() => {
+    if (!autoRefresh || tab !== 'dashboards') return;
+    const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(timer);
+  }, [autoRefresh, tab]);
 
   const rangeMs = React.useMemo(() => {
     const ranges = { '15m': 15 * 60 * 1000, '1h': 60 * 60 * 1000, '3h': 3 * 60 * 60 * 1000, '6h': 6 * 60 * 60 * 1000, '24h': 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000 };
     return ranges[timeRange];
   }, [timeRange]);
 
-  const now = Math.floor(Date.now() / 1000);
   const start = now - Math.floor(rangeMs / 1000);
   const step = Math.max(15, Math.min(3600, Math.floor((now - start) / 200)));
 
@@ -46,21 +54,25 @@ export function MetricsPage() {
       { id: 'kueue_cpu', metric: 'kueue_usage_cpu', params: {} },
       { id: 'gpu_alloc', metric: 'gpu_allocatable', params: {} },
       { id: 'gpu_req', metric: 'gpu_requested', params: {} },
-    ],
-    [nodeFilter],
+    ].filter((query) => admin || !['gpu_power', 'gpu_temp', 'gpu_sm_clock', 'node_net_rx', 'gpu_allocatable'].includes(query.metric))
+      .map((query) => admin ? query : { ...query, metric: query.metric === 'node_cpu' ? 'pod_cpu' : query.metric === 'node_mem' ? 'pod_mem' : query.metric }),
+    [nodeFilter, admin],
   );
 
-  const { data: metricsData, isLoading } = useApi<Record<string, MetricsResult>>(
-    `/api/metrics/query`,
-    {
-      refetch: autoRefresh ? 30000 : 0,
-      enabled: true,
-      init: {
-        method: 'POST',
-        json: { queries, range: { start, end: now, step } },
-      },
-    } as any,
-  );
+  const range = { start, end: now, step };
+  // The endpoint accepts at most 12 queries per request.
+  const main = useApi<Record<string, MetricsResult>>('/api/metrics/query', {
+    enabled: Boolean(me.data) && tab === 'dashboards',
+    init: { method: 'POST', json: { queries: queries.slice(0, 12), range } },
+  });
+  const capacity = useApi<Record<string, MetricsResult>>('/api/metrics/query', {
+    enabled: Boolean(me.data) && tab === 'dashboards' && queries.length > 12,
+    init: { method: 'POST', json: { queries: queries.slice(12), range } },
+  });
+  const metricsData = React.useMemo(() => main.data || capacity.data ? { ...main.data, ...capacity.data } : undefined, [main.data, capacity.data]);
+  const isLoading = main.isLoading || capacity.isLoading;
+  const queryErrors = Object.entries(metricsData ?? {}).filter(([, result]) => result.error);
+  const gpuError = main.error || queryErrors.some(([id]) => id.startsWith('gpu_'));
 
   const gpuMetrics = React.useMemo(() => {
     const data = metricsData;
@@ -76,8 +88,8 @@ export function MetricsPage() {
   const nodeMetrics = React.useMemo(() => {
     const data = metricsData;
     if (!data) return { cpu: [], mem: [], net: [] };
-    const cpu = toSeries(data.node_cpu?.series, ['instance']);
-    const mem = toSeries(data.node_mem?.series, ['instance']);
+    const cpu = toSeries(data.node_cpu?.series, ['instance', 'pod']);
+    const mem = toSeries(data.node_mem?.series, ['instance', 'pod']);
     const net = toSeries(data.node_net?.series, ['instance']);
     return { cpu, mem, net };
   }, [metricsData]);
@@ -102,15 +114,15 @@ export function MetricsPage() {
 
   return (
     <>
-      <PageHeader title="Metrics" description="GPU, node, and Kueue metrics from Amazon Managed Prometheus" />
+      <PageHeader title="지표" description="Amazon Managed Prometheus의 GPU·노드·Kueue 지표" />
 
       <Tabs
         items={[
-          { id: 'dashboards', label: 'Dashboards' },
-          { id: 'grafana', label: 'Grafana' },
+          { id: 'dashboards', label: '대시보드' },
+          ...(admin ? [{ id: 'grafana', label: 'Grafana' }] : []),
         ]}
         value={tab}
-        onChange={(v) => setTab(v as 'dashboards' | 'grafana')}
+        onChange={(v) => { setTab(v as 'dashboards' | 'grafana'); setNow(Math.floor(Date.now() / 1000)); }}
         className="mb-4"
       />
 
@@ -122,7 +134,8 @@ export function MetricsPage() {
               {(['15m', '1h', '3h', '6h', '24h', '7d'] as const).map((tr) => (
                 <button
                   key={tr}
-                  onClick={() => setTimeRange(tr)}
+                  onClick={() => { setTimeRange(tr); setNow(Math.floor(Date.now() / 1000)); }}
+                  aria-pressed={timeRange === tr}
                   className={`rounded px-2 py-1 text-xs font-medium ${timeRange === tr ? 'bg-accent text-white' : 'bg-bg-elev-2 hover:bg-bg-elev-3'}`}
                 >
                   {tr}
@@ -131,25 +144,34 @@ export function MetricsPage() {
             </div>
             <label className="flex items-center gap-2 text-xs cursor-pointer">
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-              Auto-refresh (30s)
+              자동 새로고침 (30초)
             </label>
-            <input
+            {admin && <input
               type="text"
-              placeholder="Node filter (regex)"
+              aria-label="노드 필터"
+              placeholder="노드 필터 (정규식)"
               value={nodeFilter}
-              onChange={(e) => setNodeFilter(e.target.value)}
+              onChange={(e) => { setNodeFilter(e.target.value); setNow(Math.floor(Date.now() / 1000)); }}
               className="rounded border border-border bg-bg-elev px-2 py-1 text-xs flex-1 max-w-48"
-            />
+            />}
+            <Button onClick={() => {
+              const next = Math.floor(Date.now() / 1000);
+              if (next !== now) setNow(next);
+              else { void main.refetch(); if (queries.length > 12) void capacity.refetch(); }
+            }} disabled={main.isFetching || capacity.isFetching}>새로고침</Button>
           </div>
 
+          {main.error && <ErrorBox error={main.error} />}
+          {capacity.error && <ErrorBox error={capacity.error} />}
+          {queryErrors.map(([id, result]) => <ErrorBox key={id} error={{ message: `${id}: ${result.error}` }} />)}
           {isLoading && !metricsData ? (
-            <Spinner label="Loading metrics…" />
+            <Spinner label="지표를 불러오는 중…" />
           ) : (
             <div className="space-y-4">
               {/* GPU Metrics */}
               <Card title="GPU">
                 {gpuMetrics.allEmpty ? (
-                  <EmptyState title="No GPU metrics" />
+                  <EmptyState title={gpuError ? 'GPU 지표를 불러오지 못했습니다.' : 'GPU 지표 없음 (N/A)'} />
                 ) : (
                   <div className="space-y-4">
                     {gpuMetrics.util.length > 0 && (
@@ -182,16 +204,16 @@ export function MetricsPage() {
               </Card>
 
               {/* Node Metrics */}
-              <Card title="Nodes">
+              <Card title={admin ? '노드' : '프로젝트 작업'}>
                 <div className="space-y-4">
                   {nodeMetrics.cpu.length > 0 && (
-                    <MetricSection title="CPU (%)" promql={metricsData?.node_cpu?.promql}>
-                      <TimeSeries series={nodeMetrics.cpu} unit="%" formatter={(v) => `${Math.round(v)}%`} height={220} yMax={100} />
+                    <MetricSection title={admin ? 'CPU (%)' : 'CPU (cores)'} promql={metricsData?.node_cpu?.promql}>
+                      <TimeSeries series={nodeMetrics.cpu} unit={admin ? '%' : ' cores'} height={220} yMax={admin ? 100 : undefined} />
                     </MetricSection>
                   )}
                   {nodeMetrics.mem.length > 0 && (
-                    <MetricSection title="Memory (%)" promql={metricsData?.node_mem?.promql}>
-                      <TimeSeries series={nodeMetrics.mem} unit="%" formatter={(v) => `${Math.round(v)}%`} height={220} yMax={100} />
+                    <MetricSection title={admin ? 'Memory (%)' : 'Memory (bytes)'} promql={metricsData?.node_mem?.promql}>
+                      <TimeSeries series={nodeMetrics.mem} unit={admin ? '%' : ' bytes'} formatter={admin ? (v) => `${Math.round(v)}%` : fmtBytes} height={220} yMax={admin ? 100 : undefined} />
                     </MetricSection>
                   )}
                   {nodeMetrics.net.length > 0 && (
@@ -226,7 +248,7 @@ export function MetricsPage() {
               </Card>
 
               {/* Capacity */}
-              <Card title="Capacity">
+              <Card title="가용 자원">
                 <div className="space-y-4">
                   {(capacityMetrics.allocatable.length > 0 || capacityMetrics.requested.length > 0) && (
                     <MetricSection title="GPU Allocatable vs Requested" promql={metricsData?.gpu_alloc?.promql}>
@@ -245,7 +267,7 @@ export function MetricsPage() {
           <Card title="Grafana">
             <div className="space-y-4 px-4 py-3">
               <p className="text-xs text-fg-muted">
-                Grafana is proxied through the Kubernetes API server (self-hosted HyperPod EKS Grafana, admin auto-login).
+                HyperPod EKS Grafana에서 상세 지표를 확인합니다.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                 <Link href="/absproxy/3000/d/hyperpod-task-governance" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors text-[13px] px-3 h-8">
@@ -271,7 +293,7 @@ export function MetricsPage() {
                 title="Grafana Dashboard"
               />
               <Link href="/absproxy/3000/" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors h-8 px-3 text-[13px]">
-                Open in new tab
+                Grafana 열기
                 <ExternalLink size={14} />
               </Link>
             </div>
@@ -283,8 +305,6 @@ export function MetricsPage() {
 }
 
 function MetricSection({ title, promql, children }: { title: string; promql?: string; children: React.ReactNode }) {
-  const [expanded, setExpanded] = React.useState(false);
-
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-medium">{title}</h3>

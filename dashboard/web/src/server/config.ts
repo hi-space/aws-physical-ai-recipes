@@ -19,6 +19,8 @@ export interface DashboardConfig {
   tableName: string;
   snsTopicArn?: string;
   cognitoUserPoolId?: string;
+  cognitoClientId?: string;
+  dashboardOrigin?: string;
   albArn?: string;
   /** HyperPod EKS orchestrator */
   eks?: {
@@ -71,6 +73,8 @@ export const ENV_KEYS = [
   'TABLE_NAME',
   'SNS_TOPIC_ARN',
   'COGNITO_USER_POOL_ID',
+  'COGNITO_CLIENT_ID',
+  'DASHBOARD_ORIGIN',
   'ALB_ARN',
   'EKS_CLUSTER_NAME',
   'HYPERPOD_EKS_CLUSTER_NAME',
@@ -110,6 +114,9 @@ export class ConfigError extends Error {}
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfig {
   const authMode = (opt(env, 'AUTH_MODE') ?? 'alb') as AuthMode;
   if (authMode !== 'alb' && authMode !== 'dev') throw new ConfigError(`AUTH_MODE must be alb|dev, got ${authMode}`);
+  if (authMode === 'dev' && (env.NODE_ENV === 'production' || env.AWS_EXECUTION_ENV || env.ECS_CONTAINER_METADATA_URI_V4)) {
+    throw new ConfigError('development authentication cannot be used in a deployed process');
+  }
   const region = opt(env, 'AWS_REGION') ?? env.AWS_DEFAULT_REGION ?? 'us-east-1';
   const accountId = opt(env, 'ACCOUNT_ID') ?? '';
   const tableName = opt(env, 'TABLE_NAME');
@@ -170,6 +177,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
     tableName: tableName ?? 'physical-ai-dashboard-dev',
     snsTopicArn: opt(env, 'SNS_TOPIC_ARN'),
     cognitoUserPoolId: opt(env, 'COGNITO_USER_POOL_ID'),
+    cognitoClientId: opt(env, 'COGNITO_CLIENT_ID'),
+    dashboardOrigin: opt(env, 'DASHBOARD_ORIGIN'),
     albArn: opt(env, 'ALB_ARN'),
     eks,
     slurm,

@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: 'Physical AI Dashboard', description:
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ko">
       <body className="min-h-screen">
         <Providers>
           <div className="flex">

@@ -1,0 +1,28 @@
+{
+  "runId": "05839fe0398ce352",
+  "source": "read-only durable task record after successful E2E",
+  "task": {
+    "artifactReceipts": {
+      "52adea1499c9951d799b2a3d34852336e1ab056dbca84203d55cd32e40393cb1": {
+        "objectCount": 1,
+        "manifestHash": "e83cf1b3e283b1bf89d4a00c54e96c26d74efcc7d3b80b226764ef01e2c0ee8b",
+        "verifiedAt": "2026-09-16T15:53:36.679Z",
+        "state": "ready",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/05839fe0398ce352/attempts/1/subscriber/8f4798abf55483ddaf9fb2bc0f7096955302995805e7e08b5e0e1b7835b7879b/manifest.json",
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/05839fe0398ce352/attempts/1/subscriber/8f4798abf55483ddaf9fb2bc0f7096955302995805e7e08b5e0e1b7835b7879b/",
+        "sizeBytes": 2268
+      }
+    },
+    "publishedVersions": [
+      {
+        "dataset": "ros2-transfer-05839fe0398ce352",
+        "version": 1
+      }
+    ],
+    "exitCode": 0,
+    "phase": "SUCCEEDED",
+    "name": "subscriber",
+    "workflowId": "05839fe0398ce352",
+    "attempts": 1
+  }
+}

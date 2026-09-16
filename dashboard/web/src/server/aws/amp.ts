@@ -1,4 +1,4 @@
-import { config } from '../config';
+import { backendConfig as config } from '../backends/context';
 import { notConfigured } from '../errors';
 import { sigv4Fetch } from './sigv4';
 
@@ -60,9 +60,16 @@ export const METRICS: Record<string, (p: Record<string, string>) => string> = {
   kueue_usage_cpu: () => `sum by (cluster_queue) (kueue_cluster_queue_resource_usage{resource="cpu"})`,
   gpu_allocatable: () => `sum(kube_node_status_allocatable{resource="nvidia_com_gpu"})`,
   gpu_requested: () => `sum(kube_pod_container_resource_requests{resource="nvidia_com_gpu"} * on(pod,namespace) group_left kube_pod_status_phase{phase="Running"})`,
-  gpu_util_pod: (p) => `avg by (pod, gpu) (DCGM_FI_DEV_GPU_UTIL{${podSel(p, 'pod')}} or DCGM_FI_DEV_GPU_UTIL{${podSel(p, 'exported_pod')}})`,
-  gpu_mem_pod: (p) => `max by (pod, gpu) (DCGM_FI_DEV_FB_USED{${podSel(p, 'pod')}} or DCGM_FI_DEV_FB_USED{${podSel(p, 'exported_pod')}})`,
+  gpu_util_pod: (p) => `avg by (pod, exported_pod, gpu) (${gpuPods('DCGM_FI_DEV_GPU_UTIL', p)})`,
+  gpu_mem_pod: (p) => `max by (pod, exported_pod, gpu) (${gpuPods('DCGM_FI_DEV_FB_USED', p)})`,
 };
+
+function gpuPods(metric: string, p: Record<string, string>) {
+  return ['pod', 'exported_pod'].flatMap((podLabel) => ['namespace', 'exported_namespace'].map((namespaceLabel) => {
+    const labels = [p.pod ? `${podLabel}=~"${esc(p.pod)}"` : '', p.namespace ? `${namespaceLabel}="${esc(p.namespace)}"` : ''].filter(Boolean);
+    return `${metric}{${labels.join(',')}}`;
+  })).join(' or ');
+}
 
 function sel(p: Record<string, string>): string {
   const parts: string[] = [];

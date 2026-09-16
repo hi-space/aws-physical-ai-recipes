@@ -1,6 +1,6 @@
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { config } from '../config';
+import { backendConfig as config } from '../backends/context';
 import { badRequest } from '../errors';
 import { s3 } from './clients';
 
@@ -11,10 +11,15 @@ export interface S3Listing { bucket: string; prefix: string; entries: S3Entry[];
 export function allowedBuckets(): { name: string; label: string }[] {
   const c = config();
   const out: { name: string; label: string }[] = [];
+  if (process.env.DASHBOARD_ARTIFACT_BUCKET) out.push({ name: process.env.DASHBOARD_ARTIFACT_BUCKET, label: '연구 데이터·버전별 결과' });
   if (c.eks?.dataBucket) out.push({ name: c.eks.dataBucket, label: 'HyperPod EKS data (FSx mirror)' });
   if (c.groot?.artifactsBucket) out.push({ name: c.groot.artifactsBucket, label: 'GR00T artifacts (SageMaker)' });
   if (c.slurm?.dataBucket) out.push({ name: c.slurm.dataBucket, label: 'HyperPod Slurm data' });
   return out;
+}
+export async function headObject(bucket: string, key: string) {
+  assertBucket(bucket);
+  return s3().send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
 }
 export function assertBucket(bucket: string): void {
   if (!allowedBuckets().some((b) => b.name === bucket)) throw badRequest(`Bucket ${bucket} is not managed by this dashboard`);

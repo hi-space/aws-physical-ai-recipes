@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { body, q, route } from '@/server/api';
-import { config } from '@/server/config';
+import { backendConfig as config } from '@/server/backends/context';
 import * as hp from '@/server/aws/hyperpod';
 import { notConfigured } from '@/server/errors';
 export const dynamic = 'force-dynamic';

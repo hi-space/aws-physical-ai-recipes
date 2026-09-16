@@ -18,7 +18,7 @@ import {
   type ClusterNodeSummary,
   type ClusterSummary,
 } from '@aws-sdk/client-sagemaker';
-import { badRequest } from '../errors';
+import { badRequest, HttpError } from '../errors';
 import { sagemaker } from './clients';
 
 export async function listClusters(): Promise<ClusterSummary[]> {
@@ -71,8 +71,10 @@ export function buildScaleSpec(groups: ClusterInstanceGroupDetails[], group: str
   });
 }
 
-export async function scaleGroup(name: string, group: string, count: number): Promise<void> {
+export async function scaleGroup(name: string, group: string, count: number, expectedCount?: number): Promise<void> {
   const desc = await describeCluster(name);
+  const current = desc.InstanceGroups?.find((item) => item.InstanceGroupName === group);
+  if (expectedCount !== undefined && ((current?.TargetCount ?? current?.CurrentCount ?? 0) !== expectedCount || desc.ClusterStatus !== 'InService')) throw new HttpError(409, '클러스터 구성이 변경되어 요청을 적용하지 않았습니다.');
   const spec = buildScaleSpec(desc.InstanceGroups ?? [], group, count);
   await sagemaker().send(new UpdateClusterCommand({ ClusterName: name, InstanceGroups: spec }));
 }

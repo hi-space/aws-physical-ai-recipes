@@ -56,14 +56,15 @@ export function ComputePage() {
   const fsxResp = useApi<FileSystem[]>('/api/fsx', { refetch: 10000 });
 
   const scaleClusterMutation = useApiMutation(
-    async (params: { cluster: string; group: string; count: number }) => {
+    async (params: { cluster: string; group: string; count: number; expectedCount: number }) => {
       const res = await fetch(`/api/clusters/${params.cluster}/scale`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ group: params.group, count: params.count }),
+        body: JSON.stringify({ group: params.group, count: params.count, expectedCount: params.expectedCount }),
       });
-      if (!res.ok) throw new Error(`Scale failed: ${res.statusText}`);
-      return res.json();
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? `Scale failed: ${res.statusText}`);
+      return result;
     },
     ['/api/clusters'],
   );
@@ -98,7 +99,7 @@ export function ComputePage() {
       return;
     }
     try {
-      await scaleClusterMutation.mutateAsync({ cluster: scaleDialog.cluster, group: scaleDialog.group, count });
+      await scaleClusterMutation.mutateAsync({ cluster: scaleDialog.cluster, group: scaleDialog.group, count, expectedCount: scaleDialog.current });
       setToast({ message: `Scaling ${scaleDialog.group} to ${count} nodes`, tone: 'ok' });
       setScaleDialog(null);
     } catch (e) {
@@ -202,7 +203,7 @@ export function ComputePage() {
                       <td>{g.status && <StatusPill status={g.status} />}</td>
                       <td>
                         {can(me.data, 'admin') && !g.isSystem ? (
-                          <Button size="sm" variant="ghost" onClick={() => handleScaleClick(activeCluster.name, g.name, g.current)}>
+                          <Button size="sm" variant="ghost" onClick={() => handleScaleClick(activeCluster.name, g.name, g.target)}>
                             Scale
                           </Button>
                         ) : g.isSystem ? (

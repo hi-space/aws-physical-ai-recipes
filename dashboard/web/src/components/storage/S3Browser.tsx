@@ -13,6 +13,7 @@ interface S3Entry {
 }
 
 interface S3Listing {
+  rootPrefix?: string;
   bucket: string;
   prefix: string;
   entries: S3Entry[];
@@ -38,6 +39,9 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
     `/api/s3?bucket=${bucket}&prefix=${encodeURIComponent(prefix)}&token=${token ?? ''}`,
     { refetch: 0 }
   );
+  React.useEffect(() => {
+    if (!prefix && data?.prefix) setPrefix(data.prefix);
+  }, [data?.prefix, prefix]);
 
   const handleFolderClick = (folderKey: string) => {
     setPrefix(folderKey);
@@ -46,7 +50,7 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
   };
 
   const handleBreadcrumbClick = (newPrefix: string) => {
-    setPrefix(newPrefix);
+    setPrefix(data?.rootPrefix && !newPrefix.startsWith(data.rootPrefix) ? data.rootPrefix : newPrefix);
     setToken(undefined);
     setSelected(new Set());
   };

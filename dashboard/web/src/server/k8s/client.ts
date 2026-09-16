@@ -4,6 +4,7 @@ import { config } from '../config';
 import { eks } from '../aws/clients';
 import { HttpError, badRequest, notConfigured } from '../errors';
 import { mintEksToken } from './token';
+import { backendConfig, currentBackend } from '../backends/context';
 
 export const SYSTEM_NAMESPACES = new Set([
   'kube-system',
@@ -15,6 +16,7 @@ export const SYSTEM_NAMESPACES = new Set([
   'hyperpod-observability',
   'aws-hyperpod',
   'grafana',
+  'jobset-system',
 ]);
 
 export function assertWritableNamespace(ns: string): void {
@@ -22,28 +24,35 @@ export function assertWritableNamespace(ns: string): void {
   if (SYSTEM_NAMESPACES.has(ns)) throw badRequest(`Namespace ${ns} is a system namespace`);
 }
 
-interface ClusterInfo { endpoint: string; ca: string; name: string; region: string }
-let info: Promise<ClusterInfo> | undefined;
-let dispatcher: Dispatcher | undefined;
+export interface ClusterInfo { endpoint: string; ca: string; name: string; region: string; privateEndpoint?: boolean; dispatcher?: Dispatcher }
+const clusters = new Map<string, { expiresAt: number; promise: Promise<ClusterInfo> }>();
 
-async function clusterInfo(): Promise<ClusterInfo> {
-  if (info) return info;
-  const c = config();
+export async function clusterInfo(): Promise<ClusterInfo> {
+  const c = backendConfig(), backend = currentBackend();
   if (!c.eks) throw notConfigured('HyperPod EKS');
-  info = eks()
-    .send(new DescribeClusterCommand({ name: c.eks.eksClusterName }))
+  const key = `${c.accountId}/${c.region}/${c.eks.eksClusterName}/${backend?.configurationHash ?? ''}`;
+  const cached = clusters.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const info = eks()
+    .send(new DescribeClusterCommand({ name: c.eks.eksClusterName }), { abortSignal: AbortSignal.timeout(10_000) })
     .then((out) => {
       const endpoint = out.cluster?.endpoint;
       const ca = out.cluster?.certificateAuthority?.data;
       if (!endpoint || !ca) throw new Error('EKS cluster has no endpoint/CA');
-      dispatcher = new Agent({ connect: { ca: Buffer.from(ca, 'base64').toString('utf8') } });
-      return { endpoint, ca, name: c.eks!.eksClusterName, region: c.region };
+      if (backend?.profile && (out.cluster?.arn !== `arn:aws:eks:${c.region}:${c.accountId}:cluster/${c.eks!.eksClusterName}` ||
+        out.cluster.status !== 'ACTIVE' || out.cluster.resourcesVpcConfig?.vpcId !== backend.profile.vpcId ||
+        out.cluster.resourcesVpcConfig?.endpointPrivateAccess !== true)) throw new HttpError(409, 'EKS identity, private endpoint or shared VPC does not match the registered backend', 'backend_unavailable');
+      const url = new URL(endpoint);
+      if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid EKS endpoint');
+      const dispatcher = new Agent({ connect: { ca: Buffer.from(ca, 'base64').toString('utf8') } });
+      return { endpoint, ca, name: c.eks!.eksClusterName, region: c.region, privateEndpoint: out.cluster?.resourcesVpcConfig?.endpointPrivateAccess, dispatcher };
     });
-  info.catch(() => (info = undefined));
+  clusters.set(key, { expiresAt: Date.now() + 5 * 60_000, promise: info });
+  info.catch(() => { if (clusters.get(key)?.promise === info) clusters.delete(key); });
   return info;
 }
 
-export interface K8sRequestInit { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean }
+export interface K8sRequestInit { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean; signal?: AbortSignal }
 
 export class K8sError extends HttpError {
   constructor(status: number, message: string, public readonly reason?: string) {
@@ -61,7 +70,7 @@ export async function k8sRequest(path: string, init: K8sRequestInit = {}): Promi
     body = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
     headers['content-type'] ??= init.method === 'PATCH' ? 'application/merge-patch+json' : 'application/json';
   }
-  const res = await undiciFetch(ci.endpoint + path, { method: init.method ?? 'GET', headers, body, dispatcher });
+  const res = await undiciFetch(ci.endpoint + path, { method: init.method ?? 'GET', headers, body, dispatcher: ci.dispatcher, signal: init.signal, redirect: 'manual' });
   if (!res.ok && !init.raw) {
     const text = await res.text();
     let reason: string | undefined;
@@ -119,6 +128,6 @@ export async function serviceProxy(namespace: string, service: string, port: num
   const headers: Record<string, string> = { ...(init.headers ?? {}), authorization: `Bearer ${token}` };
   delete headers.host;
   delete headers.connection;
-  const res = await undiciFetch(ci.endpoint + path, { method: init.method ?? 'GET', headers, body: init.body as never, dispatcher, redirect: 'manual' });
+  const res = await undiciFetch(ci.endpoint + path, { method: init.method ?? 'GET', headers, body: init.body as never, dispatcher: ci.dispatcher, redirect: 'manual' });
   return res as unknown as Response;
 }

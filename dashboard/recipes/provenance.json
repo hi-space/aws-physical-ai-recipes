@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-09-16",
+  "method": "Read official pinned source and local workshop files; no third-party implementation substituted",
+  "localSourceCommit": "2a65a217c94da7dcb961076ffccdb38d82bef473",
+  "upstream": [
+    {
+      "repository": "https://github.com/google-deepmind/mujoco_menagerie",
+      "commit": "ac6b2b09983786f3036cab1000221017fa2193b4",
+      "entrypoints": [
+        {
+          "path": "robotstudio_so101/scene.xml",
+          "url": "https://github.com/google-deepmind/mujoco_menagerie/blob/ac6b2b09983786f3036cab1000221017fa2193b4/robotstudio_so101/scene.xml"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/isaac-sim/IsaacLab",
+      "commit": "3c6e67bb5c7ada942a6d1884ab69338f57596f77",
+      "entrypoints": [
+        {
+          "path": "source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/h1/__init__.py",
+          "url": "https://github.com/isaac-sim/IsaacLab/blob/3c6e67bb5c7ada942a6d1884ab69338f57596f77/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/h1/__init__.py"
+        },
+        {
+          "path": "scripts/imitation_learning/isaaclab_mimic/annotate_demos.py",
+          "url": "https://github.com/isaac-sim/IsaacLab/blob/3c6e67bb5c7ada942a6d1884ab69338f57596f77/scripts/imitation_learning/isaaclab_mimic/annotate_demos.py"
+        },
+        {
+          "path": "scripts/imitation_learning/isaaclab_mimic/generate_dataset.py",
+          "url": "https://github.com/isaac-sim/IsaacLab/blob/3c6e67bb5c7ada942a6d1884ab69338f57596f77/scripts/imitation_learning/isaaclab_mimic/generate_dataset.py"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/NVIDIA/Isaac-GR00T",
+      "commit": "5dc80c4afd726b34faad1d8f7e007a13b34e4c88",
+      "entrypoints": [
+        {
+          "path": "gr00t/experiment/launch_finetune.py",
+          "url": "https://github.com/NVIDIA/Isaac-GR00T/blob/5dc80c4afd726b34faad1d8f7e007a13b34e4c88/gr00t/experiment/launch_finetune.py"
+        },
+        {
+          "path": "gr00t/experiment/experiment.py",
+          "url": "https://github.com/NVIDIA/Isaac-GR00T/blob/5dc80c4afd726b34faad1d8f7e007a13b34e4c88/gr00t/experiment/experiment.py"
+        },
+        {
+          "path": "gr00t/eval/run_gr00t_server.py",
+          "url": "https://github.com/NVIDIA/Isaac-GR00T/blob/5dc80c4afd726b34faad1d8f7e007a13b34e4c88/gr00t/eval/run_gr00t_server.py"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/Physical-Intelligence/openpi",
+      "commit": "215abfb217dbac7d5f1273282331b9b1866c0479",
+      "entrypoints": [
+        {
+          "path": "scripts/train.py",
+          "url": "https://github.com/Physical-Intelligence/openpi/blob/215abfb217dbac7d5f1273282331b9b1866c0479/scripts/train.py"
+        },
+        {
+          "path": "scripts/compute_norm_stats.py",
+          "url": "https://github.com/Physical-Intelligence/openpi/blob/215abfb217dbac7d5f1273282331b9b1866c0479/scripts/compute_norm_stats.py"
+        },
+        {
+          "path": "src/openpi/training/config.py",
+          "url": "https://github.com/Physical-Intelligence/openpi/blob/215abfb217dbac7d5f1273282331b9b1866c0479/src/openpi/training/config.py"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/LightwheelAI/leisaac",
+      "commit": "24d3bcd3f1e4585740fc79921782c41617237812",
+      "entrypoints": [
+        {
+          "path": "scripts/evaluation/policy_inference.py",
+          "url": "https://github.com/LightwheelAI/leisaac/blob/24d3bcd3f1e4585740fc79921782c41617237812/scripts/evaluation/policy_inference.py"
+        },
+        {
+          "path": "source/leisaac/leisaac/policy/service_policy_clients.py",
+          "url": "https://github.com/LightwheelAI/leisaac/blob/24d3bcd3f1e4585740fc79921782c41617237812/source/leisaac/leisaac/policy/service_policy_clients.py"
+        },
+        {
+          "path": "source/leisaac/leisaac/tasks/pick_orange/pick_orange_env_cfg.py",
+          "url": "https://github.com/LightwheelAI/leisaac/blob/24d3bcd3f1e4585740fc79921782c41617237812/source/leisaac/leisaac/tasks/pick_orange/pick_orange_env_cfg.py"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/nvidia-cosmos/cosmos-transfer2.5",
+      "commit": "0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b",
+      "entrypoints": [
+        {
+          "path": "examples/inference.py",
+          "url": "https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b/examples/inference.py"
+        },
+        {
+          "path": "docs/inference.md",
+          "url": "https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b/docs/inference.md"
+        }
+      ]
+    }
+  ],
+  "localSources": [
+    {
+      "path": "hyperpod-training/mujoco-workshop/src/mujoco_workshop/envs/so101_reach.py",
+      "sha256": "08777239a9f898317b078a26da93c7a288fe101eeb033ad108f1c5d8db295aaa"
+    },
+    {
+      "path": "hyperpod-training/mujoco-workshop/src/mujoco_workshop/assets.py",
+      "sha256": "e33389f0330350bb42627e7ef37e64971e24cb0fb05acf0d0323c2ce458e923b"
+    },
+    {
+      "path": "hyperpod-training/mujoco-workshop/src/mujoco_workshop/__init__.py",
+      "sha256": "cd088ea0f6c90ab9ab3b27621776f03e3f996a3dfd693297084f64cac5107dad"
+    },
+    {
+      "path": "hyperpod-training/examples/rl/train_mujoco.py",
+      "sha256": "1449e311788376963002242f78c3ce3d7df3bcad5fb316caf0f43cbb77813e83"
+    },
+    {
+      "path": "hyperpod-training/examples/rl/train_isaaclab.py",
+      "sha256": "c5c905a97f1938fcfe113e5a0621341af7bf4b80c1d874193beca4c29ded29f8"
+    },
+    {
+      "path": "hyperpod-training/examples/rl/play_isaaclab.py",
+      "sha256": "4f79e05487bfac95eb971d661a9e933813210d435e72d42c1694fdffc8e934f2"
+    },
+    {
+      "path": "hyperpod-training/configs/so101_modality.py",
+      "sha256": "f46bd1f34bc60aae945bac438453b0f46bb7b96fdda7fcbde56c6446de0151c5"
+    },
+    {
+      "path": "e2e-workshop/groot/training/data/convert_v3_to_v2.py",
+      "sha256": "0e658c4184c4c2848e62354deb6a71751698c7eb03431e2b2704374e680ce38d"
+    }
+  ],
+  "workshopSources": [
+    {
+      "path": "/home/ubuntu/workspace/physical-ai-on-aws/content/rl-track/module-9-mujoco-train-validate/index.en.md",
+      "sha256": "ae058db7496db74b8a7ec7ed4d62cf1c12371b15f72c2b10c8e8269d4e4e8313"
+    },
+    {
+      "path": "/home/ubuntu/workspace/physical-ai-on-aws/content/vla-track/module-5-evaluation/index.en.md",
+      "sha256": "0fac33d338b7ae860049d88d17e43eeb1ffeaabfbe958faf30357d476e36b6a3"
+    },
+    {
+      "path": "/home/ubuntu/workspace/physical-ai-on-aws/content/appendix/pi0-sagemaker/index.en.md",
+      "sha256": "ae191537e3f77c25ba12bcbb763e34db8ef738e2158e374a3604fb2369979c18"
+    }
+  ],
+  "officialDocumentation": [
+    "https://docs.isaacsim.omniverse.nvidia.com/5.1.0/replicator_tutorials/tutorial_replicator_getting_started.html",
+    "https://docs.ros.org/en/humble/Tutorials/Advanced/Discovery-Server/Discovery-Server.html"
+  ],
+  "limitations": [
+    "GPU source/entrypoints verified; GPU image builds and workloads not executed.",
+    "Local ROS2 containers are not proof of EKS CNI/network policy reachability.",
+    "No synthetic eval_closed_loop.py or placeholder train_pi0.py is invoked."
+  ]
+}

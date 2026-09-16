@@ -3,12 +3,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Dialog, Toast, Tabs, Card, Stat, StatusPill, CopyButton, CodeBlock, KeyValue, EmptyState, ErrorBox, Spinner } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { useApi, useApiMutation, can, useMe } from '@/lib/api-client';
+import { api, useApi, useApiMutation, can, useMe } from '@/lib/api-client';
 import { shortId, ago, fmtTime, fmtDuration } from '@/lib/format';
 import type { Workflow, Task } from '@/server/store/types';
 import { TaskTable } from '@/components/workflows/TaskTable';
 import { DagView } from '@/components/workflows/DagView';
 import { LogViewer } from '@/components/workflows/LogViewer';
+import { TaskConnections } from '@/components/workflows/TaskConnections';
+import { cloneWorkflowYaml } from '@/components/workflows/clone';
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
 
 interface WorkflowDetailPageProps {
@@ -18,6 +20,13 @@ interface WorkflowDetailPageProps {
 interface WorkflowDetail {
   workflow: Workflow;
   tasks: Task[];
+}
+interface WorkflowMetrics {
+  gpuUtil?: Array<{ metric: Record<string, string>; values: [number, number][] }>;
+  gpuMem?: Array<{ metric: Record<string, string>; values: [number, number][] }>;
+  cpu?: Array<{ metric: Record<string, string>; values: [number, number][] }>;
+  mem?: Array<{ metric: Record<string, string>; values: [number, number][] }>;
+  errors?: Record<string, string>;
 }
 
 export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
@@ -29,26 +38,26 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   const [tab, setTab] = useState<'dag' | 'tasks' | 'logs' | 'events' | 'metrics' | 'outputs' | 'spec'>('dag');
   const [toast, setToast] = useState<{ message: string; type: 'ok' | 'err' } | null>(null);
 
-  const { data: detail, isLoading } = useApi<WorkflowDetail>(`/api/workflows/${id}`, {
+  const { data: detail, isLoading, error: detailError } = useApi<WorkflowDetail>(`/api/workflows/${id}`, {
     refetch: 4000,
   });
 
-  const { data: events } = useApi(`/api/workflows/${id}/events`, { refetch: 30_000 });
-  const { data: metrics } = useApi(`/api/workflows/${id}/metrics`, {
+  const { data: events, error: eventsError } = useApi(`/api/workflows/${id}/events`, { refetch: 30_000 });
+  const { data: metrics, error: metricsError } = useApi<WorkflowMetrics>(`/api/workflows/${id}/metrics`, {
     refetch: 30_000,
     enabled: me.data?.features.amp,
   });
 
   const cancelMut = useApiMutation(async () => {
-    await fetch(`/api/workflows/${id}/cancel`, { method: 'POST' });
+    await api(`/api/workflows/${id}/cancel`, { method: 'POST' });
   }, [`/api/workflows/${id}`]);
 
   const retryMut = useApiMutation(async () => {
-    await fetch(`/api/workflows/${id}/retry`, { method: 'POST' });
+    await api(`/api/workflows/${id}/retry`, { method: 'POST' });
   }, [`/api/workflows/${id}`]);
 
   const deleteMut = useApiMutation(async () => {
-    await fetch(`/api/workflows/${id}`, { method: 'DELETE' });
+    await api(`/api/workflows/${id}`, { method: 'DELETE' });
   }, ['/api/workflows']);
 
   const exportYaml = () => {
@@ -56,46 +65,47 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   };
 
   const cloneWorkflow = () => {
-    if (detail?.workflow.templateId) {
-      router.push(`/workflows/new?template=${detail.workflow.templateId}`);
-    } else {
-      sessionStorage.setItem('pai.cloneYaml', detail?.workflow.specYaml || '');
+    if (!detail) return;
+    try {
+      sessionStorage.setItem('pai.cloneYaml', cloneWorkflowYaml(detail.workflow.specYaml, detail.workflow.vars));
       router.push('/workflows/new');
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : '워크플로를 복제하지 못했습니다.', type: 'err' });
     }
   };
 
   const handleCancel = async () => {
     try {
       await cancelMut.mutateAsync(undefined);
-      setToast({ message: 'Workflow cancelled', type: 'ok' });
+      setToast({ message: '취소 요청을 접수했습니다. 실행 상태를 확인하세요.', type: 'ok' });
       setShowCancelConfirm(false);
-    } catch {
-      setToast({ message: 'Failed to cancel workflow', type: 'err' });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : '취소 요청에 실패했습니다.', type: 'err' });
     }
   };
 
   const handleRetry = async () => {
     try {
       await retryMut.mutateAsync(undefined);
-      setToast({ message: 'Workflow retried', type: 'ok' });
-    } catch {
-      setToast({ message: 'Failed to retry workflow', type: 'err' });
+      setToast({ message: '재시도 요청을 접수했습니다.', type: 'ok' });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : '재시도 요청에 실패했습니다.', type: 'err' });
     }
   };
 
   const handleDelete = async () => {
     try {
       await deleteMut.mutateAsync(undefined);
-      setToast({ message: 'Workflow deleted', type: 'ok' });
+      setToast({ message: '삭제 요청을 접수했습니다.', type: 'ok' });
       setTimeout(() => router.push('/workflows'), 1000);
       setShowDeleteConfirm(false);
-    } catch {
-      setToast({ message: 'Failed to delete workflow', type: 'err' });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : '삭제 요청에 실패했습니다.', type: 'err' });
     }
   };
 
   if (isLoading) return <Spinner />;
-  if (!detail) return <ErrorBox error={{ message: 'Workflow not found' }} />;
+  if (!detail) return <ErrorBox error={detailError ?? { message: '워크플로를 찾을 수 없습니다.' }} />;
 
   const { workflow, tasks } = detail;
   const isTerminal = ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(workflow.status);
@@ -115,6 +125,11 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   return (
     <div className="space-y-6">
       <PageHeader title={workflow.name} />
+      {detailError && <ErrorBox error={detailError} />}
+      {tab === 'events' && eventsError && <ErrorBox error={eventsError} />}
+      {tab === 'events' && (events as { kubernetesError?: string } | undefined)?.kubernetesError && <ErrorBox error={{ message: (events as { kubernetesError: string }).kubernetesError }} />}
+      {tab === 'metrics' && metricsError && <ErrorBox error={metricsError} />}
+      {tab === 'metrics' && Object.entries(metrics?.errors ?? {}).map(([metric, message]) => <ErrorBox key={metric} error={{ message: `${metric}: ${message}` }} />)}
 
       <div className="grid grid-cols-3 gap-4">
         <Card title="Status">
@@ -152,21 +167,23 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
 
       <div className="flex gap-2">
         {!isTerminal && can(me.data, 'researcher') && <Button variant="danger" size="sm" onClick={() => setShowCancelConfirm(true)} disabled={cancelMut.isPending}>
-          Cancel
+          취소
         </Button>}
         {isTerminal && can(me.data, 'researcher') && <Button size="sm" onClick={handleRetry} disabled={retryMut.isPending}>
-          Retry
+          재시도
         </Button>}
         <Button size="sm" variant="ghost" onClick={cloneWorkflow}>
-          Clone
+          복제
         </Button>
         <Button size="sm" variant="ghost" onClick={exportYaml}>
-          Export YAML
+          YAML 내보내기
         </Button>
         {isTerminal && can(me.data, 'researcher') && <Button size="sm" variant="ghost" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMut.isPending}>
-          Delete
+          삭제
         </Button>}
       </div>
+
+      <TaskConnections workflow={workflow} tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask} />
 
       <div>
         <Tabs value={tab} onChange={setTab} items={tabItems} />
@@ -222,7 +239,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
                 </div>
                 <div>
                   <h4 className="text-xs font-medium mb-2">GPU Memory (GiB)</h4>
-                  <TimeSeries series={toSeries((metrics as any).gpuMem, ['pod', 'gpu'])} />
+                  <TimeSeries series={toSeries((metrics as any).gpuMem, ['pod', 'gpu'])} formatter={(value) => `${(value / 1024).toFixed(1)} GiB`} />
                 </div>
                 <div>
                   <h4 className="text-xs font-medium mb-2">CPU (cores)</h4>
@@ -230,7 +247,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
                 </div>
                 <div>
                   <h4 className="text-xs font-medium mb-2">Memory (GiB)</h4>
-                  <TimeSeries series={toSeries((metrics as any).mem, ['pod'])} />
+                  <TimeSeries series={toSeries((metrics as any).mem, ['pod'])} formatter={(value) => `${(value / 1024 ** 3).toFixed(1)} GiB`} />
                 </div>
               </div>
             ) : (
@@ -276,30 +293,30 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
         </div>
       </div>
 
-      <Dialog open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)} title="Cancel workflow?" footer={
+      <Dialog open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)} title="워크플로를 취소할까요?" footer={
         <>
           <Button variant="ghost" onClick={() => setShowCancelConfirm(false)}>
-            No, keep it
+            계속 실행
           </Button>
           <Button variant="danger" onClick={handleCancel} disabled={cancelMut.isPending}>
-            Yes, cancel
+            취소 요청
           </Button>
         </>
       }>
-        This will stop the workflow and cancel pending tasks.
+        실행 중인 작업과 대기 중인 작업에 취소를 요청합니다. 종료 여부는 실행 상태에서 확인하세요.
       </Dialog>
 
-      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete workflow?" footer={
+      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="워크플로를 삭제할까요?" footer={
         <>
           <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
-            Cancel
+            돌아가기
           </Button>
           <Button variant="danger" onClick={handleDelete} disabled={deleteMut.isPending}>
-            Delete
+            삭제
           </Button>
         </>
       }>
-        This action cannot be undone. The workflow and its records will be permanently deleted.
+        워크플로와 실행 기록을 삭제합니다. 삭제한 기록은 복원할 수 없습니다.
       </Dialog>
 
       {toast && <Toast message={toast.message} tone={toast.type} onClose={() => setToast(null)} />}

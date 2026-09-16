@@ -8,6 +8,7 @@ import {
   ListPipelineParametersForExecutionCommand,
   ListTrainingJobsCommand,
   StartPipelineExecutionCommand,
+  StopPipelineExecutionCommand,
 } from '@aws-sdk/client-sagemaker';
 import { config } from '../config';
 import { notConfigured } from '../errors';
@@ -36,16 +37,20 @@ export async function listExecutions(max = 25) {
   return out.PipelineExecutionSummaries ?? [];
 }
 
-export async function startExecution(params: Record<string, string>, displayName?: string) {
+export async function startExecution(params: Record<string, string>, displayName?: string, clientRequestToken = crypto.randomUUID()) {
   const out = await sagemaker().send(
     new StartPipelineExecutionCommand({
       PipelineName: pipelineName(),
       PipelineExecutionDisplayName: displayName?.replace(/[^A-Za-z0-9-]/g, '-').slice(0, 82),
       PipelineParameters: Object.entries(params).map(([Name, Value]) => ({ Name, Value })),
-      ClientRequestToken: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      ClientRequestToken: clientRequestToken,
     }),
   );
   return out.PipelineExecutionArn!;
+}
+
+export async function stopExecution(arn: string, clientRequestToken: string) {
+  return sagemaker().send(new StopPipelineExecutionCommand({ PipelineExecutionArn: arn, ClientRequestToken: clientRequestToken }));
 }
 
 export async function describeExecution(arn: string) {

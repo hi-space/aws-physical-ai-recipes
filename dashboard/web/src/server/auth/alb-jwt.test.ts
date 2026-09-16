@@ -15,6 +15,24 @@ import { normalizeAlbJwt, readGroupsFromAccessToken, verifyAlbOidcData } from '.
 import { roleFromGroups } from './rbac';
 
 describe('verifyAlbOidcData', () => {
+  it('enforces expiry in the ALB signed header when the payload omits exp', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256', { extractable: true });
+    const pem = await exportSPKI(publicKey);
+    const jwt = await albStyleToken(privateKey, { kid: 'expired-header', alg: 'ES256', signer: 'arn:alb', exp: Math.floor(Date.now() / 1000) - 120 }, { sub: 'alice' });
+    await expect(verifyAlbOidcData(jwt, 'us-east-1', { expectedSigner: 'arn:alb', fetchKey: async () => pem })).rejects.toThrow(/expired/);
+  });
+  it('binds signed claims to the configured client and identity provider', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256', { extractable: true });
+    const pem = await exportSPKI(publicKey);
+    const jwt = await albStyleToken(privateKey, { kid: 'bound-client', alg: 'ES256', signer: 'arn:alb', client: 'another-client', iss: 'https://issuer', exp: Math.floor(Date.now() / 1000) + 120 }, { sub: 'alice' });
+    await expect(verifyAlbOidcData(jwt, 'us-east-1', { expectedSigner: 'arn:alb', expectedClient: 'our-client', expectedIssuer: 'https://issuer', fetchKey: async () => pem })).rejects.toThrow(/client/);
+  });
+  it('requires a nonempty signed subject and an expiry', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256', { extractable: true });
+    const pem = await exportSPKI(publicKey);
+    const jwt = await albStyleToken(privateKey, { kid: 'no-subject', alg: 'ES256', signer: 'arn:alb', exp: Math.floor(Date.now() / 1000) + 120 }, {});
+    await expect(verifyAlbOidcData(jwt, 'us-east-1', { expectedSigner: 'arn:alb', fetchKey: async () => pem })).rejects.toThrow(/subject/);
+  });
   it('verifies an ALB-style padded token (signature over padded segments)', async () => {
     const { publicKey, privateKey } = await generateKeyPair('ES256', { extractable: true });
     const pem = await exportSPKI(publicKey);
@@ -56,11 +74,13 @@ describe('groups and roles', () => {
   it('verifies the access token against the pool issuer and reads cognito:groups', async () => {
     const { publicKey, privateKey } = await generateKeyPair('ES256');
     const issuer = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc';
-    const jwt = await new SignJWT({ 'cognito:groups': ['researchers'] }).setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).sign(privateKey);
+    const jwt = await new SignJWT({ 'cognito:groups': ['researchers'], token_use: 'access', sub: 'alice', client_id: 'client' }).setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).setExpirationTime('5m').sign(privateKey);
     expect(await readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_abc', { jwks: publicKey })).toEqual(['researchers']);
     await expect(readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_other', { jwks: publicKey })).rejects.toThrow();
     await expect(readGroupsFromAccessToken(jwt, 'us-east-1', '')).rejects.toThrow(/not configured/);
     await expect(readGroupsFromAccessToken('', 'us-east-1', 'us-east-1_abc')).rejects.toThrow(/missing/);
+    await expect(readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_abc', { jwks: publicKey, expectedSubject: 'bob' })).rejects.toThrow(/subject/);
+    await expect(readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_abc', { jwks: publicKey, expectedClientId: 'other' })).rejects.toThrow(/client/);
   });
   it('refuses to verify ALB data without an expected signer', async () => {
     const { publicKey, privateKey } = await generateKeyPair('ES256');

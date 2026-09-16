@@ -2,8 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { readGroupsFromAccessToken, verifyAlbOidcData } from '@/server/auth/alb-jwt';
 import { roleFromGroups } from '@/server/auth/rbac';
 import { SESSION_HEADERS } from '@/server/auth/session';
+import { decodeJwt } from 'jose';
+import { verifyApiToken } from '@/server/auth/api-tokens';
 
-const PUBLIC_PATHS = ['/api/health'];
+const PUBLIC_PATHS = ['/api/health', '/api/logout'];
 
 /**
  * Next.js 16 request boundary. Turns the ALB's Cognito identity headers into
@@ -17,12 +19,38 @@ export default async function proxy(req: NextRequest) {
   const headers = new Headers(req.headers);
   // Never trust client-supplied session headers.
   for (const h of Object.values(SESSION_HEADERS)) headers.delete(h);
+  if (pathname.startsWith('/api/v1/')) {
+    try {
+      const authorization = req.headers.get('authorization') ?? '';
+      if (!authorization.startsWith('Bearer ')) return deny(req, 'API token required');
+      const canonicalPath = pathname.replace(/^\/api\/v1\//, '/api/');
+      const principal = await verifyApiToken(authorization.slice(7), req.method, canonicalPath);
+      headers.set(SESSION_HEADERS.user, principal.user);
+      headers.set(SESSION_HEADERS.subject, principal.subject);
+      headers.set(SESSION_HEADERS.email, principal.email);
+      headers.set(SESSION_HEADERS.role, principal.role);
+      headers.set(SESSION_HEADERS.authMethod, 'token');
+      headers.set(SESSION_HEADERS.tokenProjectId, principal.tokenProjectId);
+      headers.set(SESSION_HEADERS.scopes, principal.scopes.join(','));
+      headers.set(SESSION_HEADERS.tokenId, principal.tokenId);
+      headers.set('x-pai-project', principal.tokenProjectId);
+      headers.delete('authorization');
+      const destination = req.nextUrl.clone();
+      destination.pathname = canonicalPath;
+      return NextResponse.rewrite(destination, { request: { headers } });
+    } catch { return deny(req, 'Invalid, expired, or unauthorized API token'); }
+  }
 
   const authMode = process.env.AUTH_MODE ?? 'alb';
   if (authMode === 'dev') {
+    if (process.env.NODE_ENV === 'production' || process.env.AWS_EXECUTION_ENV || process.env.ECS_CONTAINER_METADATA_URI_V4) {
+      return deny(req, 'Development authentication is unavailable in deployed environments');
+    }
     headers.set(SESSION_HEADERS.user, process.env.DEV_USER ?? 'dev');
+    headers.set(SESSION_HEADERS.subject, process.env.DEV_USER ?? 'dev');
     headers.set(SESSION_HEADERS.email, 'dev@local');
     headers.set(SESSION_HEADERS.role, process.env.DEV_ROLE ?? 'admin');
+    headers.set(SESSION_HEADERS.authMethod, 'alb');
     return NextResponse.next({ request: { headers } });
   }
 
@@ -31,14 +59,24 @@ export default async function proxy(req: NextRequest) {
   if (!oidcData) return deny(req, 'Missing identity headers (request did not come through the ALB)');
   try {
     const region = process.env.AWS_REGION ?? 'us-east-1';
-    const id = await verifyAlbOidcData(oidcData, region, { expectedSigner: process.env.ALB_ARN ?? '' });
-    const groups = await readGroupsFromAccessToken(accessToken, region, process.env.COGNITO_USER_POOL_ID ?? '');
-    headers.set(SESSION_HEADERS.user, id.username ?? id.email ?? id.sub);
+    const pool = process.env.COGNITO_USER_POOL_ID ?? '';
+    const client = process.env.COGNITO_CLIENT_ID;
+    const id = await verifyAlbOidcData(oidcData, region, {
+      expectedSigner: process.env.ALB_ARN ?? '',
+      expectedIssuer: pool ? `https://cognito-idp.${region}.amazonaws.com/${pool}` : undefined,
+      expectedClient: client,
+    });
+    const groups = await readGroupsFromAccessToken(accessToken, region, pool, { expectedSubject: id.sub, expectedClientId: client });
+    const verifiedAccessClaims = decodeJwt(accessToken);
+    headers.set(SESSION_HEADERS.user, typeof verifiedAccessClaims.username === 'string' ? verifiedAccessClaims.username : id.username ?? id.sub);
+    headers.set(SESSION_HEADERS.subject, id.sub);
     headers.set(SESSION_HEADERS.email, id.email ?? '');
     headers.set(SESSION_HEADERS.role, roleFromGroups(groups));
+    headers.set(SESSION_HEADERS.authMethod, 'alb');
     return NextResponse.next({ request: { headers } });
   } catch (e) {
-    return deny(req, `Identity verification failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error('[auth] identity verification failed', e instanceof Error ? e.message : 'unknown verification error');
+    return deny(req, 'Identity verification failed');
   }
 }
 

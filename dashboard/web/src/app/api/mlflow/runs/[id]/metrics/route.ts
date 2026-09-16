@@ -1,9 +1,6 @@
 import { q, route } from '@/server/api';
-import * as ml from '@/server/aws/mlflow';
+import { requestProject } from '@/server/auth/projects';
+import { trackingAccess } from '@/server/services/tracking-access';
 export const dynamic = 'force-dynamic';
-export const GET = route<{ id: string }>('viewer', async ({ params, url }) => {
-  const keys = (q(url, 'key') ?? '').split(',').filter(Boolean);
-  const out: Record<string, unknown> = {};
-  await Promise.all(keys.map(async (k) => (out[k] = await ml.getMetricHistory(params.id, k))));
-  return out;
-});
+export const GET = route<{ id: string }>('viewer', async ({ req, session, params, url }) =>
+  trackingAccess().history(session, (await requestProject(req, session)).id, params.id, (q(url, 'key') ?? '').split(',')));

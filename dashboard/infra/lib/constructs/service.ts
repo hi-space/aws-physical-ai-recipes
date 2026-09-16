@@ -8,6 +8,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
@@ -25,6 +26,7 @@ export interface ServiceConstructProps {
   namePrefix: string;
   cpu?: number;
   memoryMiB?: number;
+  runtimeSigningSecret: secretsmanager.ISecret;
 }
 
 /**
@@ -38,12 +40,17 @@ export class ServiceConstruct extends Construct {
   readonly certificate: acm.Certificate;
   readonly logGroup: logs.LogGroup;
   readonly serviceSecurityGroup: ec2.SecurityGroup;
+  readonly controllerRole: iam.Role;
+  readonly controllerService: ecs.FargateService;
+  readonly gatewayRole: iam.Role;
+  readonly gatewayService: ecs.FargateService;
 
   constructor(scope: Construct, id: string, props: ServiceConstructProps) {
     super(scope, id);
 
     this.certificate = new acm.Certificate(this, 'Certificate', {
       domainName: props.domainName,
+      subjectAlternativeNames: [`*.apps.${props.domainName}`],
       validation: acm.CertificateValidation.fromDns(props.hostedZone),
     });
 
@@ -57,6 +64,7 @@ export class ServiceConstruct extends Construct {
       securityGroup: albSg,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       idleTimeout: cdk.Duration.seconds(300), // SSE log streams
+      dropInvalidHeaderFields: true,
     });
 
     new route53.ARecord(this, 'AliasRecord', {
@@ -64,9 +72,15 @@ export class ServiceConstruct extends Construct {
       recordName: props.domainName,
       target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(this.loadBalancer)),
     });
+    new route53.ARecord(this, 'AppSessionsRecord', {
+      zone: props.hostedZone,
+      recordName: `*.apps.${props.domainName}`,
+      target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(this.loadBalancer)),
+    });
 
     // ---- ECS
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc: props.vpc, clusterName: `${props.namePrefix}`, containerInsightsV2: ecs.ContainerInsights.ENABLED });
+    cluster.addDefaultCloudMapNamespace({ name: `${props.namePrefix}.internal` });
     this.logGroup = new logs.LogGroup(this, 'Logs', { logGroupName: `/aws/ecs/${props.namePrefix}`, retention: logs.RetentionDays.ONE_MONTH, removalPolicy: cdk.RemovalPolicy.DESTROY });
 
     this.taskRole = new iam.Role(this, 'TaskRole', {
@@ -79,13 +93,13 @@ export class ServiceConstruct extends Construct {
       new ecrAssets.DockerImageAsset(this, 'Image', {
         directory: props.webAppPath,
         platform: ecrAssets.Platform.LINUX_AMD64,
-        exclude: ['node_modules', '.next', 'e2e', 'playwright-report', 'test-results'],
+        exclude: ['node_modules', '.next', 'dist', '*.tsbuildinfo', 'e2e', 'playwright-report', 'test-results'],
       }),
     );
 
     const taskDef = new ecs.FargateTaskDefinition(this, 'TaskDef', {
-      cpu: props.cpu ?? 1024,
-      memoryLimitMiB: props.memoryMiB ?? 2048,
+      cpu: props.cpu ?? 512,
+      memoryLimitMiB: props.memoryMiB ?? 1024,
       taskRole: this.taskRole,
       runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.X86_64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX },
     });
@@ -96,6 +110,9 @@ export class ServiceConstruct extends Construct {
         ...props.environment,
         ALB_ARN: this.loadBalancer.loadBalancerArn,
         COGNITO_USER_POOL_ID: props.userPool.userPoolId,
+        COGNITO_CLIENT_ID: props.userPoolClient.userPoolClientId,
+        DASHBOARD_ORIGIN: `https://${props.domainName}`,
+        WORKFLOW_CONTROLLER: '0',
         PORT: '3000',
         HOSTNAME: '0.0.0.0',
       },
@@ -119,14 +136,76 @@ export class ServiceConstruct extends Construct {
       cluster,
       taskDefinition: taskDef,
       desiredCount: 1,
-      minHealthyPercent: 0, // single-replica controller: replace, don't overlap
-      maxHealthyPercent: 100,
+      // The one-time split must stop the legacy in-process controller first.
+      minHealthyPercent: this.node.tryGetContext('controllerSplitMigration') === 'true' ? 0 : 100,
+      maxHealthyPercent: this.node.tryGetContext('controllerSplitMigration') === 'true' ? 100 : 200,
       assignPublicIp: false,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [svcSg],
       enableExecuteCommand: true,
       circuitBreaker: { rollback: true },
       healthCheckGracePeriod: cdk.Duration.seconds(90),
+    });
+
+    this.controllerRole = new iam.Role(this, 'ControllerRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'Physical AI workflow controller; separate from browser request handling',
+    });
+    const controllerTask = new ecs.FargateTaskDefinition(this, 'ControllerTask', {
+      cpu: 512, memoryLimitMiB: 1024, taskRole: this.controllerRole,
+      runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.X86_64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX },
+    });
+    controllerTask.addContainer('controller', {
+      image,
+      command: ['node', '/app/services/controller.cjs'],
+      environment: { ...props.environment, COGNITO_USER_POOL_ID: props.userPool.userPoolId, WORKFLOW_CONTROLLER: '0', AUTH_MODE: 'alb', NODE_ENV: 'production' },
+      secrets: { RUNTIME_SIGNING_KEY: ecs.Secret.fromSecretsManager(props.runtimeSigningSecret, 'key') },
+      portMappings: [{ containerPort: 3001 }],
+      logging: ecs.LogDrivers.awsLogs({ logGroup: this.logGroup, streamPrefix: 'controller' }),
+      healthCheck: {
+        command: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:3001/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'],
+        interval: cdk.Duration.seconds(30), timeout: cdk.Duration.seconds(5), retries: 3, startPeriod: cdk.Duration.seconds(30),
+      },
+      stopTimeout: cdk.Duration.seconds(90),
+    });
+    this.controllerService = new ecs.FargateService(this, 'Controller', {
+      cluster, taskDefinition: controllerTask, desiredCount: 1,
+      minHealthyPercent: 100, maxHealthyPercent: 200,
+      assignPublicIp: false, vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [svcSg], circuitBreaker: { rollback: true },
+      cloudMapOptions: { name: 'controller' },
+    });
+    this.controllerService.node.addDependency(this.service);
+    this.gatewayRole = new iam.Role(this, 'GatewayRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'Physical AI authenticated session transport',
+    });
+    const gatewayTask = new ecs.FargateTaskDefinition(this, 'GatewayTask', {
+      cpu: 256, memoryLimitMiB: 512, taskRole: this.gatewayRole,
+      runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.X86_64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX },
+    });
+    gatewayTask.addContainer('gateway', {
+      image, command: ['node', '/app/services/gateway.cjs'],
+      environment: {
+        ...props.environment, AUTH_MODE: 'alb', WORKFLOW_CONTROLLER: '0',
+        COGNITO_USER_POOL_ID: props.userPool.userPoolId,
+        DASHBOARD_ORIGIN: `https://${props.domainName}`, GATEWAY_BASE_DOMAIN: `apps.${props.domainName}`,
+        GATEWAY_ASSET_DIR: '/app/services/gateway-assets',
+      },
+      portMappings: [{ containerPort: 3002 }],
+      logging: ecs.LogDrivers.awsLogs({ logGroup: this.logGroup, streamPrefix: 'gateway' }),
+      healthCheck: {
+        command: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:3002/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'],
+        interval: cdk.Duration.seconds(30), timeout: cdk.Duration.seconds(5), retries: 3, startPeriod: cdk.Duration.seconds(30),
+      },
+    });
+    svcSg.addIngressRule(albSg, ec2.Port.tcp(3002), 'Authenticated session hosts from ALB');
+    this.gatewayService = new ecs.FargateService(this, 'Gateway', {
+      cluster, taskDefinition: gatewayTask, desiredCount: 1,
+      minHealthyPercent: 100, maxHealthyPercent: 200,
+      assignPublicIp: false, vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [svcSg], circuitBreaker: { rollback: true },
+      healthCheckGracePeriod: cdk.Duration.seconds(60),
     });
 
     const targetGroup = new elbv2.ApplicationTargetGroup(this, 'Tg', {
@@ -154,6 +233,16 @@ export class ServiceConstruct extends Construct {
       }),
     });
     https.addAction('Health', { priority: 1, conditions: [elbv2.ListenerCondition.pathPatterns(['/api/health'])], action: elbv2.ListenerAction.forward([targetGroup]) });
+    https.addAction('Logout', { priority: 2, conditions: [elbv2.ListenerCondition.pathPatterns(['/api/logout'])], action: elbv2.ListenerAction.forward([targetGroup]) });
+    https.addAction('ApiTokens', { priority: 3, conditions: [elbv2.ListenerCondition.pathPatterns(['/api/v1/*'])], action: elbv2.ListenerAction.forward([targetGroup]) });
+    https.addTargets('SessionHosts', {
+      priority: 5,
+      conditions: [elbv2.ListenerCondition.hostHeaders([`*.apps.${props.domainName}`])],
+      port: 3002, protocol: elbv2.ApplicationProtocol.HTTP,
+      targets: [this.gatewayService],
+      healthCheck: { path: '/health', healthyThresholdCount: 2, interval: cdk.Duration.seconds(15) },
+      deregistrationDelay: cdk.Duration.seconds(15),
+    });
     this.loadBalancer.addListener('Http', { port: 80, defaultAction: elbv2.ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }) });
 
     // The ALB must be able to reach Cognito (token endpoint) — allowAllOutbound covers it.

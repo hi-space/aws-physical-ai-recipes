@@ -54,7 +54,7 @@ test('submit the built-in custom workflow through the deployed API and wait for 
     const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: tpl.yaml, overrides: { who: 'playwright' }, templateId: 'custom' }) });
     return { status: res.status, body: await res.json() };
   });
-  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  expect(result.status, JSON.stringify(result.body)).toBe(202);
   const id = result.body.id as string;
   let status = result.body.status as string;
   for (let i = 0; i < 60 && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(status); i++) {
@@ -62,8 +62,8 @@ test('submit the built-in custom workflow through the deployed API and wait for 
     status = await page.evaluate(async (wfId) => (await (await fetch(`/api/workflows/${wfId}`)).json()).workflow.status, id);
   }
   expect(status).toBe('SUCCEEDED');
-  const logs = await page.evaluate(async (wfId) => (await (await fetch(`/api/workflows/${wfId}/tasks/hello/logs`)).json()), id);
-  expect(JSON.stringify(logs.lines)).toContain('hello from playwright');
+  const artifacts = await page.evaluate(async (wfId) => (await (await fetch(`/api/datasets/custom-artifacts-${wfId}`)).json()), id);
+  expect(artifacts.versions[0]).toMatchObject({ state: 'READY', objectCount: 1, producedBy: { workflowId: id, task: 'hello' } });
   await page.goto(`/workflows/${id}`);
   await expect(page.locator('h1').first()).toBeVisible();
   await page.screenshot({ path: 'test-results/page_workflow_detail.png', fullPage: true });

@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Button, Card, CodeBlock, EmptyState, ErrorBox, KeyValue, Spinner, StatusPill, Table, Tabs } from '@/components/ui';
 import { ago, classNames as cx, fmtDuration, fmtNum, fmtTime, fmtBytes } from '@/lib/format';
-import { useApi } from '@/lib/api-client';
+import { api, useApi } from '@/lib/api-client';
 
 interface ExecutionData {
+  canStop?: boolean;
   execution: {
     PipelineExecutionStatus: string;
     PipelineExecutionDisplayName: string;
@@ -48,11 +49,14 @@ interface TrainingJobData {
 
 export function PipelineExecutionPage({ arn }: { arn: string }) {
   const { data, isLoading, error } = useApi<ExecutionData>(
-    `/api/pipelines/executions/${arn}`,
+    `/api/pipelines/executions/${encodeURIComponent(arn)}`,
     { refetch: 10000 }
   );
   const [expandedStep, setExpandedStep] = React.useState<string | null>(null);
   const [expandedHyperparams, setExpandedHyperparams] = React.useState(false);
+  const [stopPending, setStopPending] = React.useState(false);
+  const [stopError, setStopError] = React.useState<Error>();
+  const [stopAccepted, setStopAccepted] = React.useState(false);
 
   const trainingJobName = React.useMemo(() => {
     const step = data?.steps.find((s) => s.Metadata?.TrainingJob);
@@ -60,18 +64,29 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
     return step.Metadata.TrainingJob.Arn.split('/').pop();
   }, [data]);
 
-  const { data: jobData } = useApi<TrainingJobData>(
-    trainingJobName ? `/api/pipelines/training-jobs/${trainingJobName}` : null,
+  const { data: jobData, error: jobError } = useApi<TrainingJobData>(
+    trainingJobName ? `/api/pipelines/training-jobs/${encodeURIComponent(trainingJobName)}` : null,
     { refetch: 10000 }
   );
 
-  if (isLoading && !data) return <Spinner label="Loading execution…" />;
+  if (isLoading && !data) return <Spinner label="실행을 불러오는 중…" />;
 
   return (
     <>
-      <PageHeader title={data?.execution.PipelineExecutionDisplayName || 'Pipeline Execution'} />
+      <PageHeader title={data?.execution.PipelineExecutionDisplayName || '파이프라인 실행'} />
 
       {error && <ErrorBox error={error} />}
+      {jobError && <ErrorBox error={jobError} />}
+      {stopError && <ErrorBox error={stopError} />}
+      {data?.canStop && data.execution.PipelineExecutionStatus === 'Executing' && <div className="mb-4">
+        <Button variant="danger" disabled={stopPending || stopAccepted} onClick={async () => {
+          if (!window.confirm('이 파이프라인 실행과 실행 중인 단계를 중단할까요?')) return;
+          setStopPending(true); setStopError(undefined);
+          try { await api(`/api/pipelines/executions/${encodeURIComponent(arn)}`, { method: 'DELETE' }); setStopAccepted(true); }
+          catch (failure) { setStopError(failure as Error); }
+          finally { setStopPending(false); }
+        }}>{stopAccepted ? '중단 요청 접수됨' : '실행 중단'}</Button>
+      </div>}
 
       <div className="space-y-4">
         {/* Header */}
@@ -79,22 +94,22 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
           <Card>
             <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <div>
-                <span className="text-fg-muted">Status</span>
+                <span className="text-fg-muted">상태</span>
                 <div className="mt-1">
                   <StatusPill status={data.execution.PipelineExecutionStatus} />
                 </div>
               </div>
               <div>
-                <span className="text-fg-muted">Created</span>
+                <span className="text-fg-muted">생성 시각</span>
                 <div className="mt-1 font-mono text-xs">{fmtTime(data.execution.CreationTime)}</div>
               </div>
               <div>
-                <span className="text-fg-muted">Last Modified</span>
+                <span className="text-fg-muted">최근 변경</span>
                 <div className="mt-1 font-mono text-xs">{ago(data.execution.LastModifiedTime)}</div>
               </div>
               {data.execution.FailureReason && (
                 <div className="col-span-2 md:col-span-1">
-                  <span className="text-fg-muted">Failure</span>
+                  <span className="text-fg-muted">실패 사유</span>
                   <div className="mt-1 text-xs text-err">{data.execution.FailureReason}</div>
                 </div>
               )}
@@ -103,7 +118,7 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
             {/* Parameters */}
             {data.parameters.length > 0 && (
               <div className="mt-4 pt-4 border-t border-border">
-                <div className="text-sm font-medium">Parameters</div>
+                <div className="text-sm font-medium">파라미터</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   {data.parameters.map((p) => (
                     <div key={p.Name} className="flex items-center gap-2">
@@ -119,7 +134,7 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
 
         {/* Steps Stepper */}
         {data?.steps && (
-          <Card title="Pipeline Steps">
+          <Card title="파이프라인 단계">
             <div className="space-y-2">
               {data.steps.map((step, idx) => (
                 <div key={step.StepName} className="border-b border-border py-3 last:border-b-0">

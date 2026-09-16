@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { fsxPathToS3, loadConfig } from './config';
 
 describe('loadConfig', () => {
+  it('refuses development authentication in a deployed process', () => {
+    expect(() => loadConfig({ AUTH_MODE: 'dev', NODE_ENV: 'production' })).toThrow(/development authentication/);
+    expect(() => loadConfig({ AUTH_MODE: 'dev', NODE_ENV: 'test', AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' })).toThrow(/development authentication/);
+  });
   it('requires TABLE_NAME in alb mode', () => {
     expect(() => loadConfig({ AUTH_MODE: 'alb' } as unknown as NodeJS.ProcessEnv)).toThrow(/TABLE_NAME/);
   });

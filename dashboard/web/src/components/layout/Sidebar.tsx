@@ -3,27 +3,34 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Activity, Boxes, Cpu, Database, FlaskConical, GitBranch, HardDrive, Layers, LayoutDashboard, ListTree, MonitorPlay, Radio, Settings, Workflow } from 'lucide-react';
 import { classNames as cx } from '@/lib/format';
-import { useMe } from '@/lib/api-client';
+import { api, useMe } from '@/lib/api-client';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 const NAV = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { section: 'Run' },
-  { href: '/workflows', label: 'Workflows', icon: Workflow },
-  { href: '/jobs', label: 'Jobs & Pods', icon: ListTree, feature: 'eks' },
-  { href: '/pipelines', label: 'SageMaker Pipelines', icon: GitBranch, feature: 'pipeline' },
-  { href: '/sessions', label: 'Sessions (DCV / TensorBoard)', icon: MonitorPlay },
-  { section: 'Data' },
-  { href: '/datasets', label: 'Datasets', icon: Database },
-  { href: '/models', label: 'Models', icon: Boxes },
-  { href: '/experiments', label: 'Experiments (MLflow)', icon: FlaskConical, feature: 'mlflow' },
-  { href: '/storage', label: 'Storage (S3 / FSx)', icon: HardDrive },
-  { section: 'Infrastructure' },
-  { href: '/compute', label: 'Compute', icon: Cpu },
-  { href: '/queues', label: 'Queues & Quotas', icon: Layers, feature: 'eks' },
-  { href: '/metrics', label: 'Metrics', icon: Activity, feature: 'amp' },
-  { href: '/edge', label: 'Edge (Greengrass)', icon: Radio },
-  { section: 'System' },
-  { href: '/admin', label: 'Admin', icon: Settings, role: 'admin' },
+  { href: '/', label: '연구 현황', icon: LayoutDashboard },
+  { section: '실행' },
+  { href: '/workflows', label: '파이프라인 실행', icon: Workflow },
+  { href: '/jobs', label: '작업과 실행 환경', icon: ListTree, feature: 'eks' },
+  { href: '/pipelines', label: 'SageMaker 학습', icon: GitBranch, feature: 'pipeline' },
+  { href: '/sessions', label: '시뮬레이션·개발', icon: MonitorPlay },
+  { section: '연구 자산' },
+  { href: '/datasets', label: '데이터셋', icon: Database },
+  { href: '/models', label: '모델·평가', icon: Boxes },
+  { href: '/experiments', label: '실험 비교', icon: FlaskConical, feature: 'mlflow' },
+  { href: '/storage', label: '파일 저장소', icon: HardDrive },
+  { section: '자원' },
+  { href: '/compute', label: '컴퓨트', icon: Cpu },
+  { href: '/queues', label: '대기열·할당량', icon: Layers, feature: 'eks' },
+  { href: '/metrics', label: '메트릭', icon: Activity, feature: 'amp' },
+  { href: '/edge', label: '디바이스·배포', icon: Radio },
+  { section: '관리' },
+  { href: '/projects', label: '프로젝트·구성원', icon: Layers },
+  { href: '/access', label: '자격증명·API 토큰', icon: Settings },
+  { href: '/image-profiles', label: '이미지·실행 환경', icon: Boxes },
+  { href: '/backends', label: '백엔드 연결', icon: Layers, role: 'admin' },
+  { href: '/webhooks', label: '자동화·웹훅', icon: GitBranch },
+  { href: '/builds', label: '환경 빌드·동기화', icon: Boxes, role: 'admin' },
+  { href: '/admin', label: '플랫폼 설정', icon: Settings, role: 'admin' },
 ] as const;
 
 export function Sidebar() {
@@ -38,9 +45,11 @@ export function Sidebar() {
           <div className="text-[10px] uppercase tracking-wider text-fg-faint">Dashboard</div>
         </div>
       </div>
+      <ProjectSwitcher />
       <nav className="scrollbar-thin flex-1 overflow-y-auto px-2 py-2">
         {NAV.map((n, i) => {
           if ('section' in n) return <div key={i} className="px-2 pb-1 pt-3 text-[10px] uppercase tracking-wider text-fg-faint">{n.section}</div>;
+          if (n.href === '/backends' && me?.role !== 'admin') return null;
           const disabled = ('feature' in n && me && !me.features[n.feature as keyof typeof me.features]) || ('role' in n && me && me.role !== 'admin');
           const active = n.href === '/' ? path === '/' : path.startsWith(n.href);
           const Icon = n.icon;
@@ -65,6 +74,10 @@ export function Sidebar() {
               <span className="capitalize">{me.role}</span>
               <span className="num">{me.region}</span>
             </div>
+            <button className="mt-2 text-xs text-fg-muted hover:text-fg" onClick={async () => {
+              try { await api('/api/auth/logout', { method: 'POST' }); }
+              finally { window.location.href = '/api/logout'; }
+            }}>로그아웃</button>
           </>
         ) : (
           <span>…</span>

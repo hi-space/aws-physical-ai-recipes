@@ -1,12 +1,24 @@
+import type { TopologyPlan } from '../workflow/topology/types';
+import type { TopologyDiagnostics } from '../workflow/topology/observe';
 import type { WorkflowSpec } from '../workflow/schema';
-
-export type WorkflowStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
-export type TaskPhase = 'WAITING' | 'QUEUED' | 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'SKIPPED';
-
+export type WorkflowStatus = 'PENDING' | 'RUNNING' | 'CANCELLING' | 'FINALIZING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+export type TaskPhase = 'WAITING' | 'LAUNCHING' | 'INITIALIZING' | 'RETRY_WAIT' | 'CANCELLING' | 'FINALIZING' | 'QUEUED' | 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'SKIPPED';
 export const TERMINAL_WF: ReadonlySet<WorkflowStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 export const TERMINAL_TASK: ReadonlySet<TaskPhase> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED']);
-
+/** Trusted API/preflight metadata, not part of the user workflow YAML schema. */
+export interface TaskImagePin {
+  image: string;
+  profileId: string;
+  profileVersion: number;
+  checkedAt: string;
+}
+export type TaskImagePins = Record<string, TaskImagePin>;
 export interface Workflow {
+  orchestrationStatus?: string;
+  orchestrationError?: string;
+  computeResultBeforeOrchestrationFailure?: WorkflowStatus;
+  projectId?: string;
+  ownerSubject?: string;
   id: string;
   name: string;
   namespace: string;
@@ -14,8 +26,19 @@ export interface Workflow {
   status: WorkflowStatus;
   spec: WorkflowSpec;
   specYaml: string;
+  backendId?: string;
+  backendConfigHash?: string;
+  specHash?: string;
+  imagePins?: TaskImagePins;
+  preflightReviewedBy?: string;
+  preflightReviewedAt?: string;
+  datasetSnapshots?: Record<string, Record<number, DatasetSnapshot>>;
+  executionArn?: string;
   vars: Record<string, string>;
   templateId?: string;
+  templateVersion?: number;
+  templateContentHash?: string;
+  templateModified?: boolean;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -26,12 +49,32 @@ export interface Workflow {
   failedCount: number;
   labels?: Record<string, string>;
 }
-
 export interface Task {
   workflowId: string;
   name: string;
   phase: TaskPhase;
   jobName?: string;
+  jobUid?: string;
+  workloadKind?: 'Job' | 'JobSet';
+  groupId?: string;
+  attemptEpoch?: string;
+  /** Stored only on the first task of a native-topology admission unit. */
+  topologyPlan?: TopologyPlan;
+  topologyDiagnostics?: TopologyDiagnostics;
+  /** The launch compiler's decision, persisted before creating this attempt. */
+  runtimeWrapped?: boolean;
+  runtimeFailure?: boolean;
+  /** Container wrapper exit, kept separate from the original application exitCode. */
+  wrapperExitCode?: number;
+  launchIntentAt?: string;
+  admittedAt?: string;
+  nextRetryAt?: string;
+  cleanupTarget?: 'RETRY_WAIT' | 'FAILED' | 'CANCELLED' | 'SUCCEEDED';
+  failureReason?: string;
+  exitCode?: number;
+  observedPhase?: TaskPhase;
+  ignoredByGroupPolicy?: boolean;
+  artifactReceipts?: Record<string, ArtifactReceipt>;
   attempts: number;
   replicas: number;
   startedAt?: string;
@@ -39,10 +82,12 @@ export interface Task {
   queuedAt?: string;
   message?: string;
   outputPath?: string;
-  publishedVersions?: { dataset: string; version: number }[];
+  publishedVersions?: {
+    dataset: string;
+    version: number;
+  }[];
   updatedAt: string;
 }
-
 export interface WorkflowEvent {
   workflowId: string;
   ts: string;
@@ -53,8 +98,9 @@ export interface WorkflowEvent {
   reason: string;
   message: string;
 }
-
 export interface Dataset {
+  projectId?: string;
+  ownerSubject?: string;
   name: string;
   description?: string;
   owner: string;
@@ -64,8 +110,9 @@ export interface Dataset {
   updatedAt: string;
   format?: string;
 }
-
 export interface DatasetVersion {
+  projectId?: string;
+  ownerSubject?: string;
   dataset: string;
   version: number;
   /** s3://bucket/prefix/ */
@@ -74,12 +121,24 @@ export interface DatasetVersion {
   sizeBytes?: number;
   objectCount?: number;
   tags: string[];
-  producedBy?: { workflowId: string; task: string };
+  producedBy?: {
+    workflowId: string;
+    task: string;
+  };
+  publicationId?: string;
+  producedAttempt?: number;
+  manifestUri?: string;
+  manifestHash?: string;
+  verifiedAt?: string;
+  state?: 'PENDING' | 'READY';
+  versionRevision?: number;
+  imported?: boolean;
+  finalizationRequested?: boolean;
+  finalizationError?: string;
   createdAt: string;
   createdBy: string;
   note?: string;
 }
-
 export interface TemplateParam {
   name: string;
   label: string;
@@ -88,8 +147,10 @@ export interface TemplateParam {
   options?: string[];
   help?: string;
 }
-
 export interface Template {
+  templateVersion?: number;
+  projectId?: string;
+  ownerSubject?: string;
   id: string;
   title: string;
   description: string;
@@ -101,19 +162,53 @@ export interface Template {
   createdBy?: string;
   createdAt: string;
 }
-
 export interface Session {
+  backendId?: string;
+  backendConfigHash?: string;
+  projectId?: string;
+  ownerSubject?: string;
   id: string;
-  kind: 'tensorboard' | 'jupyter';
+  kind: 'tensorboard' | 'jupyter' | 'code-server' | 'terminal' | 'port-forward' | 'dcv';
   namespace: string;
   owner: string;
   logDir?: string;
-  /** Kubernetes deployment/service name */
+  /** Managed Job name; legacy records used a Deployment/Service name. */
   name: string;
   createdAt: string;
   status?: string;
+  queue?: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  closedAt?: string;
+  revision?: number;
+  managedJob?: boolean;
+  provisioningUntil?: string;
+  image?: string;
+  runtimeImage?: string;
+  jobUid?: string;
+  podName?: string;
+  podUid?: string;
+  container?: string;
+  port?: number;
+  portName?: string;
+  nodeName?: string;
+  workspacePath?: string;
+  workflowId?: string;
+  taskName?: string;
+  groupId?: string;
+  attempt?: number;
+  attemptEpoch?: string;
+  replicaIndex?: number;
+  message?: string;
+  ssmTarget?: string;
+  dcvSessionId?: string;
+  /** Source authority for a session derived from an API token; never contains a bearer. */
+  authMethod?: 'alb' | 'token';
+  tokenId?: string;
+  tokenProjectId?: string;
+  tokenRole?: 'viewer' | 'researcher';
+  tokenExpiresAt?: string;
 }
-
 export interface AuditEntry {
   ts: string;
   seq: number;
@@ -124,9 +219,35 @@ export interface AuditEntry {
   result: 'ok' | 'error';
   message?: string;
 }
-
 export interface Settings {
   notifyOn: ('SUCCEEDED' | 'FAILED' | 'CANCELLED')[];
   defaultNamespace: string;
   defaultPriority?: string;
+}
+export interface DatasetSnapshot {
+  name: string;
+  version: number;
+  fsxPath: string;
+  uri: string;
+  manifestHash?: string;
+}
+export interface ArtifactReceipt {
+  uri: string;
+  manifestUri: string;
+  manifestHash: string;
+  verifiedAt: string;
+  objectCount: number;
+  sizeBytes: number;
+}
+export interface RunLease {
+  runId: string;
+  holder: string;
+}
+export interface OutboxEntry {
+  kind: 'dispatch' | 'enqueue' | 'complete' | 'notify';
+  idempotencyKey: string;
+  deliveredAt?: string;
+  attempts: number;
+  nextAttemptAt?: string;
+  lastError?: string;
 }

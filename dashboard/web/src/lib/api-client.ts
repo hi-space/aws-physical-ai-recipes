@@ -7,14 +7,17 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
-  const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
-  let body = init.body;
-  if (init.json !== undefined) {
-    headers['content-type'] = 'application/json';
-    body = JSON.stringify(init.json);
+export type ApiRequestInit = RequestInit & { json?: unknown };
+
+export async function api<T = unknown>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  const { json, ...request } = init;
+  const headers = new Headers(request.headers);
+  let body = request.body;
+  if (json !== undefined) {
+    headers.set('content-type', 'application/json');
+    body = JSON.stringify(json);
   }
-  const res = await fetch(path, { ...init, headers, body, cache: 'no-store' });
+  const res = await fetch(path, { ...request, headers, body, cache: 'no-store' });
   const text = await res.text();
   let data: unknown = undefined;
   try {
@@ -29,17 +32,40 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   return data as T;
 }
 
-/** Polling query helper. `refetch` in ms (0 = off). */
-export function useApi<T>(path: string | null, opts: { refetch?: number; enabled?: boolean } & Omit<UseQueryOptions<T, ApiError>, 'queryKey' | 'queryFn'> = {}) {
-  const { refetch = 0, enabled = true, ...rest } = opts;
-  return useQuery<T, ApiError>({
-    queryKey: ['api', path],
-    queryFn: () => api<T>(path!),
+type ApiQueryOptions<T> = {
+  refetch?: number;
+  enabled?: boolean;
+  // Query bodies must be serializable for caching; binary uploads use api().
+  init?: Omit<ApiRequestInit, 'body'> & { body?: string };
+} & Omit<UseQueryOptions<T, ApiError>, 'queryKey' | 'queryFn'>;
+
+/** Shared by useApi and multi-run useQueries. Keep ['api', path] invalidation compatible. */
+export function apiQueryOptions<T = unknown>(path: string | null, opts: ApiQueryOptions<T> = {}) {
+  const { refetch = 0, enabled = true, init = {}, ...rest } = opts;
+  const { signal: callerSignal, headers, ...request } = init;
+  const identity = {
+    ...request,
+    method: (request.method ?? 'GET').toUpperCase(),
+    headers: Array.from(new Headers(headers).entries()),
+    ...(request.json !== undefined ? { body: undefined } : {}),
+  };
+  const hasOptions = Object.keys(request).length > 0 || headers !== undefined;
+  return {
     enabled: enabled && path !== null,
-    refetchInterval: refetch || false,
-    retry: (count, err) => err.status >= 500 && count < 1,
+    refetchInterval: refetch || (false as const),
+    retry: (count: number, err: ApiError) => err.status >= 500 && count < 1,
     ...rest,
-  });
+    queryKey: hasOptions ? ['api', path, identity] : ['api', path],
+    queryFn: ({ signal }: { signal: AbortSignal }) => api<T>(path!, {
+      ...init,
+      signal: callerSignal ? AbortSignal.any([signal, callerSignal]) : signal,
+    }),
+  } satisfies UseQueryOptions<T, ApiError>;
+}
+
+/** Polling query helper. `refetch` in ms (0 = off). */
+export function useApi<T>(path: string | null, opts: ApiQueryOptions<T> = {}) {
+  return useQuery<T, ApiError>(apiQueryOptions<T>(path, opts));
 }
 
 export function useApiMutation<TIn, TOut = unknown>(fn: (input: TIn) => Promise<TOut>, invalidate: string[] = []) {
@@ -55,6 +81,7 @@ export function useApiMutation<TIn, TOut = unknown>(fn: (input: TIn) => Promise<
 
 export interface Me {
   user: string;
+  subject?: string;
   email: string;
   role: 'admin' | 'researcher' | 'viewer';
   region: string;
@@ -63,6 +90,7 @@ export interface Me {
   clusters: { eks?: string; slurm?: string; eksName?: string };
   buckets: { data?: string; artifacts?: string };
   defaultNamespace: string;
+  project?: { id: string; name: string; role: 'viewer' | 'researcher' | 'project-admin' };
 }
 export const useMe = () => useApi<Me>('/api/me', { staleTime: 60_000 });
 export const can = (me: Me | undefined, role: 'admin' | 'researcher' | 'viewer') => {

@@ -51,14 +51,20 @@ async function api<T>(method: 'GET' | 'POST', path: string, body?: unknown, quer
   if (!res.ok) throw new Error(`MLflow ${path}: ${res.status} ${text.slice(0, 300)}`);
   return (text ? JSON.parse(text) : {}) as T;
 }
+export { api as mlflowApi };
 
 export interface MlExperiment { experiment_id: string; name: string; lifecycle_stage: string; last_update_time?: number; creation_time?: number; artifact_location?: string }
 export interface MlRunInfo { run_id: string; run_name?: string; experiment_id: string; status: string; start_time: number; end_time?: number; artifact_uri?: string; user_id?: string }
 export interface MlRun { info: MlRunInfo; data: { metrics?: { key: string; value: number; timestamp: number; step: number }[]; params?: { key: string; value: string }[]; tags?: { key: string; value: string }[] } }
 
-export async function searchExperiments(): Promise<MlExperiment[]> {
-  const r = await api<{ experiments?: MlExperiment[] }>('POST', 'experiments/search', { max_results: 200, order_by: ['last_update_time DESC'] });
+export async function searchExperiments(filter = ''): Promise<MlExperiment[]> {
+  const r = await api<{ experiments?: MlExperiment[] }>('POST', 'experiments/search', {
+    max_results: 200, order_by: ['last_update_time DESC'], ...(filter ? { filter } : {}),
+  });
   return r.experiments ?? [];
+}
+export async function getExperiment(experimentId: string): Promise<MlExperiment> {
+  return (await api<{ experiment: MlExperiment }>('GET', 'experiments/get', undefined, { experiment_id: experimentId })).experiment;
 }
 export async function searchRuns(experimentIds: string[], filter = '', maxResults = 100): Promise<MlRun[]> {
   const r = await api<{ runs?: MlRun[] }>('POST', 'runs/search', {

@@ -1,0 +1,29 @@
+{
+  "runId": "b67546d015a31556",
+  "source": "read-only durable task record after successful E2E",
+  "task": {
+    "exitCode": 0,
+    "artifactReceipts": {
+      "c80d9aba5cd07f2bdbde3b7094b4e62a3c3aed37c93f98fd1d5bbea293dfe785": {
+        "objectCount": 1,
+        "manifestHash": "81d7c18a6296a8ea1b2746e1c7d14dd7827c9f70d1d2a99f33e4d1ff3c062b98",
+        "verifiedAt": "2026-09-16T15:25:45.321Z",
+        "state": "ready",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/b67546d015a31556/attempts/2/train/acc901d03f453993e0c531938c952957ce682123540e369c5a05c8a18a770a15/manifest.json",
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/b67546d015a31556/attempts/2/train/acc901d03f453993e0c531938c952957ce682123540e369c5a05c8a18a770a15/",
+        "sizeBytes": 429
+      }
+    },
+    "name": "train",
+    "phase": "SUCCEEDED",
+    "wrapperExitCode": 0,
+    "attempts": 2,
+    "workflowId": "b67546d015a31556",
+    "publishedVersions": [
+      {
+        "dataset": "e2e-recovered-964458afd2f5",
+        "version": 1
+      }
+    ]
+  }
+}

@@ -1,4 +1,6 @@
 import { route } from '@/server/api';
-import * as ml from '@/server/aws/mlflow';
+import { requestProject } from '@/server/auth/projects';
+import { trackingAccess } from '@/server/services/tracking-access';
 export const dynamic = 'force-dynamic';
-export const GET = route('viewer', async () => ml.searchExperiments());
+export const GET = route('viewer', async ({ req, session }) =>
+  trackingAccess().experiments(session, (await requestProject(req, session)).id));

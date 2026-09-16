@@ -1,0 +1,15 @@
+.git
+.superpowers
+**/node_modules
+**/.next
+**/cdk.out
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+dashboard/runtime/pai-runtime*

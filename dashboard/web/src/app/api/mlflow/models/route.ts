@@ -1,4 +1,5 @@
 import { route } from '@/server/api';
-import * as ml from '@/server/aws/mlflow';
+import { trackingAccess } from '@/server/services/tracking-access';
 export const dynamic = 'force-dynamic';
-export const GET = route('viewer', async () => ml.searchRegisteredModels());
+// Explicit legacy/admin context. Ordinary selected-project experiment views never call this.
+export const GET = route('admin', async ({ session }) => trackingAccess().legacyModels(session));

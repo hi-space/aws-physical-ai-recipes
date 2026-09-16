@@ -31,10 +31,10 @@ export class AuthConstruct extends Construct {
       signInAliases: { username: true, email: true },
       autoVerify: { email: true },
       standardAttributes: { email: { required: true, mutable: true } },
-      passwordPolicy: { minLength: 12, requireLowercase: true, requireUppercase: true, requireDigits: true, requireSymbols: false, tempPasswordValidity: cdk.Duration.days(7) },
+      passwordPolicy: { minLength: 8, requireLowercase: true, requireUppercase: true, requireDigits: true, requireSymbols: false, tempPasswordValidity: cdk.Duration.days(7) },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      deletionProtection: false,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: true,
     });
 
     for (const [name, description, precedence] of [
@@ -75,7 +75,7 @@ export class AuthConstruct extends Construct {
         excludePunctuation: true,
         requireEachIncludedType: true,
       },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const password = this.adminSecret.secretValueFromJson('password').unsafeUnwrap(); // resolves as a CFN dynamic reference, not plaintext in the template
 
@@ -93,12 +93,6 @@ export class AuthConstruct extends Construct {
         },
         physicalResourceId: cr.PhysicalResourceId.of(`${this.userPool.userPoolId}/${props.adminUsername}`),
         ignoreErrorCodesMatching: 'UsernameExistsException',
-      },
-      onDelete: {
-        service: 'CognitoIdentityServiceProvider',
-        action: 'adminDeleteUser',
-        parameters: { UserPoolId: this.userPool.userPoolId, Username: props.adminUsername },
-        ignoreErrorCodesMatching: 'UserNotFoundException|ResourceNotFoundException',
       },
       policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: [this.userPool.userPoolArn] }),
     });

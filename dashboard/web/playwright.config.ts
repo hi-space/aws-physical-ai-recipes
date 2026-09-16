@@ -7,7 +7,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: process.env.DASHBOARD_URL ?? 'http://localhost:3000',
-    ignoreHTTPSErrors: true,
+    ignoreHTTPSErrors: false,
     viewport: { width: 1440, height: 900 },
     screenshot: 'only-on-failure',
   },

@@ -1,0 +1,260 @@
+{
+  "projectId": "workshop",
+  "tag": "7b12aa3de2d3",
+  "outcome": "verified",
+  "gpuBaseline": {
+    "node": "hyperpod-i-0f190b8fa232cef49",
+    "platform": "ml.g5.8xlarge",
+    "gpu": 1
+  },
+  "trainSubmission": {
+    "runId": "5084f1435140580b",
+    "dataset": "isaaclab-checkpoints-5084f1435140580b",
+    "recipe": "isaaclab-train",
+    "templateVersion": 5,
+    "templateContentHash": "b1fdb54373dcaff21a648f7bf50e898e6f130eca2cd9272f7c25ccaec41c2fde",
+    "specHash": "a4c7a09b3fdc1e3cdcf7dc55cf741934150234ff089a7f464b8bd3a14fb244a1",
+    "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:db6f120dcb97bfdec4744706252343378e553f297e220f135838cc7286155688",
+    "yamlSHA256": "7a30efe926d8612a0c2ff6968c96fed60a6580ab3d5126ddbf5a89c03afbdf70",
+    "overrides": {
+      "task": "Workshop-SO101-Reach-v0",
+      "num_envs": "32",
+      "iterations": "2",
+      "checkpoint_every": "1",
+      "seed": "42",
+      "resume": ""
+    },
+    "resource": {
+      "cpu": 8,
+      "memory": "32Gi",
+      "gpu": 1,
+      "platform": "ml.g5.8xlarge",
+      "shm_size": "8Gi"
+    }
+  },
+  "trainPlacement": {
+    "job": "wf-5084f1435140580b-train",
+    "node": "hyperpod-i-0f190b8fa232cef49",
+    "pod": "wf-5084f1435140580b-train-gwrh6",
+    "gpu": 1
+  },
+  "training": {
+    "version": {
+      "sizeBytes": 475032,
+      "fsxPath": "/fsx/checkpoints/projects/workshop/runs/5084f1435140580b/attempts/1/train",
+      "objectCount": 8,
+      "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+      "manifestHash": "8111d34262503dc967d7a6f739d266c8a6dd6709435349a7262c93d6a02dcdab",
+      "createdAt": "2026-09-16T15:46:38.215Z",
+      "verifiedAt": "2026-09-16T15:46:38.080Z",
+      "createdBy": "admin",
+      "dataset": "isaaclab-checkpoints-5084f1435140580b",
+      "producedAttempt": 1,
+      "tags": [],
+      "state": "READY",
+      "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5084f1435140580b/attempts/1/train/45a5f4fe29810db2290ea54d7dfabed56ad6cc3115d8b95df3008c80f586f013/manifest.json",
+      "producedBy": {
+        "workflowId": "5084f1435140580b",
+        "task": "train"
+      },
+      "version": 1,
+      "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5084f1435140580b/attempts/1/train/45a5f4fe29810db2290ea54d7dfabed56ad6cc3115d8b95df3008c80f586f013/",
+      "publicationId": "bb876ed45074a97ae5f152e53b8ed6401d229d26e25da75fdc13bf4e3c09eb0e",
+      "projectId": "workshop"
+    },
+    "proof": {
+      "attempt": 1,
+      "configuration": {
+        "numEnvs": 32,
+        "policyDevice": "cuda:0",
+        "seed": 42,
+        "simulationDevice": "cuda:0",
+        "stepsPerEnvironment": 24
+      },
+      "final": {
+        "bytes": 151471,
+        "iteration": 1,
+        "modelStateSHA256": "b2ba18638f2df9d5077ad634bff5c893943ecd261af1593a94f39394b020531c",
+        "optimizerSteps": {
+          "max": 40,
+          "min": 40,
+          "parameters": 13
+        },
+        "path": "model_final.pt",
+        "sha256": "f76913c3241a99cd2aaef45b13fc38967a62a7353db095d67c06111bd6885c93"
+      },
+      "first": {
+        "bytes": 150791,
+        "iteration": 0,
+        "modelStateSHA256": "54ceadaa2e5255b7f0b42bfc3ab78fa2d7b825ab03d2b643564bfdee9da4c583",
+        "optimizerSteps": {
+          "max": 20,
+          "min": 20,
+          "parameters": 13
+        },
+        "path": "model_0.pt",
+        "sha256": "f36063348e1074cc72638e2b5fb422d1148b355a456bfdaafa3024a9ede1dfca"
+      },
+      "gpu": {
+        "available": true,
+        "cudaVersion": "12.8",
+        "deviceCount": 1,
+        "driver": "NVIDIA A10G, 580.173.02",
+        "kernelCheck": 1240,
+        "name": "NVIDIA A10G",
+        "torchVersion": "2.7.0+cu128"
+      },
+      "losses": {
+        "Loss/entropy": [
+          {
+            "step": 0,
+            "value": 7.0643696784973145
+          },
+          {
+            "step": 1,
+            "value": 7.015502452850342
+          }
+        ],
+        "Loss/surrogate": [
+          {
+            "step": 0,
+            "value": -0.01581394486129284
+          },
+          {
+            "step": 1,
+            "value": -0.015161545015871525
+          }
+        ],
+        "Loss/value_function": [
+          {
+            "step": 0,
+            "value": 0.0033852066844701767
+          },
+          {
+            "step": 1,
+            "value": 0.0018434551311656833
+          }
+        ]
+      },
+      "mode": "train",
+      "nonce": "7b12aa3de2d3",
+      "runId": "5084f1435140580b",
+      "schemaVersion": 1,
+      "second": {
+        "bytes": 150791,
+        "iteration": 1,
+        "modelStateSHA256": "b2ba18638f2df9d5077ad634bff5c893943ecd261af1593a94f39394b020531c",
+        "optimizerSteps": {
+          "max": 40,
+          "min": 40,
+          "parameters": 13
+        },
+        "path": "model_1.pt",
+        "sha256": "a310b642cd26e6b2eb912507eac41c04b2ad54877aeab7a3f47c87dcdd3ce707"
+      },
+      "taskName": "train",
+      "training": {
+        "checkpoint": "model_final.pt",
+        "evaluationType": "training_only",
+        "iterations": 2,
+        "resume": "",
+        "seed": 42,
+        "task": "Workshop-SO101-Reach-v0"
+      }
+    }
+  },
+  "videoSubmission": {
+    "runId": "b8c30447d3efcd03",
+    "dataset": "isaaclab-video-b8c30447d3efcd03",
+    "recipe": "isaaclab-video",
+    "templateVersion": 5,
+    "templateContentHash": "533be08603f6e0a95434ddb14253da202ec778261d1d18bb44586f98ff14bde8",
+    "specHash": "45d5ff828853a1e309a210c7b3f4538deea3ba27a4e74e9c650bbaa2595c295c",
+    "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:db6f120dcb97bfdec4744706252343378e553f297e220f135838cc7286155688",
+    "yamlSHA256": "15f27a963b3f052908d6cc8880632b0d5826f550fb788c263f186a3a4c063565",
+    "overrides": {
+      "task": "Workshop-SO101-Reach-v0",
+      "dataset_name": "isaaclab-checkpoints-5084f1435140580b",
+      "checkpoint_file": "model_final.pt",
+      "video_length": "96"
+    },
+    "resource": {
+      "cpu": 8,
+      "memory": "32Gi",
+      "gpu": 1,
+      "platform": "ml.g5.8xlarge",
+      "shm_size": "8Gi"
+    }
+  },
+  "videoPlacement": {
+    "job": "wf-b8c30447d3efcd03-video",
+    "node": "hyperpod-i-0f190b8fa232cef49",
+    "pod": "wf-b8c30447d3efcd03-video-tzck6",
+    "gpu": 1
+  },
+  "playback": {
+    "version": {
+      "producedBy": {
+        "workflowId": "b8c30447d3efcd03",
+        "task": "video"
+      },
+      "sizeBytes": 85504,
+      "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/b8c30447d3efcd03/attempts/1/video/967455c129e8c14bc3a36d5d8dbeb20f38a437ae9a2fde499f4d413c74bb471c/manifest.json",
+      "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/b8c30447d3efcd03/attempts/1/video/967455c129e8c14bc3a36d5d8dbeb20f38a437ae9a2fde499f4d413c74bb471c/",
+      "version": 1,
+      "createdAt": "2026-09-16T15:49:32.420Z",
+      "publicationId": "c2aa351077d3f984e107390a198e36609fc5905850cc2b6ed3821ad5ce3e6670",
+      "producedAttempt": 1,
+      "projectId": "workshop",
+      "fsxPath": "/fsx/checkpoints/projects/workshop/runs/b8c30447d3efcd03/attempts/1/video",
+      "dataset": "isaaclab-video-b8c30447d3efcd03",
+      "manifestHash": "6b4030c849b4041b269c38f33d8369bf6c5c7fac7997a432f2ae15067413314d",
+      "verifiedAt": "2026-09-16T15:49:32.290Z",
+      "createdBy": "admin",
+      "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+      "objectCount": 2,
+      "state": "READY",
+      "tags": []
+    },
+    "proof": {
+      "attempt": 1,
+      "gpu": {
+        "available": true,
+        "cudaVersion": "12.8",
+        "deviceCount": 1,
+        "driver": "NVIDIA A10G, 580.173.02",
+        "kernelCheck": 1240,
+        "name": "NVIDIA A10G",
+        "torchVersion": "2.7.0+cu128"
+      },
+      "inputCheckpoint": {
+        "bytes": 151471,
+        "iteration": 1,
+        "modelStateSHA256": "b2ba18638f2df9d5077ad634bff5c893943ecd261af1593a94f39394b020531c",
+        "optimizerSteps": {
+          "max": 40,
+          "min": 40,
+          "parameters": 13
+        },
+        "path": "model_final.pt",
+        "sha256": "f76913c3241a99cd2aaef45b13fc38967a62a7353db095d67c06111bd6885c93"
+      },
+      "mode": "video",
+      "nonce": "7b12aa3de2d3",
+      "runId": "b8c30447d3efcd03",
+      "schemaVersion": 1,
+      "taskName": "video",
+      "video": {
+        "bytes": 84718,
+        "path": "videos/Workshop-SO101-Reach-v0_model_final-step-0.mp4",
+        "sha256": "4f0ace788cb307a66d8b07036f182ff7cb94ad322651b469134d6f61b8bf6c00"
+      }
+    },
+    "decode": {
+      "durationSeconds": 1.92,
+      "width": 1280,
+      "height": 720,
+      "distinctColors": 398
+    }
+  }
+}

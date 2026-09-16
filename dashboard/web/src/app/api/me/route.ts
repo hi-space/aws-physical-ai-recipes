@@ -1,8 +1,10 @@
 import { route } from '@/server/api';
 import { config } from '@/server/config';
+import { requestProject } from '@/server/auth/projects';
 export const dynamic = 'force-dynamic';
-export const GET = route('viewer', async ({ session }) => {
+export const GET = route('viewer', async ({ session, req }) => {
   const c = config();
+  const project = await requestProject(req, session).catch(() => undefined);
   return {
     ...session,
     region: c.region,
@@ -13,6 +15,7 @@ export const GET = route('viewer', async ({ session }) => {
     },
     clusters: { eks: c.eks?.hyperPodClusterName, slurm: c.slurm?.hyperPodClusterName, eksName: c.eks?.eksClusterName },
     buckets: { data: c.eks?.dataBucket, artifacts: c.groot?.artifactsBucket },
-    defaultNamespace: c.defaultNamespace,
+    defaultNamespace: project?.namespace ?? c.defaultNamespace,
+    project: project ? { id: project.id, name: project.name, role: session.role === 'admin' ? 'project-admin' : project.members[session.subject ?? session.user] } : undefined,
   };
 });

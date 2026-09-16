@@ -34,7 +34,8 @@ interface Dataset {
 
 export function DatasetsPage() {
   const me = useMe();
-  const { data, isLoading, error } = useApi<Dataset[]>('/api/datasets', { refetch: 10000 });
+  const [legacy, setLegacy] = React.useState(false);
+  const { data, isLoading, error } = useApi<Dataset[]>(legacy ? '/api/datasets?legacy=1' : '/api/datasets', { refetch: 10000 });
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
   const [search, setSearch] = React.useState('');
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -83,6 +84,7 @@ export function DatasetsPage() {
 
   return (
     <>
+      <label className="mb-3 flex items-center gap-2 text-xs text-fg-muted"><input type="checkbox" checked={legacy} onChange={(event) => setLegacy(event.target.checked)} />이전 개인 데이터 보기</label>
       <PageHeader title="Datasets" />
       <div className="space-y-4">
         {error && <ErrorBox error={error} />}

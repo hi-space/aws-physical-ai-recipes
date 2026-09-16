@@ -1,6 +1,7 @@
 import {
   AdminAddUserToGroupCommand,
   AdminCreateUserCommand,
+  AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   AdminRemoveUserFromGroupCommand,
   AdminSetUserPasswordCommand,
@@ -25,6 +26,7 @@ export async function listUsers() {
       const g = await cognito().send(new AdminListGroupsForUserCommand({ UserPoolId: pool(), Username: u.Username! }));
       return {
         username: u.Username!,
+        subject: u.Attributes?.find((a) => a.Name === 'sub')?.Value,
         email: u.Attributes?.find((a) => a.Name === 'email')?.Value,
         status: u.UserStatus,
         enabled: u.Enabled,
@@ -59,4 +61,37 @@ export async function setGroups(username: string, groups: string[]) {
   const have = new Set((current.Groups ?? []).map((g) => g.GroupName!));
   for (const g of groups) if (!have.has(g)) await cognito().send(new AdminAddUserToGroupCommand({ UserPoolId: pool(), Username: username, GroupName: g }));
   for (const g of have) if (!groups.includes(g)) await cognito().send(new AdminRemoveUserFromGroupCommand({ UserPoolId: pool(), Username: username, GroupName: g }));
+}
+
+export interface CurrentUserAuthorization {
+  username: string;
+  subject: string;
+  enabled: boolean;
+  groups: string[];
+  email: string;
+}
+
+/** Fresh authorization lookup for API tokens; deliberately not cached. */
+export async function currentUserAuthorization(username: string): Promise<CurrentUserAuthorization> {
+  const userPoolId = pool();
+  const user = await cognito().send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: username }));
+  const groups: string[] = [];
+  let nextToken: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page = await cognito().send(new AdminListGroupsForUserCommand({
+      UserPoolId: userPoolId, Username: user.Username ?? username, Limit: 60, NextToken: nextToken,
+    }));
+    groups.push(...(page.Groups ?? []).flatMap((group) => group.GroupName ? [group.GroupName] : []));
+    nextToken = page.NextToken;
+    if (nextToken && seen.has(nextToken)) throw new Error('Cognito group pagination failed');
+    if (nextToken) seen.add(nextToken);
+  } while (nextToken);
+  return {
+    username: user.Username ?? '',
+    subject: user.UserAttributes?.find((attribute) => attribute.Name === 'sub')?.Value ?? '',
+    email: user.UserAttributes?.find((attribute) => attribute.Name === 'email')?.Value ?? '',
+    enabled: user.Enabled === true,
+    groups: [...new Set(groups)],
+  };
 }

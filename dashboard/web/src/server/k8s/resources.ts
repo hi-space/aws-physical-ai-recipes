@@ -1,5 +1,6 @@
-import { config } from '../config';
-import { assertWritableNamespace, k8sGetOrNull, k8sJson, k8sRequest } from './client';
+import type { JobSet } from '../workflow/ports';
+import { backendConfig as config, currentBackend } from '../backends/context';
+import { assertWritableNamespace, K8sError, k8sGetOrNull, k8sJson, k8sRequest } from './client';
 
 export interface Meta { name: string; namespace?: string; uid?: string; labels?: Record<string, string>; annotations?: Record<string, string>; creationTimestamp?: string; deletionTimestamp?: string }
 export interface K8sList<T> { items: T[]; metadata?: { continue?: string } }
@@ -9,7 +10,8 @@ export interface Job {
   status?: { active?: number; succeeded?: number; failed?: number; startTime?: string; completionTime?: string; conditions?: { type: string; status: string; reason?: string; message?: string; lastTransitionTime?: string }[] };
 }
 export interface PodSpec {
-  containers: { name: string; image: string; command?: string[]; args?: string[]; env?: { name: string; value?: string; valueFrom?: unknown }[]; resources?: { requests?: Record<string, string>; limits?: Record<string, string> }; volumeMounts?: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[]; workingDir?: string }[];
+  initContainers?: { name: string; image: string }[];
+  containers: { name: string; image: string; command?: string[]; args?: string[]; env?: { name: string; value?: string; valueFrom?: unknown }[]; ports?: { name?: string; containerPort: number; protocol?: string }[]; resources?: { requests?: Record<string, string>; limits?: Record<string, string> }; volumeMounts?: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[]; workingDir?: string }[];
   nodeSelector?: Record<string, string>;
   tolerations?: unknown[];
   volumes?: unknown[];
@@ -20,8 +22,9 @@ export interface PodSpec {
 export interface Pod {
   metadata: Meta;
   spec: PodSpec;
-  status?: { phase?: string; podIP?: string; hostIP?: string; startTime?: string; reason?: string; message?: string; conditions?: { type: string; status: string; reason?: string; message?: string }[]; containerStatuses?: { name: string; ready: boolean; restartCount: number; state?: Record<string, { reason?: string; message?: string; exitCode?: number; startedAt?: string; finishedAt?: string }> }[] };
+  status?: { phase?: string; podIP?: string; hostIP?: string; startTime?: string; reason?: string; message?: string; conditions?: { type: string; status: string; reason?: string; message?: string }[]; containerStatuses?: ContainerStatus[]; initContainerStatuses?: ContainerStatus[] };
 }
+export interface ContainerStatus { name: string; ready: boolean; restartCount: number; state?: Record<string, { reason?: string; message?: string; exitCode?: number; startedAt?: string; finishedAt?: string }> }
 export interface Node {
   metadata: Meta;
   status?: { capacity?: Record<string, string>; allocatable?: Record<string, string>; conditions?: { type: string; status: string; reason?: string }[]; nodeInfo?: { kubeletVersion?: string; osImage?: string; kernelVersion?: string }; addresses?: { type: string; address: string }[] };
@@ -36,7 +39,7 @@ const q = (o: Record<string, string | number | undefined>) =>
     .join('&');
 
 export const listNamespaces = async () => (await k8sJson<K8sList<{ metadata: Meta; status?: { phase?: string } }>>('/api/v1/namespaces')).items;
-export const listNodes = async () => (await k8sJson<K8sList<Node>>('/api/v1/nodes')).items;
+export const listNodes = async (labelSelector?: string) => listAll<Node>('/api/v1/nodes', { labelSelector });
 
 export async function listJobs(namespace?: string, labelSelector?: string): Promise<Job[]> {
   const base = namespace ? `/apis/batch/v1/namespaces/${namespace}/jobs` : '/apis/batch/v1/jobs';
@@ -46,7 +49,7 @@ export const getJob = (ns: string, name: string) => k8sGetOrNull<Job>(`/apis/bat
 
 export async function listPods(namespace?: string, labelSelector?: string, fieldSelector?: string): Promise<Pod[]> {
   const base = namespace ? `/api/v1/namespaces/${namespace}/pods` : '/api/v1/pods';
-  return (await k8sJson<K8sList<Pod>>(`${base}?${q({ labelSelector, fieldSelector, limit: 500 })}`)).items;
+  return listAll<Pod>(base,{labelSelector,fieldSelector});
 }
 export const getPod = (ns: string, name: string) => k8sGetOrNull<Pod>(`/api/v1/namespaces/${ns}/pods/${name}`);
 
@@ -99,7 +102,15 @@ export function fsxPvManifests(ns: string, fsId: string, dnsName: string, mountN
 export async function ensureFsxPvc(ns: string): Promise<void> {
   const c = config().eks;
   if (!c?.fsxFileSystemId || !c.fsxDnsName || !c.fsxMountName) throw new Error('FSx for Lustre is not configured');
-  const existing = await k8sGetOrNull(`/api/v1/namespaces/${ns}/persistentvolumeclaims/fsx-pvc`);
+  const existing = await k8sGetOrNull<{ spec?: { volumeName?: string }; status?: { phase?: string } }>(`/api/v1/namespaces/${ns}/persistentvolumeclaims/fsx-pvc`);
+  if (currentBackend()?.profile) {
+    if (!existing?.spec?.volumeName || existing.status?.phase !== 'Bound') throw new Error('Registered backend requires its preconfigured Bound FSx claim');
+    const pv = await k8sGetOrNull<{ spec?: { csi?: { driver?: string; volumeHandle?: string; volumeAttributes?: { dnsname?: string; mountname?: string } }; claimRef?: { namespace?: string; name?: string } } }>(`/api/v1/persistentvolumes/${encodeURIComponent(existing.spec.volumeName)}`);
+    if (pv?.spec?.csi?.driver !== 'fsx.csi.aws.com' || pv.spec.csi.volumeHandle !== c.fsxFileSystemId ||
+      pv.spec.csi.volumeAttributes?.dnsname !== c.fsxDnsName || pv.spec.csi.volumeAttributes?.mountname !== c.fsxMountName ||
+      pv.spec.claimRef?.namespace !== ns || pv.spec.claimRef.name !== 'fsx-pvc') throw new Error('FSx claim does not match the immutable backend storage binding');
+    return;
+  }
   if (existing) return;
   const { pv, pvc } = fsxPvManifests(ns, c.fsxFileSystemId, c.fsxDnsName, c.fsxMountName);
   if (!(await k8sGetOrNull(`/api/v1/persistentvolumes/fsx-pv-${ns}`))) await k8sJson('/api/v1/persistentvolumes', { method: 'POST', body: pv });
@@ -167,9 +178,38 @@ export async function podLogs(ns: string, pod: string, opts: { container?: strin
   });
   return res.text();
 }
-export async function streamPodLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number } = {}): Promise<ReadableStream<Uint8Array>> {
-  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, follow: 'true', timestamps: 'true' })}`, { headers: { accept: '*/*' } });
+export async function streamPodLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; signal?: AbortSignal } = {}): Promise<ReadableStream<Uint8Array>> {
+  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, follow: 'true', timestamps: 'true' })}`, { headers: { accept: '*/*' }, signal: opts.signal });
   return res.body as ReadableStream<Uint8Array>;
 }
 
 export const listAddons = async () => (await import('@aws-sdk/client-eks')).ListAddonsCommand;
+
+/** Follow every Kubernetes continuation token while preserving the exact filters. */
+async function listAll<T>(base:string,filters:Record<string,string|undefined>):Promise<T[]> {
+  const items:T[]=[];const seen=new Set<string>();let continuation:string|undefined;
+  do {
+    const page=await k8sJson<K8sList<T>>(`${base}?${q({...filters,limit:500,continue:continuation})}`);
+    items.push(...page.items);continuation=page.metadata?.continue;
+    if(continuation){if(seen.has(continuation))throw new Error('Kubernetes returned a repeated continuation token');seen.add(continuation);}
+  }while(continuation);
+  return items;
+}
+function jobSetPath(ns:string,name?:string):string {
+  assertWritableNamespace(ns);
+  if(name!==undefined && (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(name) || name.length>63))throw new Error('Invalid JobSet name');
+  return `/apis/jobset.x-k8s.io/v1alpha2/namespaces/${ns}/jobsets${name?`/${name}`:''}`;
+}
+export function getJobSet(ns:string,name:string):Promise<JobSet|null>{return k8sGetOrNull<JobSet>(jobSetPath(ns,name));}
+export function listJobSets(ns:string,labelSelector?:string):Promise<JobSet[]>{return listAll<JobSet>(jobSetPath(ns),{labelSelector});}
+export async function createJobSet(ns:string,object:unknown):Promise<JobSet>{
+  const job=object as JobSet;
+  if(job.apiVersion!=='jobset.x-k8s.io/v1alpha2' || job.kind!=='JobSet' || !job.metadata?.name || (job.metadata.namespace && job.metadata.namespace!==ns))throw new Error('JobSet kind or namespace mismatch');
+  if(!job.metadata.labels?.['pai.aws/workflow-id'] || !job.metadata.labels?.['pai.aws/epoch'])throw new Error('JobSet ownership labels are required');
+  jobSetPath(ns,job.metadata.name);
+  return k8sJson<JobSet>(jobSetPath(ns),{method:'POST',body:{...job,metadata:{...job.metadata,namespace:ns,labels:managedLabels(job.metadata.labels)}}});
+}
+export async function deleteJobSet(ns:string,name:string):Promise<void>{
+  try{await k8sJson(jobSetPath(ns,name),{method:'DELETE',body:{propagationPolicy:'Foreground'}});}
+  catch(error){if(!(error instanceof K8sError && error.status===404))throw error;}
+}

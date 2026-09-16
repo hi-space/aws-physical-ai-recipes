@@ -1,0 +1,59 @@
+{
+  "service": "MainPID=540282\nActiveState=active\nSubState=running",
+  "consoleReadyCode": 1,
+  "sessions": [
+    {
+      "id": "console",
+      "owner": "ubuntu",
+      "type": "console",
+      "connections": 0,
+      "status": "running"
+    }
+  ],
+  "currentApplicationProcesses": [
+    {
+      "pid": 2119,
+      "name": "gdm-x-session",
+      "startedEpoch": 1789408096.47,
+      "predatesActivation": true
+    },
+    {
+      "pid": 2122,
+      "name": "Xorg",
+      "startedEpoch": 1789408096.48,
+      "predatesActivation": true
+    },
+    {
+      "pid": 2336,
+      "name": "gnome-shell",
+      "startedEpoch": 1789408098.29,
+      "predatesActivation": true
+    },
+    {
+      "pid": 54859,
+      "name": "python3",
+      "startedEpoch": 1789435707.33,
+      "predatesActivation": true
+    },
+    {
+      "pid": 147327,
+      "name": "python3",
+      "startedEpoch": 1789452962.04,
+      "predatesActivation": true
+    },
+    {
+      "pid": 148107,
+      "name": "python3",
+      "startedEpoch": 1789452974.69,
+      "predatesActivation": true
+    },
+    {
+      "pid": 504121,
+      "name": "python3",
+      "startedEpoch": 1789563229.04,
+      "predatesActivation": true
+    }
+  ],
+  "backupExists": true,
+  "auditEpoch": 1789575797.3856869
+}

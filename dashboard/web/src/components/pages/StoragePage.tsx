@@ -139,6 +139,7 @@ export function StoragePage() {
             {selectedBucket && (
               <Card>
                 <S3Browser
+                  key={selectedBucket}
                   bucket={selectedBucket}
                   initialPrefix=""
                   allowUpload={can(me.data, 'researcher')}

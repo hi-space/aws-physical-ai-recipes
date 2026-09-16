@@ -1,0 +1,693 @@
+{
+  "projectId": "workshop",
+  "tag": "93d304217d40",
+  "liveOutcome": "verified",
+  "recipe": {
+    "id": "mujoco-pipeline",
+    "version": 4,
+    "contentHash": "f579d89f4d73a9f4911a3fbabe6991e8fd8b44bce63fbe6f410401f9302d9924",
+    "submittedYamlSha256": "e1ece4c30f03dbd5aaddc9e2dfb7b715c9822320387d13567eb14919f093078f",
+    "overrides": {
+      "total_steps": "512",
+      "num_envs": "1",
+      "checkpoint_every": "256",
+      "episodes": "2",
+      "seed": "42",
+      "eval_seed": "2042",
+      "resume": ""
+    },
+    "videoDimensions": [
+      160,
+      128
+    ],
+    "sourceReferences": [
+      "https://github.com/hi-space/aws-physical-ai-recipes/tree/2a65a217c94da7dcb961076ffccdb38d82bef473/hyperpod-training",
+      "https://github.com/google-deepmind/mujoco_menagerie/tree/ac6b2b09983786f3036cab1000221017fa2193b4/robotstudio_so101"
+    ]
+  },
+  "resources": [
+    {
+      "name": "train",
+      "resource": {
+        "cpu": 4,
+        "memory": "8Gi",
+        "gpu": 0,
+        "platform": "ml.c5.4xlarge"
+      },
+      "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+      "inputs": [],
+      "outputs": [
+        {
+          "dataset": {
+            "name": "mujoco-checkpoints-{{workflow_id}}",
+            "path": "{{output}}"
+          }
+        }
+      ],
+      "parallelism": 1
+    },
+    {
+      "name": "evaluate",
+      "resource": {
+        "cpu": 4,
+        "memory": "8Gi",
+        "gpu": 0,
+        "platform": "ml.c5.4xlarge"
+      },
+      "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+      "inputs": [
+        {
+          "task": "train"
+        }
+      ],
+      "outputs": [
+        {
+          "dataset": {
+            "name": "mujoco-evaluation-{{workflow_id}}",
+            "path": "{{output}}"
+          }
+        }
+      ],
+      "parallelism": 1
+    }
+  ],
+  "preflight": {
+    "projectId": "workshop",
+    "checkedAt": "2026-09-16T15:28:44.814Z",
+    "status": "needs-review",
+    "resolvedImageDigests": {
+      "train": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+      "evaluate": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130"
+    },
+    "tasks": [
+      {
+        "task": "train",
+        "hardwareCompatibility": "compatible",
+        "compatibleNodes": [
+          "hyperpod-i-00f3cbe8dfee6b675",
+          "hyperpod-i-0e723d11c740c3b1d"
+        ],
+        "driver": "not-applicable",
+        "modelAccess": "unknown",
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "train"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "train"
+          }
+        ],
+        "profileId": "builtin-mujoco",
+        "profileVersion": 3,
+        "image": {
+          "accountId": "913524902871",
+          "region": "us-east-1",
+          "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:55ffc813940fd43a25b2ce9217b854270a90c9467c89e72db27be4130572fa23",
+          "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+          "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+          "digest": "sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+          "architectures": [
+            "amd64"
+          ],
+          "manifests": [
+            {
+              "digest": "sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+              "configDigest": "sha256:9c9e33ce496f6b86d607ab34678183c17ccbeeb86616dbeba229d379fdd60135",
+              "architecture": "amd64",
+              "os": "linux"
+            }
+          ],
+          "inspectedAt": "2026-09-16T15:28:44.537Z",
+          "source": "ecr-manifest-config"
+        }
+      },
+      {
+        "task": "evaluate",
+        "hardwareCompatibility": "compatible",
+        "compatibleNodes": [
+          "hyperpod-i-00f3cbe8dfee6b675",
+          "hyperpod-i-0e723d11c740c3b1d"
+        ],
+        "driver": "not-applicable",
+        "modelAccess": "unknown",
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "evaluate"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "evaluate"
+          }
+        ],
+        "profileId": "builtin-mujoco",
+        "profileVersion": 3,
+        "image": {
+          "accountId": "913524902871",
+          "region": "us-east-1",
+          "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:55ffc813940fd43a25b2ce9217b854270a90c9467c89e72db27be4130572fa23",
+          "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+          "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+          "digest": "sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+          "architectures": [
+            "amd64"
+          ],
+          "manifests": [
+            {
+              "digest": "sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+              "configDigest": "sha256:9c9e33ce496f6b86d607ab34678183c17ccbeeb86616dbeba229d379fdd60135",
+              "architecture": "amd64",
+              "os": "linux"
+            }
+          ],
+          "inspectedAt": "2026-09-16T15:28:44.537Z",
+          "source": "ecr-manifest-config"
+        }
+      }
+    ],
+    "findings": [
+      {
+        "code": "capacity_not_reserved",
+        "severity": "warning",
+        "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+        "task": "train"
+      },
+      {
+        "code": "model_access_unknown",
+        "severity": "unknown",
+        "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+        "task": "train"
+      },
+      {
+        "code": "capacity_not_reserved",
+        "severity": "warning",
+        "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+        "task": "evaluate"
+      },
+      {
+        "code": "model_access_unknown",
+        "severity": "unknown",
+        "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+        "task": "evaluate"
+      }
+    ],
+    "hardware": {
+      "source": "eks-nodes+ec2-instance-types",
+      "checkedAt": "2026-09-16T15:28:44.691Z",
+      "catalogAvailable": true,
+      "nodes": [
+        {
+          "name": "hyperpod-i-00f3cbe8dfee6b675",
+          "instanceType": "c5.4xlarge",
+          "architecture": "amd64",
+          "ready": true,
+          "schedulable": true,
+          "allocatable": {
+            "cpu": 15.89,
+            "memoryMiB": 28722.7421875
+          },
+          "catalog": {
+            "cpu": 16,
+            "memoryMiB": 32768,
+            "architectures": [
+              "amd64"
+            ],
+            "gpuCount": 0,
+            "gpuNames": []
+          }
+        },
+        {
+          "name": "hyperpod-i-0e723d11c740c3b1d",
+          "instanceType": "c5.4xlarge",
+          "architecture": "amd64",
+          "ready": true,
+          "schedulable": true,
+          "allocatable": {
+            "cpu": 15.89,
+            "memoryMiB": 28498.7421875
+          },
+          "catalog": {
+            "cpu": 16,
+            "memoryMiB": 32768,
+            "architectures": [
+              "amd64"
+            ],
+            "gpuCount": 0,
+            "gpuNames": []
+          }
+        },
+        {
+          "name": "hyperpod-i-0f190b8fa232cef49",
+          "instanceType": "g5.8xlarge",
+          "architecture": "amd64",
+          "ready": true,
+          "schedulable": true,
+          "allocatable": {
+            "cpu": 31.85,
+            "memoryMiB": 117724.5,
+            "gpu": 1
+          },
+          "catalog": {
+            "cpu": 32,
+            "memoryMiB": 131072,
+            "architectures": [
+              "amd64"
+            ],
+            "gpuCount": 1,
+            "gpuMemoryMiB": 22888,
+            "gpuNames": [
+              "A10G"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "runId": "5485ff71b84843ee",
+  "publications": {
+    "train": {
+      "manifestHash": "12dee2feafeb12797f3ab5a2689314fb393260e77511907474f87bcaeb7dcf2c",
+      "dataset": "mujoco-checkpoints-5485ff71b84843ee",
+      "verifiedAt": "2026-09-16T15:29:34.589Z",
+      "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+      "createdBy": "admin",
+      "objectCount": 19,
+      "producedBy": {
+        "workflowId": "5485ff71b84843ee",
+        "task": "train"
+      },
+      "sizeBytes": 739932,
+      "producedAttempt": 1,
+      "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/manifest.json",
+      "tags": [],
+      "publicationId": "08b6bb299599950f485277f14c953b2f7514ad37fe447fc636868da7ec73936b",
+      "state": "READY",
+      "createdAt": "2026-09-16T15:29:34.700Z",
+      "fsxPath": "/fsx/checkpoints/projects/workshop/runs/5485ff71b84843ee/attempts/1/train",
+      "version": 1,
+      "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/",
+      "projectId": "workshop"
+    },
+    "evaluate": {
+      "manifestHash": "b4f2642bae66917af4e9f9ee3bc87899489928a1fcf2a037c5c5038cf193a962",
+      "dataset": "mujoco-evaluation-5485ff71b84843ee",
+      "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+      "publicationId": "a9a537685bfe30da33da9880ad1b1b5727117384a0aca3e1dc9d9f71ec231105",
+      "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/",
+      "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/manifest.json",
+      "version": 1,
+      "fsxPath": "/fsx/checkpoints/projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate",
+      "projectId": "workshop",
+      "sizeBytes": 30145,
+      "producedAttempt": 1,
+      "createdBy": "admin",
+      "state": "READY",
+      "producedBy": {
+        "workflowId": "5485ff71b84843ee",
+        "task": "evaluate"
+      },
+      "objectCount": 3,
+      "tags": [],
+      "verifiedAt": "2026-09-16T15:32:27.037Z",
+      "createdAt": "2026-09-16T15:32:27.151Z"
+    }
+  },
+  "training": {
+    "schemaVersion": 1,
+    "algorithm": "PPO",
+    "task": "Workshop-SO101-Reach-MuJoCo-v0",
+    "seed": 42,
+    "timesteps": 512,
+    "updates": 20,
+    "normalization_count": 513.0001,
+    "sha256": {
+      "model.zip": "4b100f19d1ce4744083bc69bf277cca50bfa83f3a3b9c5663ca7614068acee00",
+      "vecnormalize.pkl": "f1326fca92e4402490e9c633efca493c42a5b02e8d4c65f87d2ee01271bb5675"
+    },
+    "simulator": {
+      "name": "MuJoCo",
+      "version": "3.3.2",
+      "sceneSha256": "d3037f0fd36b61a9b6805b2c79831e7a392276d0f490145d01f718542eee9150",
+      "menagerieCommit": "ac6b2b09983786f3036cab1000221017fa2193b4"
+    },
+    "sourceRevision": "local",
+    "sourceSha256": {
+      "common.py": "724ce5b7a75270556bd18d1ff50f110bff1c64b324e36b4d9aff1c171648175d",
+      "train.py": "8ebbfddc1e9570a5e725ca1aa748e9a9f10d9cd33d16d97cc403efe53f2ba9d7",
+      "evaluate.py": "75a976e7a76af684f74169495379e8df34c6d00cde76583098307a36ae792994"
+    },
+    "packages": {
+      "stable_baselines3": "2.6.0",
+      "gymnasium": "1.1.1"
+    },
+    "parentCheckpoint": null,
+    "resumeSemantics": "optimizer and normalization restored; simulator/RNG state starts from seed",
+    "initialTimesteps": 0,
+    "interrupted": false,
+    "resumeSource": "fresh",
+    "resumeBundle": null
+  },
+  "modelId": "mdl-0af861652331e0c454117246",
+  "model": {
+    "id": "mdl-0af861652331e0c454117246",
+    "name": "E2E MuJoCo 93d304217d40",
+    "projectId": "workshop",
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "createdAt": "2026-09-16T15:32:33.273Z",
+    "revision": 1,
+    "source": {
+      "workflowId": "5485ff71b84843ee",
+      "task": "train",
+      "attempt": 1,
+      "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+      "workflowSpecHash": "c83be1de093c65d532ef699f40980ccae2dc9fb5dd5ff86b6c65676fcddcaa84",
+      "dataset": {
+        "name": "mujoco-checkpoints-5485ff71b84843ee",
+        "version": 1,
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/manifest.json",
+        "manifestHash": "12dee2feafeb12797f3ab5a2689314fb393260e77511907474f87bcaeb7dcf2c",
+        "manifestVersionId": "0V3wGt0YjwLivxVi70Oiy5.CciXbY30O"
+      },
+      "inputs": [],
+      "upstreamTasks": []
+    },
+    "checkpoint": {
+      "path": "final/model.zip",
+      "key": "projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/final/model.zip",
+      "versionId": "L_eql.XHYtgjmObY1rnM41n4.5FgEzlr",
+      "bytes": 170655,
+      "checksumSHA256": "SxAPGdHOR0QIO8ab8nfMpQv6g/OjucVmPKdhQGis7gA=",
+      "checksumType": "FULL_OBJECT",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "4b100f19d1ce4744083bc69bf277cca50bfa83f3a3b9c5663ca7614068acee00"
+    },
+    "normalization": {
+      "path": "final/vecnormalize.pkl",
+      "key": "projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/final/vecnormalize.pkl",
+      "versionId": "R1QgCPgP.akGXOg5MJ3ghCAQlfvxh53s",
+      "bytes": 2416,
+      "checksumSHA256": "8TJvypLkQCSQ6cYz78pJPEKlsC6NTGX4fS7gEnG7VnU=",
+      "checksumType": "FULL_OBJECT",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "f1326fca92e4402490e9c633efca493c42a5b02e8d4c65f87d2ee01271bb5675"
+    },
+    "bundle": {
+      "path": "final",
+      "manifest": {
+        "path": "final/manifest.json",
+        "key": "projects/workshop/runs/5485ff71b84843ee/attempts/1/train/ec6cf7beb9e4c726d7429e5bf2bb028d83a4231205e61b1b8ee038e47f7e32b2/final/manifest.json",
+        "versionId": "j5iHkUZIziDHQg2IrepM4FON_CMRsToV",
+        "bytes": 1108,
+        "checksumSHA256": "78jSBgzpW24h0VVVr8nVwQcSFQW8zzh8grrbU63zPtQ=",
+        "checksumType": "FULL_OBJECT",
+        "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+        "sha256": "efc8d2060ce95b6e21d15555afc9d5c107121505bccf387c82badb53adf33ed4"
+      },
+      "task": "Workshop-SO101-Reach-MuJoCo-v0",
+      "seed": 42,
+      "simulator": {
+        "name": "MuJoCo",
+        "version": "3.3.2",
+        "sceneSha256": "d3037f0fd36b61a9b6805b2c79831e7a392276d0f490145d01f718542eee9150",
+        "menagerieCommit": "ac6b2b09983786f3036cab1000221017fa2193b4"
+      }
+    },
+    "evaluationLaunch": {
+      "template": "mujoco-render",
+      "href": "/workflows/new?template=mujoco-render&model_id=mdl-0af861652331e0c454117246&dataset_name=mujoco-checkpoints-5485ff71b84843ee&dataset_version=1&checkpoint_bundle=final&episodes=20&eval_seed=2042"
+    }
+  },
+  "evaluationId": "eval-db22b906429d89b8c29d2fb9",
+  "evaluation": {
+    "metrics": {
+      "kind": "simulation",
+      "episodes": 2,
+      "successes": 0,
+      "latencyP95Ms": 0.6882899848278612
+    },
+    "task": "Workshop-SO101-Reach-MuJoCo-v0",
+    "seed": 2042,
+    "successRate": 0,
+    "timeoutCount": 2,
+    "timeoutSeconds": 10,
+    "latencyMs": {
+      "p50": 0.6024945760145783,
+      "p95": 0.6882899848278612,
+      "p99": 0.7452288048807532
+    },
+    "checkpointDigest": "4b100f19d1ce4744083bc69bf277cca50bfa83f3a3b9c5663ca7614068acee00",
+    "normalizationDigest": "f1326fca92e4402490e9c633efca493c42a5b02e8d4c65f87d2ee01271bb5675",
+    "simulator": {
+      "name": "MuJoCo",
+      "version": "3.3.2",
+      "sceneSha256": "d3037f0fd36b61a9b6805b2c79831e7a392276d0f490145d01f718542eee9150",
+      "menagerieCommit": "ac6b2b09983786f3036cab1000221017fa2193b4"
+    },
+    "id": "eval-db22b906429d89b8c29d2fb9",
+    "modelId": "mdl-0af861652331e0c454117246",
+    "projectId": "workshop",
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a",
+    "createdAt": "2026-09-16T15:32:33.753Z",
+    "verification": "published_runtime_report",
+    "source": {
+      "workflowId": "5485ff71b84843ee",
+      "task": "evaluate",
+      "attempt": 1,
+      "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:3bfb364744014ac4dc224574260b5cacf16a6dc020e45415eca5ee74d843e130",
+      "workflowSpecHash": "c83be1de093c65d532ef699f40980ccae2dc9fb5dd5ff86b6c65676fcddcaa84",
+      "dataset": {
+        "name": "mujoco-evaluation-5485ff71b84843ee",
+        "version": 1,
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/manifest.json",
+        "manifestHash": "b4f2642bae66917af4e9f9ee3bc87899489928a1fcf2a037c5c5038cf193a962",
+        "manifestVersionId": "4pqI5Cw9scr2Fg.rb.Z1q47SwUBQEvsb"
+      },
+      "inputs": [],
+      "upstreamTasks": [
+        "train"
+      ]
+    },
+    "report": {
+      "path": "evaluation.json",
+      "key": "projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/evaluation.json",
+      "versionId": "Nm8_ApYboR78gXmDgTWH8kvjaTpNmdq7",
+      "bytes": 1365,
+      "checksumSHA256": "WMCnCButbXDKT4Wb9cWkIgf9V9Ux8KgO3nYORwmZzME=",
+      "checksumType": "FULL_OBJECT",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "58c0a7081bad6d70ca4f859bf5c5a42207fd57d531f0a80ede760e470999ccc1"
+    },
+    "primaryVideo": {
+      "path": "videos/episode-0000.mp4",
+      "key": "projects/workshop/runs/5485ff71b84843ee/attempts/1/evaluate/87c921f32c1e6fe4b605425ae66febb84c998fc0b544bf281a2586767cea2510/videos/episode-0000.mp4",
+      "versionId": "JDo2nuK8TpiwuexD6AaPLxm6ufrPMeQf",
+      "bytes": 14545,
+      "checksumSHA256": "P7rU4IwfWjlH2sHk0G/NiBvEoemhbk5M45ZcqqXh2B8=",
+      "checksumType": "FULL_OBJECT",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "3fbad4e08c1f5a3947dac1e4d06fcd881bc4a1e9a16e4e4ce3965caaa5e1d81f"
+    },
+    "inputMatch": "same_run_task_output"
+  },
+  "actualReport": {
+    "schemaVersion": 1,
+    "type": "closed_loop",
+    "task": "Workshop-SO101-Reach-MuJoCo-v0",
+    "seed": 2042,
+    "episodeCount": 2,
+    "successCount": 0,
+    "successRate": 0,
+    "timeoutCount": 2,
+    "timeoutSeconds": 10,
+    "successCriterion": "final end-effector distance < 0.03 m (workshop is_success)",
+    "latencyMs": {
+      "p50": 0.6024945760145783,
+      "p95": 0.6882899848278612,
+      "p99": 0.7452288048807532
+    },
+    "checkpointDigest": "4b100f19d1ce4744083bc69bf277cca50bfa83f3a3b9c5663ca7614068acee00",
+    "normalizationDigest": "f1326fca92e4402490e9c633efca493c42a5b02e8d4c65f87d2ee01271bb5675",
+    "simulator": {
+      "name": "MuJoCo",
+      "version": "3.3.2",
+      "sceneSha256": "d3037f0fd36b61a9b6805b2c79831e7a392276d0f490145d01f718542eee9150",
+      "menagerieCommit": "ac6b2b09983786f3036cab1000221017fa2193b4"
+    },
+    "videoUri": "videos/episode-0000.mp4",
+    "episodes": [
+      {
+        "index": 0,
+        "seed": 2042,
+        "steps": 200,
+        "return": -25.956289656460285,
+        "finalDistance": 0.1651002267187309,
+        "success": false,
+        "timeout": true,
+        "videoUri": "videos/episode-0000.mp4"
+      },
+      {
+        "index": 1,
+        "seed": 2043,
+        "steps": 200,
+        "return": 16.208315454423428,
+        "finalDistance": 0.08174383824489502,
+        "success": false,
+        "timeout": true,
+        "videoUri": "videos/episode-0001.mp4"
+      }
+    ]
+  },
+  "downloads": {
+    "report": {
+      "versionId": "Nm8_ApYboR78gXmDgTWH8kvjaTpNmdq7",
+      "sha256": "58c0a7081bad6d70ca4f859bf5c5a42207fd57d531f0a80ede760e470999ccc1",
+      "bytes": 1365
+    },
+    "video": {
+      "versionId": "JDo2nuK8TpiwuexD6AaPLxm6ufrPMeQf",
+      "sha256": "3fbad4e08c1f5a3947dac1e4d06fcd881bc4a1e9a16e4e4ce3965caaa5e1d81f",
+      "bytes": 14545
+    }
+  },
+  "gate": {
+    "id": "gate-70e814ff-eda1-4bd7-ae6a-f8aed1082958",
+    "evaluationId": "eval-db22b906429d89b8c29d2fb9",
+    "policy": {
+      "minimumEpisodes": 20,
+      "minimumSuccessRate": 0.8,
+      "maximumLatencyP95Ms": 100
+    },
+    "decision": {
+      "status": "review",
+      "reasons": [
+        "최소 20회 평가가 필요합니다."
+      ]
+    },
+    "approved": false,
+    "createdAt": "2026-09-16T15:32:34.961Z",
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a"
+  },
+  "uiGate": {
+    "id": "gate-ce50ffe2-71c2-4806-b7ec-9e10dc063dd0",
+    "evaluationId": "eval-db22b906429d89b8c29d2fb9",
+    "policy": {
+      "minimumEpisodes": 20,
+      "minimumSuccessRate": 0.8,
+      "maximumLatencyP95Ms": 100
+    },
+    "decision": {
+      "status": "review",
+      "reasons": [
+        "최소 20회 평가가 필요합니다."
+      ]
+    },
+    "approved": false,
+    "createdAt": "2026-09-16T15:32:36.578Z",
+    "ownerSubject": "84483498-7011-70a9-19e7-1b9a25c17a2a"
+  },
+  "videoDecode": {
+    "width": 160,
+    "height": 128,
+    "durationSeconds": 10
+  },
+  "experiments": {
+    "projectScoped": true,
+    "apiCount": 0,
+    "visibleCount": 0,
+    "pipelineMlflowEnabled": false
+  },
+  "resourcesTracking": {
+    "runs": [
+      {
+        "name": "e2e-model-93d304217d40",
+        "task": "train",
+        "idempotencyKey": "model-pipeline-93d304217d40",
+        "id": "5485ff71b84843ee",
+        "status": "SUCCEEDED"
+      }
+    ],
+    "datasets": [
+      {
+        "name": "mujoco-checkpoints-5485ff71b84843ee",
+        "version": 1,
+        "state": "READY",
+        "manifestHash": "12dee2feafeb12797f3ab5a2689314fb393260e77511907474f87bcaeb7dcf2c"
+      },
+      {
+        "name": "mujoco-evaluation-5485ff71b84843ee",
+        "version": 1,
+        "state": "READY",
+        "manifestHash": "b4f2642bae66917af4e9f9ee3bc87899489928a1fcf2a037c5c5038cf193a962"
+      }
+    ],
+    "phases": [
+      {
+        "at": "2026-09-16T15:28:46.568Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "PENDING; evaluate:WAITING,train:WAITING"
+      },
+      {
+        "at": "2026-09-16T15:28:52.991Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "RUNNING; evaluate:WAITING,train:INITIALIZING"
+      },
+      {
+        "at": "2026-09-16T15:29:05.860Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "RUNNING; evaluate:WAITING,train:RUNNING"
+      },
+      {
+        "at": "2026-09-16T15:29:15.489Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "RUNNING; evaluate:WAITING,train:FINALIZING"
+      },
+      {
+        "at": "2026-09-16T15:29:18.700Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "FINALIZING; evaluate:WAITING,train:FINALIZING"
+      },
+      {
+        "at": "2026-09-16T15:29:37.996Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "RUNNING; evaluate:INITIALIZING,train:SUCCEEDED"
+      },
+      {
+        "at": "2026-09-16T15:29:54.059Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "RUNNING; evaluate:RUNNING,train:SUCCEEDED"
+      },
+      {
+        "at": "2026-09-16T15:32:12.492Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "FINALIZING; evaluate:FINALIZING,train:SUCCEEDED"
+      },
+      {
+        "at": "2026-09-16T15:32:28.557Z",
+        "phase": "MuJoCo train/evaluate execution",
+        "state": "SUCCEEDED; evaluate:SUCCEEDED,train:SUCCEEDED"
+      },
+      {
+        "at": "2026-09-16T15:32:28.826Z",
+        "phase": "model pipeline train READY",
+        "state": "READY"
+      },
+      {
+        "at": "2026-09-16T15:32:29.100Z",
+        "phase": "model pipeline evaluate READY",
+        "state": "READY"
+      }
+    ]
+  }
+}

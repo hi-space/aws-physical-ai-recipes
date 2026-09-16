@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parseWorkflowYaml } from './template';
 import { compileTask, queueForNamespace, resolvePlaceholders } from './compile';
 import { topoOrder, validateSpec } from './schema';
-
 const YAML_TEXT = `
 workflow:
   name: mujoco-reach
@@ -40,10 +39,11 @@ workflow:
 default-values:
   total_steps: "1000000"
 `;
-
 describe('parseWorkflowYaml', () => {
   it('substitutes default-values and overrides, keeps compiler placeholders', () => {
-    const p = parseWorkflowYaml(YAML_TEXT, { total_steps: '5' });
+    const p = parseWorkflowYaml(YAML_TEXT, {
+      total_steps: '5'
+    });
     const train = p.spec.workflow.tasks[1];
     expect(train.environment.TOTAL_STEPS).toBe('5');
     expect(train.environment.OUT).toBe('{{output}}');
@@ -65,42 +65,75 @@ describe('parseWorkflowYaml', () => {
     expect(validateSpec(parseWorkflowYaml(YAML_TEXT).spec)).toEqual([]);
   });
 });
-
 describe('compileTask', () => {
-  const { spec } = parseWorkflowYaml(YAML_TEXT);
+  const {
+    spec
+  } = parseWorkflowYaml(YAML_TEXT);
   const ctx = {
     workflowId: 'abc123',
     owner: 'alice@example.com',
     namespace: 'hyperpod-ns-team-a',
     queue: 'hyperpod-ns-team-a-localqueue',
     priority: 'training-priority',
-    datasetPaths: { demos: '/fsx/datasets/demos/v3' },
-    credentialValues: { hf: { HF_TOKEN: 'hf_secret' } },
-    mlflowTrackingUri: 'arn:aws:sagemaker:us-east-1:1:mlflow-tracking-server/x',
+    datasetPaths: {
+      demos: '/fsx/datasets/demos/v3'
+    },
+    credentialValues: {
+      hf: {
+        HF_TOKEN: 'hf_secret'
+      }
+    },
+    mlflowTrackingUri: 'arn:aws:sagemaker:us-east-1:1:mlflow-tracking-server/x'
   };
   const train = compileTask(spec, spec.workflow.tasks[1], ctx);
   const job = train.job as any;
   const pod = job.spec.template.spec;
   const c = pod.containers[0];
-
   it('names and labels like render.sh with Kueue labels on job and pod', () => {
     expect(train.jobName).toBe('wf-abc123-train');
     expect(job.metadata.labels['kueue.x-k8s.io/queue-name']).toBe('hyperpod-ns-team-a-localqueue');
     expect(job.spec.template.metadata.labels['kueue.x-k8s.io/priority-class']).toBe('training-priority');
     expect(job.metadata.labels['pai.aws/owner']).toBe('alice_example.com');
   });
+  it.each(['workshop', 'robotics'])('labels project %s Jobs and Pods so the workload NetworkPolicy selects them', projectId => {
+    const compiled = compileTask(spec, spec.workflow.tasks[0], {
+      ...ctx, projectId, runtimeImage: 'trusted/runtime:fixed',
+    }).job as any;
+    // infra/ops/apply_addons.py: managed-by + project Exists + session DoesNotExist.
+    for (const labels of [compiled.metadata.labels, compiled.spec.template.metadata.labels]) {
+      expect(labels['pai.aws/project']).toBe(projectId);
+      expect(labels['app.kubernetes.io/managed-by']).toBe('physical-ai-dashboard');
+      expect(labels).not.toHaveProperty('pai.aws/session');
+    }
+  });
+  it('does not accidentally select legacy non-project workloads with a project Exists policy', () => {
+    expect(job.metadata.labels).not.toHaveProperty('pai.aws/project');
+    expect(job.spec.template.metadata.labels).not.toHaveProperty('pai.aws/project');
+  });
   it('sets resources, node selector and health-status selector', () => {
-    expect(c.resources.requests).toEqual({ cpu: '12', memory: '16Gi' });
-    expect(pod.nodeSelector).toEqual({ 'sagemaker.amazonaws.com/node-health-status': 'Schedulable', 'node.kubernetes.io/instance-type': 'ml.c5.4xlarge' });
+    expect(c.resources.requests).toEqual({
+      cpu: '12',
+      memory: '16Gi'
+    });
+    expect(pod.nodeSelector).toEqual({
+      'sagemaker.amazonaws.com/node-health-status': 'Schedulable',
+      'node.kubernetes.io/instance-type': 'ml.c5.4xlarge'
+    });
   });
   it('mounts FSx, files ConfigMap, dataset subPath read-only', () => {
-    expect(c.volumeMounts).toEqual(
-      expect.arrayContaining([
-        { name: 'fsx', mountPath: '/fsx' },
-        { name: 'files', mountPath: '/pai/files', readOnly: true },
-        { name: 'fsx', mountPath: '/data', subPath: 'datasets/demos/v3', readOnly: true },
-      ]),
-    );
+    expect(c.volumeMounts).toEqual(expect.arrayContaining([{
+      name: 'fsx',
+      mountPath: '/fsx'
+    }, {
+      name: 'files',
+      mountPath: '/pai/files',
+      readOnly: true
+    }, {
+      name: 'fsx',
+      mountPath: '/data',
+      subPath: 'datasets/demos/v3',
+      readOnly: true
+    }]));
     expect(train.configMap?.data['tmp_entry.sh']).toBe('echo train 1000000 to /fsx/checkpoints/workflows/abc123/train from /fsx/checkpoints/workflows/abc123/setup\n');
   });
   it('copies files then execs the user command', () => {
@@ -109,16 +142,25 @@ describe('compileTask', () => {
     expect(c.command[2]).toContain("exec 'bash' '-lc' 'bash /tmp/entry.sh'");
   });
   it('injects env, mlflow and credentials via Secret', () => {
-    const names = c.env.map((e: { name: string }) => e.name);
+    const names = c.env.map((e: {
+      name: string;
+    }) => e.name);
     expect(names).toEqual(expect.arrayContaining(['PAI_WORKFLOW_ID', 'OSMO_TASK_REPLICA_INDEX', 'MLFLOW_TRACKING_URI', 'TOTAL_STEPS', 'HF_TOKEN']));
-    expect(c.env.find((e: { name: string }) => e.name === 'OUT').value).toBe('/fsx/checkpoints/workflows/abc123/train');
-    expect(train.secret).toEqual({ name: 'wf-abc123-train-creds', data: { HF_TOKEN: 'hf_secret' } });
+    expect(c.env.find((e: {
+      name: string;
+    }) => e.name === 'OUT').value).toBe('/fsx/checkpoints/workflows/abc123/train');
+    expect(train.secret).toEqual({
+      name: 'wf-abc123-train-creds',
+      data: {
+        HF_TOKEN: 'hf_secret'
+      }
+    });
   });
-  it('uses Indexed completion for parallelism and retries as backoffLimit', () => {
+  it('uses Indexed completion and disables operator retries so the controller owns attempts', () => {
     expect(job.spec.completionMode).toBe('Indexed');
     expect(job.spec.completions).toBe(2);
-    expect(job.spec.backoffLimit).toBe(1);
-    expect(job.spec.activeDeadlineSeconds).toBe(7200);
+    expect(job.spec.backoffLimit).toBe(0);
+    expect(job.spec.activeDeadlineSeconds).toBe(7800);
     expect(job.spec.ttlSecondsAfterFinished).toBe(604800);
   });
   it('gpu task gets gpu limit, toleration, shm and x11 hostPath', () => {
@@ -126,10 +168,21 @@ describe('compileTask', () => {
     const ps = play.spec.template.spec;
     expect(ps.containers[0].resources.limits['nvidia.com/gpu']).toBe('1');
     expect(ps.tolerations[0].key).toBe('nvidia.com/gpu');
-    expect(ps.volumes).toEqual(expect.arrayContaining([{ name: 'dshm', emptyDir: { medium: 'Memory', sizeLimit: '8Gi' } }, { name: 'x11', hostPath: { path: '/tmp/.X11-unix', type: 'Directory' } }]));
+    expect(ps.volumes).toEqual(expect.arrayContaining([{
+      name: 'dshm',
+      emptyDir: {
+        medium: 'Memory',
+        sizeLimit: '8Gi'
+      }
+    }, {
+      name: 'x11',
+      hostPath: {
+        path: '/tmp/.X11-unix',
+        type: 'Directory'
+      }
+    }]));
   });
 });
-
 describe('helpers', () => {
   it('queueForNamespace mirrors render.sh', () => {
     expect(queueForNamespace('rl')).toBeUndefined();
@@ -138,6 +191,11 @@ describe('helpers', () => {
     expect(queueForNamespace('hyperpod-ns-team-a', 'none')).toBeUndefined();
   });
   it('resolvePlaceholders', () => {
-    expect(resolvePlaceholders('{{ output }}/{{input:1}}', { output: '/o', inputs: ['/a', '/b'], workflowId: 'w', taskName: 't' })).toBe('/o//b');
+    expect(resolvePlaceholders('{{ output }}/{{input:1}}', {
+      output: '/o',
+      inputs: ['/a', '/b'],
+      workflowId: 'w',
+      taskName: 't'
+    })).toBe('/o//b');
   });
 });

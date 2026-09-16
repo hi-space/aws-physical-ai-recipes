@@ -3,7 +3,6 @@ import { MemoryKV } from '../store/dynamo';
 import { Repo } from '../store/repo';
 import type { Job, Pod } from '../k8s/resources';
 import { cancelWorkflow, deriveTaskPhase, reconcileWorkflow, submitWorkflow, type ControllerDeps, type K8sPort } from './controller';
-
 class FakeK8s implements K8sPort {
   jobs = new Map<string, Job>();
   pods = new Map<string, Pod[]>();
@@ -21,7 +20,12 @@ class FakeK8s implements K8sPort {
   async createJob(_ns: string, job: unknown) {
     const j = job as Job;
     this.created.push(job);
-    this.jobs.set(j.metadata.name, { ...j, status: { active: 1 } });
+    this.jobs.set(j.metadata.name, {
+      ...j,
+      status: {
+        active: 1
+      }
+    });
   }
   async deleteJob(_ns: string, name: string) {
     this.deleted.push(name);
@@ -41,17 +45,47 @@ class FakeK8s implements K8sPort {
   }
   succeed(name: string) {
     const j = this.jobs.get(name)!;
-    this.jobs.set(name, { ...j, status: { succeeded: j.spec.completions ?? 1, conditions: [{ type: 'Complete', status: 'True' }] } });
+    this.jobs.set(name, {
+      ...j,
+      status: {
+        succeeded: j.spec.completions ?? 1,
+        conditions: [{
+          type: 'Complete',
+          status: 'True'
+        }]
+      }
+    });
   }
   fail(name: string, msg = 'BackoffLimitExceeded') {
     const j = this.jobs.get(name)!;
-    this.jobs.set(name, { ...j, status: { failed: 1, conditions: [{ type: 'Failed', status: 'True', reason: msg, message: 'Job has reached the specified backoff limit' }] } });
+    this.jobs.set(name, {
+      ...j,
+      status: {
+        failed: 1,
+        conditions: [{
+          type: 'Failed',
+          status: 'True',
+          reason: msg,
+          message: 'Job has reached the specified backoff limit'
+        }]
+      }
+    });
   }
   run(name: string) {
-    this.pods.set(name, [{ metadata: { name: `${name}-x` }, spec: { containers: [] }, status: { phase: 'Running', startTime: '2026-01-01T00:00:01Z' } }]);
+    this.pods.set(name, [{
+      metadata: {
+        name: `${name}-x`
+      },
+      spec: {
+        containers: []
+      },
+      status: {
+        phase: 'Running',
+        startTime: '2026-01-01T00:00:01Z'
+      }
+    }]);
   }
 }
-
 const YAML_TEXT = `
 workflow:
   name: pipe
@@ -76,13 +110,11 @@ workflow:
       command: [echo, c]
       inputs: [{ task: a }]
 `;
-
 let repo: Repo;
 let k8s: FakeK8s;
 let clock: Date;
 let notifications: string[];
 let deps: ControllerDeps;
-
 beforeEach(() => {
   repo = new Repo(new MemoryKV());
   k8s = new FakeK8s();
@@ -92,35 +124,47 @@ beforeEach(() => {
     repo,
     k8s,
     now: () => clock,
-    notify: async (s) => {
+    notify: async s => {
       notifications.push(s);
     },
-    resolveCredential: async (r) => `resolved:${r}`,
+    resolveCredential: async r => `resolved:${r}`,
     dataBucket: 'bkt',
+    artifactPublisher: {
+      publish: async ({
+        sourcePath
+      }) => ({
+        state: 'ready',
+        uri: `s3://bkt/${sourcePath.replace(/^\/fsx\//, '')}`,
+        manifestUri: 's3://bkt/manifests/result.json',
+        manifestHash: 'a'.repeat(64),
+        verifiedAt: clock.toISOString(),
+        objectCount: 1,
+        sizeBytes: 10
+      })
+    }
   };
 });
-
 describe('submit + reconcile', () => {
   it('launches roots on submit, dependents after success, publishes outputs, finishes SUCCEEDED', async () => {
-    const wf = await submitWorkflow({ yaml: YAML_TEXT, owner: 'alice' }, deps);
+    const wf = await submitWorkflow({
+      yaml: YAML_TEXT,
+      owner: 'alice'
+    }, deps);
     expect(wf.status).toBe('RUNNING');
     let tasks = await repo.listTasks(wf.id);
-    expect(tasks.find((t) => t.name === 'a')?.phase).toBe('PENDING');
-    expect(tasks.find((t) => t.name === 'b')?.phase).toBe('WAITING');
+    expect(tasks.find(t => t.name === 'a')?.phase).toBe('PENDING');
+    expect(tasks.find(t => t.name === 'b')?.phase).toBe('WAITING');
     expect(k8s.created).toHaveLength(1);
-
     k8s.run('wf-' + wf.id + '-a');
     await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
-    expect((await repo.listTasks(wf.id)).find((t) => t.name === 'a')?.phase).toBe('RUNNING');
-
+    expect((await repo.listTasks(wf.id)).find(t => t.name === 'a')?.phase).toBe('RUNNING');
     k8s.succeed('wf-' + wf.id + '-a');
     await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
     tasks = await repo.listTasks(wf.id);
-    expect(tasks.find((t) => t.name === 'a')?.phase).toBe('SUCCEEDED');
-    expect(tasks.find((t) => t.name === 'b')?.phase).toBe('PENDING');
-    expect(tasks.find((t) => t.name === 'c')?.phase).toBe('PENDING');
+    expect(tasks.find(t => t.name === 'a')?.phase).toBe('SUCCEEDED');
+    expect(tasks.find(t => t.name === 'b')?.phase).toBe('PENDING');
+    expect(tasks.find(t => t.name === 'c')?.phase).toBe('PENDING');
     expect(k8s.created).toHaveLength(3);
-
     k8s.succeed('wf-' + wf.id + '-b');
     k8s.succeed('wf-' + wf.id + '-c');
     const done = await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
@@ -130,26 +174,33 @@ describe('submit + reconcile', () => {
     expect(ds?.latestVersion).toBe(1);
     const v = await repo.getVersion('out-b', 1);
     expect(v?.uri).toBe(`s3://bkt/checkpoints/workflows/${wf.id}/b`);
-    expect(v?.producedBy).toEqual({ workflowId: wf.id, task: 'b' });
+    expect(v?.producedBy).toEqual({
+      workflowId: wf.id,
+      task: 'b'
+    });
     expect(notifications).toEqual([`[Physical AI] workflow pipe SUCCEEDED`]);
     const events = await repo.listEvents(wf.id);
-    expect(events.map((e) => e.reason)).toEqual(expect.arrayContaining(['Submitted', 'TaskLaunched', 'TaskSucceeded', 'DatasetPublished', 'WorkflowSucceeded']));
+    expect(events.map(e => e.reason)).toEqual(expect.arrayContaining(['Submitted', 'TaskLaunched', 'TaskSucceeded', 'DatasetPublished', 'WorkflowSucceeded']));
   });
-
   it('cancel_pending: failure cancels running siblings and skips waiting tasks', async () => {
-    const wf = await submitWorkflow({ yaml: YAML_TEXT, owner: 'alice' }, deps);
+    const wf = await submitWorkflow({
+      yaml: YAML_TEXT,
+      owner: 'alice'
+    }, deps);
     k8s.fail('wf-' + wf.id + '-a');
     const out = await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
     expect(out.status).toBe('FAILED');
     expect(out.message).toMatch(/task a: BackoffLimitExceeded/);
     const tasks = await repo.listTasks(wf.id);
-    expect(tasks.find((t) => t.name === 'b')?.phase).toBe('SKIPPED');
-    expect(tasks.find((t) => t.name === 'c')?.phase).toBe('SKIPPED');
+    expect(tasks.find(t => t.name === 'b')?.phase).toBe('SKIPPED');
+    expect(tasks.find(t => t.name === 'c')?.phase).toBe('SKIPPED');
   });
-
   it('continue policy lets independent branches finish', async () => {
     const y = YAML_TEXT.replace('timeout: { exec_timeout: 1h, queue_timeout: 10m }', 'timeout: { exec_timeout: 1h, queue_timeout: 10m }\n  on_failure: continue');
-    const wf = await submitWorkflow({ yaml: y, owner: 'alice' }, deps);
+    const wf = await submitWorkflow({
+      yaml: y,
+      owner: 'alice'
+    }, deps);
     k8s.succeed('wf-' + wf.id + '-a');
     await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
     k8s.fail('wf-' + wf.id + '-b');
@@ -160,56 +211,109 @@ describe('submit + reconcile', () => {
     expect(out.status).toBe('FAILED');
     expect(out.succeededCount).toBe(2);
   });
-
   it('queue timeout fails a task stuck waiting for Kueue admission', async () => {
     const y = YAML_TEXT.replace('namespace: rl', 'namespace: hyperpod-ns-team-a');
-    const wf = await submitWorkflow({ yaml: y, owner: 'alice' }, deps);
+    const wf = await submitWorkflow({
+      yaml: y,
+      owner: 'alice'
+    }, deps);
     const jobA = 'wf-' + wf.id + '-a';
     expect((k8s.created[0] as Job).metadata.labels?.['kueue.x-k8s.io/queue-name']).toBe('hyperpod-ns-team-a-localqueue');
     k8s.queue.set(jobA, 'pending');
     await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
-    expect((await repo.listTasks(wf.id)).find((t) => t.name === 'a')?.phase).toBe('QUEUED');
+    expect((await repo.listTasks(wf.id)).find(t => t.name === 'a')?.phase).toBe('QUEUED');
     clock = new Date(clock.getTime() + 11 * 60_000);
     const out = await reconcileWorkflow((await repo.getWorkflow(wf.id))!, deps);
     expect(out.status).toBe('FAILED');
     expect(k8s.deleted).toContain(jobA);
   });
-
   it('cancel deletes jobs and marks CANCELLED', async () => {
-    const wf = await submitWorkflow({ yaml: YAML_TEXT, owner: 'alice' }, deps);
+    const wf = await submitWorkflow({
+      yaml: YAML_TEXT,
+      owner: 'alice'
+    }, deps);
     const c = await cancelWorkflow(wf.id, 'bob', deps);
     expect(c.status).toBe('CANCELLED');
     expect(k8s.deleted).toEqual(['wf-' + wf.id + '-a']);
-    expect((await repo.listTasks(wf.id)).every((t) => t.phase === 'CANCELLED')).toBe(true);
+    expect((await repo.listTasks(wf.id)).every(t => t.phase === 'CANCELLED')).toBe(true);
   });
-
   it('rejects dataset inputs that do not exist at submit time', async () => {
     const y = YAML_TEXT.replace('command: [echo, a]', 'command: [echo, a]\n      inputs: [{ dataset: { name: nope, path: /d } }]');
-    await expect(submitWorkflow({ yaml: y, owner: 'alice' }, deps)).rejects.toThrow(/dataset nope does not exist/);
+    await expect(submitWorkflow({
+      yaml: y,
+      owner: 'alice'
+    }, deps)).rejects.toThrow(/dataset nope does not exist/);
   });
-
   it('rejects credential refs outside the allow-listed SSM prefixes', async () => {
     const y = YAML_TEXT.replace('command: [echo, a]', 'command: [echo, a]\n      credentials: { hf: { HF_TOKEN: literal-token } }');
-    await expect(submitWorkflow({ yaml: y, owner: 'alice' }, deps)).rejects.toThrow(/must be an SSM parameter path/);
+    await expect(submitWorkflow({
+      yaml: y,
+      owner: 'alice'
+    }, deps)).rejects.toThrow(/must be an SSM parameter path/);
   });
-
   it('resolves credentials into a Secret', async () => {
     const y = YAML_TEXT.replace('command: [echo, a]', 'command: [echo, a]\n      credentials: { hf: { HF_TOKEN: /groot/hf-token } }');
-    const wf = await submitWorkflow({ yaml: y, owner: 'alice' }, deps);
-    expect(k8s.secrets[`wf-${wf.id}-a-creds`]).toEqual({ HF_TOKEN: 'resolved:/groot/hf-token' });
+    const wf = await submitWorkflow({
+      yaml: y,
+      owner: 'alice'
+    }, deps);
+    expect(k8s.secrets[`wf-${wf.id}-a-creds`]).toEqual({
+      HF_TOKEN: 'resolved:/groot/hf-token'
+    });
   });
 });
-
 describe('deriveTaskPhase', () => {
-  const job = (extra: Partial<Job['status']> = {}, spec: Partial<Job['spec']> = {}): Job => ({ metadata: { name: 'j' }, spec: { template: { spec: { containers: [] } }, ...spec }, status: extra });
+  const job = (extra: Partial<Job['status']> = {}, spec: Partial<Job['spec']> = {}): Job => ({
+    metadata: {
+      name: 'j'
+    },
+    spec: {
+      template: {
+        spec: {
+          containers: []
+        }
+      },
+      ...spec
+    },
+    status: extra
+  });
   it('maps states', () => {
     expect(deriveTaskPhase(null, [], 'unknown', 1).phase).toBe('FAILED');
-    expect(deriveTaskPhase(job({ succeeded: 1 }), [], 'unknown', 1).phase).toBe('SUCCEEDED');
-    expect(deriveTaskPhase(job({ succeeded: 1 }, { completions: 2 }), [], 'unknown', 2).phase).not.toBe('SUCCEEDED');
-    expect(deriveTaskPhase(job({ active: 1 }), [], 'pending', 1).phase).toBe('QUEUED');
-    expect(deriveTaskPhase(job({ active: 1 }, { suspend: true }), [], 'unknown', 1).phase).toBe('QUEUED');
-    const pendingPod: Pod = { metadata: { name: 'p' }, spec: { containers: [] }, status: { phase: 'Pending', conditions: [{ type: 'PodScheduled', status: 'False', message: '0/2 nodes are available: Insufficient nvidia.com/gpu' }] } };
-    const d = deriveTaskPhase(job({ active: 1 }), [pendingPod], 'unknown', 1);
+    expect(deriveTaskPhase(job({
+      succeeded: 1
+    }), [], 'unknown', 1).phase).toBe('SUCCEEDED');
+    expect(deriveTaskPhase(job({
+      succeeded: 1
+    }, {
+      completions: 2
+    }), [], 'unknown', 2).phase).not.toBe('SUCCEEDED');
+    expect(deriveTaskPhase(job({
+      active: 1
+    }), [], 'pending', 1).phase).toBe('QUEUED');
+    expect(deriveTaskPhase(job({
+      active: 1
+    }, {
+      suspend: true
+    }), [], 'unknown', 1).phase).toBe('QUEUED');
+    const pendingPod: Pod = {
+      metadata: {
+        name: 'p'
+      },
+      spec: {
+        containers: []
+      },
+      status: {
+        phase: 'Pending',
+        conditions: [{
+          type: 'PodScheduled',
+          status: 'False',
+          message: '0/2 nodes are available: Insufficient nvidia.com/gpu'
+        }]
+      }
+    };
+    const d = deriveTaskPhase(job({
+      active: 1
+    }), [pendingPod], 'unknown', 1);
     expect(d.phase).toBe('PENDING');
     expect(d.message).toMatch(/Insufficient nvidia.com\/gpu/);
   });

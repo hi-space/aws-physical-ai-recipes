@@ -4,12 +4,20 @@ import * as eks from 'aws-cdk-lib/aws-eks';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
+import * as s3Assets from 'aws-cdk-lib/aws-s3-assets';
+import * as path from 'node:path';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
 import { AuthConstruct } from './constructs/auth';
 import { ServiceConstruct } from './constructs/service';
 import { TableConstruct } from './constructs/table';
 import { buildEnv, type DiscoveredOutputs } from './env-contract';
+import { OrchestrationConstruct } from './constructs/orchestration';
+import { WorkloadImages } from './constructs/workload-images';
+import { OperationsConstruct } from './constructs/operations';
 
 export interface DashboardStackProps extends cdk.StackProps {
   accountId: string;
@@ -27,6 +35,9 @@ export interface DashboardStackProps extends cdk.StackProps {
   buckets: string[];
   /** EKS cluster security group (control-plane ENIs); the service SG is allowed in on 443. */
   eksClusterSecurityGroupId?: string;
+  extendedImages?: boolean;
+  workflowNamespaces?: string[];
+  mlflowTrackingServerArns?: string[];
 }
 
 export class DashboardStack extends cdk.Stack {
@@ -49,12 +60,59 @@ export class DashboardStack extends cdk.Stack {
     const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.hostedZoneName });
 
     const table = new TableConstruct(this, 'Store', { tableName: `${prefix}-${props.region}` });
+    const orchestration = new OrchestrationConstruct(this, 'Orchestration');
+    const workloadImages = new WorkloadImages(this, 'WorkloadImages', {
+      repositoryRoot: path.resolve(props.webAppPath, '..', '..'),
+      extended: props.extendedImages,
+    });
+    const runtimeImage = new ecrAssets.DockerImageAsset(this, 'TaskRuntimeImage', {
+      directory: path.resolve(props.webAppPath, '..', 'runtime'), platform: ecrAssets.Platform.LINUX_AMD64,
+      exclude: ['pai-runtime', 'pai-runtime-arm64'],
+    });
+    const runtimeSigningSecret = new secretsmanager.Secret(this, 'RuntimeSigningSecret', {
+      generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', passwordLength: 64, excludePunctuation: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const dcvSsoSecret = d.isaacLab?.InstanceId ? new secretsmanager.Secret(this, 'DcvSsoSecret', {
+      generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', passwordLength: 64, excludePunctuation: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    }) : undefined;
+    const dcvAgent = dcvSsoSecret ? new s3Assets.Asset(this, 'DcvAgent', {
+      path: path.resolve(props.webAppPath, '..', 'dcv-agent'),
+      exclude: ['__pycache__', 'test_*'],
+    }) : undefined;
+    if (dcvSsoSecret && dcvAgent && d.isaacLab?.InstanceRoleArn) {
+      const hostRole = iam.Role.fromRoleArn(this, 'DcvHostRole', d.isaacLab.InstanceRoleArn, { mutable: true });
+      dcvSsoSecret.grantRead(hostRole);
+      dcvAgent.grantRead(hostRole);
+    }
+    orchestration.artifacts.addCorsRule({
+      allowedOrigins: [`https://${props.domainName}`],
+      allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.HEAD],
+      allowedHeaders: ['*'], exposedHeaders: ['ETag', 'x-amz-version-id', 'x-amz-checksum-sha256'], maxAge: 3600,
+    });
     const topic = new sns.Topic(this, 'Notifications', { topicName: `${prefix}-notifications`, displayName: 'Physical AI Dashboard' });
     if (props.notifyEmail) topic.addSubscription(new subs.EmailSubscription(props.notifyEmail));
 
     const auth = new AuthConstruct(this, 'Auth', { accountId: props.accountId, domainName: props.domainName, adminUsername: props.adminUsername, adminEmail: props.adminEmail });
 
-    const environment = buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn });
+    const environment = {
+      ...buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn }),
+      ...workloadImages.environment,
+      IMAGE_PROFILES_ENFORCED: '1',
+      BACKEND_HOME_VPC_ID: vpc.vpcId,
+      EKS_BACKENDS_JSON: JSON.stringify(typeof this.node.tryGetContext('eksBackends') === 'string'
+        ? JSON.parse(this.node.tryGetContext('eksBackends')) : this.node.tryGetContext('eksBackends') ?? []),
+      WORKFLOW_STATE_MACHINE_ARN: orchestration.stateMachine.stateMachineArn,
+      WORKFLOW_QUEUE_URL: orchestration.queue.queueUrl,
+      WORKFLOW_CALLBACKS_TABLE: orchestration.callbacks.tableName,
+      DASHBOARD_ARTIFACT_BUCKET: orchestration.artifacts.bucketName,
+      TASK_RUNTIME_IMAGE: runtimeImage.imageUri,
+      RUNTIME_API_URL: `http://controller.${prefix}.internal:3001`,
+      GATEWAY_BASE_DOMAIN: `apps.${props.domainName}`,
+      ...(dcvSsoSecret && dcvAgent ? { DCV_SSO_SECRET_ARN: dcvSsoSecret.secretArn, DCV_AGENT_ASSET_URI: dcvAgent.s3ObjectUrl } : {}),
+      BUILD_PROJECTS: [`${prefix}-operations`, d.groot?.SmTrainingBuildProjectName, d.groot?.RuntimeCodeBuildProjectName].filter(Boolean).join(','),
+    };
 
     const svc = new ServiceConstruct(this, 'Web', {
       vpc,
@@ -66,12 +124,71 @@ export class DashboardStack extends cdk.Stack {
       environment,
       webAppPath: props.webAppPath,
       namePrefix: prefix,
+      runtimeSigningSecret,
     });
+    if (props.network.vpcCidr) svc.serviceSecurityGroup.addIngressRule(ec2.Peer.ipv4(props.network.vpcCidr), ec2.Port.tcp(3001), 'Scoped workload runtime protocol from private VPC');
+    if (d.hyperPodEks?.EksClusterName) {
+      const operations = new OperationsConstruct(this, 'Operations', {
+        name: prefix, clusterName: d.hyperPodEks.EksClusterName,
+        sourcePath: path.resolve(props.webAppPath, '..', 'infra', 'ops'),
+        vpc, securityGroup: svc.serviceSecurityGroup,
+      });
+      operations.project.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['eks:DescribeCluster'],
+        resources: [`arn:aws:eks:${props.region}:${props.accountId}:cluster/${d.hyperPodEks.EksClusterName}`],
+      }));
+      new eks.CfnAccessEntry(this, 'OperationsEksAccessEntry', {
+        clusterName: d.hyperPodEks.EksClusterName, principalArn: operations.project.role!.roleArn, type: 'STANDARD',
+        accessPolicies: [{ policyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy', accessScope: { type: 'cluster' } }],
+      });
+    }
 
     // ------------------------------------------------------------------ IAM
     const role = svc.taskRole;
+    const builds = environment.BUILD_PROJECTS.split(',');
+    role.addToPolicy(new iam.PolicyStatement({
+      actions: ['codebuild:BatchGetProjects', 'codebuild:ListBuildsForProject', 'codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
+      resources: builds.flatMap((name) => [`arn:aws:codebuild:${props.region}:${props.accountId}:project/${name}`, `arn:aws:codebuild:${props.region}:${props.accountId}:build/${name}:*`]),
+    }));
     table.table.grantReadWriteData(role);
+    dcvSsoSecret?.grantRead(role);
     topic.grantPublish(role);
+    orchestration.stateMachine.grantStartExecution(role);
+    orchestration.artifacts.grantReadWrite(role);
+    table.table.grantReadWriteData(svc.controllerRole);
+    table.table.grantReadWriteData(svc.gatewayRole);
+    svc.gatewayRole.addToPolicy(new iam.PolicyStatement({ actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity'], resources: ['*'] }));
+    topic.grantPublish(svc.controllerRole);
+    orchestration.queue.grantConsumeMessages(svc.controllerRole);
+    orchestration.callbacks.grantReadWriteData(svc.controllerRole);
+    orchestration.artifacts.grantReadWrite(svc.controllerRole);
+    orchestration.stateMachine.grantStartExecution(svc.controllerRole);
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['states:SendTaskSuccess', 'states:SendTaskFailure', 'states:SendTaskHeartbeat'], resources: ['*'],
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['states:DescribeExecution'],
+      resources: [cdk.Stack.of(this).formatArn({ service: 'states', resource: 'execution', resourceName: `${orchestration.stateMachine.stateMachineName}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })],
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity', 'fsx:CreateDataRepositoryTask', 'fsx:DescribeDataRepositoryTasks', 'fsx:DescribeDataRepositoryAssociations'], resources: ['*'],
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:ListBucket', 's3:GetBucketLocation'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}`),
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:GetObjectVersion'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}/*`),
+    }));
+    if (d.groot?.MlflowTrackingServerArn) {
+      svc.controllerRole.addToPolicy(new iam.PolicyStatement({ actions: ['sagemaker:DescribeMlflowTrackingServer', 'sagemaker-mlflow:*'], resources: [d.groot.MlflowTrackingServerArn] }));
+      svc.controllerRole.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [`arn:aws:s3:::${d.groot.BucketName}/mlflow-artifacts/*`] }));
+    }
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'], resources: [`arn:aws:ssm:${props.region}:${props.accountId}:parameter/groot/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/physical-ai/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/pai/*`],
+    }));
+    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } },
+    }));
 
     role.addToPolicy(
       new iam.PolicyStatement({
@@ -95,6 +212,7 @@ export class DashboardStack extends cdk.Stack {
           'sagemaker:DescribePipeline',
           'sagemaker:ListPipelineExecutions',
           'sagemaker:StartPipelineExecution',
+          'sagemaker:StopPipelineExecution',
           'sagemaker:DescribePipelineExecution',
           'sagemaker:ListPipelineExecutionSteps',
           'sagemaker:ListPipelineParametersForExecution',
@@ -109,14 +227,22 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'MlflowRest', actions: ['sagemaker-mlflow:*'], resources: [`arn:aws:sagemaker:${props.region}:${props.accountId}:mlflow-tracking-server/*`] }));
-    role.addToPolicy(
+    if (d.groot?.SageMakerRoleArn) role.addToPolicy(
       new iam.PolicyStatement({
         sid: 'PassRoleToSageMakerPipeline',
         actions: ['iam:PassRole'],
-        resources: [`arn:aws:iam::${props.accountId}:role/*`],
+        resources: [d.groot.SageMakerRoleArn],
         conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
       }),
     );
+    if (d.groot?.PipelineName) svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['sagemaker:StartPipelineExecution'],
+      resources: [`arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${d.groot.PipelineName}`],
+    }));
+    if (d.groot?.SageMakerRoleArn) svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'], resources: [d.groot.SageMakerRoleArn],
+      conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
+    }));
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Eks', actions: ['eks:DescribeCluster', 'eks:ListAddons', 'eks:DescribeAddon', 'eks:ListClusters'], resources: ['*'] }));
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Sts', actions: ['sts:GetCallerIdentity'], resources: ['*'] }));
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Amp', actions: ['aps:QueryMetrics', 'aps:GetLabels', 'aps:GetSeries', 'aps:GetMetricMetadata', 'aps:DescribeWorkspace'], resources: ['*'] }));
@@ -139,6 +265,14 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Ec2Describe', actions: ['ec2:DescribeInstances', 'ec2:DescribeInstanceStatus'], resources: ['*'] }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: 'ImageProfileInspection',
+      actions: ['ecr:DescribeImages', 'ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'],
+      resources: [`arn:aws:ecr:${props.region}:${props.accountId}:repository/*`],
+    }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: 'ImageProfileDiscovery', actions: ['ecr:GetAuthorizationToken', 'ec2:DescribeInstanceTypes'], resources: ['*'],
+    }));
     if (d.isaacLab?.InstanceId) {
       role.addToPolicy(
         new iam.PolicyStatement({
@@ -147,6 +281,18 @@ export class DashboardStack extends cdk.Stack {
           resources: [`arn:aws:ec2:${props.region}:${props.accountId}:instance/${d.isaacLab.InstanceId}`],
         }),
       );
+      const instanceArn = `arn:aws:ec2:${props.region}:${props.accountId}:instance/${d.isaacLab.InstanceId}`;
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['ssm:SendCommand'], resources: [instanceArn, `arn:aws:ssm:${props.region}::document/AWS-RunShellScript`],
+      }));
+      for (const reader of [role, svc.controllerRole]) reader.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetCommandInvocation'], resources: ['*'] }));
+      svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['ssm:StartSession'], resources: [instanceArn, `arn:aws:ssm:${props.region}::document/AWS-StartPortForwardingSession`],
+      }));
+      svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['ssm:TerminateSession', 'ssmmessages:OpenDataChannel'],
+        resources: [`arn:aws:ssm:${props.region}:${props.accountId}:session/*`],
+      }));
     }
     if (d.isaacLab?.SecretArn) {
       role.addToPolicy(new iam.PolicyStatement({ sid: 'DcvSecret', actions: ['secretsmanager:GetSecretValue'], resources: [d.isaacLab.SecretArn] }));
@@ -170,9 +316,12 @@ export class DashboardStack extends cdk.Stack {
           'greengrass:ListInstalledComponents',
           'greengrass:CreateDeployment',
           'greengrass:GetDeployment',
+          'greengrass:GetCoreDevice',
+          'greengrass:GetComponent',
           'greengrass:DescribeComponent',
           'greengrass:ResolveComponentCandidates',
           'iot:DescribeThingGroup',
+          'iot:ListThingsInThingGroup',
           'iot:DescribeJob',
           'iot:CreateJob',
           'iot:DescribeThing',
@@ -187,6 +336,7 @@ export class DashboardStack extends cdk.Stack {
           'cognito-idp:ListUsers',
           'cognito-idp:ListGroups',
           'cognito-idp:AdminListGroupsForUser',
+          'cognito-idp:AdminGetUser',
           'cognito-idp:AdminCreateUser',
           'cognito-idp:AdminSetUserPassword',
           'cognito-idp:AdminAddUserToGroup',
@@ -196,6 +346,18 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'CostExplorer', actions: ['ce:GetCostAndUsage'], resources: ['*'] }));
+    for (const reader of [svc.gatewayRole, svc.controllerRole]) reader.addToPolicy(new iam.PolicyStatement({
+      actions: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser'],
+      resources: [auth.userPool.userPoolArn],
+    }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: 'ProjectCredentialManagement', actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
+      resources: [`arn:aws:ssm:${props.region}:${props.accountId}:parameter/physical-ai/projects/*`],
+    }));
+    role.addToPolicy(new iam.PolicyStatement({
+      sid: 'ProjectCredentialEncryption', actions: ['kms:Encrypt'], resources: ['*'],
+      conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } },
+    }));
 
     // ------------------------------------------------------------------ EKS network + access entry
     if (props.eksClusterSecurityGroupId) {
@@ -208,14 +370,53 @@ export class DashboardStack extends cdk.Stack {
         description: 'Physical AI Dashboard to EKS API private endpoint',
       });
     }
+    // Preserve the existing deployment's legacy workflow identity. New scoped
+    // workloads use pai-workload and receive no ambient AWS credentials.
+    if (d.hyperPodEks?.EksClusterName) {
+      const podRole = new iam.Role(this, 'WorkflowPodRole', {
+        roleName: `${prefix}-workflow-pods`,
+        assumedBy: new iam.ServicePrincipal('pods.eks.amazonaws.com').withSessionTags(),
+        description: 'Physical AI Dashboard workflow pods (EKS Pod Identity): dataset/model S3 export, MLflow logging, SSM credentials',
+      });
+      podRole.addToPolicy(new iam.PolicyStatement({
+        sid: 'MlflowTracking', actions: ['sagemaker-mlflow:*'],
+        resources: props.mlflowTrackingServerArns?.length ? props.mlflowTrackingServerArns : [`arn:aws:sagemaker:${props.region}:${props.accountId}:mlflow-tracking-server/*`],
+      }));
+      if (props.buckets.length) {
+        podRole.addToPolicy(new iam.PolicyStatement({ sid: 'S3Buckets', actions: ['s3:ListBucket', 's3:GetBucketLocation'], resources: props.buckets.map((bucket) => `arn:aws:s3:::${bucket}`) }));
+        podRole.addToPolicy(new iam.PolicyStatement({ sid: 'S3Objects', actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload', 's3:ListMultipartUploadParts'], resources: props.buckets.map((bucket) => `arn:aws:s3:::${bucket}/*`) }));
+      }
+      podRole.addToPolicy(new iam.PolicyStatement({
+        sid: 'SsmCredentialParameters', actions: ['ssm:GetParameter'],
+        resources: [`arn:aws:ssm:${props.region}:${props.accountId}:parameter/groot/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/physical-ai/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/pai/*`],
+      }));
+      podRole.addToPolicy(new iam.PolicyStatement({ sid: 'KmsForSecureStrings', actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } } }));
+      for (const namespace of props.workflowNamespaces ?? ['rl', 'hyperpod-ns-team-a', 'hyperpod-ns-team-b']) {
+        new eks.CfnPodIdentityAssociation(this, `PodIdentity-${namespace}`, { clusterName: d.hyperPodEks.EksClusterName, namespace, serviceAccount: 'pai-workflow', roleArn: podRole.roleArn });
+      }
+      new cdk.CfnOutput(this, 'WorkflowPodRoleArn', { value: podRole.roleArn, description: 'IAM role assumed by workflow pods via ServiceAccount pai-workflow' });
+    }
     if (d.hyperPodEks?.EksClusterName) {
       const entry = new eks.CfnAccessEntry(this, 'EksAccessEntry', {
         clusterName: d.hyperPodEks.EksClusterName,
         principalArn: role.roleArn,
         type: 'STANDARD',
-        accessPolicies: [{ policyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy', accessScope: { type: 'cluster' } }],
+        kubernetesGroups: ['physical-ai:web'],
       });
       entry.node.addDependency(role);
+      svc.service.node.addDependency(entry);
+      const controllerEntry = new eks.CfnAccessEntry(this, 'ControllerEksAccessEntry', {
+        clusterName: d.hyperPodEks.EksClusterName,
+        principalArn: svc.controllerRole.roleArn,
+        type: 'STANDARD',
+        kubernetesGroups: ['physical-ai:controller'],
+      });
+      svc.controllerService.node.addDependency(controllerEntry);
+      const gatewayEntry = new eks.CfnAccessEntry(this, 'GatewayEksAccessEntry', {
+        clusterName: d.hyperPodEks.EksClusterName, principalArn: svc.gatewayRole.roleArn,
+        type: 'STANDARD', kubernetesGroups: ['physical-ai:gateway'],
+      });
+      svc.gatewayService.node.addDependency(gatewayEntry);
     }
 
     // ------------------------------------------------------------------ Outputs
@@ -236,5 +437,10 @@ export class DashboardStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DiscoveredStacks', {
       value: [d.hyperPodEks && 'HyperPodEks', d.hyperPodSlurm && 'HyperPod', d.groot && 'GrootFinetune', d.isaacLab && 'IsaacLab'].filter(Boolean).join(', ') || 'none',
     });
+    new cdk.CfnOutput(this, 'ControllerRoleArn', { value: svc.controllerRole.roleArn });
+    new cdk.CfnOutput(this, 'ControllerServiceName', { value: svc.controllerService.serviceName });
+    new cdk.CfnOutput(this, 'WorkflowStateMachineArn', { value: orchestration.stateMachine.stateMachineArn });
+    new cdk.CfnOutput(this, 'ArtifactBucketName', { value: orchestration.artifacts.bucketName });
+    new cdk.CfnOutput(this, 'GatewayServiceName', { value: svc.gatewayService.serviceName });
   }
 }

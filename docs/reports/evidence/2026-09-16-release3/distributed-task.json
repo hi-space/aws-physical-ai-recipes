@@ -1,0 +1,82 @@
+{
+  "runId": "9177abf23b152804",
+  "source": "read-only durable task record after successful E2E",
+  "task": {
+    "exitCode": 0,
+    "artifactReceipts": {
+      "3a72f2cc4b7dcc51a9d7eb7b7e99c6fe83712e9b68e937f28a51fc013786fb87": {
+        "objectCount": 6,
+        "manifestHash": "e0e58ee9eec09f841e69be468f9697eb2e2aea58a5b7872e8e5863da20d3f1d6",
+        "verifiedAt": "2026-09-16T15:49:42.689Z",
+        "state": "ready",
+        "manifestUri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/9177abf23b152804/attempts/1/train/07874bbfea51630b23d7a0943f229d09776c817f8cdecd50565082d94addacb6/manifest.json",
+        "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/9177abf23b152804/attempts/1/train/07874bbfea51630b23d7a0943f229d09776c817f8cdecd50565082d94addacb6/",
+        "sizeBytes": 5426
+      }
+    },
+    "phase": "SUCCEEDED",
+    "publishedVersions": [
+      {
+        "dataset": "torch-gloo-9177abf23b152804",
+        "version": 1
+      }
+    ],
+    "name": "train",
+    "workflowId": "9177abf23b152804",
+    "topologyPlan": {
+      "schema": 1,
+      "observedAt": "2026-09-16T15:48:21.648Z",
+      "epoch": "bcf7f1ba63ff096a6676b41f4a1e476b",
+      "revision": "a368c194a613597380ce7cf3cda2dd29d0bbd69f76bffe90af0eec34334f3800",
+      "relaxed": [],
+      "witness": [
+        {
+          "replica": 0,
+          "node": "hyperpod-i-00f3cbe8dfee6b675",
+          "task": "train"
+        },
+        {
+          "replica": 1,
+          "node": "hyperpod-i-0e723d11c740c3b1d",
+          "task": "train"
+        }
+      ],
+      "diagnostics": [
+        "train: node hyperpod-i-0f190b8fa232cef49: platform ml.c5.4xlarge mismatch"
+      ],
+      "namespace": "hyperpod-ns-team-a",
+      "workflowId": "9177abf23b152804",
+      "queue": "hyperpod-ns-team-a-localqueue",
+      "levels": [
+        {
+          "key": "zone",
+          "label": "topology.k8s.aws/zone-id"
+        },
+        {
+          "key": "node",
+          "label": "kubernetes.io/hostname"
+        }
+      ],
+      "tasks": {
+        "train": {
+          "required": {
+            "topology.k8s.aws/zone-id": "use1-az4"
+          },
+          "preferred": [],
+          "nodes": [
+            {
+              "name": "hyperpod-i-00f3cbe8dfee6b675",
+              "uid": "4f84c69f-52e2-416e-b2a4-d89a6f4934f6"
+            },
+            {
+              "name": "hyperpod-i-0e723d11c740c3b1d",
+              "uid": "096301db-0fa8-4e19-9d71-231cb91352ba"
+            }
+          ]
+        }
+      },
+      "hash": "f2cc4c97e3e2c2dda564a607452c9ecfe30b8645b5785d4b3c41a242efa2cb32"
+    },
+    "attempts": 1
+  }
+}

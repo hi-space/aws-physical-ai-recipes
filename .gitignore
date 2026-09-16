@@ -225,9 +225,12 @@ __marimo__/
 VERIFICATION_NOTES.md
 docs/superpowers/
 workshop-audit-*.html
+dashboard/web/e2e/.results/
 
 # Training logs & model files
 logs/
+!dashboard/web/src/app/api/**/logs/
+!dashboard/web/src/app/api/**/logs/**
 *.pt
 *.pth
 *.onnx

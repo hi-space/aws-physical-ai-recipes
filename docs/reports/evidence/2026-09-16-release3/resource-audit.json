@@ -1,0 +1,94 @@
+{
+  "stack": {
+    "status": "UPDATE_COMPLETE",
+    "updated": "2026-09-16T16:12:20.673000+00:00"
+  },
+  "services": [
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebServiceD04B5F3E-CB0rRU6ETVDC",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebTaskDefD0130F4C:17",
+      "running": 1,
+      "pending": 0,
+      "deployments": [
+        {
+          "status": "PRIMARY",
+          "rollout": "COMPLETED",
+          "running": 1,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebControllerService9BC9A713-2nUkfQMC7miw",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebControllerTaskE9024EAA:7",
+      "running": 1,
+      "pending": 0,
+      "deployments": [
+        {
+          "status": "PRIMARY",
+          "rollout": "COMPLETED",
+          "running": 1,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "name": "PhysicalAiDashboard-913524902871-WebGatewayServiceBF31E39B-qMBUDOKeRJ2F",
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebGatewayTask10DBE637:7",
+      "running": 1,
+      "pending": 0,
+      "deployments": [
+        {
+          "status": "PRIMARY",
+          "rollout": "COMPLETED",
+          "running": 1,
+          "pending": 0
+        }
+      ]
+    }
+  ],
+  "temporaryTasks": [],
+  "dcvInstance": [
+    {
+      "id": "i-048cffe4cd6ad4f3e",
+      "state": "running",
+      "launched": "2026-09-14T17:22:45+00:00"
+    }
+  ],
+  "activeDcvTunnels": [],
+  "activeWorkflows": [],
+  "sagemaker-n4r1xdb896rc": {
+    "status": "Failed",
+    "arn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/n4r1xdb896rc"
+  },
+  "sagemaker-w9r84qbsl8xn": {
+    "status": "Stopped",
+    "arn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/w9r84qbsl8xn"
+  },
+  "sagemaker-r4ib9i57o09e": {
+    "status": "Stopped",
+    "arn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/r4ib9i57o09e"
+  },
+  "nodes": [
+    {
+      "name": "hyperpod-i-00f3cbe8dfee6b675",
+      "type": "ml.c5.4xlarge",
+      "gpu": 0,
+      "ready": true
+    },
+    {
+      "name": "hyperpod-i-0e723d11c740c3b1d",
+      "type": "ml.c5.4xlarge",
+      "gpu": 0,
+      "ready": true
+    },
+    {
+      "name": "hyperpod-i-0f190b8fa232cef49",
+      "type": "ml.g5.8xlarge",
+      "gpu": 1,
+      "ready": true
+    }
+  ],
+  "activeDashboardPods": [],
+  "checkedAt": "2026-09-16T16:20:38.679358+00:00"
+}

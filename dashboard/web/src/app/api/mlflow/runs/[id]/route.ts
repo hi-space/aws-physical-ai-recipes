@@ -1,7 +1,6 @@
 import { route } from '@/server/api';
-import * as ml from '@/server/aws/mlflow';
+import { requestProject } from '@/server/auth/projects';
+import { trackingAccess } from '@/server/services/tracking-access';
 export const dynamic = 'force-dynamic';
-export const GET = route<{ id: string }>('viewer', async ({ params }) => {
-  const [run, artifacts] = await Promise.all([ml.getRun(params.id), ml.listArtifacts(params.id).catch(() => [])]);
-  return { run, artifacts };
-});
+export const GET = route<{ id: string }>('viewer', async ({ req, session, params }) =>
+  trackingAccess().detail(session, (await requestProject(req, session)).id, params.id));

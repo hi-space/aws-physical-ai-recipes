@@ -1,5 +1,5 @@
 import { DescribeLogStreamsCommand, FilterLogEventsCommand, GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
-import { config } from '../config';
+import { backendConfig as config } from '../backends/context';
 import { cwlogs } from './clients';
 
 export interface LogLine { ts: number; message: string }
@@ -21,12 +21,16 @@ export async function eksContainerLogGroup(): Promise<string | undefined> {
 export async function podLogsFromCloudWatch(namespace: string, pod: string, limit = 2000): Promise<LogLine[]> {
   const group = await eksContainerLogGroup();
   if (!group) return [];
-  const streams = await cwlogs().send(
-    new DescribeLogStreamsCommand({ logGroupName: group, logStreamNamePrefix: `FluentBit/kube.var.log.containers.${pod}_${namespace}_`, limit: 5 }),
-  );
-  const names = (streams.logStreams ?? []).map((s) => s.logStreamName!).filter(Boolean);
+  const prefix = `FluentBit/kube.var.log.containers.${pod}${pod.endsWith('-') ? '' : `_${namespace}_`}`;
+  const names: string[] = [];
+  let nextToken: string | undefined;
+  do {
+    const streams = await cwlogs().send(new DescribeLogStreamsCommand({ logGroupName: group, logStreamNamePrefix: prefix, limit: 50, nextToken }));
+    names.push(...(streams.logStreams ?? []).map((stream) => stream.logStreamName!).filter((name) => name?.includes(`_${namespace}_`)));
+    nextToken = streams.nextToken;
+  } while (nextToken && names.length < 100);
   if (!names.length) return [];
-  const out = await cwlogs().send(new FilterLogEventsCommand({ logGroupName: group, logStreamNames: names, limit }));
+  const out = await cwlogs().send(new FilterLogEventsCommand({ logGroupName: group, logStreamNames: names.slice(0, 100), limit }));
   return (out.events ?? []).map((e) => ({ ts: e.timestamp ?? 0, message: extractLog(e.message ?? '') }));
 }
 

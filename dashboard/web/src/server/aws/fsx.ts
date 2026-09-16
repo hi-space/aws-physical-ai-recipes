@@ -4,7 +4,7 @@ import {
   DescribeDataRepositoryTasksCommand,
   DescribeFileSystemsCommand,
 } from '@aws-sdk/client-fsx';
-import { config } from '../config';
+import { backendConfig as config } from '../backends/context';
 import { badRequest } from '../errors';
 import { fsx } from './clients';
 

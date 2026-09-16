@@ -25,7 +25,7 @@ type KeyFetcher = (kid: string) => Promise<string>;
 const albKeyCache = new Map<string, Promise<KeyObject>>();
 
 async function defaultAlbKeyFetcher(region: string, kid: string): Promise<string> {
-  const res = await fetch(`https://public-keys.auth.elb.${region}.amazonaws.com/${kid}`);
+  const res = await fetch(`https://public-keys.auth.elb.${region}.amazonaws.com/${kid}`, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`ALB public key fetch failed: ${res.status}`);
   return res.text();
 }
@@ -49,12 +49,12 @@ const b64 = (s: string) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 
 export async function verifyAlbOidcData(
   jwt: string,
   region: string,
-  opts: { expectedSigner: string; fetchKey?: KeyFetcher },
+  opts: { expectedSigner: string; expectedIssuer?: string; expectedClient?: string; fetchKey?: KeyFetcher },
 ): Promise<OidcIdentity> {
   if (!opts.expectedSigner) throw new Error('ALB signer (load balancer ARN) is not configured; refusing to accept identity headers');
   const parts = jwt.trim().split('.');
   if (parts.length !== 3) throw new Error('ALB JWT malformed');
-  let header: { kid?: string; signer?: string; alg?: string };
+  let header: { kid?: string; signer?: string; alg?: string; iss?: string; client?: string; exp?: number };
   let payload: Record<string, unknown>;
   try {
     header = JSON.parse(b64(parts[0]).toString('utf8'));
@@ -65,6 +65,8 @@ export async function verifyAlbOidcData(
   if (!header.kid || !/^[A-Za-z0-9_-]{1,128}$/.test(header.kid)) throw new Error('ALB JWT missing kid');
   if (header.alg !== 'ES256') throw new Error(`ALB JWT unexpected alg ${header.alg}`);
   if (header.signer !== opts.expectedSigner) throw new Error('ALB JWT signer mismatch');
+  if (opts.expectedIssuer && header.iss !== opts.expectedIssuer) throw new Error('ALB JWT issuer mismatch');
+  if (opts.expectedClient && header.client !== opts.expectedClient) throw new Error('ALB JWT client mismatch');
 
   const cacheKey = `${region}:${header.kid}`;
   let keyP = albKeyCache.get(cacheKey);
@@ -85,8 +87,10 @@ export async function verifyAlbOidcData(
     }
   });
   if (!ok) throw new Error('signature verification failed');
-  const exp = typeof payload.exp === 'number' ? payload.exp : undefined;
-  if (exp !== undefined && exp * 1000 < Date.now() - 30_000) throw new Error('ALB JWT expired');
+  const exp = typeof header.exp === 'number' ? header.exp : typeof payload.exp === 'number' ? payload.exp : undefined;
+  if (exp === undefined || !Number.isFinite(exp)) throw new Error('ALB JWT missing expiry');
+  if (exp * 1000 < Date.now() - 30_000) throw new Error('ALB JWT expired');
+  if (typeof payload.sub !== 'string' || !payload.sub.trim()) throw new Error('ALB JWT missing subject');
   return {
     sub: String(payload.sub ?? ''),
     email: typeof payload.email === 'string' ? payload.email : undefined,
@@ -107,7 +111,7 @@ export async function readGroupsFromAccessToken(
   accessToken: string,
   region: string,
   userPoolId: string,
-  opts: { jwks?: Jwks } = {},
+  opts: { jwks?: Jwks; expectedSubject?: string; expectedClientId?: string } = {},
 ): Promise<string[]> {
   if (!accessToken) throw new Error('missing x-amzn-oidc-accesstoken');
   if (!userPoolId) throw new Error('COGNITO_USER_POOL_ID is not configured; refusing to derive roles');
@@ -118,6 +122,10 @@ export async function readGroupsFromAccessToken(
     jwksCache.set(issuer, jwks as ReturnType<typeof createRemoteJWKSet>);
   }
   const { payload } = await jwtVerify(accessToken, jwks, { issuer });
+  if (payload.token_use !== 'access') throw new Error('Cognito token_use must be access');
+  if (typeof payload.exp !== 'number') throw new Error('Cognito access token missing expiry');
+  if (opts.expectedSubject && payload.sub !== opts.expectedSubject) throw new Error('Cognito access token subject mismatch');
+  if (opts.expectedClientId && payload.client_id !== opts.expectedClientId) throw new Error('Cognito access token client mismatch');
   const g = (payload as Record<string, unknown>)['cognito:groups'];
   return Array.isArray(g) ? g.map(String) : [];
 }

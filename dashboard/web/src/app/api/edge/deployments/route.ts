@@ -1,8 +1,6 @@
-import { z } from 'zod';
 import { body, route } from '@/server/api';
-import * as gg from '@/server/aws/greengrass';
+import { requestProject } from '@/server/auth/projects';
+import { deploymentSchema, devicesService } from '@/server/services/devices';
 export const dynamic = 'force-dynamic';
-export const POST = route('admin', async ({ req }) => {
-  const b = await body(req, z.object({ name: z.string().min(1).max(60), modelPath: z.string().min(1), embodimentTag: z.string().default('NEW_EMBODIMENT'), ecrImage: z.string().min(1), policyPort: z.number().int().optional() }));
-  return { deploymentId: await gg.createInferenceDeployment(b) };
-}, { audit: 'edge.deploy' });
+// Prepare is durable application metadata only. AWS mutation needs the separate submit action.
+export const POST = route('researcher', async ({ req, session }) => devicesService().prepare(session, (await requestProject(req, session, 'researcher')).id, await body(req, deploymentSchema)), { audit: 'edge.prepare' });

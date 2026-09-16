@@ -1,0 +1,58 @@
+{
+  "checkedAt": "2026-09-16T16:20:38.679358+00:00",
+  "head": "c40b27f5d74e540d5841d27881e3faeacef88bc8",
+  "expectedHead": "c40b27f5d74e540d5841d27881e3faeacef88bc8",
+  "headUnchanged": true,
+  "files": [
+    {
+      "path": "docs/designs/2026-09-16-physical-ai-dashboard.md",
+      "sha256": "93ab9fe1942f533c64cdf7a274e59e6a0ed60966427bebb5b46c6b803563c358",
+      "unchanged": true
+    },
+    {
+      "path": "docs/plans/2026-09-16-physical-ai-dashboard.md",
+      "sha256": "919ea20826b3c137d38efc8585b8364d9bd3989abf709f60c3631527ac1f4981",
+      "unchanged": true
+    },
+    {
+      "path": "docs/research/2026-09-16-physical-ai-dashboard-costs.md",
+      "sha256": "b0de15e3caecb03aef82454c9fa3f02f0f2afdd2954dfc5553b99474f59b262a",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/groot/training/container/Dockerfile.bak",
+      "sha256": "b7cdc678c1ea73e80658fd086454b1d3fae3a5e9a08f7048476066e30d8226ba",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/groot/config.yaml",
+      "sha256": "137ab7403d17accb0ae0e02ae1e5b27935c241d54278b81f4abe9eb0848fbd50",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/groot/training/container/Dockerfile",
+      "sha256": "8f22d6d5654e9dc9364e25eb2729b5c6a73d6e55d07f83766ab5536a98ff86d6",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/infra/isaaclab/assets/workshop/Dockerfile",
+      "sha256": "d2e3bda4a613649da0da5d776f2520f921d8b9b599e7eb59459575a989bb5af1",
+      "unchanged": true
+    },
+    {
+      "path": "e2e-workshop/infra/isaaclab/lib/constructs/az-selector.ts",
+      "sha256": "b384c7fd539e6137b983dbeb0891908a74dc4d6f6b9e67b1f4830e1b5f35fd87",
+      "unchanged": true
+    }
+  ],
+  "status": [
+    " M e2e-workshop/groot/config.yaml",
+    " M e2e-workshop/groot/training/container/Dockerfile",
+    " M e2e-workshop/infra/isaaclab/assets/workshop/Dockerfile",
+    " M e2e-workshop/infra/isaaclab/lib/constructs/az-selector.ts",
+    "?? docs/designs/",
+    "?? docs/plans/",
+    "?? docs/research/",
+    "?? e2e-workshop/groot/training/container/Dockerfile.bak"
+  ]
+}

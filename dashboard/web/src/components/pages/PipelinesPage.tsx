@@ -2,9 +2,9 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, KeyValue, Spinner, StatusPill, Table, Toast, Textarea, Select, Field } from '@/components/ui';
-import { ago, classNames as cx, fmtNum, fmtTime } from '@/lib/format';
-import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, Toast } from '@/components/ui';
+import { ago, fmtTime } from '@/lib/format';
+import { api, useApi, useApiMutation, useMe, can } from '@/lib/api-client';
 
 interface PipelineParameter {
   Name: string;
@@ -36,24 +36,18 @@ interface PipelinesData {
 }
 
 export function PipelinesPage() {
-  const me = useMe() as any;
+  const me = useMe();
   const router = useRouter();
   const { data, isLoading, error } = useApi<PipelinesData>('/api/pipelines', { refetch: 10000 });
   const [showDialog, setShowDialog] = React.useState(false);
   const [formData, setFormData] = React.useState<Record<string, string>>({});
   const [displayName, setDisplayName] = React.useState('');
+  const [requestId, setRequestId] = React.useState(() => crypto.randomUUID());
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
 
   const mutation = useApiMutation(
-    async (params: { parameters: Record<string, string>; displayName?: string }) => {
-      const res = await fetch('/api/pipelines/executions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
-      if (!res.ok) throw new Error(`Failed to start execution: ${res.statusText}`);
-      return res.json() as Promise<{ arn: string }>;
-    },
+    (params: { parameters: Record<string, string>; displayName?: string }) =>
+      api<{ arn: string }>('/api/pipelines/executions', { method: 'POST', json: params, headers: { 'idempotency-key': requestId } }),
     ['/api/pipelines']
   );
 
@@ -63,10 +57,12 @@ export function PipelinesPage() {
         parameters: formData,
         displayName: displayName || undefined,
       });
+      if (!result.arn) throw new Error('실행 ARN을 받지 못했습니다. 실행 목록을 확인하세요.');
       setShowDialog(false);
       setFormData({});
       setDisplayName('');
-      setToast({ message: 'Execution started', tone: 'ok' });
+      setRequestId(crypto.randomUUID());
+      setToast({ message: '실행 요청을 접수했습니다.', tone: 'ok' });
       // Navigate to execution page
       router.push(`/pipelines/${encodeURIComponent(result.arn)}`);
     } catch (e) {
@@ -74,19 +70,19 @@ export function PipelinesPage() {
     }
   };
 
-  if (isLoading && !data) return <Spinner label="Loading pipelines…" />;
+  if (isLoading && !data) return <Spinner label="파이프라인을 불러오는 중…" />;
 
   return (
     <>
-      <PageHeader title="Pipelines" />
+      <PageHeader title="파이프라인" />
 
       {error && <ErrorBox error={error} />}
 
       <div className="space-y-4">
         {/* Start button */}
-        {can(me, 'researcher') && (
+        {can(me.data, 'researcher') && data?.pipeline && (
           <div>
-            <Button onClick={() => setShowDialog(true)}>Start Execution</Button>
+            <Button onClick={() => { setRequestId(crypto.randomUUID()); setShowDialog(true); }}>실행 시작</Button>
           </div>
         )}
 
@@ -96,19 +92,19 @@ export function PipelinesPage() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-fg-muted">Status</span>
+                  <span className="text-fg-muted">상태</span>
                   <div className="mt-1">
                     <StatusPill status={data.pipeline.PipelineStatus} />
                   </div>
                 </div>
                 <div>
-                  <span className="text-fg-muted">Created</span>
+                  <span className="text-fg-muted">생성 시각</span>
                   <div className="mt-1 font-mono text-xs">{fmtTime(data.pipeline.CreationTime)}</div>
                 </div>
               </div>
               {data.pipeline.parameters.length > 0 && (
                 <div>
-                  <div className="text-sm font-medium">Parameters</div>
+                  <div className="text-sm font-medium">파라미터</div>
                   <div className="mt-2 space-y-2">
                     {data.pipeline.parameters.map((p) => (
                       <div key={p.Name} className="flex items-center gap-3 rounded bg-bg-elev-2 p-2">
@@ -127,12 +123,12 @@ export function PipelinesPage() {
         )}
 
         {/* Executions table */}
-        <Card title="Executions" description={`${data?.executions.length ?? 0} total`}>
+        <Card title="실행 목록" description={`${data?.executions.length ?? 0}개`}>
           {!data?.executions.length ? (
-            <EmptyState title="No executions yet" />
+            !error && <EmptyState title="실행 이력이 없습니다." />
           ) : (
             <Table
-              head={['Display Name', 'Status', 'Started', 'Failure Reason']}
+              head={['실행 이름', '상태', '시작', '실패 사유']}
               dense
             >
               {data.executions.map((exec) => (
@@ -156,27 +152,27 @@ export function PipelinesPage() {
         </Card>
 
         {/* Explanation */}
-        <Card title="Pipeline Steps">
+        <Card title="파이프라인 단계">
           <div className="space-y-2 text-sm text-fg-muted">
             <div className="flex items-start gap-2">
               <span className="text-accent">1.</span>
-              <span>TransformDataset — Preprocess input data</span>
+              <span>TransformDataset — 입력 데이터 전처리</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-accent">2.</span>
-              <span>GR00TFinetune — Fine-tune GR00T model</span>
+              <span>GR00TFinetune — GR00T 파인튜닝</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-accent">3.</span>
-              <span>SmokeEval — Run basic evaluation</span>
+              <span>SmokeEval — 모델 로드·추론 동작 확인</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-accent">4.</span>
-              <span>SmokeGate — Check quality metrics</span>
+              <span>SmokeGate — smoke 결과 확인</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-accent">5.</span>
-              <span>RegisterModel — Register model artifact</span>
+              <span>RegisterModel — 모델 아티팩트 등록</span>
             </div>
           </div>
         </Card>
@@ -184,24 +180,32 @@ export function PipelinesPage() {
 
       {/* Start Execution Dialog */}
       <Dialog
-        title="Start Pipeline Execution"
+        title="파이프라인 실행"
         open={showDialog}
         onClose={() => setShowDialog(false)}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowDialog(false)}>
-              Cancel
+              취소
             </Button>
-            <Button onClick={handleStartExecution} disabled={mutation.isPending}>
-              Start
+            <Button onClick={handleStartExecution} disabled={mutation.isPending || !can(me.data, 'researcher')}>
+              실행
             </Button>
           </div>
         }
       >
         <div className="space-y-4">
+          <div className="rounded-lg bg-bg-elev-2 p-3 text-sm">
+            <p className="mb-2 text-fg-muted">Quick 검증은 짧은 학습과 모델 로드·추론 확인을 수행합니다. 로봇 동작 품질 평가는 별도입니다.</p>
+            <Button variant="secondary" onClick={() => {
+              const preset: Record<string, string> = { MaxSteps: '100', GlobalBatchSize: '4', SaveSteps: '50' };
+              setFormData(Object.fromEntries(Object.entries(preset).filter(([name]) => data?.pipeline.parameters.some((parameter) => parameter.Name === name))));
+            }}>Quick 검증 설정</Button>
+          </div>
           <div>
-            <label className="text-sm font-medium">Display Name (optional)</label>
+            <label className="text-sm font-medium">실행 이름 (선택)</label>
             <Input
+              aria-label="실행 이름"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. training-v1"

@@ -1,0 +1,10 @@
+mujoco==3.3.2
+gymnasium==1.1.1
+stable-baselines3==2.6.0
+numpy==2.2.6
+tensorboard==2.19.0
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+huggingface-hub==0.32.4
+pyarrow==20.0.0
+pandas==2.2.3

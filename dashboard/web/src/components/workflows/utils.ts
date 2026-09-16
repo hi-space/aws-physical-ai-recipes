@@ -1,11 +1,15 @@
-import { topoOrder } from '@/server/workflow/schema';
 import type { TaskPhase, WorkflowStatus } from '@/server/store/types';
 
 export const PHASE_COLORS: Record<TaskPhase, string> = {
   WAITING: 'bg-gray-600',
   QUEUED: 'bg-amber-500',
   PENDING: 'bg-amber-600',
+  LAUNCHING: 'bg-sky-600',
+  INITIALIZING: 'bg-cyan-600',
+  RETRY_WAIT: 'bg-amber-500',
   RUNNING: 'bg-blue-500',
+  FINALIZING: 'bg-indigo-500',
+  CANCELLING: 'bg-orange-600',
   SUCCEEDED: 'bg-emerald-500',
   FAILED: 'bg-red-500',
   CANCELLED: 'bg-gray-600',
@@ -17,7 +21,12 @@ export const PHASE_HEX: Record<TaskPhase, string> = {
   WAITING: '#475569',
   QUEUED: '#d97706',
   PENDING: '#b45309',
+  LAUNCHING: '#0284c7',
+  INITIALIZING: '#0891b2',
+  RETRY_WAIT: '#d97706',
   RUNNING: '#2563eb',
+  FINALIZING: '#6366f1',
+  CANCELLING: '#ea580c',
   SUCCEEDED: '#059669',
   FAILED: '#dc2626',
   CANCELLED: '#475569',
@@ -27,6 +36,8 @@ export const PHASE_HEX: Record<TaskPhase, string> = {
 export const STATUS_COLORS: Record<WorkflowStatus, string> = {
   PENDING: 'bg-amber-600',
   RUNNING: 'bg-blue-500',
+  FINALIZING: 'bg-indigo-500',
+  CANCELLING: 'bg-orange-600',
   SUCCEEDED: 'bg-emerald-500',
   FAILED: 'bg-red-500',
   CANCELLED: 'bg-gray-600',

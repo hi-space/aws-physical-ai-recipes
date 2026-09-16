@@ -1,5 +1,7 @@
 import type { NextRequest } from 'next/server';
-import { sessionFromHeaders } from '@/server/auth/session';
+import { requireRole, sessionFromHeaders } from '@/server/auth/session';
+import { assertSameOrigin } from '@/server/auth/request-policy';
+import { config } from '@/server/config';
 import { sanitizeProxyPath, serviceProxy } from '@/server/k8s/client';
 import { readSecret } from '@/server/k8s/resources';
 export const dynamic = 'force-dynamic';
@@ -19,7 +21,8 @@ function grafanaAuth(): Promise<string> {
  */
 async function handle(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
   try {
-    sessionFromHeaders(req.headers);
+    requireRole(sessionFromHeaders(req.headers), 'admin');
+    assertSameOrigin(req, config().dashboardOrigin ?? req.nextUrl.origin);
   } catch {
     return new Response('unauthorized', { status: 401 });
   }

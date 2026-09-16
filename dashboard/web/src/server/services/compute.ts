@@ -1,5 +1,5 @@
 import { DescribeAddonCommand, ListAddonsCommand } from '@aws-sdk/client-eks';
-import { config } from '../config';
+import { backendConfig as config } from '../backends/context';
 import { eks } from '../aws/clients';
 import * as hp from '../aws/hyperpod';
 import { listNodes as listK8sNodes, type Node } from '../k8s/resources';

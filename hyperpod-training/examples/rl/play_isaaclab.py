@@ -37,6 +37,7 @@ import argparse
 import importlib
 import os
 import sys
+import tempfile
 
 import torch
 from isaaclab.app import AppLauncher
@@ -71,9 +72,19 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    launcher = AppLauncher(args)
-    simulation_app = launcher.app
+    # Kit's vendor installation belongs to another UID. Keep private writable
+    # cache/data/log storage until both the environment and app have closed.
+    with tempfile.TemporaryDirectory(prefix="pai-isaac-play-", dir="/tmp") as root:
+        args.kit_args = f"{args.kit_args or ''} --portable --portable-root {root}".strip()
+        launcher = AppLauncher(args)
+        simulation_app = launcher.app
+        try:
+            _playback(args, simulation_app)
+        finally:
+            simulation_app.close()
 
+
+def _playback(args, simulation_app):
     import gymnasium as gym
     from rsl_rl.runners import OnPolicyRunner
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
@@ -108,58 +119,61 @@ def main():
         if hasattr(term, "debug_vis"):
             term.debug_vis = True
 
-    if args.video:
-        env_cfg.viewer.resolution = (1280, 720)
-        env = gym.make(args.task, cfg=env_cfg, render_mode="rgb_array")
-        # Frame env 0's arm from the front-right (env origins are spread on a grid).
-        origin = env.unwrapped.scene.env_origins[0].cpu().numpy()
-        env.unwrapped.sim.set_camera_view(
-            eye=tuple(origin + (1.0, 0.9, 0.65)), target=tuple(origin + (0.25, 0.0, 0.15)))
-        ckpt_stem = os.path.splitext(os.path.basename(args.checkpoint))[0]
-        video_dir = args.video_dir or os.path.join(os.path.dirname(os.path.abspath(args.checkpoint)), "videos")
-        env = gym.wrappers.RecordVideo(
-            env, video_folder=video_dir, step_trigger=lambda step: step == 0,
-            video_length=args.video_length, name_prefix=f"{args.task}_{ckpt_stem}", disable_logger=True)
-        print(f"Recording {args.video_length} steps to {video_dir}/")
-    else:
-        env = gym.make(args.task, cfg=env_cfg, render_mode="human")
-        # GUI 기본 카메라는 원점에서 7.5 m 떨어져 있어 팔이 점처럼 보인다. 환경 원점들의 중심을
-        # 앞쪽 위에서 내려다보도록 카메라를 옮겨 처음부터 팔이 보이게 한다 (뷰포트에서 마우스로 더 조정 가능).
-        origins = env.unwrapped.scene.env_origins.cpu().numpy()
-        center = origins.mean(axis=0)
-        spread = float((origins.max(axis=0) - origins.min(axis=0)).max())
-        dist = 0.8 * spread + 1.2
-        env.unwrapped.sim.set_camera_view(
-            eye=tuple(center + (dist, dist, 0.6 * dist)), target=tuple(center + (0.0, 0.0, 0.1)))
-    env = RslRlVecEnvWrapper(env)
+    env = None
+    try:
+        if args.video:
+            env_cfg.viewer.resolution = (1280, 720)
+            env = gym.make(args.task, cfg=env_cfg, render_mode="rgb_array")
+            # Frame env 0's arm from the front-right (env origins are spread on a grid).
+            origin = env.unwrapped.scene.env_origins[0].cpu().numpy()
+            env.unwrapped.sim.set_camera_view(
+                eye=tuple(origin + (1.0, 0.9, 0.65)), target=tuple(origin + (0.25, 0.0, 0.15)))
+            ckpt_stem = os.path.splitext(os.path.basename(args.checkpoint))[0]
+            video_dir = args.video_dir or os.path.join(os.path.dirname(os.path.abspath(args.checkpoint)), "videos")
+            env = gym.wrappers.RecordVideo(
+                env, video_folder=video_dir, step_trigger=lambda step: step == 0,
+                video_length=args.video_length, name_prefix=f"{args.task}_{ckpt_stem}", disable_logger=True)
+            print(f"Recording {args.video_length} steps to {video_dir}/")
+        else:
+            env = gym.make(args.task, cfg=env_cfg, render_mode="human")
+            # GUI 기본 카메라는 원점에서 7.5 m 떨어져 있어 팔이 점처럼 보인다. 환경 원점들의 중심을
+            # 앞쪽 위에서 내려다보도록 카메라를 옮겨 처음부터 팔이 보이게 한다 (뷰포트에서 마우스로 더 조정 가능).
+            origins = env.unwrapped.scene.env_origins.cpu().numpy()
+            center = origins.mean(axis=0)
+            spread = float((origins.max(axis=0) - origins.min(axis=0)).max())
+            dist = 0.8 * spread + 1.2
+            env.unwrapped.sim.set_camera_view(
+                eye=tuple(center + (dist, dist, 0.6 * dist)), target=tuple(center + (0.0, 0.0, 0.1)))
+        env = RslRlVecEnvWrapper(env)
 
-    print(f"Loading checkpoint: {args.checkpoint}")
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
-    runner.load(args.checkpoint)
-    policy = runner.get_inference_policy(device=env.unwrapped.device)
+        print(f"Loading checkpoint: {args.checkpoint}")
+        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+        runner.load(args.checkpoint)
+        policy = runner.get_inference_policy(device=env.unwrapped.device)
 
-    print(f"Playing: {args.task}  (envs: {args.num_envs})")
-    print("Close the Isaac Sim window, or Ctrl+C the job, to stop.")
+        print(f"Playing: {args.task}  (envs: {args.num_envs})")
+        print("Close the Isaac Sim window, or Ctrl+C the job, to stop.")
 
-    # rsl_rl 버전에 따라 get_observations()/step() 반환 형태가 다르다:
-    # 구버전은 (obs, extras) 튜플, 신버전(rsl_rl 3.x)은 obs 단독. 둘 다 지원한다.
-    def _obs_of(ret):
-        return ret[0] if isinstance(ret, tuple) else ret
+        # rsl_rl 버전에 따라 get_observations()/step() 반환 형태가 다르다:
+        # 구버전은 (obs, extras) 튜플, 신버전(rsl_rl 3.x)은 obs 단독. 둘 다 지원한다.
+        def _obs_of(ret):
+            return ret[0] if isinstance(ret, tuple) else ret
 
-    obs = _obs_of(env.get_observations())
-    step = 0
-    while simulation_app.is_running():
-        with torch.inference_mode():
-            actions = policy(obs)
-            obs = _obs_of(env.step(actions))
-        step += 1
-        if args.video and step >= args.video_length:
-            break
+        obs = _obs_of(env.get_observations())
+        step = 0
+        while simulation_app.is_running():
+            with torch.inference_mode():
+                actions = policy(obs)
+                obs = _obs_of(env.step(actions))
+            step += 1
+            if args.video and step >= args.video_length:
+                break
 
-    env.close()
+    finally:
+        if env is not None:
+            env.close()
     if args.video:
         print(f"Video written under {video_dir}/")
-    simulation_app.close()
 
 
 if __name__ == "__main__":
