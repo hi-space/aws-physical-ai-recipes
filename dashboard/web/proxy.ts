@@ -31,8 +31,8 @@ export default async function proxy(req: NextRequest) {
   if (!oidcData) return deny(req, 'Missing identity headers (request did not come through the ALB)');
   try {
     const region = process.env.AWS_REGION ?? 'us-east-1';
-    const id = await verifyAlbOidcData(oidcData, region, { expectedSigner: process.env.ALB_ARN || undefined });
-    const groups = await readGroupsFromAccessToken(accessToken, region, process.env.COGNITO_USER_POOL_ID || undefined);
+    const id = await verifyAlbOidcData(oidcData, region, { expectedSigner: process.env.ALB_ARN ?? '' });
+    const groups = await readGroupsFromAccessToken(accessToken, region, process.env.COGNITO_USER_POOL_ID ?? '');
     headers.set(SESSION_HEADERS.user, id.username ?? id.email ?? id.sub);
     headers.set(SESSION_HEADERS.email, id.email ?? '');
     headers.set(SESSION_HEADERS.role, roleFromGroups(groups));

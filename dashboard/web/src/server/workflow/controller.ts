@@ -57,13 +57,20 @@ export const realK8s: K8sPort = {
   queueState: async (ns, job) => workloadState(await workloadForJob(ns, job)),
 };
 
-export async function resolveCredentialFromSsm(ref: string): Promise<string> {
-  if (ref.startsWith('/')) {
-    const out = await ssm().send(new GetParameterCommand({ Name: ref, WithDecryption: true }));
-    if (out.Parameter?.Value === undefined) throw new Error(`SSM parameter ${ref} has no value`);
-    return out.Parameter.Value;
+/** SSM parameter path prefixes a workflow may reference as credentials. */
+export const CREDENTIAL_PREFIXES = ['/groot/', '/physical-ai/', '/pai/'] as const;
+
+export function assertCredentialRef(ref: string): void {
+  if (!CREDENTIAL_PREFIXES.some((p) => ref.startsWith(p)) || ref.includes('..')) {
+    throw badRequest(`credential ref ${ref} must be an SSM parameter path under ${CREDENTIAL_PREFIXES.join(', ')}`);
   }
-  return ref; // literal (discouraged; templates should use SSM paths)
+}
+
+export async function resolveCredentialFromSsm(ref: string): Promise<string> {
+  assertCredentialRef(ref);
+  const out = await ssm().send(new GetParameterCommand({ Name: ref, WithDecryption: true }));
+  if (out.Parameter?.Value === undefined) throw new Error(`SSM parameter ${ref} has no value`);
+  return out.Parameter.Value;
 }
 
 export function realDeps(): ControllerDeps {
@@ -100,11 +107,12 @@ export async function submitWorkflow(input: SubmitInput, deps: ControllerDeps = 
   await deps.k8s.ensureNamespace(namespace);
   await deps.k8s.ensureFsxPvc(namespace);
 
-  // Resolve dataset inputs up front so a missing dataset fails at submit time.
+  // Resolve dataset inputs and check credential refs up front so problems fail at submit time.
   for (const t of spec.workflow.tasks) {
     for (const i of t.inputs) {
       if ('dataset' in i) await resolveDatasetPath(deps.repo, i.dataset.name, i.dataset.version);
     }
+    for (const mapping of Object.values(t.credentials)) for (const ref of Object.values(mapping)) assertCredentialRef(ref);
   }
 
   const now = deps.now().toISOString();

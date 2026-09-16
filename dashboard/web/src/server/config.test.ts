@@ -3,16 +3,16 @@ import { fsxPathToS3, loadConfig } from './config';
 
 describe('loadConfig', () => {
   it('requires TABLE_NAME in alb mode', () => {
-    expect(() => loadConfig({ AUTH_MODE: 'alb' })).toThrow(/TABLE_NAME/);
+    expect(() => loadConfig({ AUTH_MODE: 'alb' } as unknown as NodeJS.ProcessEnv)).toThrow(/TABLE_NAME/);
   });
   it('tolerates a bare env in dev mode', () => {
-    const c = loadConfig({ AUTH_MODE: 'dev' });
+    const c = loadConfig({ AUTH_MODE: 'dev' } as unknown as NodeJS.ProcessEnv);
     expect(c.authMode).toBe('dev');
     expect(c.eks).toBeUndefined();
     expect(c.tableName).toBe('physical-ai-dashboard-dev');
   });
   it('treats empty strings as unset', () => {
-    const c = loadConfig({ AUTH_MODE: 'dev', DCV_INSTANCE_ID: '' });
+    const c = loadConfig({ AUTH_MODE: 'dev', DCV_INSTANCE_ID: '' } as unknown as NodeJS.ProcessEnv);
     expect(c.dcv).toBeUndefined();
   });
   it('builds the eks section only when all required keys exist', () => {
@@ -22,7 +22,7 @@ describe('loadConfig', () => {
       HYPERPOD_EKS_CLUSTER_NAME: 'hyperpod-eks-1',
       EKS_DATA_BUCKET: 'b',
       ACCOUNT_ID: '123',
-    });
+    } as unknown as NodeJS.ProcessEnv);
     expect(c.eks?.logGroupPrefix).toBe('/aws/sagemaker/Clusters/hyperpod-eks-1');
     expect(c.edge?.thingGroup).toBe('groot-123-group');
   });

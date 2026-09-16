@@ -188,6 +188,11 @@ describe('submit + reconcile', () => {
     await expect(submitWorkflow({ yaml: y, owner: 'alice' }, deps)).rejects.toThrow(/dataset nope does not exist/);
   });
 
+  it('rejects credential refs outside the allow-listed SSM prefixes', async () => {
+    const y = YAML_TEXT.replace('command: [echo, a]', 'command: [echo, a]\n      credentials: { hf: { HF_TOKEN: literal-token } }');
+    await expect(submitWorkflow({ yaml: y, owner: 'alice' }, deps)).rejects.toThrow(/must be an SSM parameter path/);
+  });
+
   it('resolves credentials into a Secret', async () => {
     const y = YAML_TEXT.replace('command: [echo, a]', 'command: [echo, a]\n      credentials: { hf: { HF_TOKEN: /groot/hf-token } }');
     const wf = await submitWorkflow({ yaml: y, owner: 'alice' }, deps);

@@ -10,7 +10,7 @@
  * The ALB JWT uses base64url with padding in some versions and a non-standard
  * header; `jose` handles both once the padding is stripped.
  */
-import { createRemoteJWKSet, decodeJwt, decodeProtectedHeader, importSPKI, jwtVerify } from 'jose';
+import { createRemoteJWKSet, decodeProtectedHeader, importSPKI, jwtVerify } from 'jose';
 
 export interface OidcIdentity {
   sub: string;
@@ -40,15 +40,14 @@ export function normalizeAlbJwt(jwt: string): string {
 export async function verifyAlbOidcData(
   jwt: string,
   region: string,
-  opts: { expectedSigner?: string; fetchKey?: KeyFetcher } = {},
+  opts: { expectedSigner: string; fetchKey?: KeyFetcher },
 ): Promise<OidcIdentity> {
+  if (!opts.expectedSigner) throw new Error('ALB signer (load balancer ARN) is not configured; refusing to accept identity headers');
   const token = normalizeAlbJwt(jwt);
   const header = decodeProtectedHeader(token) as { kid?: string; signer?: string; alg?: string };
   if (!header.kid) throw new Error('ALB JWT missing kid');
   if (header.alg !== 'ES256') throw new Error(`ALB JWT unexpected alg ${header.alg}`);
-  if (opts.expectedSigner && header.signer !== opts.expectedSigner) {
-    throw new Error('ALB JWT signer mismatch');
-  }
+  if (header.signer !== opts.expectedSigner) throw new Error('ALB JWT signer mismatch');
   const cacheKey = `${region}:${header.kid}`;
   let keyP = albKeyCache.get(cacheKey);
   if (!keyP) {
@@ -67,32 +66,30 @@ export async function verifyAlbOidcData(
   };
 }
 
-const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+const jwksCache = new Map<string, Jwks>();
+
+type Jwks = Parameters<typeof jwtVerify>[1];
 
 /**
- * Read Cognito groups from the access token. The token is verified against the
- * user pool JWKS when a pool id is provided; otherwise it is decoded only
- * (acceptable because the ALB has already validated it and we only trust the
- * request when x-amzn-oidc-data verified).
+ * Read Cognito groups from the access token after verifying its signature
+ * against the user pool JWKS. Fails closed: no pool id or no token → error.
+ * `opts.jwks` lets tests inject a local key.
  */
 export async function readGroupsFromAccessToken(
   accessToken: string,
   region: string,
-  userPoolId?: string,
+  userPoolId: string,
+  opts: { jwks?: Jwks } = {},
 ): Promise<string[]> {
-  if (!accessToken) return [];
-  let payload: Record<string, unknown>;
-  if (userPoolId) {
-    const issuer = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`;
-    let jwks = jwksCache.get(issuer);
-    if (!jwks) {
-      jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
-      jwksCache.set(issuer, jwks);
-    }
-    payload = (await jwtVerify(accessToken, jwks, { issuer })).payload as Record<string, unknown>;
-  } else {
-    payload = decodeJwt(accessToken) as Record<string, unknown>;
+  if (!accessToken) throw new Error('missing x-amzn-oidc-accesstoken');
+  if (!userPoolId) throw new Error('COGNITO_USER_POOL_ID is not configured; refusing to derive roles');
+  const issuer = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`;
+  let jwks = opts.jwks ?? jwksCache.get(issuer);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
+    jwksCache.set(issuer, jwks as ReturnType<typeof createRemoteJWKSet>);
   }
-  const g = payload['cognito:groups'];
+  const { payload } = await jwtVerify(accessToken, jwks, { issuer });
+  const g = (payload as Record<string, unknown>)['cognito:groups'];
   return Array.isArray(g) ? g.map(String) : [];
 }

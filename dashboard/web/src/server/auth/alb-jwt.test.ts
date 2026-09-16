@@ -26,10 +26,20 @@ describe('verifyAlbOidcData', () => {
 });
 
 describe('groups and roles', () => {
-  it('decodes cognito:groups without a pool id', async () => {
-    const { privateKey } = await generateKeyPair('ES256');
-    const jwt = await new SignJWT({ 'cognito:groups': ['researchers'] }).setProtectedHeader({ alg: 'ES256' }).sign(privateKey);
-    expect(await readGroupsFromAccessToken(jwt, 'us-east-1')).toEqual(['researchers']);
+  it('verifies the access token against the pool issuer and reads cognito:groups', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256');
+    const issuer = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc';
+    const jwt = await new SignJWT({ 'cognito:groups': ['researchers'] }).setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).sign(privateKey);
+    expect(await readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_abc', { jwks: publicKey })).toEqual(['researchers']);
+    await expect(readGroupsFromAccessToken(jwt, 'us-east-1', 'us-east-1_other', { jwks: publicKey })).rejects.toThrow();
+    await expect(readGroupsFromAccessToken(jwt, 'us-east-1', '')).rejects.toThrow(/not configured/);
+    await expect(readGroupsFromAccessToken('', 'us-east-1', 'us-east-1_abc')).rejects.toThrow(/missing/);
+  });
+  it('refuses to verify ALB data without an expected signer', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('ES256');
+    const pem = await exportSPKI(publicKey);
+    const jwt = await new SignJWT({ sub: 'x' }).setProtectedHeader({ alg: 'ES256', kid: 'k3', signer: 'arn:alb' } as never).sign(privateKey);
+    await expect(verifyAlbOidcData(jwt, 'us-east-1', { expectedSigner: '', fetchKey: async () => pem })).rejects.toThrow(/not configured/);
   });
   it('maps groups to roles', () => {
     expect(roleFromGroups(['admins', 'researchers'])).toBe('admin');
