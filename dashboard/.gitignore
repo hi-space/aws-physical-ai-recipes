@@ -1,0 +1,3 @@
+# The root .gitignore ignores lib/ (node build output); these are sources.
+!infra/lib/
+!web/src/lib/
