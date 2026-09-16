@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
 import * as assets from 'aws-cdk-lib/aws-ecr-assets';
 import { Construct } from 'constructs';
+import { optionalImageDefinitions, type OptionalWorkloadImages } from './optional-workload-images';
+export type { OptionalWorkloadImages } from './optional-workload-images';
 
 /** Stage only workload source so a UI edit does not rebuild every model image. */
 export function workloadContext(repositoryRoot: string): string {
@@ -36,8 +38,9 @@ export function workloadContext(repositoryRoot: string): string {
 
 export class WorkloadImages extends Construct {
   readonly environment: Record<string, string>;
-  constructor(scope: Construct, id: string, props: { repositoryRoot: string; extended?: boolean }) {
+  constructor(scope: Construct, id: string, props: { repositoryRoot: string; extended?: boolean; optionalImages?: OptionalWorkloadImages }) {
     super(scope, id);
+    const optional = optionalImageDefinitions(props.optionalImages, cdk.Stack.of(this).account, cdk.Stack.of(this).region);
     const context = workloadContext(props.repositoryRoot);
     this.environment = {};
     const images: Record<string, string> = {
@@ -51,6 +54,23 @@ export class WorkloadImages extends Construct {
       });
       this.environment[environmentName] = image.imageUri;
       new cdk.CfnOutput(this, `${name}Image`, { value: image.imageUri });
+    }
+    // Optional Dockerfiles never modify the context already hashed by default
+    // assets. Adding an optional image must not rebuild all default model images.
+    for (const definition of optional) {
+      const optionalContext = workloadContext(props.repositoryRoot);
+      if (definition.stagedDockerFile) {
+        const destination = path.join(optionalContext, definition.dockerFile);
+        fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o755 });
+        fs.copyFileSync(definition.stagedDockerFile, destination);
+        fs.chmodSync(destination, 0o644);
+      }
+      const image = new assets.DockerImageAsset(this, definition.name, {
+        directory: optionalContext, file: definition.dockerFile,
+        buildArgs: definition.buildArgs, platform: assets.Platform.LINUX_AMD64,
+      });
+      this.environment[definition.environment] = image.imageUri;
+      new cdk.CfnOutput(this, `${definition.name}Image`, { value: image.imageUri });
     }
     const workspace = new assets.DockerImageAsset(this, 'workspace', {
       directory: path.join(props.repositoryRoot, 'dashboard/session-image'),

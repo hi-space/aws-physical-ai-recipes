@@ -1,0 +1,2 @@
+This tiny source snapshot validates CodeBuild publication and immutable provenance.
+It is not a runnable model/workflow image and is not runtime-readiness evidence.
