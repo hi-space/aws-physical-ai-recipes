@@ -89,9 +89,29 @@ it('pins the actual version and full SHA of an owned S3 snapshot instead of foll
   const first = await provider.checkTarget(snapshotTarget, signal());
   expect(first.snapshot).toMatchObject({ versionId: 'old', sha256: createHash('sha256').update(bytes.old).digest('hex') });
   latest = 'newer';
-  expect((await provider.checkTarget(snapshotTarget, signal(), first.snapshot)).snapshot).toEqual(first.snapshot);
+  expect(await provider.checkTarget(snapshotTarget, signal(), first.snapshot)).toEqual(first);
   bytes.old = bytes.newer;
   await expect(provider.checkTarget(snapshotTarget, signal(), first.snapshot)).rejects.toThrow(/snapshot_identity/);
+});
+it.each(['GITHUB', 'S3'] as const)('preserves the registered %s job hash when stored target maps are reordered', async sourceType => {
+  const configured = parseBuildTargets(JSON.stringify([{ ...target, sourceType, ...(sourceType === 'S3' ? {
+    repositoryUrl: undefined, snapshotLocation: { bucket: 'source-bucket', key: 'source.zip' },
+  } : {}) }]), accountId, scope.region, [])[0];
+  if (sourceType === 'S3') {
+    project.source = { type: 'S3', location: 'source-bucket/source.zip', buildspec: sourceBuildspec };
+    const bytes = Buffer.from('PK\x03\x04source');
+    clients.s3 = { send: vi.fn(async (command: any) => command.constructor.name === 'HeadObjectCommand'
+      ? { VersionId: 'version-one', ContentLength: bytes.length }
+      : { VersionId: 'version-one', Body: Readable.from([bytes]) }) } as unknown as SourceBuildAwsClients['s3'];
+  }
+  const provider = createSourceBuildProvider(scope, clients);
+  const registered = await provider.checkTarget(configured, signal());
+  const stored = Object.fromEntries(Object.entries(configured).reverse()) as typeof configured;
+  if (stored.snapshotLocation) stored.snapshotLocation = { key: stored.snapshotLocation.key, bucket: stored.snapshotLocation.bucket };
+  expect(await provider.checkTarget(stored, signal(), registered.snapshot)).toEqual(registered);
+  // Ordering is immaterial; actual job identity changes still invalidate the binding.
+  project.vpcConfig = { vpcId: 'vpc-new', subnets: ['subnet-new'], securityGroupIds: ['sg-new'] };
+  expect((await provider.checkTarget(stored, signal(), registered.snapshot)).configurationHash).not.toBe(registered.configurationHash);
 });
 it('an unversioned S3 source is not an immutable registration', async () => {
   const snapshotTarget = { ...target, repositoryUrl: undefined, sourceType: 'S3' as const, snapshotLocation: { bucket: 'source-bucket', key: 'source.zip' } };

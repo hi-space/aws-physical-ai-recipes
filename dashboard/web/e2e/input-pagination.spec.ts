@@ -12,13 +12,13 @@ test('a real 65-file immutable dataset hydrates across runtime URL-plan pages', 
   researcher.datasets.push({ name });
   const version = await researcher.api<Version>('POST', `/api/datasets/${name}/versions`, { note: 'Crosses the 64-file runtime URL page' });
   const files = Array.from({ length: 65 }, (_, index) => index + 1);
-  for (let start = 0; start < files.length; start += 5) await Promise.all(files.slice(start, start + 5).map(async value => {
+  for (const value of files) {
     const key = `records/${String(value).padStart(3, '0')}.txt`, bytes = Buffer.from(`${value}\n`);
     const upload = await researcher.api<{ url: string }>('POST', `/api/datasets/${name}/upload-url`, {
-      version: version.version, key, contentType: 'text/plain',
+      version: version.version, filename: key, contentType: 'text/plain',
     });
     await researcher.signedTransfer('PUT', upload.url, bytes, 'text/plain');
-  }));
+  }
   await researcher.api('POST', `/api/datasets/${name}/versions/${version.version}`, { action: 'refresh-size' });
   const ready = await researcher.readyVersion(name, version.version);
   const image = process.env.DASHBOARD_E2E_CPU_IMAGE;

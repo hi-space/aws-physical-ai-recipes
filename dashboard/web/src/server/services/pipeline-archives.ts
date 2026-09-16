@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { resolveProject } from '../auth/projects';
 import { requireRole, type Session } from '../auth/session';
@@ -8,7 +9,7 @@ import type { Item } from '../store/dynamo';
 import { datasetGuard } from '../store/dataset-references';
 import { assertConsumableObjects } from '../data/limits';
 import { digest } from '../evaluations/evidence';
-import { SageMakerSources, sageMakerSources } from '../evaluations/sagemaker-source';
+import { SageMakerSources, sageMakerSources, retainSelectiveExecutionSources } from '../evaluations/sagemaker-source';
 import { S3PipelineArchiveStorage, type PipelineArchiveStorage } from '../evaluations/pipeline-storage';
 import { pipelineArchiveKey, pipelineExecutionKey, type PipelineArchiveRecord, type PipelineDatasetVersion, type PipelineProvenance } from '../evaluations/pipeline-types';
 import type { DatasetVersion } from '../store/types';
@@ -32,9 +33,9 @@ function item(record: PipelineArchiveRecord): Item {
 }
 const principal = (session: Session) => session.subject ?? session.user;
 function immutableProvenance(value: PipelineProvenance) {
-  return JSON.stringify({ ...value, ...(value.package ? { package: {
-    arn: value.package.arn, group: value.package.group, modelUri: value.package.modelUri,
-  } } : {}) });
+  if (!value.package) return value;
+  const { observedApprovalStatus: _mutableStatus, ...identity } = value.package;
+  return { ...value, package: identity };
 }
 
 export async function archivedPublication(repo: Repo, projectId: string, version: DatasetVersion) {
@@ -106,9 +107,18 @@ export class PipelineArchives {
     const project = await this.access(session, projectId, true);
     const record = await this.get(session, projectId, archiveId);
     if (record.ownerSubject !== principal(session) && session.role !== 'admin' && project.members[principal(session)] !== 'project-admin') throw forbidden('Only the archive owner or project administrator may retry it');
-    if (record.status !== 'FAILED') throw badRequest('Only a failed archive can be retried');
-    await this.d.repo.kv.transaction([{ kind: 'put', item: item({ ...record, status: 'PENDING', error: undefined, updatedAt: this.now() }),
-      condition: { equals: { status: 'FAILED' } } }]);
+    if (!['FAILED', 'CANCELLED'].includes(record.status)) throw badRequest('Only a failed or cancelled archive can be retried');
+    const key = pipelineArchiveKey(projectId, archiveId), holder = randomUUID();
+    if (!await this.d.repo.kv.acquireLease(key.pk, 'LEASE', holder, 120)) throw new HttpError(409, 'Archive cleanup is still active; retry after its lease is released');
+    try {
+      if (!await this.d.repo.kv.transaction([
+        { kind: 'check', pk: key.pk, sk: 'LEASE', condition: { equals: { holder }, after: { expires: Math.floor(Date.now() / 1000) } } },
+        { kind: 'put', item: item({ ...record, status: 'PENDING', error: undefined, updatedAt: this.now() }),
+          condition: { equals: { status: record.status } } },
+      ])) throw new HttpError(409, 'Archive changed before retry');
+    } finally {
+      await this.d.repo.kv.transaction([{ kind: 'delete', pk: key.pk, sk: 'LEASE', condition: { equals: { holder } } }]);
+    }
     return this.get(session, projectId, archiveId);
   }
   async cancel(session: Session, projectId: string, archiveId: string) {
@@ -148,10 +158,13 @@ export class PipelineArchives {
       if (!await this.d.repo.kv.transaction([{ kind: 'put', item: item(running), condition: { equals: { status: record.status } } }])) return;
       const origin = await this.ownedExecution(record.projectId, record.executionArn);
       const observed = { ...await this.d.sources.inspect(record.executionArn, record.trainingStep, record.reportSteps), ownerSubject: String(origin.ownerSubject) };
-      if (!record.provenance || immutableProvenance(observed) !== immutableProvenance(record.provenance)) throw badRequest('Backend provenance changed after the archive request');
+      if (!record.provenance) throw badRequest('Backend provenance changed after the archive request');
+      const provenance = retainSelectiveExecutionSources(record.provenance, observed);
+      // DynamoDB maps have no stable key order. Values and array order remain
+      // exact; only Registry approval status is a mutable observation.
+      if (!isDeepStrictEqual(immutableProvenance(observed), immutableProvenance(provenance))) throw badRequest('Backend provenance changed after the archive request');
       // Registry status can change independently; retain the explicitly dated
       // request observation and never promote it into a quality decision.
-      const provenance = record.provenance;
       await check();
       const archived = await this.d.storage.archive(provenance, record.projectId, record.id, record.createdAt, signal);
       await check();

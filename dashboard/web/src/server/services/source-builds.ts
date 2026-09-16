@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { requireRole, type Session } from '../auth/session';
 import { resolveProject, type Project, type ProjectRole } from '../auth/projects';
@@ -118,7 +119,7 @@ export function sourceBuildService(session: Session, d: SourceBuildDeps = source
     if (!target || targetHash(target) !== source.targetHash) throw new HttpError(409, 'Registered build configuration changed; register the current target again.');
     if (target.sourceType === 'S3' ? !!parsed.data.commit || !source.snapshot : !parsed.data.commit) throw badRequest('Git builds require a full commit; S3 builds use the registered immutable snapshot');
     const checked = await d.provider.checkTarget(target, signal, source.snapshot);
-    if (checked.configurationHash !== source.configurationHash || hashBuildValue(checked.snapshot) !== hashBuildValue(source.snapshot)) throw new HttpError(409, 'Source/job configuration changed; create a new immutable registration.');
+    if (checked.configurationHash !== source.configurationHash || !isDeepStrictEqual(checked.snapshot, source.snapshot)) throw new HttpError(409, 'Source/job configuration changed; create a new immutable registration.');
     await authorize(p, 'researcher');
     const at = new Date(d.now()).toISOString();
     for (let slot = 0; slot < 2; slot++) {
@@ -251,7 +252,7 @@ async function reconcileRun(id: string, signal: AbortSignal, d: SourceBuildDeps)
           await save({ state: 'START_UNCERTAIN', errorCode: 'start_unresolved_requires_attention' }); return;
         }
         const checked = await d.provider.checkTarget(row.target, ctl.signal, row.snapshot);
-        if (checked.configurationHash !== row.configurationHash || hashBuildValue(checked.snapshot) !== hashBuildValue(row.snapshot)) {
+        if (checked.configurationHash !== row.configurationHash || !isDeepStrictEqual(checked.snapshot, row.snapshot)) {
           if (!row.firstDispatchAt) await finish('FAILED', 'registration_configuration_changed');
           else await save({ state: 'START_UNCERTAIN', errorCode: 'registration_configuration_changed' });
           return;

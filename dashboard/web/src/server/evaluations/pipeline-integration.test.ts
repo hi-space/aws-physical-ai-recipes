@@ -10,6 +10,7 @@ import { validateDatasetInputs } from '../data/versions';
 import { PipelineArchives, reconcilePipelineArchives } from '../services/pipeline-archives';
 import { S3PipelineArchiveStorage } from './pipeline-storage';
 import * as sourceFactory from './sagemaker-source';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 
 let f: Awaited<ReturnType<typeof pipelineFixture>>;
 beforeEach(async () => {
@@ -17,6 +18,31 @@ beforeEach(async () => {
   clients.s3.mockReset().mockImplementation(command => f.storage.send(command));
   clients.sm.mockReset().mockImplementation(command => f.aws.send(command));
 });
+function reorderedDynamoMaps() {
+  const original = f.repo.kv.get.bind(f.repo.kv);
+  vi.spyOn(f.repo.kv, 'get').mockImplementation(async (...args) => {
+    const item = await original(...args);
+    if (!item) return item;
+    // Actual DynamoDB AttributeValue serialization, with map keys reordered at
+    // every depth. Lists deliberately retain their original order.
+    const wire = marshall(item, { removeUndefinedValues: true });
+    const reordered = JSON.parse(JSON.stringify(wire), (_key, value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+    return unmarshall(reordered) as typeof item;
+  });
+}
+function selectiveTraining(sourceArn: string) {
+  clients.sm.mockImplementation(async command => {
+    const result = await f.aws.send(command);
+    if (command.constructor.name === 'ListPipelineExecutionStepsCommand' && 'PipelineExecutionSteps' in result) {
+      Object.assign(result.PipelineExecutionSteps!.find(step => step.StepName === 'GR00TFinetune')!, {
+        SelectiveExecutionResult: { SourcePipelineExecutionArn: sourceArn },
+      });
+    }
+    return result;
+  });
+}
 async function archived(reports = ['SmokeEval']) {
   const requested = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune', reportSteps: reports });
   await f.archives.reconcile(requested);
@@ -72,6 +98,112 @@ async function closedLoop(model: Awaited<ReturnType<typeof registered>>['model']
 }
 
 describe('SageMaker → project model archive (fixture AWS clients, no live training)', () => {
+  it('accepts unchanged provenance after a real DynamoDB map-order round trip', async () => {
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune', reportSteps: ['SmokeEval'] });
+    reorderedDynamoMaps();
+    const stored = await f.archives.get(pipelineAdmin, 'a', request.id);
+    expect(JSON.stringify(stored.provenance)).not.toBe(JSON.stringify(request.provenance));
+    expect(stored.provenance).toEqual(request.provenance);
+    await f.archives.reconcile(stored);
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('READY');
+    expect(f.aws.commands.some(command => /Start|Stop|Update/.test(command.name))).toBe(false);
+  });
+  it('replays an existing S3 manifest after DynamoDB maps reorder without copying or rewriting it', async () => {
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune', reportSteps: ['SmokeEval'] });
+    vi.spyOn(f.repo, 'publishDatasetVersion').mockRejectedValueOnce(new Error('fixture crash after S3 commit'));
+    await f.archives.reconcile(request);
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('FAILED');
+    const key = `archive/projects/a/pipeline-archives/${request.id}/manifest.json`;
+    const before = { ...f.storage.objects.get(key)! };
+    const copies = f.storage.commands.filter(command => command.name === 'CopyObjectCommand').length;
+    reorderedDynamoMaps();
+    const retried = await f.archives.retry(pipelineAdmin, 'a', request.id);
+    await f.archives.reconcile(retried);
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('READY');
+    expect(f.storage.objects.get(key)).toEqual(before);
+    expect(f.storage.commands.filter(command => command.name === 'CopyObjectCommand')).toHaveLength(copies);
+  });
+  it.each([
+    ['definitionHash', 'changed-definition'],
+    ['completedAt', '2026-09-15T01:00:00.000Z'],
+    ['ownerSubject', 'different-owner'],
+    ['training.jobArn', 'another-job'],
+    ['training.image', 'another-image'],
+    ['training.artifactUri', 's3://source/another-model.tar.gz'],
+    ['training.inputs.0.uri', 's3://source/another-input/'],
+    ['training.inputs.0.verification', 'different-verification'],
+    ['reports.0.uri', 's3://source/another-report.json'],
+    ['reports.0.jobArn', 'another-report-job'],
+    ['package.arn', 'another-package'],
+    ['package.group', 'another-group'],
+    ['package.modelUri', 's3://source/another-package-model.tar.gz'],
+  ])('still rejects an actual %s change after map reordering', async (path, replacement) => {
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune', reportSteps: ['SmokeEval'] });
+    const key = pipelineArchiveKey('a', request.id), row = structuredClone((await f.repo.kv.get(key.pk, key.sk))!);
+    const parts = path.split('.'); let target = row.provenance as Record<string, any>;
+    for (const part of parts.slice(0, -1)) target = target[part];
+    target[parts.at(-1)!] = replacement;
+    await f.repo.kv.put(row); reorderedDynamoMaps();
+    await f.archives.reconcile(await f.archives.get(pipelineAdmin, 'a', request.id));
+    expect(await f.archives.get(pipelineAdmin, 'a', request.id)).toMatchObject({ status: 'FAILED', error: 'Backend provenance changed after the archive request' });
+    expect(f.storage.commands).toHaveLength(0);
+  });
+  it('keeps array order significant while ignoring only the mutable package approval observation', async () => {
+    clients.sm.mockImplementation(async command => {
+      const result = await f.aws.send(command);
+      if (command.constructor.name === 'DescribeTrainingJobCommand' && 'InputDataConfig' in result) {
+        result.InputDataConfig!.push({ ChannelName: 'validation', DataSource: { S3DataSource: { S3Uri: 's3://source/validation/', S3DataType: 'S3Prefix' } } });
+      }
+      return result;
+    });
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
+    const key = pipelineArchiveKey('a', request.id), row = structuredClone((await f.repo.kv.get(key.pk, key.sk))!);
+    (row.provenance as typeof request.provenance)!.training.inputs.reverse();
+    await f.repo.kv.put(row); reorderedDynamoMaps();
+    await f.archives.reconcile(await f.archives.get(pipelineAdmin, 'a', request.id));
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('FAILED');
+    await f.repo.kv.put({ ...row, status: 'FAILED', provenance: request.provenance });
+    f.aws.approval = 'Rejected';
+    await f.archives.reconcile(await f.archives.retry(pipelineAdmin, 'a', request.id));
+    const ready = await f.archives.get(pipelineAdmin, 'a', request.id);
+    expect(ready.status).toBe('READY');
+    expect(ready.provenance?.package?.observedApprovalStatus).toBe('Approved');
+    expect(f.aws.commands.some(command => command.name === 'UpdateModelPackageCommand')).toBe(false);
+  });
+  it('enriches an old receipt with the verified selective reuse source without inventing new training', async () => {
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
+    const originalTraining = structuredClone(request.provenance!.training);
+    const reusedFrom = executionArn.replace('/owned', '/historical');
+    selectiveTraining(reusedFrom); reorderedDynamoMaps();
+    await f.archives.reconcile(await f.archives.get(pipelineAdmin, 'a', request.id));
+    const ready = await f.archives.get(pipelineAdmin, 'a', request.id);
+    expect(ready.status).toBe('READY');
+    expect(ready.provenance!.training).toEqual({ ...originalTraining, selectiveExecutionSourceArn: reusedFrom });
+    const manifest = JSON.parse(f.storage.objects.get(`archive/projects/a/pipeline-archives/${request.id}/manifest.json`)!.body.toString());
+    expect(manifest.source.training.selectiveExecutionSourceArn).toBe(reusedFrom);
+    expect(f.aws.commands.some(command => /Start|Stop|Update/.test(command.name))).toBe(false);
+  });
+  it('never overwrites an already recorded selective source ARN and rejects foreign reuse', async () => {
+    selectiveTraining(executionArn.replace('/owned', '/historical'));
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
+    selectiveTraining(executionArn.replace('/owned', '/different'));
+    reorderedDynamoMaps();
+    await f.archives.reconcile(await f.archives.get(pipelineAdmin, 'a', request.id));
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('FAILED');
+    selectiveTraining(executionArn.replace('123456789012', '999999999999'));
+    await expect(f.sources.inspect(executionArn, 'GR00TFinetune')).rejects.toMatchObject({ status: 403 });
+  });
+  it('allows explicit retry of a cancelled archive only after the previous lease is released', async () => {
+    const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
+    await f.archives.cancel(pipelineAdmin, 'a', request.id);
+    const key = pipelineArchiveKey('a', request.id);
+    await f.repo.kv.acquireLease(key.pk, 'LEASE', 'old-worker', 120);
+    await expect(f.archives.retry(pipelineAdmin, 'a', request.id)).rejects.toMatchObject({ status: 409 });
+    expect(await f.repo.kv.get(key.pk, 'LEASE')).toMatchObject({ holder: 'old-worker' });
+    await f.repo.kv.del(key.pk, 'LEASE'); reorderedDynamoMaps();
+    await f.archives.reconcile(await f.archives.retry(pipelineAdmin, 'a', request.id));
+    expect((await f.archives.get(pipelineAdmin, 'a', request.id)).status).toBe('READY');
+  });
   it('does not acquire a lease or start an archive after shutdown', async () => {
     const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
     const shutdown = new AbortController(); shutdown.abort();

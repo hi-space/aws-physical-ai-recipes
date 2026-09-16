@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { s3 } from '../aws/clients';
 import { badRequest } from '../errors';
@@ -9,6 +10,7 @@ import { normalizeEvaluationReport, normalizeSmokeReport, safeRelativePath } fro
 import type { ObjectPin } from './types';
 import type { PipelineArchiveManifest, PipelineObjectSource, PipelineProvenance } from './pipeline-types';
 import { inputChecksumType } from '../runtime/checksums';
+import { retainSelectiveExecutionSources } from './sagemaker-source';
 
 export interface ArchivedPipeline {
   manifest: PipelineArchiveManifest; manifestPin: ObjectPin;
@@ -100,7 +102,7 @@ export class S3PipelineArchiveStorage implements PipelineArchiveStorage {
       const old = await this.open(`s3://${this.bucket}/${prefix}manifest.json`, signal, 8 * 1024 * 1024);
       const chunks: Buffer[] = []; for await (const chunk of old.chunks) chunks.push(Buffer.from(chunk));
       const sourcePin = old.source(), manifest = JSON.parse(Buffer.concat(chunks).toString('utf8')) as PipelineArchiveManifest;
-      if (manifest.identity !== identity || digest(JSON.stringify(manifest.source)) !== digest(JSON.stringify(source)) ||
+      if (manifest.identity !== identity || !isDeepStrictEqual(retainSelectiveExecutionSources(manifest.source, source), source) ||
           !manifest.objects.length || new Set(manifest.objects.map(file => file.path)).size !== manifest.objects.length) throw badRequest('Existing archive provenance mismatch');
       for (const object of manifest.objects) {
         if (object.bucket !== this.bucket || object.key !== prefix + safeRelativePath(object.path) || !version(object.versionId)) throw badRequest('Existing archive escapes its scope');

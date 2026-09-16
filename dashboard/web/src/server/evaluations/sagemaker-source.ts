@@ -5,6 +5,26 @@ import { digest } from './evidence';
 import { safeRelativePath } from './report';
 import type { PipelineJobSource, PipelineProvenance } from './pipeline-types';
 
+export interface SelectiveExecutionSource { selectiveExecutionSourceArn?: string }
+export type InspectedPipelineProvenance = PipelineProvenance & {
+  training: PipelineProvenance['training'] & SelectiveExecutionSource;
+  reports: (PipelineProvenance['reports'][number] & SelectiveExecutionSource)[];
+  package?: NonNullable<PipelineProvenance['package']> & SelectiveExecutionSource;
+};
+
+/** Older receipts did not record this AWS reuse fact. Enrich only the missing
+ * field; existing facts (including an existing reuse ARN) are never replaced.
+ * Callers must still compare every other value before adopting the result. */
+export function retainSelectiveExecutionSources(recorded: PipelineProvenance, observed: PipelineProvenance): InspectedPipelineProvenance {
+  const old = recorded as InspectedPipelineProvenance, fresh = observed as InspectedPipelineProvenance;
+  const enrich = <T extends object>(value: T & SelectiveExecutionSource, source?: SelectiveExecutionSource) =>
+    value.selectiveExecutionSourceArn === undefined && source?.selectiveExecutionSourceArn !== undefined
+      ? { ...value, selectiveExecutionSourceArn: source.selectiveExecutionSourceArn } : value;
+  return { ...old, training: enrich(old.training, fresh.training),
+    reports: old.reports.map((report, index) => enrich(report, fresh.reports[index])),
+    ...(old.package ? { package: enrich(old.package, fresh.package) } : {}) };
+}
+
 export type SageMakerSourceClient = Pick<typeof sm, 'describeExecution' | 'definitionForExecution' | 'describeTrainingJob' | 'describeProcessingJob' | 'describeModelPackage' | 'approveModelPackage'>;
 export interface SageMakerSourceScope { accountId: string; region: string; pipelineName: string; artifactBucket: string; packageGroup?: string }
 const nameOf = (arn: string) => arn.slice(arn.lastIndexOf('/') + 1);
@@ -35,7 +55,7 @@ export class SageMakerSources {
     const prefix = `arn:aws:sagemaker:${this.scope.region}:${this.scope.accountId}:${kind}-job/`;
     if (!arn.startsWith(prefix) || !/^[A-Za-z0-9-]+$/.test(arn.slice(prefix.length))) throw forbidden('Job ARN is outside the execution account');
   }
-  async inspect(arn: string, trainingStep: string, reportSteps: string[] = []): Promise<PipelineProvenance> {
+  async inspect(arn: string, trainingStep: string, reportSteps: string[] = []): Promise<InspectedPipelineProvenance> {
     this.assertExecution(arn);
     const [{ execution, steps }, definition] = await Promise.all([
       this.client.describeExecution(arn), this.client.definitionForExecution(arn),
@@ -45,6 +65,13 @@ export class SageMakerSources {
     let parsed: { Steps?: { Name: string; Type: string; Arguments?: unknown }[] };
     try { parsed = JSON.parse(definition.PipelineDefinition); } catch { throw badRequest('Executed pipeline definition is invalid'); }
     if (!Array.isArray(parsed.Steps)) throw badRequest('Executed pipeline has no step definitions');
+    const selectiveSource = (step: typeof steps[number]): SelectiveExecutionSource => {
+      const sourceArn = step.SelectiveExecutionResult?.SourcePipelineExecutionArn;
+      if (!sourceArn) return {};
+      this.assertExecution(sourceArn);
+      if (sourceArn === arn) throw badRequest('Selective execution cannot reuse itself');
+      return { selectiveExecutionSourceArn: sourceArn };
+    };
     const select = (name: string) => {
       const matches = steps.filter(step => step.StepName === name);
       if (matches.length !== 1 || matches[0].StepStatus !== 'Succeeded' || matches[0].CacheHitResult) {
@@ -61,13 +88,14 @@ export class SageMakerSources {
     const modelUri = job.ModelArtifacts.S3ModelArtifacts;
     sourceObject(modelUri, this.scope.artifactBucket);
     if (!modelUri.endsWith('.tar.gz')) throw badRequest('A model.tar.gz bundle is required; an unverified directory listing is not a model inventory');
-    const training: PipelineProvenance['training'] = {
+    const training: InspectedPipelineProvenance['training'] = {
       step: trainingStep, jobArn: trainingArn, jobType: 'training', image: job.AlgorithmSpecification.TrainingImage,
+      ...selectiveSource(train),
       completedAt: timestamp(job.TrainingEndTime), artifactUri: modelUri,
       inputs: (job.InputDataConfig ?? []).flatMap(channel => channel.DataSource?.S3DataSource?.S3Uri
         ? [{ channel: channel.ChannelName!, uri: channel.DataSource.S3DataSource.S3Uri, verification: 'backend-declared-uri' as const }] : []),
     };
-    const reports: PipelineProvenance['reports'] = [];
+    const reports: InspectedPipelineProvenance['reports'] = [];
     for (const stepName of reportSteps) {
       const step = select(stepName);
       let source: PipelineJobSource, uri: string;
@@ -96,16 +124,17 @@ export class SageMakerSources {
       if (!uri.endsWith('/evaluation.json') || !source.image || !source.inputs.some(input => input.uri === modelUri)) {
         throw badRequest('Report must be the completed job output for this exact model input URI');
       }
-      reports.push({ ...source, uri });
+      reports.push({ ...source, uri, ...selectiveSource(step) });
     }
     const packages = steps.filter(step => step.StepStatus === 'Succeeded' && step.Metadata?.RegisterModel?.Arn);
     if (packages.length > 1) throw badRequest('Multiple registered packages require an explicit pipeline profile');
-    let linked: PipelineProvenance['package'];
+    let linked: InspectedPipelineProvenance['package'];
     if (packages.length === 1) {
       if (packages[0].CacheHitResult) throw badRequest('Cached package ownership is unsupported');
       const packageArn = packages[0].Metadata!.RegisterModel!.Arn!;
       const result = await this.package(packageArn, modelUri);
-      linked = { arn: packageArn, group: this.scope.packageGroup!, modelUri, observedApprovalStatus: result.ModelApprovalStatus ?? 'Unknown' };
+      linked = { arn: packageArn, group: this.scope.packageGroup!, modelUri, observedApprovalStatus: result.ModelApprovalStatus ?? 'Unknown',
+        ...selectiveSource(packages[0]) };
     }
     return { executionArn: arn, pipelineName: this.scope.pipelineName, definitionHash: digest(definition.PipelineDefinition),
       completedAt: timestamp(execution.LastModifiedTime), training, reports, ...(linked ? { package: linked } : {}) };

@@ -4,7 +4,7 @@ import { CloudWatchLogsClient, GetLogEventsCommand } from '@aws-sdk/client-cloud
 import { S3Client, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
 import { inspectEcrImage, type ImageScope } from './ecr-inspection';
-import { canonicalGitUrl, hashBuildValue, outputTag, sourceBuildspec, sourceBuildspecHash, SourceBuildProviderError, builderCredentials, sourceLocation,
+import { canonicalGitUrl, hashBuildValue, outputTag, parseBuildTargets, sourceBuildspec, sourceBuildspecHash, SourceBuildProviderError, builderCredentials, sourceLocation,
   type SourceBuildProvider, type SourceBuildTarget, type SourceBuildRun, type BuildObservation, type SourceSnapshot } from '../services/source-builds-contract';
 
 export interface SourceBuildAwsClients {
@@ -117,6 +117,9 @@ export function createSourceBuildProvider(scope: ImageScope, clients?: SourceBui
   }
   return {
     async checkTarget(target, signal, pin) {
+      // Reconstruct the deployment schema's field order after a DynamoDB map read.
+      // This preserves existing registration hashes without rehashing durable IDs.
+      target = parseBuildTargets(JSON.stringify([target]), scope.accountId, scope.region, [])[0];
       const result = await call('build_project_unavailable', () => d.codeBuild.send(new BatchGetProjectsCommand({ names: [target.codeBuildProjectName] }), options(signal)));
       const project = result.projects?.find(value => value.name === target.codeBuildProjectName), env = project?.environment;
       const tags = Object.fromEntries((project?.tags ?? []).map(value => [value.key, value.value]));

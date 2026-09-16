@@ -51,7 +51,12 @@ test('submit the built-in custom workflow through the deployed API and wait for 
   await login(page);
   const result = await page.evaluate(async () => {
     const tpl = await (await fetch('/api/templates/custom')).json();
-    const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: tpl.yaml, overrides: { who: 'playwright' }, templateId: 'custom' }) });
+    const validation = await (await fetch('/api/workflows/validate', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ yaml: tpl.yaml, overrides: { who: 'playwright' } }) })).json();
+    if (!validation.ok) return { status: 422, body: validation };
+    const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      yaml: tpl.yaml, overrides: { who: 'playwright' }, templateId: 'custom', templateVersion: tpl.templateVersion, acknowledgePreflight: true,
+    }) });
     return { status: res.status, body: await res.json() };
   });
   expect(result.status, JSON.stringify(result.body)).toBe(202);

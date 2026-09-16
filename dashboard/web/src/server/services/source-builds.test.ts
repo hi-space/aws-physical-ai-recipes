@@ -128,6 +128,47 @@ it('S3 provenance pins its source version/hash and never invents a Git commit or
   expect(result.provenance?.commit).toBeUndefined();
   expect(result.provenance?.resolvedCommit).toBeUndefined();
 });
+const snapshotFixture = { bucket: 'source-bucket', key: 'source.zip', versionId: 'version-one', bytes: 100, sha256: 'c'.repeat(64) };
+function useSnapshotFixture() {
+  d.targets = () => [{ ...target, repositoryUrl: undefined, sourceType: 'S3', snapshotLocation: {
+    bucket: snapshotFixture.bucket, key: snapshotFixture.key,
+  } }];
+  d.provider.checkTarget = vi.fn(async () => ({ configurationHash: 'c'.repeat(64), snapshot: { ...snapshotFixture } }));
+}
+function reorderStoredMaps() {
+  const get = d.repo.kv.get.bind(d.repo.kv);
+  vi.spyOn(d.repo.kv, 'get').mockImplementation(async (...args) => {
+    const row = await get(...args);
+    return row && JSON.parse(JSON.stringify(row), (_key, value) => value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+  });
+}
+it.each(['request', 'worker'])('accepts unchanged S3 source after persisted maps reorder before %s verification', async boundary => {
+  useSnapshotFixture();
+  const source = await registration();
+  if (boundary === 'request') reorderStoredMaps();
+  const run = await sourceBuildService(user, d).start({ sourceId: source.id }, project, 'snapshot-map-order', signal());
+  if (boundary === 'worker') reorderStoredMaps();
+  await tick();
+  expect((await sourceBuildService(user, d).get(run.id, project)).state).toBe('RUNNING');
+  expect(d.provider.start).toHaveBeenCalledTimes(1);
+  expect(d.provider.start).toHaveBeenCalledWith(expect.objectContaining({ snapshot: snapshotFixture }), expect.any(AbortSignal));
+  const saved = await d.repo.kv.get('PROJECT#a', `SOURCE#${source.id}`);
+  expect(saved).toMatchObject({ id: source.id, configurationHash: source.configurationHash, contentHash: source.contentHash });
+});
+it.each([
+  ['bucket', 'another-bucket'], ['key', 'another.zip'], ['versionId', 'another-version'],
+  ['sha256', 'd'.repeat(64)], ['bytes', 101],
+] as const)('still rejects an actual S3 %s change before request or worker dispatch', async (field, value) => {
+  useSnapshotFixture();
+  const source = await registration();
+  const run = await sourceBuildService(user, d).start({ sourceId: source.id }, project, 'accepted-before-change', signal());
+  d.provider.checkTarget = vi.fn(async () => ({ configurationHash: source.configurationHash, snapshot: { ...snapshotFixture, [field]: value } }));
+  await expect(sourceBuildService(user, d).start({ sourceId: source.id }, project, 'rejected-after-change', signal())).rejects.toMatchObject({ status: 409 });
+  await tick();
+  expect((await sourceBuildService(user, d).get(run.id, project)).state).toBe('FAILED');
+  expect(d.provider.start).not.toHaveBeenCalled();
+});
 it('a later definitive retry error does not release an ambiguous earlier start as though no build exists', async () => {
   d.provider.start = vi.fn(async () => { throw new SourceBuildProviderError('start_reply_lost'); });
   const run = await start(); await tick();

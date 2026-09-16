@@ -64,7 +64,7 @@ proof = {"runId": os.environ["PAI_WORKFLOW_ID"], "bytes": observed, "sha256": di
 print("LARGE_CHECKPOINT_RESTORED", observed, flush=True)
 `;
   const workflow: CPUWorkflow = { name, task: 'transfer', dataset, yaml: YAML.stringify({ workflow: {
-    name, mlflow: false, resources: { cpu: { cpu: 1, memory: '2Gi', storage: '12Gi', gpu: 0,
+    name, mlflow: false, resources: { cpu: { cpu: 1, memory: '2Gi', gpu: 0,
       ...(process.env.DASHBOARD_E2E_CPU_PLATFORM ? { platform: process.env.DASHBOARD_E2E_CPU_PLATFORM } : {}) } },
     timeout: { queue_timeout: '8m', start_timeout: '5m', exec_timeout: '30m' },
     tasks: [{ name: 'transfer', resource: 'cpu', image, command: ['python', '-c'], args: [script],
