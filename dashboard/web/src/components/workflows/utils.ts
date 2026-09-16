@@ -12,6 +12,18 @@ export const PHASE_COLORS: Record<TaskPhase, string> = {
   SKIPPED: 'bg-gray-600',
 };
 
+/** Inline-style hex colours for React Flow nodes (Tailwind class names cannot be used as CSS values). */
+export const PHASE_HEX: Record<TaskPhase, string> = {
+  WAITING: '#475569',
+  QUEUED: '#d97706',
+  PENDING: '#b45309',
+  RUNNING: '#2563eb',
+  SUCCEEDED: '#059669',
+  FAILED: '#dc2626',
+  CANCELLED: '#475569',
+  SKIPPED: '#475569',
+};
+
 export const STATUS_COLORS: Record<WorkflowStatus, string> = {
   PENDING: 'bg-amber-600',
   RUNNING: 'bg-blue-500',

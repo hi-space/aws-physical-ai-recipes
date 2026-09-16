@@ -4,7 +4,7 @@ import { ReactFlow, ReactFlowProvider, Background, Controls, useReactFlow, useNo
 import '@xyflow/react/dist/style.css';
 import type { Task, TaskPhase } from '@/server/store/types';
 import type { WorkflowSpec } from '@/server/workflow/schema';
-import { PHASE_COLORS } from './utils';
+import { PHASE_HEX } from './utils';
 
 interface DagViewProps {
   spec: WorkflowSpec;
@@ -36,11 +36,11 @@ function DagViewInner({ spec, tasks, selectedTask, onSelectTask }: DagViewProps)
     for (const task of spec.workflow.tasks) {
       const pos = positions.get(task.name) || { x: 0, y: 0 };
       const runtimeTask = taskMap.get(task.name);
-      const phaseColor = runtimeTask ? PHASE_COLORS[runtimeTask.phase] : 'bg-gray-500';
+      const phaseColor = runtimeTask ? PHASE_HEX[runtimeTask.phase] : '#475569';
 
       nodes.push({
         id: task.name,
-        data: { label: task.name, phase: runtimeTask?.phase },
+        data: { label: `${task.name}${runtimeTask?.phase ? ` · ${runtimeTask.phase.toLowerCase()}` : ''}`, phase: runtimeTask?.phase },
         position: pos,
         style: {
           background: phaseColor,
