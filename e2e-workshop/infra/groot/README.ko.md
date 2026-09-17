@@ -27,7 +27,7 @@ npm install
 npm run deploy
 ```
 
-스택을 배포하면 GR00T 런타임 컨테이너 이미지(약 27GB)가 CodeBuild(`groot-runtime-build`)에서 자동으로 빌드됩니다. 약 30분 소요. SageMaker 학습 컨테이너는 빌드 프로젝트만 등록되며, `../../groot/training/scripts/trigger_build.py`로 별도 트리거합니다.
+스택을 배포하면 GR00T 런타임 컨테이너 이미지(약 27GB, `groot-runtime-build`)와 SageMaker 학습 컨테이너 이미지(`groot-sm-training-build`)가 CodeBuild에서 자동으로 빌드됩니다. 각각 약 30~40분 소요, 병렬로 진행. 두 프로젝트 모두 소스 디렉터리(`assets/`, `../../groot/training/container/`)를 S3 asset 으로 올리므로 그 안의 파일이 바뀌면 다음 `cdk deploy` 때 다시 빌드됩니다. 학습 Dockerfile 을 고친 뒤 배포 없이 재빌드하려면 `../../groot/training/scripts/trigger_build.py`를 씁니다.
 
 배포가 끝나면 GR00T 학습/추론 코드(`../../groot/`)가 사용하는 `config.yaml`을 갱신합니다:
 

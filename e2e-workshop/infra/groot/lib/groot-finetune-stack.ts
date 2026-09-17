@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as fsx from 'aws-cdk-lib/aws-fsx';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
 import { Construct } from 'constructs';
@@ -19,6 +20,8 @@ import { DeploymentProfile } from './deployment-profile';
 export const STUDIO_DOMAIN_ID_PARAMETER = '/groot-finetune/studio-domain-id';
 export const SM_TRAINING_REPO_NAME = 'groot-sm-training';
 export const SM_TRAINING_BUILD_PROJECT = 'groot-sm-training-build';
+/** codebuild-infra.ts 의 projectName 과 같아야 한다 (트리거 역할 ARN 계산용). */
+export const RUNTIME_BUILD_PROJECT = 'groot-runtime-build';
 
 export interface GrootFinetuneStackProps extends cdk.StackProps {
   /** 배포 대상 계정 ID (리소스 이름 접미사, 1인 1계정 전제). */
@@ -61,7 +64,8 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
  * 2-스택 구성을 1인 1계정 전제로 단일 스택으로 통합했다.
  *
  *   - GR00T 런타임 ECR + CodeBuild (배포 시 자동 트리거; 모듈 2/3/5 Policy Server 이미지)
- *   - SageMaker training ECR + CodeBuild (trigger_build.py가 소스 zip 업로드 후 빌드)
+ *   - SageMaker training ECR + CodeBuild (배포 시 자동 트리거; 모듈 4 Training Job 이미지.
+ *     Dockerfile 을 고친 뒤 재빌드할 때만 trigger_build.py 로 zip 업로드 후 빌드)
  *   - SageMaker Studio Domain + UserProfile (실행 역할은 단일 Notebook role)
  *   - S3 아티팩트 버킷 (+ 부모 FSx가 있을 때만 DRA /groot ↔ s3://<bucket>)
  *   - S3 Files 파일시스템 + 마운트 타깃 (기본 on; DCV 가 /mnt/s3/groot 로 NFS 마운트)
@@ -84,6 +88,31 @@ export class GrootFinetuneStack extends cdk.Stack {
     cdk.Tags.of(this).add('Project', 'GrootFinetune');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
 
+    // ---------- [0] CodeBuild 자동 트리거(startBuild) Lambda 의 공용 역할 ----------
+    // AwsCustomResource 는 스택당 singleton Lambda 를 공유하므로 실행 역할도 하나여야 한다.
+    // 두 프로젝트 이름은 고정 문자열이라 ARN 을 먼저 만들 수 있다 (생성 순서 의존 없음).
+    // 권한은 inlinePolicies 로 넣는다 — 별도 AWS::IAM::Policy 는 전파 전에 Lambda 가 호출될 수 있다
+    // (codebuild-infra.ts 주석 참고).
+    const buildTriggerRole = new iam.Role(this, 'BuildTriggerRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+      inlinePolicies: {
+        StartBuild: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['codebuild:StartBuild'],
+              resources: [
+                this.formatArn({ service: 'codebuild', resource: 'project', resourceName: RUNTIME_BUILD_PROJECT }),
+                this.formatArn({ service: 'codebuild', resource: 'project', resourceName: SM_TRAINING_BUILD_PROJECT }),
+              ],
+            }),
+          ],
+        }),
+      },
+    });
+
     // ---------- [1] GR00T 런타임 ECR + CodeBuild (auto-trigger build) ----------
     // 모듈 2의 Greengrass 추론과 모듈 3/5의 Policy Server가 공유하는 groot-runtime 이미지.
     const runtimeEcr = new EcrRepo(this, 'BatchEcr');
@@ -91,10 +120,13 @@ export class GrootFinetuneStack extends cdk.Stack {
       repository: runtimeEcr.repository,
       useStableGroot: props.useStableGroot,
       grootVersion: props.grootVersion,
+      triggerRole: buildTriggerRole,
     });
     runtimeCodeBuild.node.addDependency(runtimeEcr);
 
-    // ---------- [2] SageMaker training ECR + CodeBuild ----------
+    // ---------- [2] SageMaker training ECR + CodeBuild (auto-trigger build) ----------
+    // 모듈 4 SageMaker Training Job 이 쓰는 groot-sm-training 이미지. 런타임 이미지와 같이 배포
+    // 직후 빌드가 시작되어(~30~40분) 참가자가 모듈 3 §3.4 에서 기다리지 않게 한다.
     const smEcr = new TrainingEcr(this, 'SmEcr', {
       trainingRepoName: SM_TRAINING_REPO_NAME,
     });
@@ -108,7 +140,9 @@ export class GrootFinetuneStack extends cdk.Stack {
       role: smCodeBuildRole.role,
       trainingRepository: smEcr.trainingRepository,
       repositoryUrl: props.repositoryUrl ?? '',
+      autoTriggerRole: buildTriggerRole,
     });
+    smCodeBuild.node.addDependency(smEcr);
 
     // ---------- [3] S3 아티팩트 버킷 ----------
     const artifactsBucket = new ArtifactsBucket(this, 'ArtifactsBucket', {

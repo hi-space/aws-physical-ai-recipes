@@ -41,15 +41,19 @@ uv sync
 source .venv/bin/activate
 ```
 
-### 2) Build the container image
+### 2) Check the container image
 
-Trigger CodeBuild to build the training image:
+The training image (`groot-sm-training:latest`) is built automatically by CodeBuild (`groot-sm-training-build`) when the GrootFinetune stack is deployed (about 20–40 minutes because it includes flash-attn and other dependencies). Just confirm it is there:
+
+```bash
+aws ecr describe-images --repository-name groot-sm-training --query 'imageDetails[].imageTags'
+```
+
+Use the trigger script only when you edited `training/container/Dockerfile` and need a rebuild:
 
 ```bash
 python training/scripts/trigger_build.py --type training
 ```
-
-This takes about 20–40 minutes because it includes flash-attn and other dependencies.
 
 ### 3) Upload the dataset
 

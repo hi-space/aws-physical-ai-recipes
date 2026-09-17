@@ -10,10 +10,17 @@ version: 0.2
 #   USE_STABLE          true | false
 #   BASE_MODEL_PATH     예) nvidia/GR00T-N1.6-3B
 #   IMAGE_TAG           기본 latest
+#   DOCKERFILE_DIR      Dockerfile 이 있는 디렉터리(빌드 컨텍스트). 기본 "." — CDK 의 S3 asset 과
+#                       trigger_build.py 의 zip 모두 이 디렉터리(training/container)를 루트로 올린다.
+#                       GitHub 소스일 때만 e2e-workshop/groot/training/container 로 설정된다.
+#
+# 소스: GrootFinetune 스택이 배포 시 이 디렉터리를 S3 asset 으로 올려 빌드를 자동 시작한다.
+#       Dockerfile 을 고친 뒤 다시 빌드할 때는 training/scripts/trigger_build.py 를 쓴다.
 
 phases:
   pre_build:
     commands:
+      - DOCKERFILE_DIR=${DOCKERFILE_DIR:-.}
       - echo "ECR 인증 중..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
       - COMMIT_HASH=$(echo ${CODEBUILD_RESOLVED_SOURCE_VERSION:-local} | cut -c 1-8)
@@ -30,7 +37,7 @@ phases:
     commands:
       - echo "Docker 이미지 빌드 중..."
       - export DOCKER_BUILDKIT=1
-      - docker build --no-cache --file training/container/Dockerfile --build-arg GROOT_VERSION=${GROOT_VERSION} --build-arg USE_STABLE=${USE_STABLE} --build-arg BASE_MODEL_PATH=${BASE_MODEL_PATH} --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} .
+      - docker build --no-cache --file ${DOCKERFILE_DIR}/Dockerfile --build-arg GROOT_VERSION=${GROOT_VERSION} --build-arg USE_STABLE=${USE_STABLE} --build-arg BASE_MODEL_PATH=${BASE_MODEL_PATH} --tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${DOCKERFILE_DIR}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG_VERSIONED}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
       - docker tag ${IMAGE_REPO}:${IMAGE_TAG_VERSIONED} ${ECR_REGISTRY}/${IMAGE_REPO}:${GROOT_VERSION}

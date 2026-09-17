@@ -27,7 +27,7 @@ npm install
 npm run deploy
 ```
 
-Once the stack is deployed, the GR00T runtime container image (about 27GB) is automatically built by CodeBuild (`groot-runtime-build`). This takes about 30 minutes. Only the build project is registered for the SageMaker training container; it is triggered separately via `../../groot/training/scripts/trigger_build.py`.
+Once the stack is deployed, CodeBuild automatically builds both the GR00T runtime container image (about 27GB, `groot-runtime-build`) and the SageMaker training container image (`groot-sm-training-build`). Each takes about 30-40 minutes and they run in parallel. Both projects take their source directory (`assets/`, `../../groot/training/container/`) as an S3 asset, so changing a file there triggers a rebuild on the next `cdk deploy`. To rebuild the training image after editing its Dockerfile without redeploying, use `../../groot/training/scripts/trigger_build.py`.
 
 After the deployment finishes, update the `config.yaml` used by the GR00T training/inference code (`../../groot/`):
 

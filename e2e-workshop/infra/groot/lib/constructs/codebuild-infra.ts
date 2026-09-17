@@ -11,10 +11,17 @@ export interface CodeBuildInfraProps {
   repository: ecr.IRepository;
   useStableGroot?: boolean;
   grootVersion?: string;
+  /**
+   * 자동 트리거 커스텀 리소스 Lambda 의 실행 역할. 스택에 AwsCustomResource 가 여럿이면
+   * singleton Lambda 를 공유하므로 스택에서 하나 만들어 모든 construct 에 같은 것을 넘긴다.
+   * 생략하면 이 construct 가 groot-runtime-build 전용 역할을 만든다.
+   */
+  triggerRole?: iam.IRole;
 }
 
 export class CodeBuildInfra extends Construct {
   public readonly project: codebuild.Project;
+  public readonly triggerRole: iam.IRole;
 
   constructor(scope: Construct, id: string, props: CodeBuildInfraProps) {
     super(scope, id);
@@ -65,8 +72,9 @@ export class CodeBuildInfra extends Construct {
     // → 호출 순서로 두면 함수 생성 시간이 전파 시간을 덮는다.
     //
     // AwsCustomResource 는 스택당 Lambda 하나를 공유(singleton)하므로, 이 스택에 다른
-    // AwsCustomResource 를 추가할 때는 필요한 권한을 이 Role 의 inlinePolicies 에 함께 넣는다.
-    const triggerRole = new iam.Role(this, 'TriggerBuildRole', {
+    // AwsCustomResource 를 추가할 때는 스택에서 만든 공용 Role(props.triggerRole)을 쓰고
+    // 그 Role 의 inlinePolicies 에 모든 프로젝트의 StartBuild 권한을 함께 넣는다.
+    this.triggerRole = props.triggerRole ?? new iam.Role(this, 'TriggerBuildRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
@@ -82,6 +90,7 @@ export class CodeBuildInfra extends Construct {
         }),
       },
     });
+    const triggerRole = this.triggerRole;
 
     new cr.AwsCustomResource(this, 'TriggerBuild', {
       onCreate: {

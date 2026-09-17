@@ -41,15 +41,19 @@ uv sync
 source .venv/bin/activate
 ```
 
-### 2) 컨테이너 이미지 빌드
+### 2) 컨테이너 이미지 확인
 
-CodeBuild가 학습 이미지를 만들도록 트리거합니다:
+학습 이미지(`groot-sm-training:latest`)는 GrootFinetune 스택 배포 시 CodeBuild(`groot-sm-training-build`)가 자동으로 빌드합니다(flash-attn 등을 포함하므로 약 20–40분). 완료 여부만 확인합니다:
+
+```bash
+aws ecr describe-images --repository-name groot-sm-training --query 'imageDetails[].imageTags'
+```
+
+`training/container/Dockerfile`을 고친 뒤 다시 빌드할 때만 트리거 스크립트를 씁니다:
 
 ```bash
 python training/scripts/trigger_build.py --type training
 ```
-
-flash-attn 등을 포함하므로 약 20–40분 소요됩니다.
 
 ### 3) 데이터셋 업로드
 

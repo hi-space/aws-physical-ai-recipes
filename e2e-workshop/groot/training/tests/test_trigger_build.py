@@ -21,7 +21,7 @@ def test_groot_version_n17_passes_overrides():
             region="us-east-1",
             source_s3_bucket="bucket",
             source_s3_key="key.zip",
-            buildspec_path="training/container/buildspec.yml",
+            buildspec_path="buildspec.yml",
             environment_overrides=[
                 {"name": "GROOT_VERSION", "value": "n1.7", "type": "PLAINTEXT"},
                 {"name": "BASE_MODEL_PATH", "value": "nvidia/GR00T-N1.7-3B", "type": "PLAINTEXT"},
@@ -62,6 +62,26 @@ def test_resolve_project_names_explicit_and_fallback():
     assert names == {
         "training": "groot-sm-training-build",
     }
+
+
+def test_source_zip_layout_matches_cdk_asset():
+    """zip 루트에 Dockerfile/buildspec.yml 이 있어야 한다 (CDK S3 asset 과 같은 레이아웃).
+
+    CodeBuild 프로젝트의 buildspec 은 'buildspec.yml', DOCKERFILE_DIR 기본값은 '.' 이므로
+    trigger_build.py 가 올리는 zip 도 training/container 를 루트로 해야 같은 buildspec 으로 돈다.
+    """
+    import io
+    import zipfile
+
+    import trigger_build
+
+    data = trigger_build.build_source_zip(trigger_build.SOURCE_DIRS["training"])
+    names = set(zipfile.ZipFile(io.BytesIO(data)).namelist())
+    assert "Dockerfile" in names
+    assert "buildspec.yml" in names
+    assert trigger_build.BUILDSPEC_PATHS["training"] == "buildspec.yml"
+    assert not any(n.startswith("training/") for n in names)
+    assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
 
 
 def test_no_overrides_when_groot_version_omitted():
