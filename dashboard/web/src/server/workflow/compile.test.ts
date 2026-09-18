@@ -199,3 +199,38 @@ describe('helpers', () => {
     })).toBe('/o//b');
   });
 });
+
+describe('live view sidecar', () => {
+  const liveYaml = YAML_TEXT.replace('    - name: play', '    - name: watch\n      resource: cpu_train\n      image: python:3.11\n      command: [python, render.py]\n      live: true\n    - name: play');
+  const ctx = { workflowId: 'live1', owner: 'alice', namespace: 'hyperpod-ns-team-a', queue: 'hyperpod-ns-team-a-localqueue', datasetPaths: {}, credentialValues: {}, projectId: 'workshop', runtimeImage: 'trusted/runtime:fixed', liveImage: 'trusted/mujoco:fixed' };
+  it('adds a native MJPEG sidecar, shared frame volume and reserved port only for live tasks', () => {
+    const { spec } = parseWorkflowYaml(liveYaml);
+    const watch = spec.workflow.tasks.find(t => t.name === 'watch')!;
+    const pod = (compileTask(spec, watch, ctx).job as any).spec.template.spec;
+    const sidecar = pod.initContainers.find((c: any) => c.name === 'pai-live');
+    expect(sidecar).toMatchObject({ image: 'trusted/mujoco:fixed', restartPolicy: 'Always', securityContext: { runAsUser: 1000, readOnlyRootFilesystem: true, capabilities: { drop: ['ALL'] } } });
+    expect(sidecar.command.slice(0, 4)).toEqual(['python', '-I', '-B', '-c']);
+    expect(sidecar.command.slice(-2)).toEqual(['/pai/live', '8090']);
+    expect(sidecar.volumeMounts).toEqual([{ name: 'pai-live', mountPath: '/pai/live', readOnly: true }]);
+    expect(sidecar.env).toBeUndefined();
+    const main = pod.containers[0];
+    expect(main.volumeMounts).toContainEqual({ name: 'pai-live', mountPath: '/pai/live' });
+    expect(main.env).toContainEqual({ name: 'PAI_LIVE_DIR', value: '/pai/live' });
+    expect(main.ports).toContainEqual({ name: 'pai-live', containerPort: 8090, protocol: 'TCP' });
+    expect(pod.volumes).toContainEqual({ name: 'pai-live', emptyDir: { sizeLimit: '256Mi' } });
+    const plain = (compileTask(spec, spec.workflow.tasks[0], ctx).job as any).spec.template.spec;
+    expect(plain.initContainers?.some((c: any) => c.name === 'pai-live') ?? false).toBe(false);
+    expect(plain.containers[0].env.some((e: any) => e.name === 'PAI_LIVE_DIR')).toBe(false);
+  });
+  it('degrades to a plain task without a sidecar image, rejects placeholder images and reserves the pai-live port in YAML', () => {
+    const { spec } = parseWorkflowYaml(liveYaml);
+    const watch = spec.workflow.tasks.find(t => t.name === 'watch')!;
+    const degraded = (compileTask(spec, watch, { ...ctx, liveImage: undefined }).job as any).spec.template.spec;
+    expect(degraded.initContainers.some((c: any) => c.name === 'pai-live')).toBe(false);
+    expect(degraded.containers[0].env.some((e: any) => e.name === 'PAI_LIVE_DIR')).toBe(false);
+    expect(degraded.containers[0].ports.some((p: any) => p.name === 'pai-live')).toBe(false);
+    expect(() => compileTask(spec, watch, { ...ctx, liveImage: 'required://MUJOCO_IMAGE_URI' })).toThrow(/trusted/);
+    const reserved = YAML_TEXT.replace('command: [bash, -lc, "echo setup"]', 'command: [bash]\n      ports: [{ name: pai-live, containerPort: 8090 }]');
+    expect(() => parseWorkflowYaml(reserved)).toThrow(/pai-live/);
+  });
+});

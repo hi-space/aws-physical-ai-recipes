@@ -4,6 +4,7 @@ import type { Repo } from '../store/repo';
 import { GatewayError, type AuthOptions, type GatewaySession } from './types';
 import { assertTokenLaunchPrincipal, authorizeDerivedToken, hasTokenBinding, matchesTokenGrant, tokenGrantFields, type GatewayPrincipal } from './token-grants';
 import { backendId } from '../backends/registry';
+import { notConfigured } from '../errors';
 import { assertWorkflowBackend } from '../backends/binding';
 import { authorizeExecutionSession } from './execution-session';
 
@@ -16,8 +17,13 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 const token = () => randomBytes(32).toString('base64url');
 const context = (o: AuthOptions) => ({ repo: o.repo ?? getRepo(), now: o.now ?? Date.now });
 
+/** Session hosts (`<id>.apps.<domain>`) need a wildcard domain; deployments without one simply have no session features. */
+export function sessionHostsConfigured(options: AuthOptions = {}): boolean {
+  return Boolean(options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN);
+}
 export function baseDomain(options: AuthOptions = {}): string {
-  const domain = options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN ?? 'apps.physical-ai.hi-yoo.com';
+  const domain = options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN;
+  if (!domain) throw notConfigured('Session hosts (GATEWAY_BASE_DOMAIN)');
   if (domain.length > 190 || !domain.includes('.') || !domain.split('.').every((part) => labelPattern.test(part))) {
     throw new GatewayError(500, 'Invalid gateway domain configuration');
   }

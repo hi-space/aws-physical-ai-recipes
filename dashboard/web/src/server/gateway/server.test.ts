@@ -94,7 +94,7 @@ beforeEach(async () => {
     },
     exec: async () => { throw new Error('not used'); },
   };
-  gateway = await listen(createGatewayServer({ repo, transport, recheckMs: 20, assetDirectory }));
+  gateway = await listen(createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', transport, recheckMs: 20, assetDirectory }));
   const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
   cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
 });

@@ -25,7 +25,7 @@ async function terminal() {
   let callbacks: TerminalCallbacks;
   let closed = false;
   let target: GatewaySession | undefined;
-  const server = createGatewayServer({ repo, recheckMs: 20, transport: {
+  const server = createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', recheckMs: 20, transport: {
     connect: async () => { throw new Error('terminal must not use port-forward'); },
     exec: async (s, cb) => {
       callbacks = cb; target = s;

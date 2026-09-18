@@ -101,6 +101,26 @@ os.read = read_then_change
     expect(result.stderr).toContain('file changed while hashing');
     expect(result.stdout).toBe('');
   });
+  it('tolerates ctime-only changes during hashing (FSx export/HSM state flips) while keeping the bytes', () => {
+    const root = fixture(); writeFileSync(join(root, 'checkpoint'), 'original');
+    const chmodDuringRead = `
+import os, sys
+original_read = os.read
+changed = False
+def read_then_chmod(fd, size):
+    global changed
+    block = original_read(fd, size)
+    if block and not changed:
+        changed = True
+        os.chmod(os.path.join(sys.argv[1], "checkpoint"), 0o640)
+        os.chmod(os.path.join(sys.argv[1], "checkpoint"), 0o644)
+    return block
+os.read = read_then_chmod
+`;
+    const result = spawnSync('python3', ['-I', '-B', '-c', chmodDuringRead + INVENTORY_PYTHON, root, 'publication', 'x'], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('"path":"checkpoint"');
+  });
   it('verifies source ancestors before a narrow bind mount can hide their symlinks', () => {
     const project = fixture(), outside = fixture(), receipt = join(fixture(), 'receipt.json');
     writeFileSync(join(outside, 'secret'), 'private');

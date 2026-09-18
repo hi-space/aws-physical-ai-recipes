@@ -1,0 +1,16 @@
+# No custom domain: ALB DNS name + self-signed certificate, no session hosts.
+region                                = "us-east-1"
+name_prefix                           = "pai-nd-913524902871"
+domain_name                           = ""
+hosted_zone_id                        = ""
+cognito_domain_prefix                 = "physical-ai-nd-913524902871"
+admin_email                           = "admin@hi-yoo.com"
+workflow_pod_identity_service_account = "pai-workflow-nd"
+extended_images                       = false
+image_overrides = {
+  isaaclab = "<published isaaclab image uri>"
+  ros2     = "<published ros2 image uri>"
+}
+cognito_deletion_protection   = false
+secret_recovery_window_days   = 0
+artifact_bucket_force_destroy = true

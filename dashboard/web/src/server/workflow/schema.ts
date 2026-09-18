@@ -68,6 +68,8 @@ export const taskSchema = z.object({
     containerPort: z.number().int().min(1).max(65535),
     protocol: z.enum(['TCP', 'UDP']).default('TCP'),
   }).strict()).max(16).default([]),
+  /** Adds the trusted MJPEG sidecar; the recipe publishes JPEG frames to $PAI_LIVE_DIR/frame.jpg. */
+  live: z.boolean().default(false),
   environment: z.record(z.string(), z.string()).default({}),
   files: z.array(z.object({
     path: z.string().startsWith('/'),
@@ -211,6 +213,7 @@ export function validateSpec(spec: WorkflowSpec): string[] {
       const portNumbers = new Set<string>();
       for (const port of t.ports ?? []) {
         if (port.name === 'pai-files' || port.containerPort === 8077) throw new Error('port 8077 and pai-files are reserved for managed file access');
+        if (port.name === 'pai-live' || port.containerPort === 8090) throw new Error('port 8090 and pai-live are reserved for the live view sidecar');
         if (portNames.has(port.name) || portNumbers.has(`${port.protocol}:${port.containerPort}`)) throw new Error('duplicate task port');
         portNames.add(port.name);
         portNumbers.add(`${port.protocol}:${port.containerPort}`);

@@ -26,6 +26,8 @@ export interface ServiceConstructProps {
   namePrefix: string;
   cpu?: number;
   memoryMiB?: number;
+  controllerCpu?: number;
+  controllerMemoryMiB?: number;
   runtimeSigningSecret: secretsmanager.ISecret;
 }
 
@@ -111,6 +113,7 @@ export class ServiceConstruct extends Construct {
         ALB_ARN: this.loadBalancer.loadBalancerArn,
         COGNITO_USER_POOL_ID: props.userPool.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClient.userPoolClientId,
+        COGNITO_DOMAIN: `${props.userPoolDomain.domainName}.auth.${cdk.Stack.of(this).region}.amazoncognito.com`,
         DASHBOARD_ORIGIN: `https://${props.domainName}`,
         WORKFLOW_CONTROLLER: '0',
         PORT: '3000',
@@ -151,8 +154,9 @@ export class ServiceConstruct extends Construct {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       description: 'Physical AI workflow controller; separate from browser request handling',
     });
+    // Publication streams SHA-256 over every exported object before the S3 snapshot copy; CPU bound.
     const controllerTask = new ecs.FargateTaskDefinition(this, 'ControllerTask', {
-      cpu: 512, memoryLimitMiB: 1024, taskRole: this.controllerRole,
+      cpu: props.controllerCpu ?? 2048, memoryLimitMiB: props.controllerMemoryMiB ?? 4096, taskRole: this.controllerRole,
       runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.X86_64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX },
     });
     controllerTask.addContainer('controller', {

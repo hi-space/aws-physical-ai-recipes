@@ -1,0 +1,23 @@
+# A second, independent deployment next to an existing CDK stack in the same account.
+# Every named resource derives from name_prefix, so nothing collides with physical-ai-dashboard-<account>.
+region                = "us-east-1"
+name_prefix           = "pai-tf-913524902871"
+domain_name           = "tf.physical-ai.hi-yoo.com"
+hosted_zone_id        = "Z042232911ZVZ3YUUX7JL"
+cognito_domain_prefix = "physical-ai-tf-913524902871"
+admin_email           = "admin@hi-yoo.com"
+
+# The CDK stack already binds pai-workflow in these namespaces; a namespace/service-account pair
+# can carry only one Pod Identity association cluster-wide.
+workflow_pod_identity_service_account = "pai-workflow-tf"
+
+# Reuse already published workload images instead of rebuilding ~20 GB (optional).
+# image_overrides = {
+#   isaaclab = "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:<tag>"
+# }
+extended_images = false
+
+# Throwaway validation environment: allow a clean destroy.
+cognito_deletion_protection = false
+secret_recovery_window_days = 0
+artifact_bucket_force_destroy = true

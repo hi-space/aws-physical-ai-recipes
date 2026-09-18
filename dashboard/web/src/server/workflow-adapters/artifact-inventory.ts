@@ -84,7 +84,9 @@ root, identity, basename = sys.argv[1:4]
 lines, total, total_bytes = [], 0, 0
 digest = hashlib.sha256()
 def stable(s):
-    return (s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+    # ctime is excluded on purpose: FSx Lustre auto-export/HSM state changes touch ctime on freshly
+    # written files without changing their bytes; mtime, size and inode still catch real rewrites.
+    return (s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns)
 def emit_file(fd, path):
     global total, total_bytes
     if not path or len(path) > 2048 or any(ord(c) < 32 or ord(c) == 127 for c in path) or "\\" in path:

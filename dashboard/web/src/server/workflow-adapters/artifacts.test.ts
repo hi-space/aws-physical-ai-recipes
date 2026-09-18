@@ -148,6 +148,22 @@ describe('artifact publisher with existing AutoExport', () => {
     expect(mocks.s3.mock.calls.some(([command]) => command.constructor.name === 'ListObjectsV2Command')).toBe(false);
     expect(await artifactPublisher.publish(input)).toEqual(result);
   });
+  it('recreates a failed or vanished collector a bounded number of times before failing the publication', async () => {
+    await artifactPublisher.publish(input); expect(createCalls()).toBe(1);
+    job.status = { failed: 1 };
+    const retried = await artifactPublisher.publish(input);
+    expect(retried.state).toBe('pending'); expect((retried as { message: string }).message).toMatch(/retrying collector \(1\/3\)/);
+    expect(job).toBeUndefined();
+    await artifactPublisher.publish(input); expect(createCalls()).toBe(2); expect(job).toBeDefined();
+    // Job vanished without an inventory (TTL/garbage collection) counts as a failure too.
+    job = undefined;
+    const vanished = await artifactPublisher.publish(input);
+    expect((vanished as { message: string }).message).toMatch(/disappeared.*retrying collector \(2\/3\)/);
+    await artifactPublisher.publish(input); expect(createCalls()).toBe(3);
+    job.status = { failed: 1 };
+    await expect(artifactPublisher.publish(input)).rejects.toThrow(/3 collector attempts/);
+    expect(objects.has(manifestKey())).toBe(false);
+  });
   it('does not return READY while collector deletion is pending', async () => {
     await artifactPublisher.publish(input); finishCollector(); exportFiles(); holdCleanup = true;
     expect(await artifactPublisher.publish(input)).toMatchObject({ state: 'pending' });

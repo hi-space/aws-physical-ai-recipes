@@ -7,6 +7,7 @@ import type { Repo } from '../store/repo';
 import type { Workflow } from '../store/types';
 import { loadSnapshot } from '../storage/snapshots';
 import { safeDataPath } from './selection';
+import { contentTypeFor, previewKind } from './artifact-preview';
 import { assertConsumableObjects, assertTaskInputBudget } from './limits';
 export function versionNumber(value: string | number): number {
   const n=Number(value);if(!Number.isSafeInteger(n)||n<1||n>999999)throw badRequest('Invalid dataset version');return n;
@@ -49,15 +50,19 @@ export async function immutableFiles(repo:Repo,name:string,version:number,sub=''
   return {bucket:snap.bucket,prefix:snap.prefix+sub,entries:page,immutable:true,manifestHash:snap.hash,
     nextToken:offset+page.length<all.length?Buffer.from(JSON.stringify({name,version,hash:snap.hash,sub,offset:offset+page.length})).toString('base64url'):undefined};
 }
-export async function immutableDownload(repo:Repo,name:string,version:number,path:string,signal?:AbortSignal) {
+/** `inline` serves the pinned object for in-page viewing (Artifacts viewer): browser-renderable
+ * disposition plus an explicit content type, since exported objects are stored as octet-stream. */
+export async function immutableDownload(repo:Repo,name:string,version:number,path:string,signal?:AbortSignal,options:{inline?:boolean}={}) {
   if(!safeDataPath(path))throw badRequest('Invalid version-relative file');
   const snap=await pinnedDatasetManifest(repo,name,version,signal),o=snap.manifest.objects.find(o=>o.path===path);
   if(!o)throw notFound('file in this dataset version');
   const head=await s3().send(new HeadObjectCommand({Bucket:snap.bucket,Key:o.key,VersionId:o.versionId,ChecksumMode:'ENABLED'}),{abortSignal:signal});
   if(head.VersionId!==o.versionId||head.ContentLength!==o.bytes||head.ChecksumSHA256!==o.checksumSHA256||inputChecksumType(head.ChecksumType,head.ChecksumSHA256)!==o.checksumType)throw badRequest('Pinned file verification failed');
+  const filename=encodeURIComponent(path.split('/').pop()!);
   const url=await getSignedUrl(s3(),new GetObjectCommand({Bucket:snap.bucket,Key:o.key,VersionId:o.versionId,
-    ResponseContentDisposition:`attachment; filename*=UTF-8''${encodeURIComponent(path.split('/').pop()!)}`}),{expiresIn:300});
-  return {url,versionId:o.versionId,path:o.path,size:o.bytes,manifestHash:snap.hash,expiresIn:300};
+    ResponseContentDisposition:`${options.inline?'inline':'attachment'}; filename*=UTF-8''${filename}`,
+    ...(options.inline?{ResponseContentType:contentTypeFor(path)}:{})}),{expiresIn:300});
+  return {url,versionId:o.versionId,path:o.path,size:o.bytes,manifestHash:snap.hash,expiresIn:300,kind:previewKind(path)};
 }
 /** Parent may use this as an early validation hook; Repo also enforces certified metadata budgets. */
 export async function validateDatasetInputs(repo:Repo,wf:Workflow,signal?:AbortSignal) {

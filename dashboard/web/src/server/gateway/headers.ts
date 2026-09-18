@@ -64,8 +64,17 @@ export function isolatedCookies(cookies: string[] | undefined): string[] {
   });
 }
 
-export function downstreamHeaders(headers: IncomingHttpHeaders, host: string, websocket = false, requestPath = '/'): OutgoingHttpHeaders {
+/** `frameAncestors`: allow this exact origin (the dashboard) to embed the app in an iframe. The upstream's
+ * own X-Frame-Options/frame-ancestors are replaced; the app still runs on the isolated session origin. */
+export function downstreamHeaders(headers: IncomingHttpHeaders, host: string, websocket = false, requestPath = '/', frameAncestors?: string): OutgoingHttpHeaders {
   const out = cleaned(headers);
+  if (frameAncestors) {
+    if (!/^https:\/\/[a-z0-9.-]+$/i.test(frameAncestors)) throw new GatewayError(500, 'Invalid frame ancestor origin');
+    delete out['x-frame-options'];
+    const existing = ([] as string[]).concat(out['content-security-policy'] as string | string[] | undefined ?? [])
+      .flatMap(v => v.split(';')).map(v => v.trim()).filter(v => v && !/^frame-ancestors\b/i.test(v));
+    out['content-security-policy'] = [...existing, `frame-ancestors 'self' ${frameAncestors}`].join('; ');
+  }
   delete out['clear-site-data'];
   delete out['alt-svc'];
   delete out.refresh;

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { backendConfig as config } from '../backends/context';
-import { badRequest, forbidden, HttpError, notFound } from '../errors';
+import { badRequest, forbidden, HttpError, notConfigured, notFound } from '../errors';
 import * as hp from '../aws/hyperpod';
 import { assertWritableNamespace, K8sError, k8sGetOrNull, k8sJson } from '../k8s/client';
 import { createJob, getJob, getPod, listPods, managedLabels, type Job, type Pod, type Meta } from '../k8s/resources';
@@ -9,7 +9,7 @@ import { getRepo, type Repo } from '../store/repo';
 import type { Session, Workflow } from '../store/types';
 import type { Session as Principal } from '../auth/session';
 import { resolveProject, type Project } from '../auth/projects';
-import { issueLaunchTicket } from '../gateway/auth';
+import { issueLaunchTicket, sessionHostsConfigured } from '../gateway/auth';
 import type { GatewaySession, AuthOptions } from '../gateway/types';
 import { assertTokenLaunchPrincipal, assertTokenRequestProject, authorizeDerivedToken, hasTokenBinding, tokenBindingForPrincipal } from '../gateway/token-grants';
 import { currentBackend, runOnBackend, assertBackendReady } from '../backends/context';
@@ -233,6 +233,7 @@ function sharedHostNetwork(wf: Workflow, taskName: string, pod: SessionPod): boo
 
 export async function createManagedSession(raw: CreateSessionInput, principal: Principal, suppliedProject: Project, deps = defaults()): Promise<Session> {
   const parsed = createSessionSchema.safeParse(raw); if (!parsed.success) throw badRequest('Invalid session request', parsed.error.issues);
+  if (!sessionHostsConfigured()) throw notConfigured('Session hosts (GATEWAY_BASE_DOMAIN)');
   const input = parsed.data, ownerSubject = subject(principal);
   assertTokenRequestProject(principal, suppliedProject.id);
   const project = await resolveProject(principal, suppliedProject.id, deps.repo, 'researcher');

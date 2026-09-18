@@ -131,6 +131,8 @@ export interface ControllerDeps {
   /** Trusted executable available in the workload image; --contract JSON -- user argv. */
   runtimeCommand?: string;
   runtimeImage?: string;
+  /** Trusted MJPEG sidecar image for `live: true` tasks. */
+  liveImage?: string;
   runtimeEnvironment?: (workflow: Workflow, task: TaskSpec, epoch: string, attempt: number) => Record<string, string>;
   /** Final pre-create approval-head check; throw to veto. No image rewriting. */
   validateTaskPolicy?: (workflow: Workflow, task: TaskSpec) => Promise<void>;

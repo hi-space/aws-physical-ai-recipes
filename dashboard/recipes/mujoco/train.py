@@ -9,7 +9,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import VecNormalize
 
-from common import TASK, alias_bundle, load_bundle, make_env, save_bundle, write_json
+from common import LiveFrames, TASK, alias_bundle, load_bundle, make_env, save_bundle, write_json
 from runtime_resume import runtime_resume_bundle
 
 
@@ -59,7 +59,8 @@ def main():
     resume = Path(args.resume) if args.resume else runtime_resume_bundle(output, args.task)
     resume_source = "explicit" if args.resume else "runtime" if resume else "fresh"
     torch.set_num_threads(1)
-    raw = make_env(args.task, args.num_envs, args.seed)
+    live = LiveFrames()  # dashboard live view; renders only when a frame is due
+    raw = make_env(args.task, args.num_envs, args.seed, render=live.enabled)
     parent = None
     if resume:
         checkpoint, parent = load_bundle(resume, args.task)
@@ -105,6 +106,8 @@ def main():
             self.last = model.num_timesteps
 
         def _on_step(self):
+            if live.due():
+                live.publish(env.venv.envs[0].render())
             if model.num_timesteps - self.last >= args.checkpoint_every:
                 self.save()
             return not stop_requested

@@ -105,7 +105,8 @@ export function SessionsPage() {
   const liveCount = sessions.data?.filter((s) => s.status !== 'CLOSED').length ?? 0;
   return <>
     <PageHeader title="시뮬레이션·개발 세션" />
-    {me.data?.role === 'admin' && <DcvBrowserCard />}
+    {me.data?.features?.sessions === false && <ErrorBox className="mb-5" error={{ message: '이 배포에는 세션 호스트 도메인(GATEWAY_BASE_DOMAIN)이 설정되지 않아 앱·터미널·파일·DCV 세션을 열 수 없습니다. 도메인을 구성한 뒤 다시 배포하세요.' }} />}
+    {me.data?.role === 'admin' && me.data?.features?.sessions !== false && <DcvBrowserCard />}
     <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
       <p className="max-w-2xl text-sm text-fg-muted">Open a personal research workspace or connect to one of your running tasks. Workspaces use your project queue and close when their time expires.</p>
       {can(me.data, 'researcher') && <Button variant="primary" onClick={() => { setShowCreate(true); setError(undefined); }}>New session</Button>}

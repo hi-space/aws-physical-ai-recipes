@@ -50,7 +50,7 @@ async function setup(options: GatewayOptions = {}, behavior: 'immediate' | 'slow
   upstream = httpsServer({ key, cert: ca }, (_req, res) => { requests++; res.end('connected'); });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
   const target = (): DcvUpstream => ({ url: new URL(`https://127.0.0.1:${(upstream!.address() as AddressInfo).port}`), ca, servername: 'localhost', close: () => { closed++; } });
-  gateway = createGatewayServer({ repo, ...options, getDcvUpstream: async (_session, context) => {
+  gateway = createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', ...options, getDcvUpstream: async (_session, context) => {
     signal = context.signal; entered();
     if (behavior === 'slow') await sleep(90);
     if (behavior === 'held') await held; // Deliberately ignores abort to verify late-acquisition cleanup.

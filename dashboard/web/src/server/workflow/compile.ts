@@ -1,6 +1,7 @@
 import { assertPlan, placementAffinity, TOPOLOGY_ANNOTATION } from './topology/affinity';
 import type { TopologyPlan } from './topology/types';
 import { storageLayout, assertProjectInput, assertInputMount, workloadSecurity, type SharedReadOnlyPath } from './storage-layout';
+import { LIVE_DIR, liveMainMount, livePort, liveSidecar, liveVolume } from './live-view';
 import { createHash } from 'node:crypto';
 import { assertEnvironment, assertInjectionPath, assertSafePath, shellQuote } from './validation';
 import { config } from '../config';
@@ -25,6 +26,8 @@ export interface CompileContext {
   taskOutputPaths?: Record<string, string>;
   runtimeCommand?: string;
   runtimeImage?: string;
+  /** Trusted Python image for the `live: true` MJPEG sidecar (MUJOCO_IMAGE_URI); never from YAML. */
+  liveImage?: string;
   runtimeEnvironment?: Record<string, string>;
   epoch?: string;
   sharedReadOnlyPaths?: SharedReadOnlyPath[];
@@ -320,6 +323,15 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
       mounts.push({ name, mountPath: mount.mountPath, readOnly: mount.readOnly });
     });
   }
+  // Without a trusted sidecar image the task still runs; the recipe's frame publisher is a no-op
+  // because PAI_LIVE_DIR is absent, and the UI reports that live view is not configured.
+  const live = task.live === true && !!ctx.liveImage;
+  if (live) {
+    volumes.push(liveVolume());
+    mounts.push(liveMainMount());
+    env.push({ name: 'PAI_LIVE_DIR', value: LIVE_DIR });
+    initContainers.push(liveSidecar(ctx.liveImage!));
+  }
   const needsRuntime = usesRuntime(task, ctx, !!ctx.group);
   const runtimeCommand = ctx.runtimeCommand ?? (ctx.runtimeImage ? '/opt/pai/runtime' : undefined);
   if (needsRuntime && ctx.runtimeImage) {
@@ -607,6 +619,7 @@ export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileCont
               ports: [
                 ...(task.ports ?? []).filter((port) => port.name !== 'pai-files' && port.containerPort !== 8077),
                 ...(needsRuntime && !executionProfile?.policy.hostNetwork ? [{ name: 'pai-files', containerPort: 8077, protocol: 'TCP' }] : []),
+                ...(live ? [livePort()] : []),
               ],
             resources: {
               requests,

@@ -6,9 +6,9 @@ import { secrets, ssm } from '../aws/clients';
 import { getRepo } from '../store/repo';
 import { requireRole, type Session as Principal } from '../auth/session';
 import { resolveProject } from '../auth/projects';
-import { badRequest, HttpError, notFound } from '../errors';
+import { badRequest, HttpError, notConfigured, notFound } from '../errors';
 import type { Session } from '../store/types';
-import { issueLaunchTicket } from '../gateway/auth';
+import { issueLaunchTicket, sessionHostsConfigured } from '../gateway/auth';
 import type { GatewaySession } from '../gateway/types';
 
 export interface DcvRegistration {
@@ -58,6 +58,7 @@ export async function reconcileDcvSetup() {
   }
 }
 export async function createDcvBrowserSession(principal: Principal, projectId: string, minutes = 60) {
+  if (!sessionHostsConfigured()) throw notConfigured('Session hosts (GATEWAY_BASE_DOMAIN)');
   requireRole(principal, 'admin'); // imported workshop host carries shared operator privileges
   if (!principal.subject) throw new HttpError(401, 'Verified identity required');
   const project = await resolveProject(principal, projectId, getRepo(), 'researcher');

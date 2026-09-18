@@ -38,7 +38,7 @@ async function setup(change: (target: DcvUpstream) => DcvUpstream = (t) => t) {
   tls.listen(0, '127.0.0.1'); await once(tls, 'listening');
   let closed = 0;
   let received: GatewaySession | undefined;
-  gateway = createGatewayServer({ repo, getDcvUpstream: async (s) => {
+  gateway = createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', getDcvUpstream: async (s) => {
     received = s;
     return change({ url: new URL(`https://127.0.0.1:${(tls.address() as AddressInfo).port}`), ca, servername: 'localhost', close: () => { closed++; } });
   } });

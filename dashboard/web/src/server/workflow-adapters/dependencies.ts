@@ -29,6 +29,7 @@ export function productionControllerDeps(): ControllerDeps {
     cleanupCheckpointUploads: cleanupRuntimeUploads,
     artifactBucket: process.env.DASHBOARD_ARTIFACT_BUCKET,
     runtimeImage: process.env.TASK_RUNTIME_IMAGE,
+    liveImage: process.env.MUJOCO_IMAGE_URI,
     runtimeCommand: '/opt/pai/runtime',
     runtimeEnvironment: (workflow, task, epoch, attempt) => {
       const environment = runtimeEnvironment(workflow, task, epoch, attempt);

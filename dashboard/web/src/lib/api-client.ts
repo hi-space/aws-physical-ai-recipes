@@ -86,7 +86,7 @@ export interface Me {
   role: 'admin' | 'researcher' | 'viewer';
   region: string;
   accountId: string;
-  features: Record<'eks' | 'slurm' | 'amp' | 'mlflow' | 'pipeline' | 'dcv' | 'fsx' | 'edge' | 'cognito', boolean>;
+  features: Record<'eks' | 'slurm' | 'amp' | 'mlflow' | 'pipeline' | 'dcv' | 'fsx' | 'edge' | 'cognito' | 'sessions', boolean>;
   clusters: { eks?: string; slurm?: string; eksName?: string };
   buckets: { data?: string; artifacts?: string };
   defaultNamespace: string;

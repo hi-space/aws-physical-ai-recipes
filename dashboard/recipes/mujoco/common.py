@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import time
 
 import gymnasium as gym
 import mujoco
@@ -86,3 +87,35 @@ def alias_bundle(source, output, name):
     source, output = Path(source), Path(output)
     shutil.copyfile(source / "model.zip", output / f"model_{name}.zip")
     shutil.copyfile(source / "vecnormalize.pkl", output / f"vecnormalize_{name}.pkl")
+
+
+class LiveFrames:
+    """Dashboard live view: publish JPEG frames to $PAI_LIVE_DIR/frame.jpg (atomic rename, rate limited).
+    A no-op when the workflow task was not compiled with `live: true`."""
+
+    def __init__(self, max_fps=10.0):
+        self.dir = os.environ.get("PAI_LIVE_DIR") or None
+        self.interval = 1.0 / max_fps
+        self.last = 0.0
+        self.count = 0
+        if self.dir:
+            Path(self.dir).mkdir(parents=True, exist_ok=True)
+
+    @property
+    def enabled(self):
+        return self.dir is not None
+
+    def due(self):
+        return self.enabled and time.monotonic() - self.last >= self.interval
+
+    def publish(self, frame):
+        if not self.due():
+            return False
+        import imageio.v2 as imageio
+        target = Path(self.dir) / "frame.jpg"
+        temporary = target.with_name("frame.tmp.jpg")
+        imageio.imwrite(temporary, frame, quality=80)
+        os.replace(temporary, target)
+        self.last = time.monotonic()
+        self.count += 1
+        return True

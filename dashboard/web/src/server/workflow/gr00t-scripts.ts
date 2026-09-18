@@ -32,6 +32,7 @@ ap.add_argument("--steps", type=int, default=150)
 ap.add_argument("--action-horizon", type=int, default=16)
 ap.add_argument("--max-mse", type=float, default=0.0, help="gate threshold on mean open-loop MSE; 0 = record only")
 ap.add_argument("--language", default="pick the orange")
+ap.add_argument("--modality-config", default="", help="python file registering the embodiment modality config; default <dataset>/modality_config.py")
 args = ap.parse_args()
 
 out = Path(args.output)
@@ -65,9 +66,11 @@ def pick_model_dir(root: str) -> str:
 try:
     model_dir = pick_model_dir(args.model_root)
     report["model_path"] = model_dir
-    cfg = os.path.join(args.dataset, "modality_config.py")
+    cfg = args.modality_config or os.path.join(args.dataset, "modality_config.py")
     if os.path.isfile(cfg):
         runpy.run_path(cfg)  # registers the NEW_EMBODIMENT modality config, same as launch_finetune
+    else:
+        print(f"warning: no modality config at {cfg}; relying on the model's saved embodiment config")
     import numpy as np
     import torch
     from gr00t.data.embodiment_tags import EmbodimentTag
@@ -107,13 +110,39 @@ try:
     from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
     from gr00t.eval import open_loop_eval as ole
 
-    loader = LeRobotEpisodeLoader(dataset_path=args.dataset, modality_configs=modality, video_backend="torchcodec", video_backend_kwargs=None)
+    stats_path = os.path.join(args.dataset, "meta", "stats.json")
+    if not os.path.isfile(stats_path):
+        # The dataset copy is fresh (task inputs are read-only); regenerate the normalization statistics
+        # the episode loader asserts on, exactly as launch_finetune did before training.
+        from gr00t.data import stats as gr00t_stats
+        print("meta/stats.json missing; generating dataset statistics")
+        try:
+            gr00t_stats.main(args.dataset, tag)
+        except TypeError:
+            gr00t_stats.generate_stats(args.dataset)
+        print("stats generated:", os.path.isfile(stats_path))
+    loader = None
+    for backend in ("torchcodec", "decord", "torchvision_av"):
+        try:
+            loader = LeRobotEpisodeLoader(dataset_path=args.dataset, modality_configs=modality, video_backend=backend, video_backend_kwargs=None)
+            print("video backend:", backend)
+            break
+        except Exception as e:  # noqa: BLE001  (backend not installed in this image)
+            print(f"video backend {backend} unavailable: {type(e).__name__}: {e}")
+    if loader is None:
+        raise RuntimeError("no usable video backend for LeRobotEpisodeLoader")
+    try:
+        import matplotlib  # noqa: F401
+        plots_ok = True
+    except Exception:  # noqa: BLE001
+        plots_ok = False
+        print("matplotlib unavailable; skipping trajectory plots")
     n = min(args.trajectories, len(loader))
     per = []
     for i in range(n):
         plot = out / "plots" / f"traj_{i}.jpeg"
-        mse, mae = ole.evaluate_single_trajectory(policy, loader, i, tag, None, steps=args.steps, action_horizon=args.action_horizon, save_plot_path=str(plot))
-        per.append({"trajectory": i, "mse": float(mse), "mae": float(mae), "plot": str(plot)})
+        mse, mae = ole.evaluate_single_trajectory(policy, loader, i, tag, None, steps=args.steps, action_horizon=args.action_horizon, save_plot_path=str(plot) if plots_ok else None)
+        per.append({"trajectory": i, "mse": float(mse), "mae": float(mae), "plot": str(plot) if plots_ok else None})
         print(f"trajectory {i}: mse={float(mse):.6f} mae={float(mae):.6f}")
     mse_mean = float(np.mean([p["mse"] for p in per])) if per else None
     mae_mean = float(np.mean([p["mae"] for p in per])) if per else None

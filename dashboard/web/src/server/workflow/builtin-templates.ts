@@ -3,6 +3,7 @@ import YAML from 'yaml';
 import { getRepo } from '../store/repo';
 import type { Template, TemplateParam } from '../store/types';
 import { parseWorkflowYaml } from './template';
+import { GR00T_EVAL_PY } from './gr00t-scripts';
 
 export interface RecipeMetadata {
   revision: string;
@@ -75,14 +76,14 @@ const gpuMetadata = (contract: string, sources: string[], artifacts: string[], p
 });
 const mujocoParams = () => [image('MUJOCO_IMAGE_URI'), seed(), P('total_steps', "추가 PPO 학습 step 수", '200000', 'number'),
   P('num_envs', "병렬 환경 수", '4', 'number'), P('checkpoint_every', "체크포인트 저장 주기 (steps)", '10000', 'number'), resume()];
-const mujocoTrain = (): TaskDefinition => ({ name: 'train', resource: 'cpu', image: '{{ image }}', command: ['python', '/opt/recipes/mujoco/train.py'],
+const mujocoTrain = (): TaskDefinition => ({ name: 'train', resource: 'cpu', image: '{{ image }}', live: true, command: ['python', '/opt/recipes/mujoco/train.py'],
   args: ['--output-dir', '{{output}}', '--seed', '{{ seed }}', '--total-steps', '{{ total_steps }}', '--num-envs', '{{ num_envs }}',
     '--checkpoint-every', '{{ checkpoint_every }}', '--resume', '{{ resume }}'],
   environment: { MUJOCO_GL: 'osmesa', MUJOCO_MENAGERIE_DIR: '/opt/mujoco_menagerie', OMP_NUM_THREADS: '1' },
   checkpoint: [{ path: '{{output}}', url: 'auto', frequency: '30s', regex: '^(final|checkpoints/step-[0-9]+)/(model\\.zip|vecnormalize\\.pkl|manifest\\.json)$' }],
   retry: { max_retries: 1 },
   exitActions: { COMPLETE: 0, RESCHEDULE: 75 }, outputs: published('mujoco-checkpoints') });
-const mujocoEval = (pipeline = false): TaskDefinition => ({ name: 'evaluate', resource: 'cpu', image: '{{ image }}',
+const mujocoEval = (pipeline = false): TaskDefinition => ({ name: 'evaluate', resource: 'cpu', image: '{{ image }}', live: true,
   command: ['python', '/opt/recipes/mujoco/evaluate.py'],
   args: ['--checkpoint', pipeline ? '{{input:0}}/final' : '{{input:0}}/{{ checkpoint_bundle }}', '--output-dir', '{{output}}',
     '--seed', '{{ eval_seed }}', '--episodes', '{{ episodes }}'],
@@ -102,6 +103,13 @@ const sdgTask = (imageParam = 'image'): TaskDefinition => ({ name: 'generate', r
   environment: isaacEnv, outputs: published('replicator-sdg') });
 const sceneParams = () => [P('scene', "이미지 안의 USD 장면 경로", '/opt/workshop/src/workshop/robots/usd/so_arm101.usd'),
   P('frames', "모달리티별 프레임 수", '32', 'number'), seed()];
+/** SO-101 key mapping the pinned so101_modality.py expects at <dataset>/meta/modality.json (from e2e-workshop/groot/training/data/configs). */
+const SO101_MODALITY_JSON = JSON.stringify({
+  state: { single_arm: { start: 0, end: 5 }, gripper: { start: 5, end: 6 } },
+  action: { single_arm: { start: 0, end: 5 }, gripper: { start: 5, end: 6 } },
+  video: { front: { original_key: 'observation.images.front' }, wrist: { original_key: 'observation.images.wrist' } },
+  annotation: { 'human.task_description': { original_key: 'task_index' } },
+}, null, 2) + '\n';
 const grootPrereqs = [imagePrereq('GROOT_RUNTIME_IMAGE_URI'), gpuPrereq, modelPrereq,
   { kind: 'mlflow', reason: "MLflow를 사용하려면 추적 서버·접근 역할과 학습 Python 환경의 sagemaker-mlflow 플러그인이 필요합니다." }];
 
@@ -411,6 +419,47 @@ export const BUILTIN_TEMPLATES: Template[] = [
       { kind: 'network', reason: "같은 그룹·시도의 policy task DNS를 사용합니다. TCP 5555로 연결할 수 있어야 합니다." },
       { kind: 'hardware', reason: "tar.gz 모델을 사용할 때 policy 컨테이너의 로컬 임시 디스크에 압축 해제된 모델 전체가 들어갈 공간이 필요합니다." },
     ]), evaluationType: 'closed_loop' } }),
+  recipe({ id: 'gr00t-e2e', title: "GR00T VLA 파이프라인: 데이터 → 파인튜닝 → 평가 (GPU DAG)", category: 'training', mlflow: true,
+    description: "워크숍 가이드 순서를 EKS DAG로 실행합니다. HF 데이터 가져오기·v2.1 변환·SO-101 modality 배치(CPU) → GR00T N1.6.1 파인튜닝(1 GPU, MLflow loss) → 스모크·open-loop MSE 평가와 플롯(GPU). 각 단계 결과는 데이터셋으로 게시되어 Artifacts 탭에서 바로 볼 수 있고, 모델 등록은 모델·평가 화면에서 진행합니다.",
+    params: [image('MUJOCO_IMAGE_URI', 'data_image'), image('GROOT_RUNTIME_IMAGE_URI'),
+      P('hf_dataset_id', "HF 데이터셋 ID", 'LightwheelAI/leisaac-pick-orange'), P('revision', "HF 데이터 revision", 'main'),
+      P('base_model', "사용 권한이 있는 기본 모델", 'nvidia/GR00T-N1.6-3B'), seed(),
+      P('max_steps', "목표 학습 step 수", '300', 'number'), P('save_steps', "체크포인트 저장 주기 (steps)", '300', 'number'),
+      P('batch_size', "전체 배치 크기", '16', 'number'), P('grad_accum', "gradient accumulation 단계 수", '2', 'number'),
+      P('diffusion_flag', "diffusion head 학습 플래그", '--no-tune-diffusion-model', 'string', "24 GB GPU는 --no-tune-diffusion-model, 48 GB 이상은 --tune-diffusion-model. 단일 argv 단어로 전달됩니다."),
+      P('eval_trajectories', "open-loop 평가 trajectory 수", '3', 'number'), P('eval_steps', "trajectory당 평가 step 수", '150', 'number'),
+      P('max_mse', "평가 게이트 MSE 상한 (0 = 기록만)", '0', 'number'), P('language', "평가용 언어 지시", 'pick the orange')],
+    resources: { cpu, gpu: { cpu: 12, memory: '96Gi', gpu: 1, platform: 'ml.g5.8xlarge', shm_size: '16Gi' } },
+    tasks: [
+      // Shell scripts below are fixed text; every template parameter arrives as an argv word ("$1", "$@"),
+      // so overrides are never parsed by the shell.
+      { name: 'import', resource: 'cpu', image: '{{ data_image }}', command: ['bash', '-c',
+          'set -euo pipefail; python /opt/recipes/data/hf_import.py --repo-id "$1" --revision "$2" --output-dir "$3" && cp /tmp/gr00t/so101_modality.json "$3/dataset/meta/modality.json" && echo "modality.json staged for NEW_EMBODIMENT (SO-101)"', 'pai-import'],
+        args: ['{{ hf_dataset_id }}', '{{ revision }}', '{{output}}'],
+        files: [{ path: '/tmp/gr00t/so101_modality.json', contents: SO101_MODALITY_JSON, mode: 0o644 }],
+        outputs: [...published('gr00t-e2e-dataset', '{{output}}/dataset'), { logs: '{{output}}/dataset-manifest.json' }] },
+      // GR00T writes meta/stats.json next to the dataset while task inputs are mounted read-only, so both GPU
+      // steps work on a local copy of the (~1 GB) LeRobot dataset on the node's ephemeral disk.
+      { name: 'finetune', resource: 'gpu', image: '{{ image }}', command: ['bash', '-c',
+          'set -euo pipefail; cp -r "$1" /tmp/dataset; out="$2"; shift 2; python /opt/recipes/groot/train.py "$@"; cp /tmp/dataset/meta/stats.json "$out/dataset_stats.json"', 'pai-finetune'],
+        args: ['{{input:0}}/dataset', '{{output}}', '--output-dir', '{{output}}', '--seed', '{{ seed }}', '--resume', '', '--base-model-path', '{{ base_model }}',
+          '--dataset-path', '/tmp/dataset', '--embodiment-tag', 'NEW_EMBODIMENT', '--modality-config-path', '/opt/recipes/groot/so101_modality.py',
+          '--max-steps', '{{ max_steps }}', '--save-steps', '{{ save_steps }}', '--save-total-limit', '1', '--global-batch-size', '{{ batch_size }}',
+          '--gradient-accumulation-steps', '{{ grad_accum }}', '--dataloader-num-workers', '4', '--num-gpus', '1', '{{ diffusion_flag }}'],
+        inputs: [{ task: 'import' }], environment: { HF_HOME: '/tmp/hf', MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: 'true' },
+        outputs: published('gr00t-e2e-checkpoints') },
+      { name: 'evaluate', resource: 'gpu', image: '{{ image }}', command: ['bash', '-c',
+          'set -euo pipefail; cp -r "$1" /tmp/dataset; if [ -f "$2/dataset_stats.json" ]; then cp "$2/dataset_stats.json" /tmp/dataset/meta/stats.json; fi; shift 2; exec python /tmp/gr00t/eval_gr00t.py "$@"', 'pai-evaluate'],
+        args: ['{{input:1}}/dataset', '{{input:0}}', '--model-root', '{{input:0}}', '--dataset', '/tmp/dataset', '--output', '{{output}}', '--embodiment-tag', 'NEW_EMBODIMENT',
+          '--modality-config', '/opt/recipes/groot/so101_modality.py', '--trajectories', '{{ eval_trajectories }}', '--steps', '{{ eval_steps }}',
+          '--max-mse', '{{ max_mse }}', '--language', '{{ language }}'],
+        files: [{ path: '/tmp/gr00t/eval_gr00t.py', contents: GR00T_EVAL_PY, mode: 0o755 }],
+        inputs: [{ task: 'finetune' }, { task: 'import' }], environment: { HF_HOME: '/tmp/hf' },
+        outputs: published('gr00t-e2e-evaluation') },
+    ],
+    metadata: { ...gpuMetadata('groot', [source.groot, source.workshop], ['dataset/', 'checkpoint-*/', 'training.json', 'evaluation.json', 'plots/*.jpeg'],
+      [imagePrereq('MUJOCO_IMAGE_URI', 'data_image'), ...grootPrereqs,
+        { kind: 'dataset-access', reason: "공개 HF 데이터셋과 공개 기본 모델을 기본값으로 사용합니다. 비공개 자원은 자격증명 참조를 추가하세요." }]) } }),
   distributedCpuRecipe(),
 ];
 

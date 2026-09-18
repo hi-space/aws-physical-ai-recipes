@@ -9,7 +9,7 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
 
-from common import TASK, load_bundle, make_env, write_json
+from common import TASK, LiveFrames, load_bundle, make_env, write_json
 
 
 def main():
@@ -33,6 +33,7 @@ def main():
     env.training, env.norm_reward = False, False
     model = PPO.load(checkpoint / "model.zip", env=env, device="cpu")
     latencies, episodes = [], []
+    live = LiveFrames()
     try:
         for episode in range(args.episodes):
             env.seed(args.seed + episode)
@@ -41,7 +42,9 @@ def main():
             with imageio.get_writer(output / video, fps=20, codec="libx264", macro_block_size=1) as writer:
                 while True:
                     # Capture the current physics state before SB3 auto-resets terminal episodes.
-                    writer.append_data(env.venv.envs[0].render())
+                    frame = env.venv.envs[0].render()
+                    writer.append_data(frame)
+                    live.publish(frame)
                     started = time.perf_counter()
                     action, _ = model.predict(obs, deterministic=True)
                     latencies.append((time.perf_counter() - started) * 1000)
@@ -68,6 +71,7 @@ def main():
         "checkpointDigest": metadata["sha256"]["model.zip"],
         "normalizationDigest": metadata["sha256"]["vecnormalize.pkl"],
         "simulator": metadata["simulator"], "videoUri": episodes[0]["videoUri"], "episodes": episodes,
+        "liveFramesPublished": live.count,
     })
 
 

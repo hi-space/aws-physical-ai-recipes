@@ -35,7 +35,9 @@ export function route<P extends Record<string, string> = Record<string, string>>
       return NextResponse.json(result ?? { ok: true });
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
-      const message = status >= 500 ? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.' : e instanceof Error ? e.message : String(e);
+      // 5xx bodies stay generic except deployment-configuration gaps, which are safe and actionable to show.
+      const configurationGap = e instanceof HttpError && e.code === 'not_configured';
+      const message = status >= 500 && !configurationGap ? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.' : e instanceof Error ? e.message : String(e);
       if (status >= 500) console.error(`[api] ${req.method} ${req.nextUrl.pathname}`, e);
       if (session && req.method !== 'GET') void audit(session, action, targetOf(params, req), 'error', message);
       return NextResponse.json({ error: message, code: e instanceof HttpError ? e.code : 'internal', details: e instanceof HttpError ? e.details : undefined }, { status });

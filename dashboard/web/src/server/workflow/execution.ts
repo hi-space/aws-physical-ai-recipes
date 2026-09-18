@@ -80,6 +80,7 @@ async function context(wf: Workflow, ts: TaskSpec, task: Task, all: Task[], deps
     taskOutputPaths: Object.fromEntries(all.filter(t => t.outputPath).map(t => [t.name, t.outputPath!])),
     runtimeCommand: deps.runtimeCommand,
     runtimeImage: deps.runtimeImage,
+    liveImage: deps.liveImage,
     epoch: task.attemptEpoch,
     runtimeEnvironment: deps.runtimeEnvironment?.(wf, ts, task.attemptEpoch!, task.attempts),
     sharedReadOnlyPaths: deps.sharedReadOnlyPaths?.(wf, ts),

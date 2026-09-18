@@ -10,6 +10,7 @@ import { TaskTable } from '@/components/workflows/TaskTable';
 import { DagView } from '@/components/workflows/DagView';
 import { LogViewer } from '@/components/workflows/LogViewer';
 import { TaskConnections } from '@/components/workflows/TaskConnections';
+import { ArtifactViewer } from '@/components/workflows/ArtifactViewer';
 import { cloneWorkflowYaml } from '@/components/workflows/clone';
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
 import { RunUsagePanel } from '@/components/usage/UsageSummary';
@@ -119,7 +120,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
     { id: 'logs', label: 'Logs' },
     { id: 'events', label: 'Events' },
     ...(me.data?.features.amp ? [{ id: 'metrics' as const, label: 'Metrics' }] : []),
-    { id: 'outputs', label: 'Outputs' },
+    { id: 'outputs', label: 'Artifacts' },
     { id: 'spec', label: 'Spec' },
   ];
 
@@ -257,29 +258,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
             )
           )}
           {tab === 'outputs' && (
-            tasks.some((t) => t.publishedVersions && t.publishedVersions.length > 0) ? (
-              <div className="space-y-4">
-                {tasks
-                  .filter((t) => t.publishedVersions && t.publishedVersions.length > 0)
-                  .map((t) => (
-                    <div key={t.name}>
-                      <h3 className="text-sm font-medium mb-2">{t.name}</h3>
-                      <div className="space-y-1">
-                        {t.publishedVersions?.map((v) => (
-                          <div key={v.dataset} className="text-sm">
-                            <a href={`/datasets/${v.dataset}`} className="text-blue-400 hover:text-blue-300">
-                              {v.dataset}
-                            </a>
-                            <span className="text-gray-400"> v{v.version}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <EmptyState title="No outputs" hint="This workflow has not published any dataset versions." />
-            )
+            <ArtifactViewer workflowId={id} selectedTask={selectedTask} onSelectTask={setSelectedTask} running={!isTerminal} />
           )}
           {tab === 'spec' && (
             <div className="space-y-4">

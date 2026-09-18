@@ -9,10 +9,11 @@ const workflow: ConnectionWorkflow = { id: 'run-a', projectId: 'team-a', ownerSu
 const task: ConnectionTask = { workflowId: 'run-a', name: 'train', phase: 'RUNNING', attempts: 2, outputPath: '/fsx/checkpoints/projects/team-a/runs/run-a/attempts/2/train' };
 const clients: QueryClient[] = [];
 afterEach(() => { clients.splice(0).forEach((client) => client.clear()); vi.unstubAllGlobals(); });
-function render(wf = workflow, t = task, options: { role?: string; subject?: string; ports?: string[]; projectRole?: string; tasks?: ConnectionTask[]; ready?: boolean } = {}) {
+function render(wf = workflow, t = task, options: { role?: string; subject?: string; ports?: string[]; projectRole?: string; tasks?: ConnectionTask[]; ready?: boolean; sessions?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: false } } });
   clients.push(client);
-  client.setQueryData(['api', '/api/me'], { role: options.role ?? 'researcher', subject: options.subject ?? 'owner-sub', project: { id: 'team-a', role: options.projectRole ?? 'researcher' } });
+  client.setQueryData(['api', '/api/me'], { role: options.role ?? 'researcher', subject: options.subject ?? 'owner-sub', project: { id: 'team-a', role: options.projectRole ?? 'researcher' },
+    ...(options.sessions === false ? { features: { sessions: false } } : {}) });
   const path = `/api/sessions/connect?workflowId=${wf.id}&taskName=${t.name}`;
   client.setQueryData(apiQueryOptions(path, { init: { headers: { 'x-pai-project': 'team-a' } } }).queryKey,
     { replicas: options.ready === false ? [] : [{ replicaIndex: 0, ports: options.ports ?? ['pai-files'] }] });
@@ -34,6 +35,7 @@ describe('task connection payloads', () => {
   it('prefills live task selectors and only the reserved files port name', () => {
     expect(taskConnectionPayload('terminal', workflow, task)).toEqual({ kind: 'terminal', workflowId: 'run-a', taskName: 'train', replicaIndex: 0, ttlMinutes: 60 });
     expect(taskConnectionPayload('files', workflow, task)).toEqual({ kind: 'port-forward', workflowId: 'run-a', taskName: 'train', replicaIndex: 0, portName: 'pai-files', ttlMinutes: 60 });
+    expect(taskConnectionPayload('live', workflow, task)).toEqual({ kind: 'port-forward', workflowId: 'run-a', taskName: 'train', replicaIndex: 0, portName: 'pai-live', ttlMinutes: 60 });
   });
   it.each(['terminal', 'files'] as const)('rejects completed workflow or task %s requests before fetch', async (kind) => {
     const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
@@ -56,6 +58,24 @@ describe('task connection payloads', () => {
     expect(JSON.parse(String(init.body))).toEqual({ kind: 'tensorboard', logDir: task.outputPath, ttlMinutes: 60 });
     fetcher.mockImplementation(async () => Response.json({ error: 'Project authorization denied' }, { status: 403 }));
     await expect(createTaskConnection('tensorboard', workflow, task)).rejects.toThrow('Project authorization denied');
+  });
+});
+
+describe('deployments without session hosts', () => {
+  it('disables every session action and explains that GATEWAY_BASE_DOMAIN is absent', () => {
+    const html = render(workflow, task, { ports: ['pai-files', 'pai-live'], sessions: false });
+    for (const label of ['TensorBoard 준비', '터미널 준비', '작업 파일 준비', '실시간 보기 준비']) expect(disabled(html, label), label).toBe(true);
+    expect(html).toContain('GATEWAY_BASE_DOMAIN');
+  });
+});
+
+describe('live view connection', () => {
+  it('enables the live view only when the compiler registered the pai-live port on the running task', () => {
+    expect(disabled(render(workflow, task, { ports: ['pai-files', 'pai-live'] }), '실시간 보기 준비')).toBe(false);
+    const without = render(workflow, task, { ports: ['pai-files'] });
+    expect(disabled(without, '실시간 보기 준비')).toBe(true);
+    expect(without).toContain('실시간 보기(live: true)가 설정되어 있지 않습니다');
+    expect(disabled(render({ ...workflow, status: 'SUCCEEDED' }, { ...task, phase: 'SUCCEEDED' }, { ports: ['pai-live'] }), '실시간 보기 준비')).toBe(true);
   });
 });
 

@@ -23,11 +23,12 @@
 
 | 화면 | 기능과 범위 |
 |---|---|
-| 워크플로 | DAG·JobSet/barrier·재시도·checkpoint, 검색·복제·취소, 불변 실행 구성과 템플릿 버전 |
+| 워크플로 | DAG·JobSet/barrier·재시도·checkpoint, 검색·복제·취소, 불변 실행 구성과 템플릿 버전. **Artifacts** 탭은 태스크가 게시한 READY 버전의 파일을 고정 manifest에서 읽어 이미지·영상은 갤러리로 재생하고 JSON·텍스트는 인라인으로, 가중치는 다운로드로 제공합니다(5분 presigned, VersionId 고정). manifest 없는 구버전 출력은 사유만 표시 |
 | 데이터셋 | PENDING→검증→READY, manifest/파일 VersionId 고정 탐색·다운로드, 필터·태그·전체 역사적 참조 검사 |
 | 모델·파이프라인 | EKS/등록 SageMaker 산출물 계보, 비동기 archive·평가·품질 gate. 기존 GR00T native artifact의 READY 게시·모델 등록 실제 PASS |
 | 지표·실험·사용량 | AMP/MLflow, step 축 비교, 프로젝트/run CPU·GPU-hour 및 출처·시각이 있는 비용 추정. 누락은 unknown |
-| 세션 | 별도 HTTPS origin의 앱/터미널/파일. 공유 DCV console은 관리자용이며 workload별 노드 전용 DCV는 아님 |
+| 세션 | 별도 HTTPS origin의 앱/터미널/파일. 공유 DCV console은 관리자용이며 workload별 노드 전용 DCV는 아님. Isaac Sim DCV 데스크톱은 "여기서 보기"로 대시보드 안 iframe에 표시(gateway가 dcv 세션 응답의 X-Frame-Options를 대시보드 origin만 허용하는 frame-ancestors로 교체) 또는 새 창으로 연다 |
+| 실시간 보기 | 태스크 YAML에 `live: true`를 주면 컴파일러가 신뢰 이미지(MUJOCO_IMAGE_URI)의 MJPEG 사이드카(native sidecar, 포트 `pai-live`/8090)를 붙이고 `PAI_LIVE_DIR`을 주입합니다. 레시피가 `$PAI_LIVE_DIR/frame.jpg`를 원자적으로 갱신하면(MuJoCo train/evaluate 기본 적용) 워크플로 상세 "실행 중인 작업 → 실시간 보기 준비"에서 port-forward 세션으로 화면 안에 iframe 재생합니다. 실행 소유자·연구자 권한·RUNNING 태스크에서만 열리고, 세션 만료 시 끊깁니다 |
 | 컴퓨트·backend | 기본/allowlist EKS와 준비 상태·차단 사유, 관리자 정책과 검토한 노드 변경 계획. 추가 backend 실제 검증은 없음 |
 | 이미지·실행 환경 | private ECR digest 승인과 별도 관리자 신뢰 실행 profile. 전용 node UID/taint/점유 검사; 실제 privileged node 실행은 미검증 |
 | 빌드 | 등록된 S3/Git source·CodeBuild·ECR provenance. S3 source→CodeBuild→ECR digest→profile 연결 실제 PASS. 기본 검증은 작은 FROM scratch 이미지 |
@@ -66,7 +67,9 @@ npx cdk deploy \
   -c extendedImages=true
 ```
 
-기본 이미지는 MuJoCo/Isaac Lab/ROS 2/작업 공간, `extendedImages=true`는 GR00T/OpenPI를 추가합니다. Cosmos/LeIsaac은 [optionalImages 계약](infra/lib/constructs/optional-workload-images.ts)에 맞는 digest 고정 이미지·scene 입력이 필요하며 옵션을 생략하면 생성하지 않습니다. 이미지 배포는 모델 접근·실행 품질 승인이 아닙니다.
+기본 이미지는 MuJoCo/Isaac Lab/ROS 2/작업 공간, `extendedImages=true`는 GR00T/OpenPI를 추가합니다. 이미 GR00T/OpenPI 이미지가 배포된 스택은 이후 배포에서도 `extendedImages=true`를 유지해야 이미지가 삭제되지 않습니다. `gr00t-e2e` 템플릿(HF 가져오기 → GR00T N1.6.1 파인튜닝 → open-loop 평가)은 두 이미지(MUJOCO_IMAGE_URI, GROOT_RUNTIME_IMAGE_URI)와 프로젝트 GPU 큐가 필요하며, 모델 등록은 게시된 평가 결과를 모델·평가 화면에서 진행합니다. Cosmos/LeIsaac은 [optionalImages 계약](infra/lib/constructs/optional-workload-images.ts)에 맞는 digest 고정 이미지·scene 입력이 필요하며 옵션을 생략하면 생성하지 않습니다. 이미지 배포는 모델 접근·실행 품질 승인이 아닙니다.
+
+Terraform으로 배포하려면 `dashboard/terraform/`을 사용합니다(`terraform/README.md`). 같은 리소스를 만들고 도메인·Cognito 도메인·세션 호스트 도메인은 모두 변수에서 파생되며, `name_prefix`로 기존 CDK 스택과 나란히 두 번째 환경을 띄울 수 있습니다. 컨테이너가 요구하는 환경 변수 계약은 `terraform output environment_contract`와 README의 표에 있습니다.
 
 기존 웹 내부 controller를 분리하는 **첫 전환에만** `-c controllerSplitMigration=true`를 사용하고 이후 제거합니다. EKS add-on/RBAC는 `infra/ops/apply_addons.py` 또는 등록된 관리자 운영 작업으로 준비합니다. 초기 관리자 secret은 `physical-ai-dashboard/<accountId>/admin`에 저장됩니다. 부모 HyperPod/Isaac Lab 스택과 상태 리소스 보존을 확인하고 대시보드 업데이트 범위를 유지하세요.
 

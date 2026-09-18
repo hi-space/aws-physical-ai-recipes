@@ -74,11 +74,19 @@ function requestUrl(req: IncomingMessage, options: GatewayOptions): { host: stri
   return { host, url };
 }
 
+/** The dashboard's public origin is deployment configuration with no built-in default. When absent, launch
+ * exchanges accept only same-origin/absent Origin headers and the DCV desktop cannot be embedded. */
+function dashboardOrigin(options: GatewayOptions): string | undefined {
+  const origin = options.dashboardOrigin ?? process.env.DASHBOARD_ORIGIN;
+  if (origin && !/^https:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(origin)) throw new GatewayError(500, 'DASHBOARD_ORIGIN is malformed');
+  return origin || undefined;
+}
+
 function checkOrigin(req: IncomingMessage, host: string, websocket: boolean, exchange: boolean, options: GatewayOptions) {
   const origin = req.headers.origin;
   const expected = `https://${host}`;
-  const dashboard = options.dashboardOrigin ?? process.env.DASHBOARD_ORIGIN ?? 'https://physical-ai.hi-yoo.com';
-  if (origin && origin !== expected && !(exchange && origin === dashboard)) throw new GatewayError(403, 'Origin is not authorized');
+  const dashboard = dashboardOrigin(options);
+  if (origin && origin !== expected && !(exchange && dashboard && origin === dashboard)) throw new GatewayError(403, 'Origin is not authorized');
   if ((!['GET', 'HEAD'].includes(req.method ?? '') || websocket) && origin !== expected) {
     throw new GatewayError(403, 'Exact session Origin is required');
   }
@@ -247,7 +255,10 @@ export function createGatewayServer(options: GatewayOptions = {}) {
       const upstream = outgoing(req, host, stream, controller);
       upstream.once('response', (response) => {
         try {
-          res.writeHead(response.statusCode ?? 502, downstreamHeaders(response.headers, host, false, req.url));
+          // DCV's web client sends X-Frame-Options: DENY; the dashboard embeds it (stage 3 live view), so the
+          // gateway grants framing to the dashboard origin only. Other kinds keep the app's own policy.
+          const embedder = session.kind === 'dcv' ? dashboardOrigin(options) : undefined;
+          res.writeHead(response.statusCode ?? 502, downstreamHeaders(response.headers, host, false, req.url, embedder));
           response.on('error', () => res.destroy());
           response.pipe(res);
         } catch (error) { response.destroy(); sendError(res, error); }

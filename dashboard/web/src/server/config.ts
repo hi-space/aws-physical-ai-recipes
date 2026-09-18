@@ -23,6 +23,8 @@ export interface DashboardConfig {
   cognitoUserPoolId?: string;
   cognitoClientId?: string;
   dashboardOrigin?: string;
+  /** Wildcard domain for isolated session hosts; absent = session features disabled. */
+  gatewayBaseDomain?: string;
   albArn?: string;
   /** HyperPod EKS orchestrator */
   eks?: {
@@ -79,7 +81,9 @@ export const ENV_KEYS = [
   'SNS_TOPIC_ARN',
   'COGNITO_USER_POOL_ID',
   'COGNITO_CLIENT_ID',
+  'COGNITO_DOMAIN',
   'DASHBOARD_ORIGIN',
+  'GATEWAY_BASE_DOMAIN',
   'ALB_ARN',
   'EKS_CLUSTER_NAME',
   'HYPERPOD_EKS_CLUSTER_NAME',
@@ -185,6 +189,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
     cognitoUserPoolId: opt(env, 'COGNITO_USER_POOL_ID'),
     cognitoClientId: opt(env, 'COGNITO_CLIENT_ID'),
     dashboardOrigin: opt(env, 'DASHBOARD_ORIGIN'),
+    gatewayBaseDomain: opt(env, 'GATEWAY_BASE_DOMAIN'),
     albArn: opt(env, 'ALB_ARN'),
     eks,
     slurm,

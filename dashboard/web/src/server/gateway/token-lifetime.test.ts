@@ -33,7 +33,7 @@ async function setup(shortExpiry = false) {
   const upstream = await listen(createServer((_req, res) => { res.writeHead(200); res.write('active stream'); }));
   const wss = new WebSocketServer({ server: upstream }); websocketServers.push(wss);
   wss.on('connection', (ws) => ws.on('message', (data, binary) => ws.send(data, { binary })));
-  const gateway = await listen(createGatewayServer({ ...f.options, recheckMs: 20, transport: {
+  const gateway = await listen(createGatewayServer({ ...f.options, dashboardOrigin: 'https://physical-ai.hi-yoo.com', recheckMs: 20, transport: {
     connect: async (session, signal) => {
       expect(session.podName).toBe('owned-pod'); expect(session.port).toBe(8077);
       const socket = connect(port(upstream), '127.0.0.1');

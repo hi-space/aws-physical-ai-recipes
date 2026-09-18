@@ -7,7 +7,7 @@ import type { Task, Workflow } from '@/server/store/types';
 
 export type ConnectionWorkflow = Pick<Workflow, 'id' | 'projectId' | 'ownerSubject' | 'status'>;
 export type ConnectionTask = Pick<Task, 'workflowId' | 'name' | 'phase' | 'attempts' | 'outputPath'>;
-type Action = 'tensorboard' | 'terminal' | 'files';
+type Action = 'tensorboard' | 'terminal' | 'files' | 'live';
 interface ConnectionSession {
   id: string;
   kind: 'tensorboard' | 'terminal' | 'port-forward';
@@ -36,7 +36,9 @@ interface TaskConnectionsProps {
   selectedTask?: string;
   onSelectTask(name: string): void;
 }
-const titles: Record<Action, string> = { tensorboard: 'TensorBoard', terminal: '터미널', files: '작업 파일' };
+const titles: Record<Action, string> = { tensorboard: 'TensorBoard', terminal: '터미널', files: '작업 파일', live: '실시간 보기' };
+/** Reserved port names the compiler registers on the main container (see workflow/compile.ts). */
+const PORT_NAMES = { files: 'pai-files', live: 'pai-live' } as const;
 
 function resultPath(projectId: string | undefined, path: string | undefined): path is string {
   if (!projectId || !path || ![`/fsx/checkpoints/projects/${projectId}/`, `/fsx/datasets/projects/${projectId}/`].some((root) => path.startsWith(root))) return false;
@@ -54,7 +56,7 @@ export function taskConnectionPayload(action: Action, workflow: ConnectionWorkfl
   const target = { workflowId: workflow.id, taskName: task.name, replicaIndex: 0, ttlMinutes: 60 };
   return action === 'terminal'
     ? { kind: 'terminal' as const, ...target }
-    : { kind: 'port-forward' as const, ...target, portName: 'pai-files' };
+    : { kind: 'port-forward' as const, ...target, portName: PORT_NAMES[action] };
 }
 export async function createTaskConnection(action: Action, workflow: ConnectionWorkflow, task: ConnectionTask) {
   const json = taskConnectionPayload(action, workflow, task);
@@ -68,25 +70,29 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
   const currentProject = me.data?.project;
   const research = can(me.data, 'researcher') && !(currentProject && currentProject.id === workflow.projectId && currentProject.role === 'viewer');
   const ownsRun = !!me.data?.subject && me.data.subject === workflow.ownerSubject;
+  // Deployments without a wildcard session-host domain have no gateway; only an explicit false disables.
+  const hostsConfigured = me.data?.features?.sessions !== false;
   const liveTask = !!task && task.workflowId === workflow.id && workflow.status === 'RUNNING' && task.phase === 'RUNNING';
-  const interactive = research && ownsRun && !!workflow.projectId && liveTask;
+  const interactive = research && ownsRun && !!workflow.projectId && liveTask && hostsConfigured;
   const options = useApi<ConnectionOptions>(interactive
     ? `/api/sessions/connect?workflowId=${encodeURIComponent(workflow.id)}&taskName=${encodeURIComponent(task!.name)}` : null,
     { refetch: 5000, init: { headers: { 'x-pai-project': workflow.projectId ?? '' } } });
   const replica = options.data?.replicas.find((item) => item.replicaIndex === 0);
   const terminalAvailable = interactive && !!replica && !options.error;
-  const filesAvailable = terminalAvailable && !!replica?.ports.includes('pai-files');
-  const resultsAvailable = research && task?.workflowId === workflow.id && resultPath(workflow.projectId, task?.outputPath);
+  const filesAvailable = terminalAvailable && !!replica?.ports.includes(PORT_NAMES.files);
+  const liveAvailable = terminalAvailable && !!replica?.ports.includes(PORT_NAMES.live);
+  const resultsAvailable = research && hostsConfigured && task?.workflowId === workflow.id && resultPath(workflow.projectId, task?.outputPath);
   const [connection, setConnection] = React.useState<PendingConnection>();
   const [busy, setBusy] = React.useState<'create' | 'launch'>();
   const [error, setError] = React.useState<unknown>();
+  const [embed, setEmbed] = React.useState<{ sessionId: string; url: string }>();
   const [clock, setClock] = React.useState(Date.now);
   const operation = React.useRef(0);
   const inFlight = React.useRef(false);
   React.useEffect(() => {
     operation.current++;
     inFlight.current = false;
-    setConnection(undefined); setBusy(undefined); setError(undefined);
+    setConnection(undefined); setBusy(undefined); setError(undefined); setEmbed(undefined);
     return () => { operation.current++; };
   }, [workflow.id]);
   React.useEffect(() => {
@@ -120,28 +126,31 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
 
   async function prepare(action: Action) {
     if (inFlight.current || !task || !workflow.projectId || samePending(action)) return;
-    if (action === 'tensorboard' ? !resultsAvailable : action === 'terminal' ? !terminalAvailable : !filesAvailable) return;
+    if (action === 'tensorboard' ? !resultsAvailable : action === 'terminal' ? !terminalAvailable : action === 'live' ? !liveAvailable : !filesAvailable) return;
     inFlight.current = true;
     const currentOperation = ++operation.current;
     setBusy('create'); setError(undefined);
     try {
       const created = await createTaskConnection(action, workflow, task);
       if (currentOperation !== operation.current) return;
-      const expectedKind = action === 'files' ? 'port-forward' : action;
+      const expectedKind = action === 'files' || action === 'live' ? 'port-forward' : action;
       if (!created.id || created.projectId !== workflow.projectId || created.kind !== expectedKind ||
         action !== 'tensorboard' && (created.workflowId !== workflow.id || created.taskName !== task.name)) {
         throw new Error('생성된 세션의 작업 범위를 확인할 수 없습니다. 세션 목록에서 확인하세요.');
       }
       setConnection({ action, workflowId: workflow.id, projectId: workflow.projectId, taskName: task.name,
         attempt: created.attempt ?? task.attempts, registeredAt: Date.now(), session: created });
+      setEmbed(undefined);
       setClock(Date.now());
     } catch (cause) { if (currentOperation === operation.current) setError(cause); }
     finally { if (currentOperation === operation.current) { inFlight.current = false; setBusy(undefined); } }
   }
-  async function open() {
+  async function open(embedded = false) {
     if (inFlight.current || !visible || !session || !openable) return;
     if (Date.parse(session.expiresAt!) <= Date.now()) { setClock(Date.now()); return; }
-    const tab = window.open('about:blank', '_blank');
+    // Live view renders inside the page: the session host is same-site, so the ticket exchange in an
+    // iframe sets the session cookie without exposing pod content to the dashboard origin.
+    const tab = embedded ? null : window.open('about:blank', '_blank');
     if (tab) tab.opener = null;
     inFlight.current = true;
     const currentOperation = ++operation.current;
@@ -156,7 +165,8 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
       if (url.protocol !== 'https:' || !url.hostname.startsWith(`${session.id}.`) || url.username || url.password || !url.searchParams.get('ticket')) {
         throw new Error('안전한 세션 주소를 확인할 수 없습니다.');
       }
-      if (tab) tab.location.replace(url.toString()); else window.location.assign(url.toString());
+      if (embedded) setEmbed({ sessionId: session.id, url: url.toString() });
+      else if (tab) tab.location.replace(url.toString()); else window.location.assign(url.toString());
     } catch (cause) {
       tab?.close();
       if (currentOperation === operation.current) { setError(cause); void sessions.refetch(); }
@@ -185,14 +195,17 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => prepare('terminal')} disabled={!terminalAvailable || !!busy || samePending('terminal')}>터미널 준비</Button>
           <Button onClick={() => prepare('files')} disabled={!filesAvailable || !!busy || samePending('files')}>작업 파일 준비</Button>
+          <Button onClick={() => prepare('live')} disabled={!liveAvailable || !!busy || samePending('live')}>실시간 보기 준비</Button>
         </div>
         {task && !liveTask && <p className="mt-2 text-xs text-fg-muted">터미널과 작업 파일은 실행 중인 작업에서만 열 수 있습니다.</p>}
         {liveTask && !ownsRun && <p className="mt-2 text-xs text-fg-muted">이 실행을 시작한 계정으로 연결하세요.</p>}
         {interactive && !options.error && !replica && <p className="mt-2 text-xs text-fg-muted">작업 연결이 준비되기를 기다리고 있습니다.</p>}
         {terminalAvailable && !filesAvailable && <p className="mt-2 text-xs text-fg-muted">이 작업에는 파일 보기 기능이 설정되어 있지 않습니다.</p>}
+        {terminalAvailable && !liveAvailable && <p className="mt-2 text-xs text-fg-muted">이 작업은 실시간 보기(live: true)가 설정되어 있지 않습니다.</p>}
       </section>
     </div>
     {!research && <p className="mt-3 text-xs text-fg-muted">프로젝트 연구자 권한이 있어야 결과 세션이나 작업 접속을 준비할 수 있습니다.</p>}
+    {!hostsConfigured && <p className="mt-3 text-xs text-fg-muted">이 배포에는 세션 호스트 도메인(GATEWAY_BASE_DOMAIN)이 없어 TensorBoard·터미널·파일·실시간 보기 접속을 사용할 수 없습니다. 결과는 Artifacts 탭에서 볼 수 있습니다.</p>}
     {(!!error || me.error || interactive && options.error) && <div className="mt-3"><ErrorBox error={error ?? me.error ?? options.error} /></div>}
     {busy === 'create' && <p role="status" className="mt-3 text-sm text-fg-muted">세션을 준비하고 있습니다…</p>}
     {visible && <div className="mt-4 rounded-lg border border-border bg-bg p-4" aria-label="준비한 세션">
@@ -204,11 +217,23 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
               !liveConnection ? '작업이 종료되거나 재시작되어 이 접속은 다시 열 수 없습니다.' :
                 session.status === 'CLOSED' ? '세션이 종료되었습니다.' : expired ? '세션이 만료되었습니다. 다시 준비하세요.' :
                   session.status === 'CLOSING' ? '접속을 종료하고 있습니다.' :
-                    session.status === 'ERROR' ? '세션 준비에 실패했습니다.' : openable ? '준비가 끝났습니다. 새 창에서 열 수 있습니다.' :
+                    session.status === 'ERROR' ? '세션 준비에 실패했습니다.' : openable ? (visible.action === 'live' ? '준비가 끝났습니다. 이 화면에서 바로 볼 수 있습니다.' : '준비가 끝났습니다. 새 창에서 열 수 있습니다.') :
                       session.status === 'READY' ? '현재 권한으로 세션을 열 수 없습니다.' : '프로젝트 대기열에서 세션을 준비하고 있습니다. 준비되면 열기 버튼이 활성화됩니다.'}
           </p></div>
-        <Button variant="primary" disabled={!openable || !!busy} loading={busy === 'launch'} onClick={open}>{titles[visible.action]} 열기</Button>
+        <span className="flex gap-2">
+          {visible.action === 'live' && <Button variant="primary" disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(true)}>여기서 보기</Button>}
+          <Button variant={visible.action === 'live' ? 'secondary' : 'primary'} disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(false)}>{visible.action === 'live' ? '새 창에서 보기' : `${titles[visible.action]} 열기`}</Button>
+        </span>
       </div>
+      {embed && visible.action === 'live' && session?.id === embed.sessionId && openable && (
+        <div className="mt-3">
+          <iframe src={embed.url} title="실시간 시뮬레이션 화면" className="h-[520px] w-full rounded-md border border-border bg-black" referrerPolicy="no-referrer" allow="" />
+          <div className="mt-1 flex items-center justify-between text-xs text-fg-muted">
+            <span>MJPEG 스트림 · 세션 만료 시 자동으로 끊깁니다. 프레임이 없으면 작업이 아직 렌더링을 시작하지 않은 것입니다.</span>
+            <Button size="sm" variant="ghost" onClick={() => setEmbed(undefined)}>닫기</Button>
+          </div>
+        </div>
+      )}
       {session?.message && !openable && <p className="mt-2 text-xs text-fg-muted">{session.message}</p>}
       {sessions.error && <ErrorBox error={sessions.error} className="mt-2" />}
       <p className="mt-3 text-xs text-fg-muted">세션 이용 시간은 기본 1시간입니다. 세션 관리에서 연장하거나 종료할 수 있습니다.</p>

@@ -104,7 +104,10 @@ interface CollectorRecord extends Item {
   attempt: number; publicationId: string; sourcePath: string; image: string; name: string;
   creationDeadline: number; createIssued: boolean; jobUid?: string; epoch?: string; revision: number;
   inventoryKey?: string; inventoryVersion?: string; inventorySHA256?: string;
+  /** Failed or vanished collector Jobs so far; a fresh collector is created until MAX_COLLECTOR_ATTEMPTS. */
+  collectorFailures?: number;
 }
+export const MAX_COLLECTOR_ATTEMPTS = 3;
 function checkRecord(record: CollectorRecord, input: InventoryScope) {
   if (record.identity !== inventoryIdentity(input) || record.sourcePath !== input.sourcePath ||
       record.workflowId !== input.workflow.id || record.projectId !== input.workflow.projectId ||
@@ -118,6 +121,15 @@ async function updateRecord(repo: Repo, input: PublishInput, record: CollectorRe
     kind: 'put', item: next, condition: { equals: { revision: record.revision } },
   }])) throw new Error('Collector record changed or was fenced');
   return next;
+}
+
+/** A failed or vanished collector is retried with a fresh Job (same deterministic name) a bounded number of
+ * times; transient FSx export races otherwise left the publication stuck forever. Returns undefined = pending. */
+async function retryCollector(repo: Repo, input: PublishInput, record: CollectorRecord, reason: string): Promise<undefined> {
+  const failures = (record.collectorFailures ?? 0) + 1;
+  if (failures >= MAX_COLLECTOR_ATTEMPTS) throw new Error(`${reason} (${failures} collector attempts)`);
+  await updateRecord(repo, input, record, { collectorFailures: failures, jobUid: undefined, createIssued: false, creationDeadline: 0 });
+  throw new SnapshotPendingError(`${reason}; retrying collector (${failures}/${MAX_COLLECTOR_ATTEMPTS})`);
 }
 
 async function cleanupCollector(input: InventoryScope, record: CollectorRecord, signal: AbortSignal) {
@@ -186,7 +198,7 @@ async function collectInventory(input: PublishInput, bucket: string, prefix: str
   }
   let job = await getJob(record.namespace, record.name, input.signal);
   if (!job) {
-    if (record.jobUid) throw new Error('Collector disappeared before its inventory was saved');
+    if (record.jobUid) return retryCollector(repo, input, record, 'Collector disappeared before its inventory was saved');
     if (record.createIssued && record.creationDeadline > Date.now()) return undefined;
     // Record the bounded create window atomically with the attempt fence.
     record = await updateRecord(repo, input, record, { creationDeadline: Date.now() + CREATE_WINDOW_MS, createIssued: true });
@@ -204,8 +216,8 @@ async function collectInventory(input: PublishInput, bucket: string, prefix: str
   if (record.jobUid && job.metadata.uid !== record.jobUid) throw new Error('Collector Job was replaced');
   record = await updateRecord(repo, input, record, { jobUid: job.metadata.uid!, creationDeadline: 0 });
   if (job.status?.failed || job.status?.conditions?.some(condition => condition.type === 'Failed' && condition.status === 'True')) {
-    await cleanupCollector(input, record, input.signal);
-    throw new Error('Trusted artifact inventory failed; output must be readable by UID 1000 and contain only stable regular files');
+    if (!await cleanupCollector(input, record, input.signal)) return undefined;
+    return retryCollector(repo, input, record, 'Trusted artifact inventory failed; output must be readable by UID 1000 and contain only stable regular files');
   }
   if (!job.status?.succeeded) return undefined;
   const pods = await all<Pod>(podPath(record.namespace), `job-name=${record.name}`, input.signal);
@@ -272,7 +284,9 @@ export const artifactPublisher: Publisher = {
     const source = await repositoryFor(c.eks.fsxFileSystemId, input.sourcePath, input.signal);
     if (currentBackend()?.profile && source.bucket !== c.eks.dataBucket) throw new Error('FSx DRA bucket does not match the registered backend data bucket');
     const prefix = publicationPrefix(input);
-    const inventory = await collectInventory(input, bucket, prefix);
+    let inventory: ArtifactInventory | undefined;
+    try { inventory = await collectInventory(input, bucket, prefix); }
+    catch (error) { if (error instanceof SnapshotPendingError) return pending(error.message); throw error; }
     if (!inventory) return pending('Waiting for trusted output inventory and collector cleanup');
     await assertCurrent(getRepo(), input);
     if (!source.automatic) {

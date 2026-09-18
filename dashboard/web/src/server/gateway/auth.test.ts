@@ -130,3 +130,16 @@ describe('gateway launch credentials', () => {
     await expect(authorizeCookie(cookie.split(';')[0], host, options())).rejects.toMatchObject({ status: 401 });
   });
 });
+
+describe('optional session-host domain', () => {
+  it('reports absence as a 503 not-configured error instead of crashing', async () => {
+    const { baseDomain, sessionHostsConfigured } = await import('./auth');
+    expect(sessionHostsConfigured({ baseDomain: 'apps.example.com' })).toBe(true);
+    const saved = process.env.GATEWAY_BASE_DOMAIN; delete process.env.GATEWAY_BASE_DOMAIN;
+    try {
+      expect(sessionHostsConfigured()).toBe(false);
+      expect(() => baseDomain()).toThrow(/GATEWAY_BASE_DOMAIN/);
+      try { baseDomain(); } catch (e) { expect((e as { status?: number }).status).toBe(503); }
+    } finally { process.env.GATEWAY_BASE_DOMAIN = saved; }
+  });
+});

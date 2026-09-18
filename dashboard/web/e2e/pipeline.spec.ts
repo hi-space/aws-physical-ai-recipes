@@ -16,6 +16,10 @@ const OVERRIDES: Record<string, string> = JSON.parse(process.env.PIPELINE_OVERRI
 const TIMEOUT_MIN = Number(process.env.PIPELINE_TIMEOUT_MIN ?? '120');
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 const EXISTING = process.env.PIPELINE_WORKFLOW_ID;
+/** Project the run is submitted under (governed projects own namespace, queue and artifact publication). */
+const PROJECT = process.env.PIPELINE_PROJECT ?? 'workshop';
+/** Optional: submit this YAML (custom workflow) instead of the server template, e.g. to validate a template fix before deploy. */
+const YAML_FILE = process.env.PIPELINE_YAML_FILE;
 test.skip(!EXISTING && process.env.DASHBOARD_PIPELINE_LIVE !== '1', 'Explicitly enable live pipeline submission or supply an existing workflow ID.');
 test.use({ screenshot: 'off', trace: 'off', video: 'off' });
 
@@ -58,12 +62,14 @@ test(`submit ${TEMPLATE} and follow it to completion`, async ({ page }) => {
 
     // Submit through the API with the template YAML + overrides (same call the form makes).
     const submitted = await page.evaluate(
-      async ({ template, overrides, acknowledgePreflight }) => {
-        const tpl = await (await fetch(`/api/templates/${template}`)).json();
-        const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: tpl.yaml, overrides, templateId: template, templateVersion: tpl.templateVersion, acknowledgePreflight }) });
+      async ({ template, overrides, acknowledgePreflight, project, yaml }) => {
+        const tpl = yaml ? undefined : await (await fetch(`/api/templates/${template}`)).json();
+        const body = yaml ? { yaml, overrides, acknowledgePreflight } : { yaml: tpl.yaml, overrides, templateId: template, templateVersion: tpl.templateVersion, acknowledgePreflight };
+        const res = await fetch('/api/workflows', { method: 'POST', headers: { 'content-type': 'application/json', 'x-pai-project': project }, body: JSON.stringify(body) });
         return { status: res.status, body: await res.json() };
       },
-      { template: TEMPLATE, overrides: OVERRIDES, acknowledgePreflight: process.env.PIPELINE_ACKNOWLEDGE_PREFLIGHT === '1' },
+      { template: TEMPLATE, overrides: OVERRIDES, acknowledgePreflight: process.env.PIPELINE_ACKNOWLEDGE_PREFLIGHT === '1', project: PROJECT,
+        yaml: YAML_FILE ? (await import('node:fs')).readFileSync(YAML_FILE, 'utf8') : undefined },
     );
     expect(submitted.status, JSON.stringify(submitted.body)).toBe(202);
     id = submitted.body.id as string;
