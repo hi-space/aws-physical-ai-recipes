@@ -3,6 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Badge, Button, Card, ErrorBox, Select } from '@/components/ui';
 import { api, can, useApi, useMe } from '@/lib/api-client';
+import { translate, useT, type Locale, type Translator } from '@/lib/i18n';
 import type { Task, Workflow } from '@/server/store/types';
 
 export type ConnectionWorkflow = Pick<Workflow, 'id' | 'projectId' | 'ownerSubject' | 'status'>;
@@ -36,7 +37,9 @@ interface TaskConnectionsProps {
   selectedTask?: string;
   onSelectTask(name: string): void;
 }
-const titles: Record<Action, string> = { tensorboard: 'TensorBoard', terminal: '터미널', files: '작업 파일', live: '실시간 보기' };
+function getTitles(t: Translator<'taskConnections'>): Record<Action, string> {
+  return { tensorboard: t('titleTensorboard'), terminal: t('titleTerminal'), files: t('titleFiles'), live: t('titleLive') };
+}
 /** Reserved port names the compiler registers on the main container (see workflow/compile.ts). */
 const PORT_NAMES = { files: 'pai-files', live: 'pai-live' } as const;
 
@@ -44,26 +47,30 @@ function resultPath(projectId: string | undefined, path: string | undefined): pa
   if (!projectId || !path || ![`/fsx/checkpoints/projects/${projectId}/`, `/fsx/datasets/projects/${projectId}/`].some((root) => path.startsWith(root))) return false;
   return path.slice(5).split('/').every((part) => /^[A-Za-z0-9_.-]+$/.test(part) && part !== '.' && part !== '..');
 }
-export function taskConnectionPayload(action: Action, workflow: ConnectionWorkflow, task: ConnectionTask) {
-  if (!workflow.projectId || task.workflowId !== workflow.id) throw new Error('작업의 프로젝트 정보를 확인할 수 없습니다.');
+export function taskConnectionPayload(action: Action, workflow: ConnectionWorkflow, task: ConnectionTask, locale: Locale = 'ko') {
+  const message = (key: 'errorProjectInfo' | 'errorNoPath' | 'errorNotRunning') => translate(locale, 'taskConnections', key);
+  if (!workflow.projectId || task.workflowId !== workflow.id) throw new Error(message('errorProjectInfo'));
   if (action === 'tensorboard') {
-    if (!resultPath(workflow.projectId, task.outputPath)) throw new Error('아직 사용할 수 있는 프로젝트 결과 경로가 없습니다.');
+    if (!resultPath(workflow.projectId, task.outputPath)) throw new Error(message('errorNoPath'));
     // Use the returned task directory exactly; TensorBoard discovers nested event logs.
     // This is an independent result viewer, with no live workflow/task capability.
     return { kind: 'tensorboard' as const, logDir: task.outputPath, ttlMinutes: 60 };
   }
-  if (workflow.status !== 'RUNNING' || task.phase !== 'RUNNING') throw new Error('터미널과 작업 파일은 실행 중인 작업에서만 열 수 있습니다.');
+  if (workflow.status !== 'RUNNING' || task.phase !== 'RUNNING') throw new Error(message('errorNotRunning'));
   const target = { workflowId: workflow.id, taskName: task.name, replicaIndex: 0, ttlMinutes: 60 };
   return action === 'terminal'
     ? { kind: 'terminal' as const, ...target }
     : { kind: 'port-forward' as const, ...target, portName: PORT_NAMES[action] };
 }
-export async function createTaskConnection(action: Action, workflow: ConnectionWorkflow, task: ConnectionTask) {
-  const json = taskConnectionPayload(action, workflow, task);
+export async function createTaskConnection(action: Action, workflow: ConnectionWorkflow, task: ConnectionTask, locale: Locale = 'ko') {
+  const json = taskConnectionPayload(action, workflow, task, locale);
   return api<ConnectionSession>('/api/sessions', { method: 'POST', headers: { 'x-pai-project': workflow.projectId! }, json });
 }
 
 export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }: TaskConnectionsProps) {
+  const t = useT('taskConnections');
+  const tc = useT('common');
+  const titles = getTitles(t);
   const me = useMe();
   const selectId = React.useId();
   const task = tasks.find((item) => item.name === (selectedTask ?? (tasks.length === 1 ? tasks[0].name : undefined)));
@@ -131,12 +138,12 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
     const currentOperation = ++operation.current;
     setBusy('create'); setError(undefined);
     try {
-      const created = await createTaskConnection(action, workflow, task);
+      const created = await createTaskConnection(action, workflow, task, t.locale);
       if (currentOperation !== operation.current) return;
       const expectedKind = action === 'files' || action === 'live' ? 'port-forward' : action;
       if (!created.id || created.projectId !== workflow.projectId || created.kind !== expectedKind ||
         action !== 'tensorboard' && (created.workflowId !== workflow.id || created.taskName !== task.name)) {
-        throw new Error('생성된 세션의 작업 범위를 확인할 수 없습니다. 세션 목록에서 확인하세요.');
+        throw new Error(t('errorScope'));
       }
       setConnection({ action, workflowId: workflow.id, projectId: workflow.projectId, taskName: task.name,
         attempt: created.attempt ?? task.attempts, registeredAt: Date.now(), session: created });
@@ -163,7 +170,7 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
       if (currentOperation !== operation.current) { tab?.close(); return; }
       const url = new URL(launch.url);
       if (url.protocol !== 'https:' || !url.hostname.startsWith(`${session.id}.`) || url.username || url.password || !url.searchParams.get('ticket')) {
-        throw new Error('안전한 세션 주소를 확인할 수 없습니다.');
+        throw new Error(t('errorSafeAddress'));
       }
       if (embedded) setEmbed({ sessionId: session.id, url: url.toString() });
       else if (tab) tab.location.replace(url.toString()); else window.location.assign(url.toString());
@@ -173,70 +180,70 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
     } finally { if (currentOperation === operation.current) { inFlight.current = false; setBusy(undefined); } }
   }
 
-  return <Card title="작업 결과와 접속" description="작업을 선택하면 결과 보기와 접속을 바로 준비할 수 있습니다.">
+  return <Card title={t('title')} description={t('description')}>
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <label htmlFor={selectId} className="w-full max-w-sm text-xs text-fg-muted">작업
+      <label htmlFor={selectId} className="w-full max-w-sm text-xs text-fg-muted">{t('taskLabel')}
         <Select id={selectId} className="mt-1" value={task?.name ?? ''} onChange={(event) => onSelectTask(event.target.value)} disabled={!!busy}>
-          <option value="">작업 선택</option>{tasks.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.phase}</option>)}
+          <option value="">{t('taskSelect')}</option>{tasks.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.phase}</option>)}
         </Select>
       </label>
-      <Link href="/sessions" prefetch={false} className="text-xs text-accent hover:underline">세션 관리 · 고급 연결</Link>
+      <Link href="/sessions" prefetch={false} className="text-xs text-accent hover:underline">{t('sessionManage')}</Link>
     </div>
     <div className="grid gap-4 md:grid-cols-2">
-      <section aria-label="저장된 결과" className="rounded-lg border border-border p-4">
-        <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold">저장된 결과</h3><Badge tone="info">읽기 전용</Badge></div>
-        <p className="mb-3 text-xs leading-relaxed text-fg-muted">완료된 학습도 TensorBoard로 볼 수 있습니다. 작업에 저장된 결과 경로를 자동으로 사용합니다.</p>
-        <Button variant="primary" onClick={() => prepare('tensorboard')} disabled={!resultsAvailable || !!busy || samePending('tensorboard')}>TensorBoard 준비</Button>
-        {task && !resultPath(workflow.projectId, task.outputPath) && <p className="mt-2 text-xs text-fg-muted">아직 사용할 수 있는 프로젝트 결과 경로가 없습니다.</p>}
+      <section aria-label={t('resultsSectionTitle')} className="rounded-lg border border-border p-4">
+        <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold">{t('resultsSectionTitle')}</h3><Badge tone="info">{t('resultsBadge')}</Badge></div>
+        <p className="mb-3 text-xs leading-relaxed text-fg-muted">{t('resultsDesc')}</p>
+        <Button variant="primary" onClick={() => prepare('tensorboard')} disabled={!resultsAvailable || !!busy || samePending('tensorboard')}>{t('tensorboardPrepare')}</Button>
+        {task && !resultPath(workflow.projectId, task.outputPath) && <p className="mt-2 text-xs text-fg-muted">{t('errorNoPath')}</p>}
       </section>
-      <section aria-label="실행 중인 작업" className="rounded-lg border border-border p-4">
-        <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold">실행 중인 작업</h3><Badge tone="warn">코드·파일 수정 가능</Badge></div>
-        <p className="mb-3 text-xs leading-relaxed text-fg-muted">실행 소유자만 연결할 수 있습니다. 터미널 명령과 파일 수정은 현재 작업에 반영됩니다.</p>
+      <section aria-label={t('runningTaskTitle')} className="rounded-lg border border-border p-4">
+        <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold">{t('runningTaskTitle')}</h3><Badge tone="warn">{t('runningTaskBadge')}</Badge></div>
+        <p className="mb-3 text-xs leading-relaxed text-fg-muted">{t('runningTaskDesc')}</p>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => prepare('terminal')} disabled={!terminalAvailable || !!busy || samePending('terminal')}>터미널 준비</Button>
-          <Button onClick={() => prepare('files')} disabled={!filesAvailable || !!busy || samePending('files')}>작업 파일 준비</Button>
-          <Button onClick={() => prepare('live')} disabled={!liveAvailable || !!busy || samePending('live')}>실시간 보기 준비</Button>
+          <Button onClick={() => prepare('terminal')} disabled={!terminalAvailable || !!busy || samePending('terminal')}>{t('terminalPrepare')}</Button>
+          <Button onClick={() => prepare('files')} disabled={!filesAvailable || !!busy || samePending('files')}>{t('filesPrepare')}</Button>
+          <Button onClick={() => prepare('live')} disabled={!liveAvailable || !!busy || samePending('live')}>{t('livePrepare')}</Button>
         </div>
-        {task && !liveTask && <p className="mt-2 text-xs text-fg-muted">터미널과 작업 파일은 실행 중인 작업에서만 열 수 있습니다.</p>}
-        {liveTask && !ownsRun && <p className="mt-2 text-xs text-fg-muted">이 실행을 시작한 계정으로 연결하세요.</p>}
-        {interactive && !options.error && !replica && <p className="mt-2 text-xs text-fg-muted">작업 연결이 준비되기를 기다리고 있습니다.</p>}
-        {terminalAvailable && !filesAvailable && <p className="mt-2 text-xs text-fg-muted">이 작업에는 파일 보기 기능이 설정되어 있지 않습니다.</p>}
-        {terminalAvailable && !liveAvailable && <p className="mt-2 text-xs text-fg-muted">이 작업은 실시간 보기(live: true)가 설정되어 있지 않습니다.</p>}
+        {task && !liveTask && <p className="mt-2 text-xs text-fg-muted">{t('errorNotRunning')}</p>}
+        {liveTask && !ownsRun && <p className="mt-2 text-xs text-fg-muted">{t('ownerOnly')}</p>}
+        {interactive && !options.error && !replica && <p className="mt-2 text-xs text-fg-muted">{t('waitingConnection')}</p>}
+        {terminalAvailable && !filesAvailable && <p className="mt-2 text-xs text-fg-muted">{t('noFilesFeature')}</p>}
+        {terminalAvailable && !liveAvailable && <p className="mt-2 text-xs text-fg-muted">{t('noLiveFeature')}</p>}
       </section>
     </div>
-    {!research && <p className="mt-3 text-xs text-fg-muted">프로젝트 연구자 권한이 있어야 결과 세션이나 작업 접속을 준비할 수 있습니다.</p>}
-    {!hostsConfigured && <p className="mt-3 text-xs text-fg-muted">이 배포에는 세션 호스트 도메인(GATEWAY_BASE_DOMAIN)이 없어 TensorBoard·터미널·파일·실시간 보기 접속을 사용할 수 없습니다. 결과는 Artifacts 탭에서 볼 수 있습니다.</p>}
+    {!research && <p className="mt-3 text-xs text-fg-muted">{t('researcherRequired')}</p>}
+    {!hostsConfigured && <p className="mt-3 text-xs text-fg-muted">{t('sessionHostMissing')}</p>}
     {(!!error || me.error || interactive && options.error) && <div className="mt-3"><ErrorBox error={error ?? me.error ?? options.error} /></div>}
-    {busy === 'create' && <p role="status" className="mt-3 text-sm text-fg-muted">세션을 준비하고 있습니다…</p>}
-    {visible && <div className="mt-4 rounded-lg border border-border bg-bg p-4" aria-label="준비한 세션">
+    {busy === 'create' && <p role="status" className="mt-3 text-sm text-fg-muted">{t('preparingSession')}</p>}
+    {visible && <div className="mt-4 rounded-lg border border-border bg-bg p-4" aria-label={t('taskConnectionStatus')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-sm font-medium">{visible.taskName} · {titles[visible.action]} · 시도 {visible.attempt}</p>
+        <div><p className="text-sm font-medium">{visible.taskName} · {titles[visible.action]} · {t('attemptLabel')} {visible.attempt}</p>
           <p role="status" className="mt-1 text-xs text-fg-muted">
-            {sessions.error ? '세션 상태를 확인하지 못했습니다.' : !session
-              ? clock - visible.registeredAt <= 60_000 ? '세션 등록 상태를 확인하고 있습니다.' : '세션이 더 이상 보이지 않습니다. 세션 관리에서 확인하세요.' :
-              !liveConnection ? '작업이 종료되거나 재시작되어 이 접속은 다시 열 수 없습니다.' :
-                session.status === 'CLOSED' ? '세션이 종료되었습니다.' : expired ? '세션이 만료되었습니다. 다시 준비하세요.' :
-                  session.status === 'CLOSING' ? '접속을 종료하고 있습니다.' :
-                    session.status === 'ERROR' ? '세션 준비에 실패했습니다.' : openable ? (visible.action === 'live' ? '준비가 끝났습니다. 이 화면에서 바로 볼 수 있습니다.' : '준비가 끝났습니다. 새 창에서 열 수 있습니다.') :
-                      session.status === 'READY' ? '현재 권한으로 세션을 열 수 없습니다.' : '프로젝트 대기열에서 세션을 준비하고 있습니다. 준비되면 열기 버튼이 활성화됩니다.'}
+            {sessions.error ? t('sessionStatusUnknown') : !session
+              ? clock - visible.registeredAt <= 60_000 ? t('sessionChecking') : t('sessionNotFound') :
+              !liveConnection ? t('taskTerminated') :
+                session.status === 'CLOSED' ? t('sessionClosed') : expired ? t('sessionExpired') :
+                  session.status === 'CLOSING' ? t('sessionClosing') :
+                    session.status === 'ERROR' ? t('sessionError') : openable ? (visible.action === 'live' ? t('readyEmbedded') : t('readyNewWindow')) :
+                      session.status === 'READY' ? t('sessionNotReady') : t('sessionQueued')}
           </p></div>
         <span className="flex gap-2">
-          {visible.action === 'live' && <Button variant="primary" disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(true)}>여기서 보기</Button>}
-          <Button variant={visible.action === 'live' ? 'secondary' : 'primary'} disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(false)}>{visible.action === 'live' ? '새 창에서 보기' : `${titles[visible.action]} 열기`}</Button>
+          {visible.action === 'live' && <Button variant="primary" disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(true)}>{t('openHere')}</Button>}
+          <Button variant={visible.action === 'live' ? 'secondary' : 'primary'} disabled={!openable || !!busy} loading={busy === 'launch'} onClick={() => open(false)}>{visible.action === 'live' ? t('openNewWindow') : `${titles[visible.action]} ${tc('open')}`}</Button>
         </span>
       </div>
       {embed && visible.action === 'live' && session?.id === embed.sessionId && openable && (
         <div className="mt-3">
-          <iframe src={embed.url} title="실시간 시뮬레이션 화면" className="h-[520px] w-full rounded-md border border-border bg-black" referrerPolicy="no-referrer" allow="" />
+          <iframe src={embed.url} title={t('liveFrameTitle')} className="h-[520px] w-full rounded-md border border-border bg-black" referrerPolicy="no-referrer" allow="" />
           <div className="mt-1 flex items-center justify-between text-xs text-fg-muted">
-            <span>MJPEG 스트림 · 세션 만료 시 자동으로 끊깁니다. 프레임이 없으면 작업이 아직 렌더링을 시작하지 않은 것입니다.</span>
-            <Button size="sm" variant="ghost" onClick={() => setEmbed(undefined)}>닫기</Button>
+            <span>{t('mjpegStream')}</span>
+            <Button size="sm" variant="ghost" onClick={() => setEmbed(undefined)}>{t('closeEmbed')}</Button>
           </div>
         </div>
       )}
       {session?.message && !openable && <p className="mt-2 text-xs text-fg-muted">{session.message}</p>}
       {sessions.error && <ErrorBox error={sessions.error} className="mt-2" />}
-      <p className="mt-3 text-xs text-fg-muted">세션 이용 시간은 기본 1시간입니다. 세션 관리에서 연장하거나 종료할 수 있습니다.</p>
+      <p className="mt-3 text-xs text-fg-muted">{t('sessionTimeInfo')}</p>
     </div>}
   </Card>;
 }

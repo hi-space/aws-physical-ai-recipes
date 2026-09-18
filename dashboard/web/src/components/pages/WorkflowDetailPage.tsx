@@ -1,10 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Dialog, Toast, Tabs, Card, Stat, StatusPill, CopyButton, CodeBlock, KeyValue, EmptyState, ErrorBox, Spinner } from '@/components/ui';
+import { Button, Dialog, Disclosure, Toast, Tabs, Stat, StatusPill, CopyButton, CodeBlock, KeyValue, EmptyState, ErrorBox, Spinner } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { api, useApi, useApiMutation, can, useMe } from '@/lib/api-client';
-import { shortId, ago, fmtTime, fmtDuration } from '@/lib/format';
+import { shortId } from '@/lib/format';
+import { useT, useFormat } from '@/lib/i18n';
 import type { Workflow, Task } from '@/server/store/types';
 import { TaskTable } from '@/components/workflows/TaskTable';
 import { DagView } from '@/components/workflows/DagView';
@@ -32,8 +33,12 @@ interface WorkflowMetrics {
 }
 
 export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
+  const t = useT('workflowDetail');
+  const tc = useT('common');
+  const { ago, fmtTime, fmtDuration } = useFormat();
   const router = useRouter();
   const me = useMe();
+  const locale = t.locale;
   const [selectedTask, setSelectedTask] = useState<string>();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -69,45 +74,45 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   const cloneWorkflow = () => {
     if (!detail) return;
     try {
-      sessionStorage.setItem('pai.cloneYaml', cloneWorkflowYaml(detail.workflow.specYaml, detail.workflow.vars));
+      sessionStorage.setItem('pai.cloneYaml', cloneWorkflowYaml(detail.workflow.specYaml, detail.workflow.vars, locale));
       router.push('/workflows/new');
     } catch (error) {
-      setToast({ message: error instanceof Error ? error.message : '워크플로를 복제하지 못했습니다.', type: 'err' });
+      setToast({ message: error instanceof Error ? error.message : t('cloneFailed'), type: 'err' });
     }
   };
 
   const handleCancel = async () => {
     try {
       await cancelMut.mutateAsync(undefined);
-      setToast({ message: '취소 요청을 접수했습니다. 실행 상태를 확인하세요.', type: 'ok' });
+      setToast({ message: t('cancelSuccess'), type: 'ok' });
       setShowCancelConfirm(false);
     } catch (error) {
-      setToast({ message: error instanceof Error ? error.message : '취소 요청에 실패했습니다.', type: 'err' });
+      setToast({ message: error instanceof Error ? error.message : t('cancelFailed'), type: 'err' });
     }
   };
 
   const handleRetry = async () => {
     try {
       await retryMut.mutateAsync(undefined);
-      setToast({ message: '재시도 요청을 접수했습니다.', type: 'ok' });
+      setToast({ message: t('retrySuccess'), type: 'ok' });
     } catch (error) {
-      setToast({ message: error instanceof Error ? error.message : '재시도 요청에 실패했습니다.', type: 'err' });
+      setToast({ message: error instanceof Error ? error.message : t('retryFailed'), type: 'err' });
     }
   };
 
   const handleDelete = async () => {
     try {
       await deleteMut.mutateAsync(undefined);
-      setToast({ message: '삭제 요청을 접수했습니다.', type: 'ok' });
+      setToast({ message: t('deleteSuccess'), type: 'ok' });
       setTimeout(() => router.push('/workflows'), 1000);
       setShowDeleteConfirm(false);
     } catch (error) {
-      setToast({ message: error instanceof Error ? error.message : '삭제 요청에 실패했습니다.', type: 'err' });
+      setToast({ message: error instanceof Error ? error.message : t('deleteFailed'), type: 'err' });
     }
   };
 
   if (isLoading) return <Spinner />;
-  if (!detail) return <ErrorBox error={detailError ?? { message: '워크플로를 찾을 수 없습니다.' }} />;
+  if (!detail) return <ErrorBox error={detailError ?? { message: t('notFound') }} />;
 
   const { workflow, tasks } = detail;
   const isTerminal = ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(workflow.status);
@@ -115,78 +120,49 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   const duration = workflow.startedAt && workflow.finishedAt ? fmtDuration(new Date(workflow.finishedAt).getTime() - new Date(workflow.startedAt).getTime()) : workflow.startedAt ? fmtDuration(Date.now() - new Date(workflow.startedAt).getTime()) : '-';
 
   const tabItems: { id: typeof tab; label: string }[] = [
-    { id: 'dag', label: 'DAG' },
-    { id: 'tasks', label: 'Tasks' },
-    { id: 'logs', label: 'Logs' },
-    { id: 'events', label: 'Events' },
-    ...(me.data?.features.amp ? [{ id: 'metrics' as const, label: 'Metrics' }] : []),
-    { id: 'outputs', label: 'Artifacts' },
-    { id: 'spec', label: 'Spec' },
+    { id: 'dag', label: t('tabDag') },
+    { id: 'tasks', label: t('tabTasks') },
+    { id: 'logs', label: t('tabLogs') },
+    { id: 'events', label: t('tabEvents') },
+    ...(me.data?.features.amp ? [{ id: 'metrics' as const, label: t('tabMetrics') }] : []),
+    { id: 'outputs', label: t('tabArtifacts') },
+    { id: 'spec', label: t('tabSpec') },
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title={workflow.name} />
+    <div className="space-y-5">
+      <PageHeader
+        title={<span className="flex flex-wrap items-center gap-3">{workflow.name}<StatusPill status={workflow.status} /></span>}
+        description={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{workflow.owner} · {workflow.namespace}</span>
+            <span>{t('durationCard')} {duration}{workflow.startedAt ? ` · ${fmtTime(new Date(workflow.startedAt))}` : ''}</span>
+            <span className="inline-flex items-center gap-1"><code className="mono text-xs">{shortId(workflow.id)}</code><CopyButton text={workflow.id} /></span>
+          </span>
+        }
+        actions={
+          <>
+            {isTerminal && can(me.data, 'researcher') && <Button onClick={handleRetry} disabled={retryMut.isPending}>{tc('retry')}</Button>}
+            <Button variant="ghost" onClick={cloneWorkflow}>{t('cloneWorkflow')}</Button>
+            <Button variant="ghost" onClick={exportYaml}>{t('exportYaml')}</Button>
+            {!isTerminal && can(me.data, 'researcher') && <Button variant="danger" onClick={() => setShowCancelConfirm(true)} disabled={cancelMut.isPending}>{tc('stop')}</Button>}
+            {isTerminal && can(me.data, 'researcher') && <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMut.isPending}>{tc('delete')}</Button>}
+          </>
+        }
+      />
       {detailError && <ErrorBox error={detailError} />}
       {tab === 'events' && eventsError && <ErrorBox error={eventsError} />}
       {tab === 'events' && (events as { kubernetesError?: string } | undefined)?.kubernetesError && <ErrorBox error={{ message: (events as { kubernetesError: string }).kubernetesError }} />}
       {tab === 'metrics' && metricsError && <ErrorBox error={metricsError} />}
       {tab === 'metrics' && Object.entries(metrics?.errors ?? {}).map(([metric, message]) => <ErrorBox key={metric} error={{ message: `${metric}: ${message}` }} />)}
-
-      <div className="grid grid-cols-3 gap-4">
-        <Card title="Status">
-          <StatusPill status={workflow.status} />
-          <div className="flex gap-2 items-center mt-2">
-            <code className="mono text-xs bg-gray-800 px-2 py-1 rounded flex-1">{shortId(workflow.id)}</code>
-            <CopyButton text={workflow.id} />
-          </div>
-        </Card>
-        <Card title="Owner / Namespace">
-          <div className="space-y-1 text-xs">
-            <div>{workflow.owner}</div>
-            <div className="text-gray-400">{workflow.namespace}</div>
-          </div>
-        </Card>
-        <Card title="Duration">
-          <div className="space-y-1 text-xs">
-            <div className="font-medium">{duration}</div>
-            <div className="text-gray-400">
-              {workflow.startedAt ? `${fmtTime(new Date(workflow.startedAt))}` : '-'}
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-5 gap-2">
-        <Stat label="Progress" value={`${workflow.succeededCount}/${workflow.taskCount}`} />
-        <Stat label="Failed" value={String(workflow.failedCount)} tone={workflow.failedCount > 0 ? 'err' : 'ok'} />
-        <Stat label="Created" value={ago(new Date(workflow.createdAt))} />
-        <Stat label="Template" value={workflow.templateId || '-'} />
-        <Stat label="Message" value={workflow.message || '-'} />
-      </div>
-
       {workflow.message && workflow.status === 'FAILED' && <ErrorBox error={{ message: workflow.message }} />}
-      <RunUsagePanel workflowId={workflow.id} />
 
-      <div className="flex gap-2">
-        {!isTerminal && can(me.data, 'researcher') && <Button variant="danger" size="sm" onClick={() => setShowCancelConfirm(true)} disabled={cancelMut.isPending}>
-          취소
-        </Button>}
-        {isTerminal && can(me.data, 'researcher') && <Button size="sm" onClick={handleRetry} disabled={retryMut.isPending}>
-          재시도
-        </Button>}
-        <Button size="sm" variant="ghost" onClick={cloneWorkflow}>
-          복제
-        </Button>
-        <Button size="sm" variant="ghost" onClick={exportYaml}>
-          YAML 내보내기
-        </Button>
-        {isTerminal && can(me.data, 'researcher') && <Button size="sm" variant="ghost" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMut.isPending}>
-          삭제
-        </Button>}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label={t('progress')} value={`${workflow.succeededCount}/${workflow.taskCount}`} />
+        <Stat label={t('failed')} value={String(workflow.failedCount)} tone={workflow.failedCount > 0 ? 'err' : 'ok'} />
+        <Stat label={t('created')} value={ago(new Date(workflow.createdAt))} />
+        <Stat label={t('template')} value={workflow.templateId || '-'} sub={workflow.message && workflow.status !== 'FAILED' ? workflow.message : undefined} />
       </div>
-
-      <TaskConnections workflow={workflow} tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask} />
 
       <div>
         <Tabs value={tab} onChange={setTab} items={tabItems} />
@@ -198,7 +174,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
             events && (events as any).controller && (events as any).controller.length > 0 ? (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-sm font-medium mb-2">Controller Events</h3>
+                  <h3 className="text-sm font-medium mb-2">{t('controllerEvents')}</h3>
                   <div className="space-y-2">
                     {(events as any).controller.map((e: any, i: number) => (
                       <div key={i} className="border border-gray-700 rounded p-2 text-xs">
@@ -206,7 +182,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
                           <span className="font-medium">{e.reason}</span>
                           <span className="text-gray-400">{fmtTime(new Date(e.ts))}</span>
                         </div>
-                        {e.task && <div className="text-gray-400">Task: {e.task}</div>}
+                        {e.task && <div className="text-gray-400">{tc('task')}: {e.task}</div>}
                         <div className="text-gray-300">{e.message}</div>
                       </div>
                     ))}
@@ -214,7 +190,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
                 </div>
                 {(events as any).kubernetes && (events as any).kubernetes.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-medium mb-2">Kubernetes Events</h3>
+                    <h3 className="text-sm font-medium mb-2">{t('kubernetesEvents')}</h3>
                     <div className="space-y-2">
                       {(events as any).kubernetes.map((e: any, i: number) => (
                         <div key={i} className="border border-gray-700 rounded p-2 text-xs">
@@ -230,31 +206,31 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
                 )}
               </div>
             ) : (
-              <EmptyState title="No events" hint="Events will appear here as the workflow executes." />
+              <EmptyState title={t('noEvents')} hint={t('noEventsHint')} />
             )
           )}
           {tab === 'metrics' && me.data?.features.amp && (
             metrics ? (
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-xs font-medium mb-2">GPU Utilization (%)</h4>
+                  <h4 className="text-xs font-medium mb-2">{t('gpuUtil')}</h4>
                   <TimeSeries series={toSeries((metrics as any).gpuUtil, ['pod', 'gpu'])} />
                 </div>
                 <div>
-                  <h4 className="text-xs font-medium mb-2">GPU Memory (GiB)</h4>
+                  <h4 className="text-xs font-medium mb-2">{t('gpuMem')}</h4>
                   <TimeSeries series={toSeries((metrics as any).gpuMem, ['pod', 'gpu'])} formatter={(value) => `${(value / 1024).toFixed(1)} GiB`} />
                 </div>
                 <div>
-                  <h4 className="text-xs font-medium mb-2">CPU (cores)</h4>
+                  <h4 className="text-xs font-medium mb-2">{t('cpuCores')}</h4>
                   <TimeSeries series={toSeries((metrics as any).cpu, ['pod'])} />
                 </div>
                 <div>
-                  <h4 className="text-xs font-medium mb-2">Memory (GiB)</h4>
+                  <h4 className="text-xs font-medium mb-2">{t('memGib')}</h4>
                   <TimeSeries series={toSeries((metrics as any).mem, ['pod'])} formatter={(value) => `${(value / 1024 ** 3).toFixed(1)} GiB`} />
                 </div>
               </div>
             ) : (
-              <EmptyState title="No metrics" hint="Metrics not available for this workflow." />
+              <EmptyState title={t('noMetrics')} hint={t('noMetricsHint')} />
             )
           )}
           {tab === 'outputs' && (
@@ -265,7 +241,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
               <CodeBlock code={workflow.specYaml} lang="yaml" />
               {Object.keys(workflow.vars).length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-2">Variables</h3>
+                  <h3 className="text-sm font-medium mb-2">{t('variables')}</h3>
                   <KeyValue items={Object.entries(workflow.vars).map(([k, v]) => ({ k, v }))} />
                 </div>
               )}
@@ -274,30 +250,36 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
         </div>
       </div>
 
-      <Dialog open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)} title="워크플로를 취소할까요?" footer={
+      <TaskConnections workflow={workflow} tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask} />
+
+      <Disclosure title={t('usageSection')} summary={t('usageSummary')}>
+        <RunUsagePanel workflowId={workflow.id} />
+      </Disclosure>
+
+      <Dialog open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)} title={t('cancelConfirmTitle')} footer={
         <>
           <Button variant="ghost" onClick={() => setShowCancelConfirm(false)}>
-            계속 실행
+            {t('continueRunning')}
           </Button>
           <Button variant="danger" onClick={handleCancel} disabled={cancelMut.isPending}>
-            취소 요청
+            {t('requestCancel')}
           </Button>
         </>
       }>
-        실행 중인 작업과 대기 중인 작업에 취소를 요청합니다. 종료 여부는 실행 상태에서 확인하세요.
+        {t('cancelConfirmBody')}
       </Dialog>
 
-      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="워크플로를 삭제할까요?" footer={
+      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title={t('deleteConfirmTitle')} footer={
         <>
           <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
-            돌아가기
+            {t('goBack')}
           </Button>
           <Button variant="danger" onClick={handleDelete} disabled={deleteMut.isPending}>
-            삭제
+            {t('confirmDelete')}
           </Button>
         </>
       }>
-        워크플로와 실행 기록을 삭제합니다. 삭제한 기록은 복원할 수 없습니다.
+        {t('deleteConfirmBody')}
       </Dialog>
 
       {toast && <Toast message={toast.message} tone={toast.type} onClose={() => setToast(null)} />}

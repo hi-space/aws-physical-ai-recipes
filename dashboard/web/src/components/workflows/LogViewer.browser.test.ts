@@ -51,7 +51,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('local log replay browse
     const tab = await context.newPage(); tab.setDefaultTimeout(4000); tab.on('pageerror', e => errors.push(e.message));
     try {
       await tab.goto(origin); await tab.getByText('https://example.test', { exact: false }).waitFor();
-      await tab.getByRole('button', { name: '실시간 보기' }).click();
+      await tab.getByRole('button', { name: '계속 보기' }).click();
       await tab.getByText('after reconnect', { exact: false }).waitFor({ timeout: 8000 });
       const content = await tab.locator('[aria-label="작업 로그"]').evaluate(el => {
         const copy = el.cloneNode(true) as HTMLElement; copy.querySelectorAll('.ln').forEach(n => n.remove()); return copy.textContent;

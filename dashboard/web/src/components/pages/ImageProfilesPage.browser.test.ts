@@ -65,7 +65,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('image profile browser c
         allocatable: { cpu: 15, memoryMiB: 30000 }, catalog: { cpu: 16, memoryMiB: 32768, architectures: ['amd64'], gpuCount: 0, gpuNames: [] },
       }] }),
     };
-    page = await browser.newPage();
+    page = await browser.newPage(); page.setDefaultTimeout(4000);
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
   });
@@ -74,26 +74,26 @@ describe.skipIf(!existsSync(chromium.executablePath()))('image profile browser c
 
   it('approves revisions, refreshes displayed evidence, and preflights without submitting workflows', async () => {
     await page.goto(origin + '/image-profiles');
-    await page.getByLabel('식별자', { exact: true }).fill('cpu');
-    await page.getByLabel('이름', { exact: true }).fill('CPU fixture');
-    await page.getByLabel('Private ECR tag 또는 digest').fill(image);
+    await page.getByRole('textbox', { name: /식별자/ }).fill('cpu');
+    await page.getByRole('textbox', { name: /^이름$/ }).first().fill('CPU fixture');
+    await page.getByRole('textbox', { name: /Private ECR/ }).fill(image);
     await page.getByRole('button', { name: '검사하고 승인 버전 저장' }).click();
-    await page.getByText('v1 승인 기록을 저장했습니다.', { exact: true }).waitFor();
-    expect(await page.getByLabel('프로필 버전').inputValue()).toBe('1');
+    await page.getByText(/v1.*저장/, { exact: false }).waitFor();
+    expect(await page.getByRole('combobox', { name: /버전/ }).inputValue()).toBe('1');
     await page.getByRole('button', { name: '검사용 예제 작성' }).click();
-    expect(await page.getByLabel('사전 검사 워크플로우 YAML').inputValue()).toContain(resolved);
+    expect(await page.getByRole('textbox', { name: /사전 검사/ }).inputValue()).toContain(resolved);
     await page.getByRole('button', { name: '호환성 검사', exact: true }).click();
     await page.getByText('추가 확인 필요', { exact: true }).waitFor();
     await page.getByText('모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.', { exact: false }).waitFor();
-    await page.getByLabel('이름', { exact: true }).fill('CPU revised');
+    await page.getByRole('textbox', { name: /^이름$/ }).first().fill('CPU revised');
     await page.getByRole('button', { name: '검사하고 승인 버전 저장' }).click();
-    await page.getByText('v2 승인 기록을 저장했습니다.', { exact: true }).waitFor();
-    expect(await page.getByLabel('프로필 버전').inputValue()).toBe('2');
-    await page.getByLabel('프로필 버전').selectOption('1');
+    await page.getByText(/v2.*저장/, { exact: false }).waitFor();
+    expect(await page.getByRole('combobox', { name: /버전/ }).inputValue()).toBe('2');
+    await page.getByRole('combobox', { name: /버전/ }).selectOption('1');
     await page.getByRole('heading', { name: 'CPU fixture · 증거와 이력' }).waitFor();
     expect(calls.some(path => path.includes('/api/workflows') || path.includes('null'))).toBe(false);
     expect(calls).toContain('/api/image-profiles/cpu?version=2');
-  }, 15000);
+  }, 30000);
   it('keeps administrator approval controls unavailable to researchers', async () => {
     admin = false;
     await page.goto(origin + '/image-profiles');

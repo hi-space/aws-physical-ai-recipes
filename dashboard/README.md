@@ -34,6 +34,10 @@
 | 빌드 | 등록된 S3/Git source·CodeBuild·ECR provenance. S3 source→CodeBuild→ECR digest→profile 연결 실제 PASS. 기본 검증은 작은 FROM scratch 이미지 |
 | 엣지·자동화 | 등록 장치 lease·고정 모델/component·rollback/benchmark, REST/CLI·HMAC webhook. 물리 장치 검증과 MCP는 별개 |
 
+## 언어 (한국어 / English)
+
+모든 화면 문구는 `web/src/lib/i18n/messages/`의 타입 검사되는 카탈로그에서 한국어·영어 두 가지로 제공됩니다. 첫 방문은 브라우저 `Accept-Language`로 언어를 고르고, 사이드바 하단의 **한국어 | EN** 토글로 바꾸면 `pai-locale` 쿠키(1년)에 저장되어 새로 고침 없이 즉시 적용됩니다. URL은 언어와 무관하므로 공유 링크·API·게이트웨이 세션 호스트에 영향이 없습니다. 상태 값은 한국어에서 라벨(성공·실행 중 등)로 표시하고 원래 값은 툴팁으로 남깁니다. 서버가 돌려주는 API 오류 문구와 내장 레시피 설명은 아직 단일 언어이며, `Accept-Language` 기반 협상은 후속 작업입니다. 새 문구를 추가할 때는 해당 네임스페이스 모듈의 `en`/`ko`에 함께 넣어야 하며(`ko` 누락은 타입 오류), 컴포넌트에 한글을 직접 쓰면 `no-hardcoded-strings.test.ts`가 실패합니다.
+
 ## 비용과 노드 수 변경
 
 **사용량**의 금액은 기록된 요청 CPU/GPU 시간에 공식 단가를 배분한 추정입니다. 실제 청구서나 GPU 활용률이 아니며 idle 인프라·스토리지·네트워크 등은 제외합니다. 단가 출처·시각·알 수 없는 항목을 확인하세요. **AWS 계정 전체 비용 (최근 30일)**은 관리자에게만 표시하며 대시보드 프로젝트 비용으로 해석하지 않습니다.

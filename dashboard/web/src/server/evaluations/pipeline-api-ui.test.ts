@@ -10,6 +10,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 import { pipelineFixture, pipelineAdmin, executionArn } from './pipeline-fixtures';
 import { GET as listArchives, POST as requestArchive } from '../../app/api/pipelines/executions/[arn]/archives/route';
+import { POST as startPipeline } from '../../app/api/pipelines/executions/route';
 import { GET as readArchive } from '../../app/api/pipelines/archives/[id]/route';
 import { POST as approveRegistry } from '../../app/api/models/[id]/registry-approval/route';
 import * as archiveServices from '../services/pipeline-archives';
@@ -47,6 +48,76 @@ async function prepare() {
   return { archive: ready, model };
 }
 describe('pipeline archive HTTP boundaries and researcher UI', () => {
+  it('rejects a changed expected owner over HTTP before reserving either acceptance or rejection', async () => {
+    vi.stubEnv('ARTIFACTS_BUCKET', 'archive'); vi.stubEnv('SM_PIPELINE_NAME', 'groot'); resetConfigForTests();
+    transport.sm.mockClear().mockImplementation(command => {
+      if (command.constructor.name === 'DescribePipelineCommand') return {
+        PipelineArn: 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot',
+        PipelineDefinition: JSON.stringify({ Parameters: [{ Name: 'MaxSteps', Type: 'Integer', DefaultValue: 100 }] }),
+      };
+      throw new Error(`Unexpected AWS command ${command.constructor.name}`);
+    });
+    const request = req('/api/pipelines/executions', 'POST', {
+      parameters: { MaxSteps: '-1' }, expectedOwnerSubject: 'alice-sub',
+    }, 'peer-sub');
+    request.headers.set('idempotency-key', 'owner-http');
+    const response = await startPipeline(request);
+    expect(response.status).toBe(403);
+    const result = await response.json();
+    expect(result.code).toBe('pipeline_owner_changed');
+    expect(result).not.toHaveProperty('details.submissionState');
+    expect(await f.repo.kv.query('PROJECT#a', 'PIPELINE#')).toHaveLength(0);
+    expect(transport.sm).not.toHaveBeenCalled();
+  });
+  it.each(['', 'a'.repeat(257)])('rejects an empty or oversized expected owner before calling AWS (%#)', async expectedOwnerSubject => {
+    vi.stubEnv('ARTIFACTS_BUCKET', 'archive'); vi.stubEnv('SM_PIPELINE_NAME', 'groot'); resetConfigForTests();
+    transport.sm.mockClear().mockImplementation(command => {
+      if (command.constructor.name === 'DescribePipelineCommand') return {
+        PipelineArn: 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot',
+        PipelineDefinition: JSON.stringify({ Parameters: [] }),
+      };
+      if (command.constructor.name === 'StartPipelineExecutionCommand') return { PipelineExecutionArn: executionArn };
+      throw new Error(`Unexpected AWS command ${command.constructor.name}`);
+    });
+    const response = await startPipeline(req('/api/pipelines/executions', 'POST', {
+      parameters: {}, expectedOwnerSubject,
+    }));
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.code).toBe('bad_request');
+    expect(result).not.toHaveProperty('details.submissionState');
+    expect(await f.repo.kv.query('PROJECT#a', 'PIPELINE#')).toHaveLength(0);
+    expect(transport.sm).not.toHaveBeenCalled();
+  });
+  it('returns a scoped definitive rejection receipt over HTTP but never labels an authorization denial that way', async () => {
+    vi.stubEnv('ARTIFACTS_BUCKET', 'archive'); vi.stubEnv('SM_PIPELINE_NAME', 'groot'); resetConfigForTests();
+    transport.sm.mockImplementation(command => {
+      if (command.constructor.name === 'DescribePipelineCommand') return {
+        PipelineArn: 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot',
+        PipelineDefinition: JSON.stringify({ Parameters: [{ Name: 'MaxSteps', Type: 'Integer', DefaultValue: 100 }] }),
+      };
+      throw new Error(`Unexpected AWS command ${command.constructor.name}`);
+    });
+    const path = '/api/pipelines/executions', input = { parameters: { MaxSteps: '-1' } };
+    const request = req(path, 'POST', input); request.headers.set('idempotency-key', 'rejected-http');
+    const response = await startPipeline(request);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'pipeline_not_submitted', details: {
+      submissionState: 'not_submitted', requestId: 'rejected-http', projectId: 'a', ownerSubject: 'alice-sub',
+    } });
+    expect(await f.repo.kv.queryGsi1('TYPE#PIPELINE_INTENT')).toHaveLength(0);
+    const stale = req(path, 'POST', { parameters: { MaxSteps: '1' },
+      expectedPipelineArn: 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/other' });
+    stale.headers.set('idempotency-key', 'stale-http');
+    const staleResponse = await startPipeline(stale);
+    expect(staleResponse.status).toBe(400);
+    expect(await staleResponse.json()).toMatchObject({ code: 'pipeline_not_submitted' });
+    expect(await f.repo.kv.queryGsi1('TYPE#PIPELINE_INTENT')).toHaveLength(0);
+    const denied = await startPipeline(req(path, 'POST', input, 'reader-sub'));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).not.toHaveProperty('details.submissionState');
+    expect(transport.sm.mock.calls.map(([command]) => command.constructor.name)).toEqual(['DescribePipelineCommand', 'DescribePipelineCommand']);
+  });
   it('queues a project-scoped archive and exposes progress without starting another pipeline', async () => {
     const response = await requestArchive(req(archivePath, 'POST', { trainingStep: 'GR00TFinetune', reportSteps: ['SmokeEval'] }), { params: Promise.resolve({ arn: executionArn }) });
     expect(response.status).toBe(202);
@@ -85,7 +156,7 @@ describe('pipeline archive HTTP boundaries and researcher UI', () => {
     expect(modelHTML).not.toContain('100.0%');
     expect(modelHTML).not.toContain('/workflows/undefined');
     expect(modelHTML).toMatch(/<button[^>]*disabled=""[^>]*>품질 승인을 SageMaker Registry에 반영<\/button>/);
-    const panelHTML = renderToStaticMarkup(createElement(PipelineArchivePanel, { arn: executionArn, data: {
+    const panelHTML = renderToStaticMarkup(createElement(PipelineArchivePanel, { arn: executionArn, projectId: 'a', data: {
       canArchive: true, projectRecorded: true, execution: { PipelineExecutionStatus: 'Succeeded', PipelineExecutionDisplayName: 'Fixture', CreationTime: '', LastModifiedTime: '' },
       steps: [{ StepName: 'GR00TFinetune', StepStatus: 'Succeeded', Metadata: { TrainingJob: { Arn: 'fixture' } } }], parameters: [],
     } }));

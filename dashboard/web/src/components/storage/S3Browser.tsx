@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Button, CopyButton, EmptyState, ErrorBox, Spinner, Table } from '@/components/ui';
 import { ago, fmtBytes, classNames as cx } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { api, useApi } from '@/lib/api-client';
 
 interface S3Entry {
@@ -28,6 +29,8 @@ export interface S3BrowserProps {
 }
 
 export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, allowDelete = false }: S3BrowserProps) {
+  const t = useT('storage');
+  const tc = useT('common');
   const [prefix, setPrefix] = React.useState(initialPrefix);
   const [token, setToken] = React.useState<string | undefined>();
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
@@ -35,8 +38,10 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
   const [uploadProgress, setUploadProgress] = React.useState<Record<string, number>>({});
   const [deleteConfirm, setDeleteConfirm] = React.useState(false);
 
+  const listingParams = new URLSearchParams({ bucket, prefix });
+  if (token) listingParams.set('token', token);
   const { data, isLoading, error, refetch } = useApi<S3Listing>(
-    `/api/s3?bucket=${bucket}&prefix=${encodeURIComponent(prefix)}&token=${token ?? ''}`,
+    `/api/s3?${listingParams}`,
     { refetch: 0 }
   );
   React.useEffect(() => {
@@ -92,7 +97,7 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
           return next;
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload failed';
+        const msg = err instanceof Error ? err.message : tc('errorGeneric');
         setToast({ message: msg, tone: 'err' });
       }
     }
@@ -105,12 +110,12 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
     try {
       const keys = Array.from(selected);
       await api('/api/s3', { method: 'DELETE', json: { bucket, keys } });
-      setToast({ message: `Deleted ${keys.length} file(s)`, tone: 'ok' });
+      setToast({ message: t('deleteSuccess'), tone: 'ok' });
       setSelected(new Set());
       setDeleteConfirm(false);
       refetch();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
+      const msg = err instanceof Error ? err.message : tc('errorGeneric');
       setToast({ message: msg, tone: 'err' });
     }
   };
@@ -171,7 +176,7 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
             onChange={handleFileUpload}
             className="hidden"
           />
-          <div className="text-sm text-gray-400">Drop files here or click to upload</div>
+          <div className="text-sm text-gray-400">{t('uploadPlaceholder')}</div>
         </label>
       )}
 
@@ -193,9 +198,9 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
       )}
 
       {isLoading && !data ? (
-        <Spinner label="Loading…" />
+        <Spinner label={t('loadingBuckets')} />
       ) : !data || data.entries.length === 0 ? (
-        <EmptyState title="No files" />
+        <EmptyState title={t('noEntries')} />
       ) : (
         <>
           {/* Selection and delete toolbar */}
@@ -205,15 +210,15 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
               {deleteConfirm ? (
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => setDeleteConfirm(false)} variant="ghost">
-                    Cancel
+                    {tc('cancel')}
                   </Button>
                   <Button size="sm" onClick={handleDelete} variant="danger">
-                    Confirm delete
+                    {tc('delete')}
                   </Button>
                 </div>
               ) : (
                 <Button size="sm" onClick={() => setDeleteConfirm(true)} variant="danger">
-                  Delete selected
+                  {tc('delete')}
                 </Button>
               )}
             </div>
@@ -236,10 +241,10 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
                     }}
                   />
                 </th>}
-                <th className="py-2 px-3 text-left text-xs font-semibold">Name</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold">Size</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold">Modified</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold">Action</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold">{t('colName')}</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold">{t('colSize')}</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold">{t('colModified')}</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold">{tc('actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -288,12 +293,12 @@ export function S3Browser({ bucket, initialPrefix = '', allowUpload = false, all
                             });
                             window.open(res.url);
                           } catch (err) {
-                            const msg = err instanceof Error ? err.message : 'Download failed';
+                            const msg = err instanceof Error ? err.message : tc('errorGeneric');
                             setToast({ message: msg, tone: 'err' });
                           }
                         }}
                       >
-                        Download
+                        {tc('download')}
                       </Button>
                     )}
                   </td>

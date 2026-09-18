@@ -13,7 +13,7 @@ import {
   Textarea,
   Toast,
 } from '@/components/ui';
-import { fmtNum } from '@/lib/format';
+import { useT, useFormat } from '@/lib/i18n';
 import { api, can, useApi, useApiMutation, useMe } from '@/lib/api-client';
 import { S3Browser } from '@/components/storage/S3Browser';
 
@@ -54,6 +54,9 @@ interface DataRepositoryTask {
 }
 
 export function StoragePage() {
+  const t = useT('storage');
+  const tc = useT('common');
+  const { fmtNum } = useFormat();
   const me = useMe();
   const { data: bucketsData, isLoading: bucketsLoading, error: bucketsError } = useApi<{ buckets: Bucket[] }>('/api/s3', { refetch: 0 });
   const { data: fsxData, isLoading: fsxLoading, error: fsxError } = useApi<FileSystem[]>('/api/fsx', { refetch: 10000 });
@@ -98,20 +101,20 @@ export function StoragePage() {
         paths: pathsStr.split('\n').map((p) => p.trim()).filter(Boolean),
       });
       setTaskOpen(false);
-      setToast({ message: 'Task created', tone: 'ok' });
+      setToast({ message: tc('created'), tone: 'ok' });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create task';
+      const msg = err instanceof Error ? err.message : tc('errorGeneric');
       setToast({ message: msg, tone: 'err' });
     }
   };
 
   if ((bucketsLoading && !bucketsData) || (fsxLoading && !fsxData)) {
-    return <Spinner label="Loading storage…" />;
+    return <Spinner label={t('loadingBuckets')} />;
   }
 
   return (
     <>
-      <PageHeader title="Storage" />
+      <PageHeader title={t('title')} />
       <div className="space-y-4">
         {(bucketsError || fsxError) && <ErrorBox error={bucketsError || fsxError} />}
 
@@ -149,33 +152,33 @@ export function StoragePage() {
             )}
           </div>
         ) : (
-          <EmptyState title="No buckets" />
+          <EmptyState title={t('noBuckets')} />
         )}
 
         {/* FSx for Lustre */}
         {fsx ? (
           <Card>
             <div className="space-y-4">
-              <p className="font-semibold text-sm">FSx for Lustre</p>
+              <p className="font-semibold text-sm">{t('fsxDetails')}</p>
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Lifecycle</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('fsxLifecycle')}</p>
                   <StatusPill status={fsx.lifecycle} />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Capacity</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('fsxCapacity')}</p>
                   <p className="text-sm font-semibold">{fmtNum(fsx.storageCapacityGiB)} GiB</p>
                 </div>
                 {fsx.dnsName && (
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">DNS</p>
+                    <p className="text-xs text-gray-400 mb-1">{t('fsxDns')}</p>
                     <p className="text-xs font-mono break-all">{fsx.dnsName}</p>
                   </div>
                 )}
                 {fsx.mountName && (
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Mount</p>
+                    <p className="text-xs text-gray-400 mb-1">{t('fsxMount')}</p>
                     <p className="text-xs font-mono">{fsx.mountName}</p>
                   </div>
                 )}
@@ -184,13 +187,13 @@ export function StoragePage() {
               {/* Associations */}
               {fsx.associations && fsx.associations.length > 0 && (
                 <div className="space-y-3">
-                  <p className="font-semibold text-sm">Data Repository Associations</p>
+                  <p className="font-semibold text-sm">{t('fsxAssociations')}</p>
                   <table className="w-full text-sm">
                     <thead className="border-b border-border">
                       <tr>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">FSx Path</th>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">S3 Path</th>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">Status</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('assocPath')}</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('assocRepo')}</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('assocLifecycle')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -211,10 +214,10 @@ export function StoragePage() {
               {/* Tasks */}
               <div className="space-y-3 pt-3 border-t border-border">
                 <div className="flex items-center justify-between">
-                  <p className="font-semibold text-sm">Data Repository Tasks</p>
+                  <p className="font-semibold text-sm">{t('fsxTasks')}</p>
                   {can(me.data, 'researcher') && (
                     <Button size="sm" onClick={() => setTaskOpen(true)}>
-                      Create task
+                      {t('fsxTaskCreate')}
                     </Button>
                   )}
                 </div>
@@ -223,11 +226,11 @@ export function StoragePage() {
                   <Dialog
                     open={taskOpen}
                     onClose={() => setTaskOpen(false)}
-                    title="Create Data Repository Task"
+                    title={t('fsxTaskTitle')}
                   >
                     <form onSubmit={handleCreateTask} className="space-y-4">
                       <div>
-                        <label className="block text-sm font-semibold mb-2">Type</label>
+                        <label className="block text-sm font-semibold mb-2">{t('fsxTaskType')}</label>
                         <div className="space-y-2">
                           <label className="flex items-center gap-2">
                             <input
@@ -236,16 +239,16 @@ export function StoragePage() {
                               value="IMPORT_METADATA_FROM_REPOSITORY"
                               defaultChecked
                             />
-                            <span className="text-sm">Import metadata from S3</span>
+                            <span className="text-sm">{t('fsxTaskImport')}</span>
                           </label>
                           <label className="flex items-center gap-2">
                             <input type="radio" name="type" value="EXPORT_TO_REPOSITORY" />
-                            <span className="text-sm">Export to S3</span>
+                            <span className="text-sm">{t('fsxTaskExport')}</span>
                           </label>
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-semibold mb-2">Paths (one per line)</label>
+                        <label className="block text-sm font-semibold mb-2">{t('fsxTaskPaths')}</label>
                         <Textarea
                           name="paths"
                           placeholder="/fsx/checkpoints"
@@ -255,10 +258,10 @@ export function StoragePage() {
                       </div>
                       <div className="flex gap-2 justify-end">
                         <Button type="button" onClick={() => setTaskOpen(false)} variant="ghost">
-                          Cancel
+                          {tc('cancel')}
                         </Button>
                         <Button type="submit" loading={createTaskMutation.isPending}>
-                          Create
+                          {tc('create')}
                         </Button>
                       </div>
                     </form>
@@ -266,17 +269,17 @@ export function StoragePage() {
                 )}
 
                 {tasksQuery.isLoading && !tasksQuery.data ? (
-                  <Spinner label="Loading tasks…" />
+                  <Spinner label={t('loadingTasks')} />
                 ) : !tasksQuery.data || tasksQuery.data.length === 0 ? (
-                  <EmptyState title="No tasks" />
+                  <EmptyState title={t('noEntries')} />
                 ) : (
                   <table className="w-full text-sm">
                     <thead className="border-b border-border">
                       <tr>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">Task ID</th>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">Type</th>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">Status</th>
-                        <th className="py-2 px-3 text-left text-xs font-semibold">Progress</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('colTaskId')}</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('colTaskType')}</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('colTaskStatus')}</th>
+                        <th className="py-2 px-3 text-left text-xs font-semibold">{t('colTaskProgress')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -318,7 +321,7 @@ export function StoragePage() {
             </div>
           </Card>
         ) : (
-          <EmptyState title="No FSx deployment" />
+          <EmptyState title={t('noFileSystems')} />
         )}
       </div>
 

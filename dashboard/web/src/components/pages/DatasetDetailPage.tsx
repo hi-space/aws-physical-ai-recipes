@@ -18,8 +18,9 @@ import {
   Textarea,
   Toast,
 } from '@/components/ui';
-import { ago, classNames as cx, fmtBytes } from '@/lib/format';
+import { classNames as cx } from '@/lib/format';
 import { api, can, useApi, useApiMutation, useMe } from '@/lib/api-client';
+import { useT, useFormat } from '@/lib/i18n';
 import { datasetRelativePrefix, datasetUploadFilename } from './dataset-paths';
 import { uploadDatasetFile, abortDatasetUpload, type UploadSession } from '@/lib/multipart-upload';
 
@@ -47,6 +48,7 @@ interface DatasetVersion {
   createdBy: string;
   note?: string;
   state?: 'PENDING' | 'READY';
+  imported?: boolean;
   selection?: {include?:string[];exclude?:string[]};
   finalizationError?: string;
 }
@@ -77,6 +79,9 @@ interface LineageData {
 export function DatasetDetailPage({ name }: { name: string }) {
   const router = useRouter();
   const me = useMe();
+  const t = useT('datasetDetail');
+  const tc = useT('common');
+  const { ago, fmtNum, fmtBytes } = useFormat();
   const { data, isLoading, error } = useApi<{
     dataset: Dataset;
     versions: DatasetVersion[];
@@ -101,8 +106,10 @@ export function DatasetDetailPage({ name }: { name: string }) {
     setFileBrowserToken(undefined);
   }, [name, currentVersion?.version]);
 
+  const listingParams = new URLSearchParams({ prefix: fileBrowserPrefix });
+  if (fileBrowserToken) listingParams.set('token', fileBrowserToken);
   const fileListingQuery = useApi<S3Listing>(
-    currentVersion ? `/api/datasets/${name}/versions/${currentVersion.version}?prefix=${encodeURIComponent(fileBrowserPrefix)}&token=${fileBrowserToken ?? ''}` : null,
+    currentVersion ? `/api/datasets/${name}/versions/${currentVersion.version}?${listingParams}` : null,
     { refetch: 0 }
   );
 
@@ -127,9 +134,10 @@ export function DatasetDetailPage({ name }: { name: string }) {
       api<DatasetVersion>(`/api/datasets/${name}/versions/${currentVersion!.version}`, { method: 'POST', json: { action: 'tags', tags } }),
     [`/api/datasets/${name}`]
   );
-  const uploadSessions = useApi<UploadSession[]>(currentVersion?.state === 'PENDING' && can(me.data, 'researcher') ? `/api/datasets/${name}/versions/${currentVersion.version}/uploads` : null, {refetch: 10000});
-  const unfinishedUploads = (uploadSessions.data ?? []).filter(session => !['COMPLETED','ABORTED'].includes(session.state));
-  const uploadEnabled = currentVersion?.state === 'PENDING' && !uploading && !refreshSizeMutation.isPending;
+  const canUpload = currentVersion?.state === 'PENDING' && !currentVersion.imported && can(me.data, 'researcher');
+  const uploadSessions = useApi<UploadSession[]>(canUpload ? `/api/datasets/${name}/versions/${currentVersion.version}/uploads` : null, {refetch: 10000});
+  const unfinishedUploads = canUpload ? (uploadSessions.data ?? []).filter(session => !['COMPLETED','ABORTED'].includes(session.state)) : [];
+  const uploadEnabled = canUpload && !uploading && !refreshSizeMutation.isPending;
   React.useEffect(() => () => uploadController.current?.abort(), [name, currentVersion?.version]);
 
   React.useEffect(() => {
@@ -152,7 +160,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
       });
       setSelectedVersion(newVer.version);
       setNewVersionOpen(false);
-      setToast({ message: '버전을 생성했습니다.', tone: 'ok' });
+      setToast({ message: t('toastVersionCreated'), tone: 'ok' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to create version';
       setToast({ message: msg, tone: 'err' });
@@ -163,7 +171,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
     try {
       await deleteMutation.mutateAsync();
       setDeleteOpen(false);
-      setToast({ message: '데이터셋을 삭제했습니다.', tone: 'ok' });
+      setToast({ message: t('toastDatasetDeleted'), tone: 'ok' });
       setTimeout(() => router.push('/datasets'), 1000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete dataset';
@@ -181,9 +189,9 @@ export function DatasetDetailPage({ name }: { name: string }) {
         await uploadDatasetFile(name, version, file, filename, percent => setUploadProgress(previous => ({...previous, [filename]: percent})), controller.signal);
         setUploadProgress(previous => {const next = {...previous}; delete next[filename]; return next;});
       }
-      setToast({message:'파일 업로드를 확인했습니다. 모두 올린 뒤 버전을 확정하세요.',tone:'ok'});
+      setToast({message:t('uploadComplete'),tone:'ok'});
     } catch (error) {
-      setToast({message:controller.signal.aborted ? '일시 중지했습니다. 같은 파일을 다시 선택하면 이어 올립니다.' : error instanceof Error ? error.message : '업로드 실패: 같은 파일을 다시 선택해 재개하세요.',tone:'err'});
+      setToast({message:controller.signal.aborted ? t('uploadResume') : error instanceof Error ? error.message : t('uploadError'),tone:'err'});
     } finally {
       input.value=''; setUploading(false); uploadController.current=null;
       void uploadSessions.refetch(); void fileListingQuery.refetch();
@@ -201,15 +209,15 @@ export function DatasetDetailPage({ name }: { name: string }) {
     try {
       await setTagsMutation.mutateAsync(tagsStr.split(',').map((t) => t.trim()).filter(Boolean));
       setEditTagsOpen(false);
-      setToast({ message: '태그를 변경했습니다.', tone: 'ok' });
+      setToast({ message: t('toastTagsUpdated'), tone: 'ok' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to update tags';
       setToast({ message: msg, tone: 'err' });
     }
   };
 
-  if (isLoading && !data) return <Spinner label={`데이터셋 ${name}을 불러오는 중…`} />;
-  if (!data) return error ? <ErrorBox error={error} /> : <EmptyState title="데이터셋을 찾을 수 없습니다." />;
+  if (isLoading && !data) return <Spinner label={t('loadingDataset', { name })} />;
+  if (!data) return error ? <ErrorBox error={error} /> : <EmptyState title={t('notFound')} />;
 
   const ds = data.dataset;
 
@@ -218,8 +226,8 @@ export function DatasetDetailPage({ name }: { name: string }) {
       <PageHeader title={ds.name} />
       {can(me.data, 'researcher') && (
         <div className="flex gap-2 mb-4">
-          <Button onClick={() => setNewVersionOpen(true)}>새 버전</Button>
-          <Button onClick={() => setDeleteOpen(true)} variant="ghost">데이터셋 삭제</Button>
+          <Button onClick={() => setNewVersionOpen(true)}>{t('newVersion')}</Button>
+          <Button onClick={() => setDeleteOpen(true)} variant="ghost">{t('deleteDataset')}</Button>
         </div>
       )}
 
@@ -232,29 +240,29 @@ export function DatasetDetailPage({ name }: { name: string }) {
           <Card>
             <div className="space-y-3">
               <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1">Description</p>
+                <p className="text-xs font-semibold text-gray-400 mb-1">{tc('description')}</p>
                 <p className="text-sm">{ds.description || '—'}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1">Owner</p>
+                <p className="text-xs font-semibold text-gray-400 mb-1">{tc('owner')}</p>
                 <p className="text-sm">{ds.owner}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1">Created</p>
+                <p className="text-xs font-semibold text-gray-400 mb-1">{tc('created')}</p>
                 <p className="text-sm">{ago(ds.createdAt)}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1">Latest</p>
+                <p className="text-xs font-semibold text-gray-400 mb-1">{tc('version')}</p>
                 <p className="text-sm mono">v{ds.latestVersion}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1">Tags</p>
+                <p className="text-xs font-semibold text-gray-400 mb-1">{tc('tags')}</p>
                 {ds.tags.length === 0 ? (
                   <span className="text-xs text-gray-500">—</span>
                 ) : (
                   <div className="flex gap-1 flex-wrap">
-                    {ds.tags.map((t) => (
-                      <Badge key={t}>{t}</Badge>
+                    {ds.tags.map((tag) => (
+                      <Badge key={tag}>{tag}</Badge>
                     ))}
                   </div>
                 )}
@@ -264,9 +272,9 @@ export function DatasetDetailPage({ name }: { name: string }) {
 
           {/* Versions list */}
           <Card>
-            <p className="font-semibold text-sm mb-2">버전 ({data.versions.length})</p>
+            <p className="font-semibold text-sm mb-2">{t('versionTitle')} ({data.versions.length})</p>
             {data.versions.length === 0 ? (
-              <EmptyState title="아직 버전이 없습니다." hint="새 버전을 생성한 뒤 파일을 업로드하세요." />
+              <EmptyState title={t('selectVersion')} hint={t('filesDesc')} />
             ) : (
               <div className="space-y-1 max-h-96 overflow-y-auto">
                 {data.versions.map((v) => (
@@ -282,7 +290,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
                   >
                     <div className="flex items-center gap-2">
                       <span className="font-mono font-semibold">v{v.version}</span>
-                      <Badge tone={v.state === 'READY' ? 'ok' : v.state === 'PENDING' ? 'warn' : 'neutral'}>{v.state ?? '상태 미확인'}</Badge>
+                      <Badge tone={v.state === 'READY' ? 'ok' : v.state === 'PENDING' ? 'warn' : 'neutral'}>{v.state === 'READY' ? t('stReady') : v.state === 'PENDING' ? t('stPending') : tc('unknown')}</Badge>
                     </div>
                     <div className="text-xs text-gray-500">{ago(v.createdAt)}</div>
                     {v.producedBy && (
@@ -307,19 +315,19 @@ export function DatasetDetailPage({ name }: { name: string }) {
             <Card>
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">버전 상태</p>
-                  <Badge tone={currentVersion.state === 'READY' ? 'ok' : currentVersion.state === 'PENDING' ? 'warn' : 'neutral'}>{currentVersion.state ?? '상태 미확인'}</Badge>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{t('colState')}</p>
+                  <Badge tone={currentVersion.state === 'READY' ? 'ok' : currentVersion.state === 'PENDING' ? 'warn' : 'neutral'}>{currentVersion.state === 'READY' ? t('stReady') : currentVersion.state === 'PENDING' ? t('stPending') : tc('unknown')}</Badge>
                   <p className="text-sm text-fg-muted mt-2">
                     {currentVersion.state === 'PENDING'
-                      ? '파일을 여러 번에 나누어 업로드할 수 있습니다. 모두 올린 뒤 검증 및 버전 확정을 누르세요. 확정 상태는 10초마다 갱신됩니다.'
+                      ? t('pendingDesc')
                       : currentVersion.state === 'READY'
-                        ? '확정된 버전의 파일은 변경할 수 없습니다. 내용을 바꾸려면 새 버전을 만드세요.'
-                        : '버전 상태를 확인할 수 없어 업로드할 수 없습니다.'}
+                        ? t('readyDesc')
+                        : t('stateUnknownDesc')}
                   </p>
                 </div>
-                {currentVersion.finalizationError && <ErrorBox error={{ message: `버전 확정 실패: ${currentVersion.finalizationError}` }} />}
+                {currentVersion.finalizationError && <ErrorBox error={{ message: t('finalizationError', {error: currentVersion.finalizationError}) }} />}
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">S3 URI</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{t('colUri')}</p>
                   <div className="flex items-center gap-2">
                     <code className="mono text-xs bg-bg-elev-2 px-2 py-1 rounded flex-1 break-all">{currentVersion.uri}</code>
                     <CopyButton text={currentVersion.uri} />
@@ -327,7 +335,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
                 </div>
                 {currentVersion.fsxPath && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 mb-1">FSx Path</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-1">{tc('path')}</p>
                     <div className="flex items-center gap-2">
                       <code className="mono text-xs bg-bg-elev-2 px-2 py-1 rounded flex-1 break-all">{currentVersion.fsxPath}</code>
                       <CopyButton text={currentVersion.fsxPath} />
@@ -336,31 +344,31 @@ export function DatasetDetailPage({ name }: { name: string }) {
                 )}
                 {currentVersion.selection && ((currentVersion.selection.include?.length ?? 0) > 0 || (currentVersion.selection.exclude?.length ?? 0) > 0) && (
                   <div className="text-sm space-y-1">
-                    <p>포함: <code>{currentVersion.selection.include?.join(', ') || '전체'}</code></p>
-                    <p>제외: <code>{currentVersion.selection.exclude?.join(', ') || '없음'}</code></p>
+                    <p>{t('newVersionInclude')}: <code>{currentVersion.selection.include?.join(', ') || tc('all')}</code></p>
+                    <p>{t('newVersionExclude')}: <code>{currentVersion.selection.exclude?.join(', ') || tc('none')}</code></p>
                   </div>
                 )}
                 {currentVersion.note && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 mb-1">Note</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-1">{t('colNote')}</p>
                     <p className="text-sm">{currentVersion.note}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">Created</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{tc('created')}</p>
                   <p className="text-sm">{ago(currentVersion.createdAt)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">Created By</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{tc('user')}</p>
                   <p className="text-sm">{currentVersion.createdBy}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">Size</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{tc('size')}</p>
                   <p className="text-sm">{fmtBytes(currentVersion.sizeBytes)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-400 mb-1">Objects</p>
-                  <p className="text-sm">{currentVersion.objectCount !== undefined ? currentVersion.objectCount : '—'}</p>
+                  <p className="text-xs font-semibold text-gray-400 mb-1">{t('colCount')}</p>
+                  <p className="text-sm">{currentVersion.objectCount !== undefined ? fmtNum(currentVersion.objectCount) : '—'}</p>
                 </div>
 
                 <div>
@@ -380,14 +388,14 @@ export function DatasetDetailPage({ name }: { name: string }) {
                     <Button size="sm" onClick={() => refreshSizeMutation.mutate(undefined, {
                       onSuccess: () => {
                         if (currentVersion.state === 'PENDING') {
-                          setToast({ message: `v${currentVersion.version} 검증 및 확정 요청을 접수했습니다. READY 상태가 되면 확정이 완료됩니다.`, tone: 'ok' });
+                          setToast({ message: t('finalizationRequest', {version: currentVersion.version}), tone: 'ok' });
                         }
                       },
                     })} loading={refreshSizeMutation.isPending} disabled={uploading || unfinishedUploads.length > 0}>
-                      {currentVersion.state === 'PENDING' ? '검증 및 버전 확정' : currentVersion.state === 'READY' ? '확정된 메타데이터 조회' : '메타데이터 조회'}
+                      {currentVersion.state === 'PENDING' ? t('uploadFinalize') : currentVersion.state === 'READY' ? t('finalizeSizeRefreshLabel') : t('finalizeSizeRefreshLabel')}
                     </Button>
                     <Button size="sm" onClick={() => setEditTagsOpen(true)} variant="ghost">
-                      태그 편집
+                      {tc('edit')} {tc('tags')}
                     </Button>
                   </div>
                 )}
@@ -399,10 +407,10 @@ export function DatasetDetailPage({ name }: { name: string }) {
               <Dialog
                 open={editTagsOpen}
                 onClose={() => setEditTagsOpen(false)}
-                title="Edit Tags"
+                title={t('editTagsTitle')}
               >
                 <form onSubmit={handleEditTags} className="space-y-4">
-                  <Field label="Tags" help="Comma-separated">
+                  <Field label={t('editTags')} help={t('editTagsHelp')}>
                     <Input
                       name="tags"
                       defaultValue={currentVersion.tags.join(', ')}
@@ -411,10 +419,10 @@ export function DatasetDetailPage({ name }: { name: string }) {
                   </Field>
                   <div className="flex gap-2 justify-end">
                     <Button type="button" onClick={() => setEditTagsOpen(false)} variant="ghost">
-                      Cancel
+                      {tc('cancel')}
                     </Button>
                     <Button type="submit" loading={setTagsMutation.isPending}>
-                      Save
+                      {tc('save')}
                     </Button>
                   </div>
                 </form>
@@ -423,11 +431,10 @@ export function DatasetDetailPage({ name }: { name: string }) {
 
             {/* File browser */}
             <Card>
-              <p className="font-semibold text-sm mb-3">파일</p>
-              {fileListingQuery.isLoading && !fileListingQuery.data && <Spinner label="파일을 불러오는 중…" />}
+              <p className="font-semibold text-sm mb-3">{t('filesTitle')}</p>
+              {fileListingQuery.isLoading && !fileListingQuery.data && <Spinner label={tc('loadingData')} />}
               {fileListingQuery.error && <ErrorBox error={fileListingQuery.error} />}
-              {fileListingQuery.data && (
-                <div className="space-y-4">
+              <div className="space-y-4">
                   {/* Breadcrumb */}
                   <div className="flex items-center gap-1 text-sm flex-wrap">
                     <button
@@ -473,22 +480,22 @@ export function DatasetDetailPage({ name }: { name: string }) {
                         onChange={handleFileUpload}
                         className="hidden"
                       />
-                      <div className="text-sm text-gray-400">{uploadEnabled ? '파일 선택 · 같은 파일을 다시 선택하면 이어 올립니다' : uploading ? '파일 업로드 중…' : '파일 업로드 비활성화'}</div>
+                      <div className="text-sm text-gray-400">{uploadEnabled ? t('uploadHintActive') : uploading ? t('uploadingLabel') : t('uploadDisabled')}</div>
                     </label>
                   )}
 
-                  {uploading && <Button size="sm" variant="ghost" onClick={() => uploadController.current?.abort()}>일시 중지</Button>}
+                  {uploading && <Button size="sm" variant="ghost" onClick={() => uploadController.current?.abort()}>{tc('stop')}</Button>}
                   {unfinishedUploads.length > 0 && <div className="space-y-2 text-sm" aria-live="polite">
-                    <p>미완료 업로드는 같은 파일로 재개하거나 중단해야 버전을 확정할 수 있습니다.</p>
+                    <p>{t('uploadDesc')}</p>
                     {unfinishedUploads.map(session => <div key={session.id} className="flex items-center justify-between gap-2">
                       <span>{session.filename} · {fmtBytes(session.size)}</span>
-                      <label className="text-blue-400 cursor-pointer">이어올리기<input aria-label={`${session.filename} 이어올리기`} type="file" className="hidden" disabled={uploading} onChange={event => {
+                      <label className="text-blue-400 cursor-pointer">{t('uploadResumeLabel')}<input aria-label={`${session.filename} ${t('uploadResumeLabel')}`} type="file" className="hidden" disabled={!uploadEnabled} onChange={event => {
                         const file = event.target.files?.[0]; if (file) void runUploads([{file, filename: session.filename}], event.target);
                       }} /></label>
-                      <Button size="sm" variant="ghost" disabled={uploading} onClick={async () => {
+                      <Button size="sm" variant="ghost" disabled={!uploadEnabled} onClick={async () => {
                         try { await abortDatasetUpload(name, currentVersion.version, session); setUploadProgress(previous => {const next={...previous};delete next[session.filename];return next;}); await uploadSessions.refetch(); }
-                        catch(error) {setToast({message:error instanceof Error?error.message:'중단 실패',tone:'err'});}
-                      }}>업로드 중단</Button>
+                        catch(error) {setToast({message:error instanceof Error?error.message:tc('errorGeneric'),tone:'err'});}
+                      }}>{t('uploadAbort')}</Button>
                     </div>)}
                   </div>}
                   {uploadSessions.error && <ErrorBox error={uploadSessions.error} />}
@@ -501,7 +508,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
                             <span>{name}</span>
                             <span>{pct}%</span>
                           </div>
-                          <div role="progressbar" aria-label={`${name} 업로드`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 bg-gray-700 rounded overflow-hidden">
+                          <div role="progressbar" aria-label={`${name} ${t('uploadProgress').replace(/{file}/, name).replace(/{percent}/, pct.toString())}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 bg-gray-700 rounded overflow-hidden">
                             <div style={{ width: `${pct}%` }} className="h-full bg-blue-500 transition-all" />
                           </div>
                         </div>
@@ -509,17 +516,18 @@ export function DatasetDetailPage({ name }: { name: string }) {
                     </div>
                   )}
 
+                  {fileListingQuery.data && <>
                   {/* File table */}
                   {fileListingQuery.data.entries.length === 0 ? (
-                    <EmptyState title="파일이 없습니다." />
+                    <EmptyState title={t('noFiles')} />
                   ) : (
                     <table className="w-full text-sm">
                       <thead className="border-b border-border">
                         <tr>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Name</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Size</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Modified</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Action</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('name')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('size')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('updated')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('actions')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -533,7 +541,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
                                       setFileBrowserPrefix(datasetRelativePrefix(e.key, currentVersion.uri));
                                       setFileBrowserToken(undefined);
                                     } catch (error) {
-                                      setToast({ message: error instanceof Error ? error.message : '폴더를 열 수 없습니다.', tone: 'err' });
+                                      setToast({ message: error instanceof Error ? error.message : tc('errorLoad'), tone: 'err' });
                                     }
                                   }}
                                   className="text-blue-400 hover:underline font-mono text-sm"
@@ -559,12 +567,12 @@ export function DatasetDetailPage({ name }: { name: string }) {
                                       const res = await api<{ url: string }>(`/api/datasets/${name}/versions/${currentVersion.version}/download?path=${encodeURIComponent(path)}`);
                                       window.open(res.url);
                                     } catch (err) {
-                                      const msg = err instanceof Error ? err.message : 'Download failed';
+                                      const msg = err instanceof Error ? err.message : tc('errorGeneric');
                                       setToast({ message: msg, tone: 'err' });
                                     }
                                   }}
                                 >
-                                  다운로드
+                                  {tc('download')}
                                 </Button>
                               )}
                             </td>
@@ -582,20 +590,20 @@ export function DatasetDetailPage({ name }: { name: string }) {
                       onClick={() => setFileBrowserToken(fileListingQuery.data!.nextToken)}
                       className="w-full"
                     >
-                      다음 페이지
+                      {tc('next')}
                     </Button>
                   )}
-                </div>
-              )}
+                  </>}
+              </div>
             </Card>
 
             {/* Lineage */}
             {(data.lineage.produced.length > 0 || data.lineage.consumers.length > 0) && (
               <Card>
-                <p className="font-semibold text-sm mb-3">Lineage</p>
+                <p className="font-semibold text-sm mb-3">{t('lineageTitle')}</p>
                 {data.lineage.produced.length > 0 && (
                   <div className="mb-4">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Produced By</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">{t('producedBy')}</p>
                     <div className="space-y-1">
                       {data.lineage.produced.map((p) => (
                         <Link
@@ -611,21 +619,21 @@ export function DatasetDetailPage({ name }: { name: string }) {
                 )}
                 {data.lineage.consumers.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Consumers</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">{t('consumers')}</p>
                     <table className="w-full text-sm">
                       <thead className="border-b border-border">
                         <tr>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Workflow</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Task</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Version</th>
-                          <th className="py-2 px-3 text-left text-xs font-semibold">Status</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('workflow')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('task')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('version')}</th>
+                          <th className="py-2 px-3 text-left text-xs font-semibold">{tc('status')}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.lineage.consumers.map((c) => (
                           <tr key={`${c.workflowId}-${c.task}-${c.inputIndex ?? 0}`} className="border-b border-border hover:bg-bg-elev-1 transition">
                             <td className="py-2 px-3">
-                              {c.workflowDeleted ? <span>{c.workflowName} (기록 보존)</span> : <Link href={`/workflows/${c.workflowId}`} className="text-blue-400 hover:underline text-sm">{c.workflowName}</Link>}
+                              {c.workflowDeleted ? <span>{c.workflowName}</span> : <Link href={`/workflows/${c.workflowId}`} className="text-blue-400 hover:underline text-sm">{c.workflowName}</Link>}
                             </td>
                             <td className="py-2 px-3 text-sm">{c.task}</td>
                             <td className="py-2 px-3 mono text-sm">{c.version === 'latest' ? 'latest' : `v${c.version}`}</td>
@@ -650,40 +658,40 @@ export function DatasetDetailPage({ name }: { name: string }) {
         <Dialog
           open={newVersionOpen}
           onClose={() => setNewVersionOpen(false)}
-          title="새 데이터셋 버전"
+          title={t('newVersionTitle')}
         >
           <form onSubmit={handleNewVersion} className="space-y-4">
-            <Field label="데이터 위치">
+            <Field label={t('newVersionFrom')}>
               <div className="space-y-2">
                 <label className="flex items-center gap-2">
-                  <input type="radio" name="choice" value="empty" defaultChecked /> 새 폴더에 업로드
+                  <input type="radio" name="choice" value="empty" defaultChecked /> {t('newVersionUpload')}
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="radio" name="choice" value="existing" /> 기존 S3 URI 등록
+                  <input type="radio" name="choice" value="existing" /> {t('newVersionExisting')}
                 </label>
               </div>
             </Field>
-            <Field label="URI" help="기존 S3 데이터를 등록할 때 입력하세요.">
-              <Input name="uri" placeholder="s3://bucket/prefix/" />
+            <Field label={t('newVersionUri')} help={t('newVersionUriHelp')}>
+              <Input name="uri" placeholder={t('newVersionUriPlaceholder')} />
             </Field>
-            <Field label="포함할 파일/폴더" help="한 줄에 상대 파일 경로 또는 /로 끝나는 폴더를 입력하세요. 비우면 전체를 포함합니다. 와일드카드는 지원하지 않습니다.">
+            <Field label={t('newVersionInclude')} help={t('newVersionIncludeHelp')}>
               <Textarea name="include" rows={3} placeholder={'train/\nlabels.json'} />
             </Field>
-            <Field label="제외할 파일/폴더" help="제외 경로가 포함 경로보다 우선합니다. 선택 결과는 새 버전으로 고정됩니다.">
+            <Field label={t('newVersionExclude')} help={t('newVersionExcludeHelp')}>
               <Textarea name="exclude" rows={3} placeholder={'train/private/'} />
             </Field>
-            <Field label="메모">
-              <Textarea name="note" placeholder="이 버전의 변경 사항…" maxLength={500} rows={3} />
+            <Field label={t('newVersionNote')}>
+              <Textarea name="note" placeholder={t('newVersionNotePlaceholder')} maxLength={500} rows={3} />
             </Field>
-            <Field label="태그" help="쉼표로 구분하세요.">
+            <Field label={t('newVersionTags')} help={t('editTagsHelp')}>
               <Input name="tags" placeholder="training, processed" />
             </Field>
             <div className="flex gap-2 justify-end">
               <Button type="button" onClick={() => setNewVersionOpen(false)} variant="ghost">
-                취소
+                {tc('cancel')}
               </Button>
               <Button type="submit" loading={createVersionMutation.isPending}>
-                생성
+                {tc('create')}
               </Button>
             </div>
           </form>
@@ -695,16 +703,16 @@ export function DatasetDetailPage({ name }: { name: string }) {
         <Dialog
           open={deleteOpen}
           onClose={() => setDeleteOpen(false)}
-          title="데이터셋 삭제"
+          title={t('deleteDataset')}
         >
           <div className="space-y-4">
-            <p>목록에서 데이터셋을 삭제합니다. 실험 기록이 참조하는 데이터셋은 삭제할 수 없으며, 확정된 파일과 버전 기록은 보존됩니다.</p>
+            <p>{t('deleteConfirm')}</p>
             <div className="flex gap-2 justify-end">
               <Button type="button" onClick={() => setDeleteOpen(false)} variant="ghost">
-                취소
+                {tc('cancel')}
               </Button>
               <Button onClick={handleDelete} loading={deleteMutation.isPending}>
-                삭제
+                {tc('delete')}
               </Button>
             </div>
           </div>

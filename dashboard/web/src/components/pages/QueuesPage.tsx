@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, KeyValue, Spinner, Table } from '@/components/ui';
 import { fmtNum, parseQuantity, classNames as cx } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { useT } from '@/lib/i18n';
 
 interface ClusterQueue {
   name: string;
@@ -71,6 +72,8 @@ interface QuotasData {
 const INSTANCE_TYPES = ['ml.c5.4xlarge', 'ml.g5.8xlarge', 'ml.g5.12xlarge', 'ml.g6e.12xlarge', 'ml.p4d.24xlarge', 'ml.p5.48xlarge'];
 
 export function QueuesPage() {
+  const t = useT('queues');
+  const tc = useT('common');
   const { data: me } = useMe();
   const [hideFinished, setHideFinished] = React.useState(false);
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
@@ -91,10 +94,10 @@ export function QueuesPage() {
     if (!deleteItem) return;
     try {
       await deleteQuotaMutation(deleteItem);
-      setToast({ message: `${deleteItem.kind} deleted`, tone: 'ok' });
+      setToast({ message: t('deleted', { kind: deleteItem.kind }), tone: 'ok' });
       setDeleteItem(null);
     } catch (e) {
-      setToast({ message: `Error: ${(e as Error).message}`, tone: 'err' });
+      setToast({ message: t('deleteError', { message: (e as Error).message }), tone: 'err' });
     }
   };
 
@@ -104,11 +107,11 @@ export function QueuesPage() {
     return wls;
   }, [queuesData?.workloads, hideFinished]);
 
-  if ((queuesLoading || quotasLoading) && !queuesData) return <Spinner label="Loading queues…" />;
+  if ((queuesLoading || quotasLoading) && !queuesData) return <Spinner label={t('loadingQueues')} />;
 
   return (
     <>
-      <PageHeader title="Queues" description="Kueue and SageMaker task governance" />
+      <PageHeader title={t('title')} description={t('description')} />
 
       {/* Toast */}
       {toast && (
@@ -128,8 +131,7 @@ export function QueuesPage() {
         <div className="px-4 py-3 text-xs text-fg-muted flex gap-2">
           <AlertCircle size={14} className="flex-shrink-0 mt-0.5 text-accent" />
           <p>
-            HyperPod task governance creates a Kueue ClusterQueue per team (compute quota); jobs in <code className="mono text-fg-faint">hyperpod-ns-&lt;team&gt;</code> namespaces are admitted against that quota, can borrow from the shared cohort, and are
-            preempted by priority.
+            {t('explainer', { ns: 'hyperpod-ns-<team>' })}
           </p>
         </div>
       </Card>
@@ -146,17 +148,17 @@ export function QueuesPage() {
                 </div>
                 <div className="flex gap-6 text-xs">
                   <div>
-                    <span className="text-fg-muted">Pending:</span> <span className="font-medium">{cq.pending}</span>
+                    <span className="text-fg-muted">{t('pending')}:</span> <span className="font-medium">{cq.pending}</span>
                   </div>
                   <div>
-                    <span className="text-fg-muted">Admitted:</span> <span className="font-medium">{cq.admitted}</span>
+                    <span className="text-fg-muted">{t('admitted')}:</span> <span className="font-medium">{cq.admitted}</span>
                   </div>
                   <div>
-                    <span className="text-fg-muted">Reserving:</span> <span className="font-medium">{cq.reserving}</span>
+                    <span className="text-fg-muted">{t('reserving')}:</span> <span className="font-medium">{cq.reserving}</span>
                   </div>
                   {cq.fairShareWeight && (
                     <div>
-                      <span className="text-fg-muted">Fair Share:</span> <span className="font-medium">{cq.fairShareWeight}</span>
+                      <span className="text-fg-muted">{t('fairShare')}:</span> <span className="font-medium">{cq.fairShareWeight}</span>
                     </div>
                   )}
                 </div>
@@ -168,10 +170,10 @@ export function QueuesPage() {
                   <table className="tbl w-full text-xs">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="px-2 py-1.5 text-left font-medium">Flavor</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Resource</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Quota</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Usage / Borrowed</th>
+                        <th className="px-2 py-1.5 text-left font-medium">{t('flavor')}</th>
+                        <th className="px-2 py-1.5 text-left font-medium">{t('resource')}</th>
+                        <th className="px-2 py-1.5 text-left font-medium">{t('quota')}</th>
+                        <th className="px-2 py-1.5 text-left font-medium">{t('usageBorrowed')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -189,7 +191,7 @@ export function QueuesPage() {
                             <td className="px-2 py-1.5">{q.nominal ?? '—'}</td>
                             <td className="px-2 py-1.5">
                               <div className="space-y-1">
-                                <Bar value={used ?? 0} max={nominal} label={<span className="text-fg-muted text-xs">{usage?.total ?? '—'} {borrowed ? <span className="text-amber-400"> (+ {usage?.borrowed} borrowed)</span> : ''}</span>} />
+                                <Bar value={used ?? 0} max={nominal} label={<span className="text-fg-muted text-xs">{usage?.total ?? '—'} {borrowed ? <span className="text-amber-400"> (+ {usage?.borrowed} {t('borrowed')})</span> : ''}</span>} />
                               </div>
                             </td>
                           </tr>
@@ -216,19 +218,19 @@ export function QueuesPage() {
       </div>
 
       {/* Local Queues */}
-      <Card title="Local Queues" className="mb-4">
+      <Card title={t('localQueues')} className="mb-4">
         {!queuesData?.localQueues?.length ? (
-          <EmptyState title="No local queues" />
+          <EmptyState title={t('noLocalQueues')} />
         ) : (
           <div className="overflow-x-auto">
             <table className="tbl w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-3 py-2 text-left font-medium">Namespace</th>
-                  <th className="px-3 py-2 text-left font-medium">Cluster Queue</th>
-                  <th className="px-3 py-2 text-center font-medium">Pending</th>
-                  <th className="px-3 py-2 text-center font-medium">Admitted</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('namespace')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t('clusterQueue')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{t('pending')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{t('admitted')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -248,7 +250,7 @@ export function QueuesPage() {
       </Card>
 
       {/* Priority Classes */}
-      <Card title="Priority Classes" className="mb-4">
+      <Card title={t('priorityClasses')} className="mb-4">
         <div className="px-4 py-3 flex flex-wrap gap-2">
           {(queuesData?.priorityClasses ?? []).map((pc) => (
             <div key={pc.name} title={pc.description}>
@@ -261,16 +263,16 @@ export function QueuesPage() {
       </Card>
 
       {/* Flavors */}
-      <Card title="Resource Flavors" className="mb-4">
+      <Card title={t('flavors')} className="mb-4">
         {!queuesData?.flavors?.length ? (
-          <EmptyState title="No flavors" />
+          <EmptyState title={t('noFlavors')} />
         ) : (
           <div className="overflow-x-auto">
             <table className="tbl w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-3 py-2 text-left font-medium">Node Labels</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t('nodeLabels')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -296,29 +298,29 @@ export function QueuesPage() {
 
       {/* Workloads */}
       <Card
-        title={`Workloads (${filteredWorkloads.length})`}
+        title={`${t('workloads')} (${filteredWorkloads.length})`}
         actions={
           <label className="flex items-center gap-1 text-xs cursor-pointer">
             <input type="checkbox" checked={hideFinished} onChange={(e) => setHideFinished(e.target.checked)} />
-            Hide finished
+            {t('hideFinished')}
           </label>
         }
         className="mb-4"
       >
         {!filteredWorkloads?.length ? (
-          <EmptyState title="No workloads" />
+          <EmptyState title={t('noWorkloads')} />
         ) : (
           <div className="overflow-x-auto">
             <table className="tbl w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-3 py-2 text-left font-medium">Namespace</th>
-                  <th className="px-3 py-2 text-left font-medium">Queue</th>
-                  <th className="px-3 py-2 text-left font-medium">Priority</th>
-                  <th className="px-3 py-2 text-left font-medium">State</th>
-                  <th className="px-3 py-2 text-left font-medium">Cluster Queue</th>
-                  <th className="px-3 py-2 text-left font-medium">Usage</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('namespace')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t('queue')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('priority')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('state')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t('clusterQueue')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{t('usage')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -354,7 +356,7 @@ export function QueuesPage() {
       {/* SageMaker Task Governance */}
       {quotasData && (
         <div className="space-y-4">
-          <h2 className="text-sm font-medium">SageMaker Task Governance</h2>
+          <h2 className="text-sm font-medium">{t('sagemaker')}</h2>
 
           {/* Policies */}
           {quotasData.policies?.length > 0 && (
@@ -363,12 +365,12 @@ export function QueuesPage() {
                 <Card key={policy.ClusterSchedulerConfigId} title={policy.Name}>
                   <div className="space-y-3 px-4 py-3">
                     <div className="text-xs">
-                      Status: <Badge tone={policy.Status === 'ACTIVE' ? 'ok' : 'warn'}>{policy.Status}</Badge>
+                      {tc('status')}: <Badge tone={policy.Status === 'ACTIVE' ? 'ok' : 'warn'}>{policy.Status}</Badge>
                     </div>
                     {policy.detail?.SchedulerConfig && (
                       <>
                         <div>
-                          <h4 className="text-xs font-medium mb-2">Priority Classes</h4>
+                          <h4 className="text-xs font-medium mb-2">{t('priorityClasses')}</h4>
                           <div className="flex flex-wrap gap-2">
                             {policy.detail.SchedulerConfig.PriorityClasses?.map((pc: any) => (
                               <Badge key={pc.Name}>
@@ -378,7 +380,7 @@ export function QueuesPage() {
                           </div>
                         </div>
                         <div className="text-xs">
-                          Fair Share: <span className="font-medium">{policy.detail.SchedulerConfig.FairShare ? 'Enabled' : 'Disabled'}</span>
+                          {t('fairShare')}: <span className="font-medium">{policy.detail.SchedulerConfig.FairShare ? t('enabled') : t('disabled')}</span>
                         </div>
                       </>
                     )}
@@ -387,7 +389,7 @@ export function QueuesPage() {
                         onClick={() => setDeleteItem({ id: policy.ClusterSchedulerConfigId, kind: 'policy' })}
                         className="text-xs text-err hover:underline"
                       >
-                        Delete
+                        {tc('delete')}
                       </button>
                     )}
                   </div>
@@ -398,18 +400,18 @@ export function QueuesPage() {
 
           {/* Quotas */}
           {quotasData.quotas?.length > 0 && (
-            <Card title="Compute Quotas">
+            <Card title={t('quotas')}>
               <div className="overflow-x-auto">
                 <table className="tbl w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="px-3 py-2 text-left font-medium">Name</th>
-                      <th className="px-3 py-2 text-left font-medium">Team</th>
-                      <th className="px-3 py-2 text-left font-medium">Instances</th>
-                      <th className="px-3 py-2 text-left font-medium">Borrow Limit</th>
-                      <th className="px-3 py-2 text-left font-medium">Preempt</th>
-                      <th className="px-3 py-2 text-left font-medium">Status</th>
-                      {can(me, 'admin') && <th className="px-3 py-2 text-center font-medium">Actions</th>}
+                      <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{t('team')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{t('instances')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{t('borrowLimit')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{t('preempt')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{tc('status')}</th>
+                      {can(me, 'admin') && <th className="px-3 py-2 text-center font-medium">{tc('actions')}</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -425,7 +427,7 @@ export function QueuesPage() {
                           ))}
                         </td>
                         <td className="px-3 py-2">{q.detail?.ComputeQuotaConfig?.ResourceSharingConfig?.BorrowLimit ?? '—'}%</td>
-                        <td className="px-3 py-2">{q.detail?.ComputeQuotaConfig?.PreemptTeamTasks ? 'Yes' : 'No'}</td>
+                        <td className="px-3 py-2">{q.detail?.ComputeQuotaConfig?.PreemptTeamTasks ? t('yes') : t('no')}</td>
                         <td className="px-3 py-2">
                           <Badge tone={q.Status === 'ACTIVE' ? 'ok' : 'warn'}>{q.Status}</Badge>
                         </td>
@@ -452,11 +454,11 @@ export function QueuesPage() {
             <div className="flex gap-2">
               <Button onClick={() => setNewQuotaDialog(true)} variant="primary">
                 <Plus size={14} />
-                New Compute Quota
+                {t('newComputeQuota')}
               </Button>
               <Button onClick={() => setNewPolicyDialog(true)} variant="primary">
                 <Plus size={14} />
-                New Cluster Policy
+                {t('newClusterPolicy')}
               </Button>
             </div>
           )}
@@ -465,15 +467,15 @@ export function QueuesPage() {
 
       {/* Delete Confirm Dialog */}
       {deleteItem && (
-        <Dialog open={!!deleteItem} onClose={() => setDeleteItem(null)} title="Delete">
+        <Dialog open={!!deleteItem} onClose={() => setDeleteItem(null)} title={tc('delete')}>
           <div className="space-y-4">
-            <p className="text-sm">Delete this {deleteItem.kind}? This action cannot be undone.</p>
+            <p className="text-sm">{t('deleteThisKind', { kind: deleteItem.kind })}</p>
             <div className="flex gap-2 justify-end">
               <Button onClick={() => setDeleteItem(null)} variant="secondary">
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button onClick={handleDeleteQuota} variant="danger">
-                Delete
+                {tc('delete')}
               </Button>
             </div>
           </div>
@@ -486,7 +488,7 @@ export function QueuesPage() {
           onClose={() => setNewQuotaDialog(false)}
           onSuccess={() => {
             setNewQuotaDialog(false);
-            setToast({ message: 'Quota created', tone: 'ok' });
+            setToast({ message: t('quotaCreated'), tone: 'ok' });
           }}
           onError={(e) => setToast({ message: `Error: ${e}`, tone: 'err' })}
         />
@@ -498,7 +500,7 @@ export function QueuesPage() {
           onClose={() => setNewPolicyDialog(false)}
           onSuccess={() => {
             setNewPolicyDialog(false);
-            setToast({ message: 'Policy created', tone: 'ok' });
+            setToast({ message: t('policyCreated'), tone: 'ok' });
           }}
           onError={(e) => setToast({ message: `Error: ${e}`, tone: 'err' })}
         />
@@ -508,6 +510,8 @@ export function QueuesPage() {
 }
 
 function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; onSuccess: () => void; onError: (e: string) => void }) {
+  const t = useT('queues');
+  const tc = useT('common');
   const [name, setName] = React.useState('');
   const [team, setTeam] = React.useState('');
   const [fairShare, setFairShare] = React.useState(0);
@@ -518,7 +522,7 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
 
   const handleSubmit = async () => {
     if (!name || !team || instances.some((i) => !i.instanceType || !i.count)) {
-      onError('Fill all fields');
+      onError(tc('required'));
       return;
     }
     setLoading(true);
@@ -549,23 +553,23 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
   };
 
   return (
-    <Dialog open={true} onClose={onClose} title="New Compute Quota">
+    <Dialog open={true} onClose={onClose} title={t('newComputeQuota')}>
       <div className="space-y-4">
         <div>
-          <label className="block text-xs font-medium mb-1">Quota Name</label>
+          <label className="block text-xs font-medium mb-1">{t('quotaName')}</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-team-quota" />
         </div>
         <div>
-          <label className="block text-xs font-medium mb-1">Team Name</label>
+          <label className="block text-xs font-medium mb-1">{t('teamName')}</label>
           <Input value={team} onChange={(e) => setTeam(e.target.value)} placeholder="team-a" />
         </div>
         <div>
-          <label className="block text-xs font-medium mb-1">Fair Share Weight (0–100)</label>
+          <label className="block text-xs font-medium mb-1">{t('fairShareWeight')}</label>
           <Input type="number" value={fairShare} onChange={(e) => setFairShare(Number(e.target.value))} min={0} max={100} />
         </div>
 
         <div>
-          <label className="block text-xs font-medium mb-2">Instances</label>
+          <label className="block text-xs font-medium mb-2">{t('instances')}</label>
           {instances.map((inst, i) => (
             <div key={i} className="flex gap-2 mb-2">
               <select
@@ -591,7 +595,7 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
                   newInsts[i].count = e.target.value;
                   setInstances(newInsts);
                 }}
-                placeholder="Count"
+                placeholder={t('count')}
                 min={0}
                 className="w-20"
               />
@@ -609,37 +613,37 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
             onClick={() => setInstances([...instances, { instanceType: 'ml.g5.8xlarge', count: '1' }])}
             className="text-xs text-accent hover:underline"
           >
-            Add instance type
+            {t('addInstanceType')}
           </button>
         </div>
 
         <div>
-          <label className="block text-xs font-medium mb-1">Borrow Limit (%)</label>
+          <label className="block text-xs font-medium mb-1">{t('borrowLimitPercent')}</label>
           <Input type="number" value={borrowLimit} onChange={(e) => setBorrowLimit(e.target.value)} min={0} max={500} />
         </div>
 
         <div>
-          <label className="block text-xs font-medium mb-1">Preemption</label>
+          <label className="block text-xs font-medium mb-1">{t('preemption')}</label>
           <select
             value={preempt}
             onChange={(e) => setPreempt(e.target.value)}
             className="w-full rounded border border-border bg-bg-elev px-2 py-1 text-xs"
           >
-            <option value="LowerPriority">Lower Priority</option>
-            <option value="Never">Never</option>
+            <option value="LowerPriority">{t('lowerPriority')}</option>
+            <option value="Never">{t('never')}</option>
           </select>
         </div>
 
         <p className="text-xs text-fg-muted">
-          Creating a quota auto-creates namespace <code className="mono">hyperpod-ns-{team}</code> + queues within ~1–2 min.
+          {t('quotaAutoCreates', { team })}
         </p>
 
         <div className="flex gap-2 justify-end">
           <Button onClick={onClose} variant="secondary">
-            Cancel
+            {tc('cancel')}
           </Button>
           <Button onClick={handleSubmit} variant="primary" loading={loading}>
-            Create
+            {tc('create')}
           </Button>
         </div>
       </div>
@@ -648,6 +652,8 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
 }
 
 function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void; onSuccess: () => void; onError: (e: string) => void }) {
+  const t = useT('queues');
+  const tc = useT('common');
   const [name, setName] = React.useState('');
   const [priorityClasses, setPriorityClasses] = React.useState<Array<{ name: string; weight: string }>>([
     { name: 'training', weight: '100' },
@@ -659,7 +665,7 @@ function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void;
 
   const handleSubmit = async () => {
     if (!name || priorityClasses.some((p) => !p.name || !p.weight)) {
-      onError('Fill all fields');
+      onError(t('fillAllFields'));
       return;
     }
     setLoading(true);
@@ -687,15 +693,15 @@ function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void;
   };
 
   return (
-    <Dialog open={true} onClose={onClose} title="New Cluster Policy">
+    <Dialog open={true} onClose={onClose} title={t('newClusterPolicy')}>
       <div className="space-y-4">
         <div>
-          <label className="block text-xs font-medium mb-1">Policy Name</label>
+          <label className="block text-xs font-medium mb-1">{t('policyName')}</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="default-policy" />
         </div>
 
         <div>
-          <label className="block text-xs font-medium mb-2">Priority Classes</label>
+          <label className="block text-xs font-medium mb-2">{t('priorityClasses')}</label>
           {priorityClasses.map((pc, i) => (
             <div key={i} className="flex gap-2 mb-2">
               <Input
@@ -705,7 +711,7 @@ function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void;
                   newPcs[i].name = e.target.value;
                   setPriorityClasses(newPcs);
                 }}
-                placeholder="Class name"
+                placeholder={t('className')}
                 className="flex-1"
               />
               <Input
@@ -716,7 +722,7 @@ function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void;
                   newPcs[i].weight = e.target.value;
                   setPriorityClasses(newPcs);
                 }}
-                placeholder="Weight"
+                placeholder={t('weight')}
                 min={0}
                 max={100}
                 className="w-24"
@@ -727,21 +733,21 @@ function NewPolicyDialog({ onClose, onSuccess, onError }: { onClose: () => void;
             onClick={() => setPriorityClasses([...priorityClasses, { name: '', weight: '50' }])}
             className="text-xs text-accent hover:underline"
           >
-            Add priority class
+            {t('addClass')}
           </button>
         </div>
 
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={fairShare} onChange={(e) => setFairShare(e.target.checked)} />
-          Fair Share
+          {t('fairShareEnable')}
         </label>
 
         <div className="flex gap-2 justify-end">
           <Button onClick={onClose} variant="secondary">
-            Cancel
+            {tc('cancel')}
           </Button>
           <Button onClick={handleSubmit} variant="primary" loading={loading}>
-            Create
+            {tc('create')}
           </Button>
         </div>
       </div>

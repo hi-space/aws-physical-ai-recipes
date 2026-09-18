@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PipelinesPage } from './PipelinesPage';
 import { PipelineExecutionPage } from './PipelineExecutionPage';
 import { EdgePage } from './EdgePage';
 import { MetricsPage } from './MetricsPage';
@@ -38,28 +37,22 @@ function renderDatasetVersion(state?: 'PENDING' | 'READY', finalizationError?: s
     versions: [{ dataset: 'demo', version: 1, uri: 's3://bucket/datasets/demo/v1/', tags: [], state, finalizationError }],
     lineage: { produced: [], consumers: [] },
   });
-  client.setQueryData(['api', '/api/datasets/demo/versions/1?prefix=&token='], {
+  client.setQueryData(['api', '/api/datasets/demo/versions/1?prefix='], {
     bucket: 'bucket', prefix: 'datasets/demo/v1/', entries: [],
   });
   return render(client, createElement(DatasetDetailPage, { name: 'demo' }));
 }
 
 describe('page / API integration contracts', () => {
-  it('shows pipeline submission to researchers, but not viewers', () => {
-    for (const role of ['researcher', 'viewer']) {
-      const client = clientFor(role);
-      client.setQueryData(['api', '/api/pipelines'], {
-        pipeline: { PipelineName: 'groot', PipelineStatus: 'Active', parameters: [] },
-        executions: [],
-      });
-      const html = render(client, createElement(PipelinesPage));
-      expect(html.includes('실행 시작')).toBe(role === 'researcher');
-    }
-  });
-
+  // Pipeline list visibility depends on client draft restoration and is covered in Chromium.
   it('requests pipeline execution detail using a single encoded ARN segment', () => {
     const client = clientFor();
-    client.setQueryData(['api', '/api/pipelines/executions/arn%3Aaws%3Asagemaker%3Aus-east-1%3A123456789012%3Apipeline%2Fgroot%2Fexecution%2Fabc'], {
+    navigation.search = '?project=a';
+    const scope = { method: 'GET', headers: [['x-pai-project', 'a']] };
+    client.setQueryData(['api', '/api/me', scope], {
+      role: 'researcher', subject: 'alice', project: { id: 'a', name: 'Project A', role: 'researcher' },
+    });
+    client.setQueryData(['api', '/api/pipelines/executions/arn%3Aaws%3Asagemaker%3Aus-east-1%3A123456789012%3Apipeline%2Fgroot%2Fexecution%2Fabc', scope], {
       execution: { PipelineExecutionDisplayName: '시험 실행', PipelineExecutionStatus: 'Executing' },
       steps: [], parameters: [],
     });
@@ -67,6 +60,7 @@ describe('page / API integration contracts', () => {
       arn: 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot/execution/abc',
     }));
     expect(html).toContain('시험 실행');
+    expect(html).toContain('Project A (a)');
   });
 
   it('binds a verified modelId to a registered edge target and prepares before sending', () => {
@@ -121,14 +115,14 @@ describe('page / API integration contracts', () => {
     const fileInput = html.match(/<input\b[^>]*type="file"[^>]*>/)?.[0];
     expect(fileInput).toBeDefined();
     expect(fileInput).not.toContain('disabled');
-    expect(html).toContain('PENDING');
+    expect(html).toContain('준비 중');
     expect(html).toMatch(/<button\b[^>]*>검증 및 버전 확정<\/button>/);
   });
 
   it('disables uploads for ready versions and explains how to change committed contents', () => {
     const html = renderDatasetVersion('READY');
     expect(html.match(/<input\b[^>]*type="file"[^>]*>/)?.[0]).toContain('disabled');
-    expect(html).toContain('READY');
+    expect(html).toContain('완료');
     expect(html).toContain('내용을 바꾸려면 새 버전을 만드세요.');
     expect(html).toContain('확정된 메타데이터 조회');
   });

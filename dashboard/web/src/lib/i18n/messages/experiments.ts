@@ -1,0 +1,38 @@
+import { defineMessages } from '../define';
+
+export const experiments = defineMessages({
+  en: {
+    title: 'Experiments', description: 'Select up to 4 runs to compare training curves and parameters.',
+    notConfigured: 'MLflow integration not configured.',
+    loadingExperiments: 'Loading experiments…', loadingRuns: 'Loading runs…',
+    noExperiments: 'No experiments registered.',
+    comparisonTitle: 'Run comparison', comparisonRemove: 'Remove', comparisonMetrics: 'Metrics', comparisonParams: 'Parameters', comparisonTags: 'Tags',
+    experimentsList: 'Experiments', experimentOpen: 'Open MLflow', experimentLimit: 'Select up to 4 runs',
+    runSelect: 'Select run', runDetail: 'Run detail',
+    tabMetrics: 'Metrics', tabParams: 'Parameters', tabTags: 'Tags', tabArtifacts: 'Artifacts',
+    colRun: 'Run', colCompare: 'Compare', colDuration: 'Duration', colStatus: 'Status',
+    colMetricKey: 'Metric', colMetricValue: 'Value', colParamKey: 'Parameter', colParamValue: 'Value',
+    colArtifact: 'Artifact', colSize: 'Size', colNoData: 'No data', colDiffers: 'Differs',
+    metricTrend: 'Select a metric to view', metricLoadingHistory: 'Loading metric history…',
+    paramsRaw: 'Parameters', tagsRaw: 'Tags', artifactsRaw: 'Artifacts',
+    noMetrics: 'No metrics recorded.', noParams: 'No parameters.', noTags: 'No tags.', noArtifacts: 'No artifacts.',
+    compareSelectAriaLabel: '{run} select for comparison',
+  },
+  ko: {
+    title: '실험', description: '최대 4개 run을 선택해 학습 곡선과 파라미터를 비교합니다.',
+    notConfigured: 'MLflow 연결이 설정되지 않았습니다.',
+    loadingExperiments: '실험을 불러오는 중…', loadingRuns: '실행 목록을 불러오는 중…',
+    noExperiments: '등록된 실험이 없습니다.',
+    comparisonTitle: 'Run 비교', comparisonRemove: '제거', comparisonMetrics: '메트릭', comparisonParams: '파라미터', comparisonTags: '태그',
+    experimentsList: '실험 목록', experimentOpen: 'MLflow 열기', experimentLimit: '최대 4개 run 선택',
+    runSelect: 'Run 선택', runDetail: 'Run 상세',
+    tabMetrics: '메트릭', tabParams: '파라미터', tabTags: '태그', tabArtifacts: '산출물',
+    colRun: 'Run', colCompare: '비교', colDuration: '소요 시간', colStatus: '상태',
+    colMetricKey: '메트릭', colMetricValue: '값', colParamKey: '파라미터', colParamValue: '값',
+    colArtifact: '산출물', colSize: '크기', colNoData: '데이터 없음', colDiffers: '다름',
+    metricTrend: '곡선으로 볼 지표를 선택하세요.', metricLoadingHistory: '메트릭 이력을 불러오는 중…',
+    paramsRaw: '파라미터', tagsRaw: '태그', artifactsRaw: '산출물',
+    noMetrics: '기록된 메트릭이 없습니다.', noParams: '파라미터가 없습니다.', noTags: '태그가 없습니다.', noArtifacts: '산출물이 없습니다.',
+    compareSelectAriaLabel: '{run} 비교 선택',
+  },
+});

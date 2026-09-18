@@ -16,10 +16,10 @@ export interface BackendRevision { version: number; enabled: boolean; configVers
 export interface BackendQueue { namespace: string; name: string }
 const version = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 export function backendStatus(status: string) {
-  if (status === 'READY') return { label: 'READY · 사용 가능', tone: 'ok' as const };
-  if (status === 'UNREADY') return { label: 'UNREADY · 준비 필요', tone: 'warn' as const };
-  if (status === 'DISABLED') return { label: 'DISABLED · 사용 중지', tone: 'neutral' as const };
-  return { label: '상태 확인 필요', tone: 'warn' as const };
+  if (status === 'READY') return { label: 'READY · Available', tone: 'ok' as const };
+  if (status === 'UNREADY') return { label: 'UNREADY · Preparation needed', tone: 'warn' as const };
+  if (status === 'DISABLED') return { label: 'DISABLED · Disabled', tone: 'neutral' as const };
+  return { label: 'Check status', tone: 'warn' as const };
 }
 export function backendAvailable(registry: BackendRegistry | undefined, id: string) {
   if (id === 'default') return registry?.default?.configured === true;
@@ -35,6 +35,6 @@ export function projectQueues(registry: BackendRegistry | undefined, id: string,
   return [...new Map(eligible.map(queue => [queue.namespace, queue])).values()];
 }
 export function registrationBody(row: BackendRow, enabled: boolean) {
-  if (!/^[a-z][a-z0-9-]{0,39}$/.test(row.id) || row.id === 'default' || !version(row.version) || !row.profile) throw new Error('등록 가능한 배포 설정과 현재 버전을 확인하세요.');
+  if (!/^[a-z][a-z0-9-]{0,39}$/.test(row.id) || row.id === 'default' || !version(row.version) || !row.profile) throw new Error('Check deployable configuration and current version.');
   return { id: row.id, expectedVersion: row.version, enabled };
 }

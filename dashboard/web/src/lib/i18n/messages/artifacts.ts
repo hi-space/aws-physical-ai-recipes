@@ -1,0 +1,36 @@
+import { defineMessages } from '../define';
+
+export const artifacts = defineMessages({
+  en: {
+    loading: 'Loading artifacts…',
+    filterAll: 'All', filterMedia: 'Images & videos', filterReports: 'JSON & text', filterOther: 'Weights & other',
+    modeGallery: 'Gallery', modeFiles: 'Files',
+    summary: '{files} files · {media} media · {tasks} tasks', clearTask: 'Clear: {task}',
+    noArtifacts: 'No artifacts to show', noArtifactsRunning: 'Files published by completed tasks will appear here.',
+    noArtifactsDeclared: 'No task in this workflow declares an outputs(dataset).',
+    noMedia: 'No image or video artifacts', noMediaHint: 'Switch to Files to see JSON reports and weights.',
+    viewFullSize: 'View full size', showMore: 'Show more ({remaining} remaining)', topShown: 'Top {count} shown',
+    noFilesMatch: 'No files match this filter.', selectFile: 'Select a file',
+    selectFileHint: 'Images and videos play inline, JSON and text show their content, weights get a download link.',
+    previewUrlUnavailable: 'Could not get a preview URL.', previewLoadingUrl: 'Fetching preview URL…', previewLoading: 'Loading…',
+    downloadFailed: 'The file could not be loaded.', noPreview: 'This file type has no browser preview.',
+    downloadHint: '{size} · download it, or open it on the Datasets page.',
+    openNew: 'Open in new tab', downloadFile: 'Download',
+  },
+  ko: {
+    loading: '결과 파일을 불러오는 중…',
+    filterAll: '전체', filterMedia: '이미지·영상', filterReports: 'JSON·텍스트', filterOther: '가중치·기타',
+    modeGallery: '갤러리', modeFiles: '파일',
+    summary: '{files}개 파일 · 미디어 {media}개 · 작업 {tasks}개', clearTask: '선택 해제: {task}',
+    noArtifacts: '표시할 결과 파일이 없습니다.', noArtifactsRunning: '완료된 작업이 게시한 파일이 여기에 표시됩니다.',
+    noArtifactsDeclared: '이 워크플로의 작업은 outputs(dataset)을 선언하지 않았습니다.',
+    noMedia: '이미지·영상 결과가 없습니다.', noMediaHint: '파일 보기로 바꾸면 JSON 보고서와 가중치를 볼 수 있습니다.',
+    viewFullSize: '원본 크기로 보기', showMore: '더 보기 ({remaining}개 남음)', topShown: '상위 {count}개 표시',
+    noFilesMatch: '조건에 맞는 파일이 없습니다.', selectFile: '파일을 선택하세요',
+    selectFileHint: '이미지·영상은 바로 재생하고, JSON·텍스트는 내용을 보여주며, 가중치는 다운로드 링크를 제공합니다.',
+    previewUrlUnavailable: '미리보기 URL을 받지 못했습니다.', previewLoadingUrl: '미리보기 URL을 받는 중…', previewLoading: '불러오는 중…',
+    downloadFailed: '파일을 불러오지 못했습니다.', noPreview: '브라우저 미리보기를 지원하지 않는 파일입니다.',
+    downloadHint: '{size} · 다운로드하거나 데이터셋 페이지에서 확인하세요.',
+    openNew: '새 탭에서 열기', downloadFile: '다운로드',
+  },
+});

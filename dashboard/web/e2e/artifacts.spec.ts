@@ -44,7 +44,7 @@ for (const id of WORKFLOWS) {
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: 'Artifacts', exact: true }).click();
     const viewer = page.getByTestId('artifact-viewer');
-    await expect(viewer.or(page.getByText('게시된 산출물이 없습니다'))).toBeVisible({ timeout: 30_000 });
+    await expect(viewer.or(page.getByText('표시할 결과 파일이 없습니다'))).toBeVisible({ timeout: 30_000 });
 
     const ready = versions.filter((v) => v.state === 'ready');
     for (const v of versions.filter((v) => v.state !== 'ready')) await expect(viewer.getByText(v.message ?? 'unavailable', { exact: false }).first()).toBeVisible();
@@ -58,12 +58,12 @@ for (const id of WORKFLOWS) {
 
     const json = ready.flatMap((v) => v.files.filter((f) => f.kind === 'json' && f.previewable).map((f) => f.path))[0];
     if (json) {
-      await viewer.getByRole('button', { name: '파일', exact: true }).click();
+      await viewer.getByRole('radio', { name: '파일', exact: true }).click();
       await viewer.getByRole('button', { name: new RegExp(json.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first().click();
       await expect(viewer.locator('pre')).toContainText('{', { timeout: 30_000 });
       await page.screenshot({ path: `test-results/artifacts-${id}-files.png`, fullPage: true });
     } else if (ready.length) {
-      await viewer.getByRole('button', { name: '파일', exact: true }).click();
+      await viewer.getByRole('radio', { name: '파일', exact: true }).click();
       await page.screenshot({ path: `test-results/artifacts-${id}-files.png`, fullPage: true });
     } else {
       await page.screenshot({ path: `test-results/artifacts-${id}-legacy.png`, fullPage: true });

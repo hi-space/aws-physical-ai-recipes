@@ -6,6 +6,7 @@ import { Button, Card, CodeBlock, EmptyState, ErrorBox, Spinner, Tabs } from '@/
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
 import { fmtBytes } from '@/lib/format';
 import { useApi, useMe } from '@/lib/api-client';
+import { useT } from '@/lib/i18n';
 import Link from 'next/link';
 
 interface MetricsResult {
@@ -16,6 +17,8 @@ interface MetricsResult {
 }
 
 export function MetricsPage() {
+  const t = useT('metrics');
+  const tc = useT('common');
   const me = useMe();
   const admin = me.data?.role === 'admin';
   const [timeRange, setTimeRange] = React.useState<'15m' | '1h' | '3h' | '6h' | '24h' | '7d'>('1h');
@@ -114,12 +117,12 @@ export function MetricsPage() {
 
   return (
     <>
-      <PageHeader title="지표" description="Amazon Managed Prometheus의 GPU·노드·Kueue 지표" />
+      <PageHeader title={t('title')} description={t('description')} />
 
       <Tabs
         items={[
-          { id: 'dashboards', label: '대시보드' },
-          ...(admin ? [{ id: 'grafana', label: 'Grafana' }] : []),
+          { id: 'dashboards', label: t('dashboards') },
+          ...(admin ? [{ id: 'grafana', label: t('grafana') }] : []),
         ]}
         value={tab}
         onChange={(v) => { setTab(v as 'dashboards' | 'grafana'); setNow(Math.floor(Date.now() / 1000)); }}
@@ -144,12 +147,12 @@ export function MetricsPage() {
             </div>
             <label className="flex items-center gap-2 text-xs cursor-pointer">
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-              자동 새로고침 (30초)
+              {t('autoRefreshLabel')}
             </label>
             {admin && <input
               type="text"
-              aria-label="노드 필터"
-              placeholder="노드 필터 (정규식)"
+              aria-label={t('nodeFilterLabel')}
+              placeholder={t('nodeFilterLabel')}
               value={nodeFilter}
               onChange={(e) => { setNodeFilter(e.target.value); setNow(Math.floor(Date.now() / 1000)); }}
               className="rounded border border-border bg-bg-elev px-2 py-1 text-xs flex-1 max-w-48"
@@ -158,44 +161,44 @@ export function MetricsPage() {
               const next = Math.floor(Date.now() / 1000);
               if (next !== now) setNow(next);
               else { void main.refetch(); if (queries.length > 12) void capacity.refetch(); }
-            }} disabled={main.isFetching || capacity.isFetching}>새로고침</Button>
+            }} disabled={main.isFetching || capacity.isFetching}>{t('refresh')}</Button>
           </div>
 
           {main.error && <ErrorBox error={main.error} />}
           {capacity.error && <ErrorBox error={capacity.error} />}
           {queryErrors.map(([id, result]) => <ErrorBox key={id} error={{ message: `${id}: ${result.error}` }} />)}
           {isLoading && !metricsData ? (
-            <Spinner label="지표를 불러오는 중…" />
+            <Spinner label={t('loading')} />
           ) : (
             <div className="space-y-4">
               {/* GPU Metrics */}
-              <Card title="GPU">
+              <Card title={t('gpuMetrics')}>
                 {gpuMetrics.allEmpty ? (
-                  <EmptyState title={gpuError ? 'GPU 지표를 불러오지 못했습니다.' : 'GPU 지표 없음 (N/A)'} />
+                  <EmptyState title={gpuError ? t('gpuLoadFailed') : t('noGpuMetrics')} />
                 ) : (
                   <div className="space-y-4">
                     {gpuMetrics.util.length > 0 && (
-                      <MetricSection title="Utilization (%)" promql={metricsData?.gpu_util?.promql}>
+                      <MetricSection title={t('utilization')} promql={metricsData?.gpu_util?.promql}>
                         <TimeSeries series={gpuMetrics.util} unit="%" formatter={(v) => `${Math.round(v)}%`} height={220} yMax={100} />
                       </MetricSection>
                     )}
                     {gpuMetrics.mem.length > 0 && (
-                      <MetricSection title="Memory (GiB)" promql={metricsData?.gpu_mem?.promql}>
+                      <MetricSection title={t('memory')} promql={metricsData?.gpu_mem?.promql}>
                         <TimeSeries series={gpuMetrics.mem} unit=" GiB" formatter={(v) => `${(v / 1024).toFixed(1)} GiB`} height={220} />
                       </MetricSection>
                     )}
                     {gpuMetrics.power.length > 0 && (
-                      <MetricSection title="Power (W)" promql={metricsData?.gpu_power?.promql}>
+                      <MetricSection title={t('power')} promql={metricsData?.gpu_power?.promql}>
                         <TimeSeries series={gpuMetrics.power} unit=" W" height={220} />
                       </MetricSection>
                     )}
                     {gpuMetrics.temp.length > 0 && (
-                      <MetricSection title="Temperature (°C)" promql={metricsData?.gpu_temp?.promql}>
+                      <MetricSection title={t('temperature')} promql={metricsData?.gpu_temp?.promql}>
                         <TimeSeries series={gpuMetrics.temp} unit="°C" height={220} />
                       </MetricSection>
                     )}
                     {gpuMetrics.clock.length > 0 && (
-                      <MetricSection title="SM Clock (MHz)" promql={metricsData?.gpu_clock?.promql}>
+                      <MetricSection title={t('clock')} promql={metricsData?.gpu_clock?.promql}>
                         <TimeSeries series={gpuMetrics.clock} unit=" MHz" height={220} />
                       </MetricSection>
                     )}
@@ -204,20 +207,20 @@ export function MetricsPage() {
               </Card>
 
               {/* Node Metrics */}
-              <Card title={admin ? '노드' : '프로젝트 작업'}>
+              <Card title={admin ? t('nodeMetrics') : t('projectWork')}>
                 <div className="space-y-4">
                   {nodeMetrics.cpu.length > 0 && (
-                    <MetricSection title={admin ? 'CPU (%)' : 'CPU (cores)'} promql={metricsData?.node_cpu?.promql}>
+                    <MetricSection title={admin ? t('cpu') : 'CPU (cores)'} promql={metricsData?.node_cpu?.promql}>
                       <TimeSeries series={nodeMetrics.cpu} unit={admin ? '%' : ' cores'} height={220} yMax={admin ? 100 : undefined} />
                     </MetricSection>
                   )}
                   {nodeMetrics.mem.length > 0 && (
-                    <MetricSection title={admin ? 'Memory (%)' : 'Memory (bytes)'} promql={metricsData?.node_mem?.promql}>
+                    <MetricSection title={admin ? 'Memory (%)' : t('memory')} promql={metricsData?.node_mem?.promql}>
                       <TimeSeries series={nodeMetrics.mem} unit={admin ? '%' : ' bytes'} formatter={admin ? (v) => `${Math.round(v)}%` : fmtBytes} height={220} yMax={admin ? 100 : undefined} />
                     </MetricSection>
                   )}
                   {nodeMetrics.net.length > 0 && (
-                    <MetricSection title="Network RX (bytes/s)" promql={metricsData?.node_net?.promql}>
+                    <MetricSection title={t('network')} promql={metricsData?.node_net?.promql}>
                       <TimeSeries series={nodeMetrics.net} unit="/s" formatter={(v) => `${fmtBytes(v)}/s`} height={220} />
                     </MetricSection>
                   )}
@@ -225,11 +228,11 @@ export function MetricsPage() {
               </Card>
 
               {/* Kueue Metrics */}
-              <Card title="Kueue">
+              <Card title={t('kueueMetrics')}>
                 <div className="space-y-4">
                   {(kueueMetrics.pending.length > 0 || kueueMetrics.admitted.length > 0) && (
                     <MetricSection
-                      title="Workloads (Pending & Admitted)"
+                      title={t('workloads')}
                       promql={metricsData?.kueue_pend?.promql}
                     >
                       <TimeSeries
@@ -240,7 +243,7 @@ export function MetricsPage() {
                     </MetricSection>
                   )}
                   {(kueueMetrics.gpu.length > 0 || kueueMetrics.cpu.length > 0) && (
-                    <MetricSection title="Resource Usage (GPU & CPU)" promql={metricsData?.kueue_gpu?.promql}>
+                    <MetricSection title={t('resourceUsage')} promql={metricsData?.kueue_gpu?.promql}>
                       <TimeSeries series={[...kueueMetrics.gpu, ...kueueMetrics.cpu]} unit="" height={220} />
                     </MetricSection>
                   )}
@@ -248,10 +251,10 @@ export function MetricsPage() {
               </Card>
 
               {/* Capacity */}
-              <Card title="가용 자원">
+              <Card title={t('capacity')}>
                 <div className="space-y-4">
                   {(capacityMetrics.allocatable.length > 0 || capacityMetrics.requested.length > 0) && (
-                    <MetricSection title="GPU Allocatable vs Requested" promql={metricsData?.gpu_alloc?.promql}>
+                    <MetricSection title={t('gpuAllocVsReq')} promql={metricsData?.gpu_alloc?.promql}>
                       <TimeSeries series={[...capacityMetrics.allocatable.map((s) => ({ ...s, name: `${s.name} (allocatable)` })), ...capacityMetrics.requested.map((s) => ({ ...s, name: `${s.name} (requested)` }))]} unit="" height={220} />
                     </MetricSection>
                   )}
@@ -264,36 +267,36 @@ export function MetricsPage() {
 
       {tab === 'grafana' && (
         <div className="space-y-4">
-          <Card title="Grafana">
+          <Card title={t('grafana')}>
             <div className="space-y-4 px-4 py-3">
               <p className="text-xs text-fg-muted">
-                HyperPod EKS Grafana에서 상세 지표를 확인합니다.
+                {t('grafanaDesc')}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                 <Link href="/absproxy/3000/d/hyperpod-task-governance" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors text-[13px] px-3 h-8">
-                  HyperPod Task Governance
+                  {t('taskGov')}
                   <ExternalLink size={12} />
                 </Link>
                 <Link href="/absproxy/3000/dashboards?query=DCGM" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors text-[13px] px-3 h-8">
-                  NVIDIA DCGM
+                  {t('dcgm')}
                   <ExternalLink size={12} />
                 </Link>
                 <Link href="/absproxy/3000/dashboards?query=Node+Exporter" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors text-[13px] px-3 h-8">
-                  Node Exporter Full
+                  {t('nodeExporter')}
                   <ExternalLink size={12} />
                 </Link>
                 <Link href="/absproxy/3000/dashboards?query=Kubernetes" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors text-[13px] px-3 h-8">
-                  Kubernetes Views Global
+                  {t('kubeViews')}
                   <ExternalLink size={12} />
                 </Link>
               </div>
               <iframe
                 src="/absproxy/3000/?kiosk=tv&theme=dark"
                 className="h-[80vh] w-full rounded border border-border"
-                title="Grafana Dashboard"
+                title={t('grafana')}
               />
               <Link href="/absproxy/3000/" className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-bg-elev-2 hover:bg-[#1e2637] text-fg font-medium transition-colors h-8 px-3 text-[13px]">
-                Grafana 열기
+                {t('openGrafana')}
                 <ExternalLink size={14} />
               </Link>
             </div>

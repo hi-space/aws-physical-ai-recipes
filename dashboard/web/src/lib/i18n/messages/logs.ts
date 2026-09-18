@@ -1,0 +1,36 @@
+import { defineMessages } from '../define';
+
+export const logs = defineMessages({
+  en: {
+    task: 'Task',
+    source: 'Saved log source', sourceLatest: 'Latest attempt · first member',
+    streamAttempt: 'Attempt', streamMember: 'Member', streamRestart: 'Restart',
+    startAt: 'Start from', startTail: 'Most recent saved logs', startBeginning: 'Beginning of the archive',
+    follow: 'Follow', archived: 'Archived logs', awaitingCollection: 'Awaiting collection',
+    currentSource: 'Current source', collectionInfo: 'Collection notes',
+    gapInfo: 'Logs from before a disconnect or from rotated source files may be missing.',
+    filterLabel: 'Filter logs', filterPlaceholder: 'Search logs…', reopen: 'Reopen', downloadShown: 'Download shown logs',
+    logRegion: 'Task log', noLogsYet: 'No logs archived yet.',
+    logLimitInfo: 'Replays saved bytes by cursor; complete capture is not guaranteed. The view is limited to 10,000 lines / 1,048,576 characters.',
+    truncatedWarning: 'Earlier lines were trimmed from the view; the archive is intact.',
+    connectionLost: 'Connection lost. Reconnecting from the last position…',
+    permissionExpired: 'Log replay permission or cursor expired. Reopen the log.',
+    replayError: 'Log replay error', loadFailed: 'Log lookup failed', noStreams: 'No log streams available',
+  },
+  ko: {
+    task: '작업',
+    source: '저장된 로그 소스', sourceLatest: '최근 시도 · 첫 번째 멤버',
+    streamAttempt: '시도', streamMember: '멤버', streamRestart: '재시작',
+    startAt: '시작 위치', startTail: '최근 저장된 로그', startBeginning: '보관된 처음부터',
+    follow: '계속 보기', archived: '보관 로그', awaitingCollection: '수집 대기',
+    currentSource: '현재 소스', collectionInfo: '수집 범위 정보',
+    gapInfo: '연결 중단 이전이나 회전된 원본 로그는 누락될 수 있습니다.',
+    filterLabel: '로그 필터', filterPlaceholder: '로그 검색…', reopen: '다시 열기', downloadShown: '표시 로그 다운로드',
+    logRegion: '작업 로그', noLogsYet: '아직 보관된 로그가 없습니다.',
+    logLimitInfo: '저장 완료된 바이트를 커서로 재생합니다. 원본 전체 수집을 보장하지 않습니다. 화면은 최대 10,000줄 / 1,048,576자로 제한됩니다.',
+    truncatedWarning: '이전 화면 내용이 잘렸습니다. 보관 로그는 유지됩니다.',
+    connectionLost: '연결이 끊어졌습니다. 저장된 위치에서 다시 연결합니다.',
+    permissionExpired: '로그 재생 권한 또는 커서가 만료되었습니다. 다시 열어 주세요.',
+    replayError: '로그 재생 오류', loadFailed: '로그 조회 실패', noStreams: '사용 가능한 로그 스트림이 없습니다.',
+  },
+});

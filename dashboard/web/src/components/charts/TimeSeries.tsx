@@ -1,12 +1,14 @@
 'use client';
 import * as React from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useT } from '@/lib/i18n';
 
 export interface Series { name: string; values: [number, number][] }
 const PALETTE = ['#6ea8fe', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#22d3ee', '#fb923c', '#a3e635', '#f472b6', '#94a3b8'];
 
 /** Accepts epoch seconds by default, or numeric training steps for experiment comparison. */
 export function TimeSeries({ series, height = 220, unit = '', yMax, formatter, className, xAxis = 'time' }: { series: Series[]; height?: number; unit?: string; yMax?: number; formatter?: (v: number) => string; className?: string; xAxis?: 'time' | 'step' }) {
+  const t = useT('metrics');
   const data = React.useMemo(() => {
     const byTs = new Map<number, Record<string, number>>();
     // Use stable internal keys so dots in metric/run names are not interpreted as object paths.
@@ -18,7 +20,7 @@ export function TimeSeries({ series, height = 220, unit = '', yMax, formatter, c
     return [...byTs.entries()].sort((a, b) => a[0] - b[0]).map(([t, v]) => ({ t, ...v }));
   }, [series]);
   const fmt = formatter ?? ((v: number) => `${Number.isInteger(v) ? v : v.toFixed(1)}${unit}`);
-  if (!series.length || !data.length) return <div className="flex items-center justify-center text-xs text-fg-faint" style={{ height }}>선택한 범위에 데이터가 없습니다.</div>;
+  if (!series.length || !data.length) return <div className="flex items-center justify-center text-xs text-fg-faint" style={{ height }}>{t('noDataInRange')}</div>;
   return (
     <div className={className} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">

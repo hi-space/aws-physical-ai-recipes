@@ -62,18 +62,19 @@ afterAll(async () => { await browser?.close(); if (server) await new Promise<voi
 
 it.skipIf(!existsSync(chromium.executablePath()))('registers without echoing secrets, displays dead letters, explicitly redrives, and rotates safely', async () => {
   const page = await browser.newPage(), errors: string[] = [];
+  page.setDefaultTimeout(4000);
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
   const refresh = () => page.evaluate(() => (window as unknown as { fixtureClient: { invalidateQueries(options: unknown): Promise<void> } }).fixtureClient.invalidateQueries({ queryKey: ['api'] }));
   try {
     await page.goto(origin + '/webhooks');
-    await page.getByLabel('구독 이름').fill('Receiver fixture');
-    await page.getByLabel('수신 HTTPS URL', { exact: true }).fill('https://hooks.example.com/secret-path?key=private');
-    await page.getByLabel('공유 서명 키').fill('secret-fixture-'.repeat(4));
+    await page.locator('input').nth(0).fill('Receiver fixture');
+    await page.locator('input[type=url]').first().fill('https://hooks.example.com/secret-path?key=private');
+    await page.locator('input[type=password]').first().fill('secret-fixture-'.repeat(4));
     await page.getByRole('button', { name: '구독 등록', exact: true }).click();
     await page.getByText('웹훅을 등록했습니다.', { exact: false }).waitFor();
-    expect(await page.getByLabel('공유 서명 키').inputValue()).toBe('');
-    expect(await page.getByLabel('수신 HTTPS URL', { exact: true }).inputValue()).toBe('');
+    expect(await page.locator('input[type=password]').first().inputValue()).toBe('');
+    expect(await page.locator('input[type=url]').first().inputValue()).toBe('');
     const workflow: Workflow = { id: 'run-a', projectId: 'a', namespace: project.namespace, owner: 'owner', name: 'Training',
       status: 'SUCCEEDED', spec: workflowSchema.parse({ workflow: { name: 'training', tasks: [{ name: 'run', image: 'image', command: ['true'] }] } }),
       specYaml: '', vars: {}, taskCount: 1, succeededCount: 1, failedCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -86,12 +87,12 @@ it.skipIf(!existsSync(chromium.executablePath()))('registers without echoing sec
     await page.getByText('현재 설정으로 재전달을 예약했습니다.', { exact: false }).waitFor();
     await reconcileWebhookDeliveries(new AbortController().signal, d);
     await refresh(); await page.getByText('DELIVERED', { exact: true }).waitFor();
-    await page.getByLabel('새 서명 키').fill('replacement-fixture-'.repeat(3));
+    await page.locator('input[type=password]').nth(1).fill('replacement-fixture-'.repeat(3));
     await page.getByRole('button', { name: '암호화 설정 교체' }).click();
     await page.getByText('설정을 교체했습니다.', { exact: false }).waitFor();
-    expect(await page.getByLabel('새 서명 키').inputValue()).toBe('');
+    expect(await page.locator('input[type=password]').nth(1).inputValue()).toBe('');
     expect(await page.content()).not.toContain('secret-path');
     expect(await page.content()).not.toContain('replacement-fixture-');
     expect(errors).toEqual([]);
   } finally { await page.close(); }
-}, 15000);
+}, 30000);

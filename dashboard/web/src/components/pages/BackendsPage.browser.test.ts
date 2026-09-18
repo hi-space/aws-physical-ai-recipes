@@ -185,7 +185,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('backend administration 
   it('hides backend administration and creation controls from a researcher without requesting admin APIs', async () => {
     admin = false;
     await page.goto(origin + '/backends');
-    await page.getByText('플랫폼 관리자 전용 화면입니다.', { exact: true }).waitFor();
+    await page.getByText('플랫폼 관리자 전용', { exact: true }).waitFor();
     expect(await page.getByRole('link', { name: '백엔드 연결', exact: true }).count()).toBe(0);
     expect(calls.some(c => c.path.startsWith('/api/backends'))).toBe(false);
     await page.goto(origin + '/projects');

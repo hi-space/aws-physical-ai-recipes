@@ -1,0 +1,34 @@
+import { defineMessages } from '../define';
+
+export const jobs = defineMessages({
+  en: {
+    title: 'Jobs', description: 'Kubernetes job execution, pods, and workload logs',
+    running: 'Running', pending: 'Pending', succeeded: 'Succeeded', failed: 'Failed',
+    stateFilter: 'State filter', search: 'Search', hideFinished: 'Hide finished',
+    name: 'Name', namespace: 'Namespace', created: 'Created', status: 'Status', age: 'Age',
+    activeSucceededFailed: 'Active / succeeded / failed', image: 'Image', noJobs: 'No jobs',
+    pods: 'Pods', phase: 'Phase', node: 'Node', restarts: 'Restarts', logs: 'Logs',
+    followLogs: 'Follow logs', copy: 'Copy', close: 'Close', delete: 'Delete', confirm: 'Confirm',
+    deleteConfirm: 'Delete job {name}? This cannot be undone.', deleted: 'Job {name} deleted',
+    deleteError: 'Error: {message}', yaml: 'YAML', events: 'Events', loadingJobs: 'Loading jobs…',
+    allNamespaces: 'All namespaces', allStates: 'All states', searchPlaceholder: 'Search job, namespace, or image…',
+    noJobsFound: 'No jobs found', jobDetailsHint: 'Try adjusting filters',
+    clusterEvents: 'Cluster events', clusterEventsDesc: 'Last 100 from namespace {ns}', noEvents: 'No events',
+    retainedLogsLabel: 'View current logs of existing Kubernetes jobs · retained history and secret filter not applied',
+  },
+  ko: {
+    title: '작업', description: 'Kubernetes 작업 실행, Pod, 워크로드 로그를 확인합니다.',
+    running: '실행 중', pending: '대기', succeeded: '성공', failed: '실패',
+    stateFilter: '상태 필터', search: '검색', hideFinished: '완료 항목 숨기기',
+    name: '이름', namespace: '네임스페이스', created: '생성', status: '상태', age: '경과',
+    activeSucceededFailed: '실행 중 / 성공 / 실패', image: '이미지', noJobs: '작업이 없습니다',
+    pods: 'Pod', phase: '상태', node: '노드', restarts: '재시작', logs: '로그',
+    followLogs: '로그 팔로우', copy: '복사', close: '닫기', delete: '삭제', confirm: '확인',
+    deleteConfirm: '작업 {name}을(를) 삭제할까요? 되돌릴 수 없습니다.', deleted: '작업 {name} 삭제됨',
+    deleteError: '오류: {message}', yaml: 'YAML', events: '이벤트', loadingJobs: '작업을 불러오는 중…',
+    allNamespaces: '모든 네임스페이스', allStates: '모든 상태', searchPlaceholder: '작업, 네임스페이스 또는 이미지 검색…',
+    noJobsFound: '작업을 찾을 수 없습니다', jobDetailsHint: '필터를 조정해 보세요',
+    clusterEvents: '클러스터 이벤트', clusterEventsDesc: '네임스페이스 {ns}에서 최근 100개', noEvents: '이벤트가 없습니다',
+    retainedLogsLabel: '기존 Kubernetes 작업의 현재 로그 보기 · 보관 이력과 비밀값 필터 없음',
+  },
+});

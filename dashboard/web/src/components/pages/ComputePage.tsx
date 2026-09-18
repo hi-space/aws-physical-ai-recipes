@@ -3,8 +3,9 @@ import * as React from 'react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Bar, Button, Card, CodeBlock, CopyButton, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, Tabs, Toast } from '@/components/ui';
-import { ago, classNames as cx, fmtBytes, fmtTime, shortId } from '@/lib/format';
+import { fmtBytes, shortId } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { useT, useFormat } from '@/lib/i18n';
 import { ScaleControls } from '@/components/compute/ScaleControls';
 
 interface ClusterSummary {
@@ -45,6 +46,10 @@ interface DataRepositoryTask {
 }
 
 export function ComputePage() {
+  const t = useT('compute');
+  const ts = useT('scaling');
+  const tc = useT('common');
+  const { fmtTime, ago } = useFormat();
   const me = useMe();
   const [activeTab, setActiveTab] = React.useState<'eks' | 'slurm'>('eks');
   const [scaleDialog, setScaleDialog] = React.useState<{ cluster: string; group: string; current: number } | null>(null);
@@ -85,15 +90,15 @@ export function ComputePage() {
     if (!exportDialog) return;
     const paths = exportPaths.split('\n').map((p) => p.trim()).filter(Boolean);
     if (!paths.length) {
-      setToast({ message: 'Enter at least one path', tone: 'err' });
+      setToast({ message: t('pathsRequired'), tone: 'err' });
       return;
     }
     try {
       await exportFsxMutation.mutateAsync({ fileSystemId: exportDialog.fileSystemId, paths });
-      setToast({ message: `Exporting ${paths.length} path(s)`, tone: 'ok' });
+      setToast({ message: t('exportSuccess', { count: paths.length }), tone: 'ok' });
       setExportDialog(null);
     } catch (e) {
-      setToast({ message: `Error: ${(e as Error).message}`, tone: 'err' });
+      setToast({ message: t('exportFailed', { message: (e as Error).message }), tone: 'err' });
     }
   };
 
@@ -110,7 +115,7 @@ export function ComputePage() {
 
   return (
     <>
-      <PageHeader title="Compute" description="Cluster resources, instance groups, and file systems" />
+      <PageHeader title={t('title')} description={t('description')} />
       <div className="space-y-4">
         {clustersResp.error && <ErrorBox error={clustersResp.error} />}
 
@@ -119,8 +124,8 @@ export function ComputePage() {
             value={activeTab}
             onChange={setActiveTab}
             items={[
-              ...(eksCluster ? [{ id: 'eks' as const, label: 'EKS', count: clusters.filter((c) => c.orchestrator === 'eks').length }] : []),
-              ...(slurmCluster ? [{ id: 'slurm' as const, label: 'Slurm', count: clusters.filter((c) => c.orchestrator === 'slurm').length }] : []),
+              ...(eksCluster ? [{ id: 'eks' as const, label: t('eks'), count: clusters.filter((c) => c.orchestrator === 'eks').length }] : []),
+              ...(slurmCluster ? [{ id: 'slurm' as const, label: t('slurm'), count: clusters.filter((c) => c.orchestrator === 'slurm').length }] : []),
             ]}
           />
         )}
@@ -137,7 +142,7 @@ export function ComputePage() {
                   {activeCluster.failureMessage && <ErrorBox error={new Error(activeCluster.failureMessage)} className="mt-2" />}
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs text-fg-muted mb-1">Cluster ARN</div>
+                  <div className="text-xs text-fg-muted mb-1">{t('clusterArn')}</div>
                   <div className="flex items-center gap-2">
                     <code className="mono text-[11px] text-fg-faint">{shortId(activeCluster.arn, 80)}</code>
                     {activeCluster.arn && <CopyButton text={activeCluster.arn} />}
@@ -146,18 +151,18 @@ export function ComputePage() {
               </div>
               {activeCluster.createdAt && (
                 <div className="mt-3 text-xs text-fg-muted">
-                  Created: <span>{fmtTime(activeCluster.createdAt)}</span>
+                  {t('created')}: <span>{fmtTime(activeCluster.createdAt)}</span>
                 </div>
               )}
             </Card>
 
             {/* Instance Groups */}
-            <Card title="인스턴스 그룹">
+            <Card title={t('instGroups')}>
               {activeCluster.groups.length === 0 ? (
-                <EmptyState title="No instance groups" />
+                <EmptyState title={t('noGroups')} />
               ) : (
                 <Table
-                  head={['그룹', '인스턴스 유형', '현재 / 목표', '상태', can(me.data, 'admin') ? '용량 계획' : '']}
+                  head={[t('groupName'), t('instType'), t('current'), tc('status'), can(me.data, 'admin') ? t('capacityPlan') : '']}
                   dense
                 >
                   {activeCluster.groups.map((g) => (
@@ -173,10 +178,10 @@ export function ComputePage() {
                       <td>
                         {can(me.data, 'admin') ? (
                           <Button size="sm" variant="ghost" onClick={() => handleScaleClick(activeCluster.name, g.name, g.target)}>
-                            계획·차단 사유
+                            {ts('openButton')}
                           </Button>
                         ) : g.isSystem ? (
-                          <span className="text-[11px] text-fg-faint">System</span>
+                          <span className="text-[11px] text-fg-faint">{t('system')}</span>
                         ) : null}
                       </td>
                     </tr>
@@ -187,12 +192,12 @@ export function ComputePage() {
 
             {/* K8s Nodes */}
             {activeTab === 'eks' && (
-              <Card title="Nodes (Kubernetes)">
+              <Card title={t('nodes')}>
                 {k8sNodes.length === 0 ? (
-                  <EmptyState title="No Kubernetes nodes" />
+                  <EmptyState title={t('noNodes')} />
                 ) : (
                   <Table
-                    head={['Node', 'Group', 'Status', 'GPU', 'Health', 'Kubelet', 'Taints']}
+                    head={[t('node'), t('group'), tc('status'), t('gpu'), t('health'), t('kubelet'), t('taints')]}
                     dense
                   >
                     {k8sNodes.map((n) => (
@@ -200,13 +205,13 @@ export function ComputePage() {
                         <td className="mono text-[11px]">{n.name}</td>
                         <td className="text-xs text-fg-muted">{n.group ?? '—'}</td>
                         <td>
-                          <Badge tone={n.ready ? 'ok' : 'err'}>{n.ready ? 'Ready' : 'NotReady'}</Badge>
+                          <Badge tone={n.ready ? 'ok' : 'err'}>{n.ready ? t('ready') : t('notReady')}</Badge>
                         </td>
                         <td className="num">{n.gpuAllocatable}/{n.gpuCapacity}</td>
                         <td>
                           {n.health && (
                             <Badge tone={n.health === 'Schedulable' && !n.unschedulable ? 'ok' : 'err'}>
-                              {n.unschedulable ? 'Cordoned' : n.health}
+                              {n.unschedulable ? t('cordoned') : n.health === 'Schedulable' ? t('schedulable') : n.health}
                             </Badge>
                           )}
                         </td>
@@ -221,7 +226,7 @@ export function ComputePage() {
 
             {/* Cluster Events */}
             {activeCluster.events && activeCluster.events.length > 0 && (
-              <Card title="Cluster Events" description={`Latest 25`}>
+              <Card title={t('events')} description={t('latest')}>
                 <div className="space-y-2">
                   {activeCluster.events.slice(0, 25).map((e, i) => (
                     <div key={i} className="border-l-2 border-border px-3 py-2 text-xs">
@@ -236,17 +241,17 @@ export function ComputePage() {
 
             {/* EKS Add-ons */}
             {activeTab === 'eks' && (
-              <Card title="Add-ons">
+              <Card title={t('addons')}>
                 {addons.length === 0 ? (
-                  <EmptyState title="No add-ons installed" />
+                  <EmptyState title={t('noAddons')} />
                 ) : (
-                  <Table head={['Add-on', 'Version', 'Status', 'Health']} dense>
+                  <Table head={[t('addon'), t('version'), tc('status'), t('health')]} dense>
                     {addons.map((a) => (
                       <tr key={a.name}>
                         <td className="font-medium">{a.name}</td>
                         <td className="text-fg-muted">{a.version ?? '—'}</td>
                         <td>{a.status && <StatusPill status={a.status} />}</td>
-                        <td className="num">{a.health > 0 ? <Badge tone="err">Issues: {a.health}</Badge> : <Badge tone="ok">Healthy</Badge>}</td>
+                        <td className="num">{a.health > 0 ? <Badge tone="err">{t('issues', { count: a.health })}</Badge> : <Badge tone="ok">{t('healthy')}</Badge>}</td>
                       </tr>
                     ))}
                   </Table>
@@ -255,11 +260,11 @@ export function ComputePage() {
             )}
 
             {/* Connect Instructions */}
-            <Card title="Connect">
+            <Card title={t('connect')}>
               {activeTab === 'eks' ? (
                 <div className="space-y-3">
                   <div>
-                    <div className="mb-2 text-xs font-medium text-fg-muted">Update kubeconfig:</div>
+                    <div className="mb-2 text-xs font-medium text-fg-muted">{t('updateKubeconfig')}:</div>
                     <CodeBlock
                       code={`aws eks update-kubeconfig --name ${me.data?.clusters.eksName ?? 'hyperpod-eks'} --region ${me.data?.region ?? 'us-east-1'} --alias hyperpod-eks`}
                       lang="bash"
@@ -269,11 +274,11 @@ export function ComputePage() {
               ) : (
                 <div className="space-y-3">
                   <div className="text-sm text-fg-muted">
-                    Connect to the Slurm head node using:
+                    {t('connectSlurm')}
                   </div>
                   <CodeBlock code={`hyperpod-training/scripts/head-node.sh`} lang="bash" />
                   <div className="text-xs text-fg-muted">
-                    Workflows are submitted through the EKS orchestrator. Slurm is managed and not directly scheduled.
+                    {t('eksOrchestrator')}
                   </div>
                 </div>
               )}
@@ -283,7 +288,7 @@ export function ComputePage() {
 
         {/* FSx for Lustre */}
         {fileSystems && fileSystems.length > 0 && (
-          <Card title="FSx for Lustre">
+          <Card title={t('fsx')}>
             <div className="space-y-4">
               {fileSystems.map((fs) => (
                 <div key={fs.id} className="rounded border border-border bg-bg-elev-2 p-4">
@@ -296,14 +301,14 @@ export function ComputePage() {
                       </div>
                     </div>
                     <Button size="sm" variant="secondary" onClick={() => handleExportClick(fs.id)}>
-                      Export Now
+                      {t('exportNow')}
                     </Button>
                   </div>
 
                   {fs.dnsName && (
                     <div className="mt-3 space-y-2 text-xs">
                       <div>
-                        <div className="text-fg-muted">DNS Name</div>
+                        <div className="text-fg-muted">{t('dnsName')}</div>
                         <div className="flex items-center gap-2">
                           <code className="mono text-[11px] text-fg-faint">{fs.dnsName}</code>
                           <CopyButton text={fs.dnsName} />
@@ -311,7 +316,7 @@ export function ComputePage() {
                       </div>
                       {fs.mountName && (
                         <div>
-                          <div className="text-fg-muted">Mount Name</div>
+                          <div className="text-fg-muted">{t('mountName')}</div>
                           <code className="mono text-[11px] text-fg-faint">{fs.mountName}</code>
                         </div>
                       )}
@@ -321,9 +326,9 @@ export function ComputePage() {
                   {/* Data Repository Associations */}
                   {fs.associations && fs.associations.length > 0 && (
                     <div className="mt-3">
-                      <div className="mb-2 text-xs font-medium text-fg-muted">Data Repository Associations</div>
+                      <div className="mb-2 text-xs font-medium text-fg-muted">{t('repos')}</div>
                       <Table
-                        head={['FSx Path', 'S3 Path', 'Status']}
+                        head={[t('fsxPath'), t('s3Path'), tc('status')]}
                         dense
                       >
                         {fs.associations.map((a, i) => (
@@ -344,8 +349,8 @@ export function ComputePage() {
 
         {!fileSystems || fileSystems.length === 0 && me.data?.features.fsx && (
           <EmptyState
-            title="FSx for Lustre not configured"
-            hint="Deploy the infrastructure stack to enable FSx file systems"
+            title={t('fsxNotConfigured')}
+            hint={t('deployStack')}
           />
         )}
       </div>
@@ -356,26 +361,26 @@ export function ComputePage() {
       <Dialog
         open={!!exportDialog}
         onClose={() => setExportDialog(null)}
-        title="Export FSx Paths"
+        title={t('exportPaths')}
         width="md"
         footer={
           <>
             <Button variant="ghost" onClick={() => setExportDialog(null)}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button
               variant="primary"
               loading={exportFsxMutation.isPending}
               onClick={handleExportApply}
             >
-              Export
+              {t('exportNow')}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">Paths (one per line)</label>
+            <label className="block text-xs font-medium text-fg-muted mb-1">{t('pathsLabel')}</label>
             <textarea
               value={exportPaths}
               onChange={(e) => setExportPaths(e.target.value)}
@@ -384,7 +389,7 @@ export function ComputePage() {
             />
           </div>
           <div className="text-xs text-fg-muted">
-            Paths will be exported to S3 according to the data repository association configuration.
+            {t('pathsHint')}
           </div>
         </div>
       </Dialog>

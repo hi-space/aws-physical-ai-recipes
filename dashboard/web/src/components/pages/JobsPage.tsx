@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { AlertCircle, ChevronDown, Download, Trash2, Zap } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, Select, Skeleton, Spinner, Stat, StatusPill } from '@/components/ui';
-import { ago, classNames as cx, fmtNum, fmtDuration, shortId } from '@/lib/format';
+import { fmtNum, fmtDuration, shortId } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { useT, useFormat } from '@/lib/i18n';
 
 interface Job {
   name: string;
@@ -50,6 +51,9 @@ const STATE_COLORS: Record<string, 'ok' | 'warn' | 'err' | 'info'> = {
 };
 
 export function JobsPage() {
+  const t = useT('jobs');
+  const tc = useT('common');
+  const { ago, fmtTime } = useFormat();
   const { data: me } = useMe();
   const [namespace, setNamespace] = React.useState('');
   const [stateFilter, setStateFilter] = React.useState('');
@@ -90,18 +94,18 @@ export function JobsPage() {
     if (!deleteConfirm) return;
     try {
       await deleteMutation(deleteConfirm);
-      setToast({ message: `Job ${deleteConfirm.name} deleted`, tone: 'ok' });
+      setToast({ message: t('deleted', { name: deleteConfirm.name }), tone: 'ok' });
       setDeleteConfirm(null);
     } catch (e) {
-      setToast({ message: `Error: ${(e as Error).message}`, tone: 'err' });
+      setToast({ message: t('deleteError', { message: (e as Error).message }), tone: 'err' });
     }
   };
 
-  if (jobsLoading && !jobs) return <Spinner label="Loading jobs…" />;
+  if (jobsLoading && !jobs) return <Spinner label={t('loadingJobs')} />;
 
   return (
     <>
-      <PageHeader title="Jobs" description="All Kubernetes batch Jobs in cluster" />
+      <PageHeader title={t('title')} description={t('description')} />
 
       {/* Toast */}
       {toast && (
@@ -115,10 +119,10 @@ export function JobsPage() {
 
       {/* KPI Row */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Running" value={fmtNum(stats.running)} tone={stats.running > 0 ? 'info' : undefined} />
-        <Stat label="Pending Pods" value={fmtNum(stats.pending)} tone={stats.pending > 0 ? 'warn' : undefined} />
-        <Stat label="Succeeded" value={fmtNum(stats.succeeded)} tone="ok" />
-        <Stat label="Failed" value={fmtNum(stats.failed)} tone={stats.failed > 0 ? 'err' : undefined} />
+        <Stat label={t('running')} value={fmtNum(stats.running)} tone={stats.running > 0 ? 'info' : undefined} />
+        <Stat label={t('pending')} value={fmtNum(stats.pending)} tone={stats.pending > 0 ? 'warn' : undefined} />
+        <Stat label={t('succeeded')} value={fmtNum(stats.succeeded)} tone="ok" />
+        <Stat label={t('failed')} value={fmtNum(stats.failed)} tone={stats.failed > 0 ? 'err' : undefined} />
       </div>
 
       {jobsError && <ErrorBox error={jobsError} />}
@@ -126,7 +130,7 @@ export function JobsPage() {
       {/* Filter Bar */}
       <div className="mb-4 flex flex-wrap gap-2">
         <Select value={namespace} onChange={(e) => setNamespace(e.target.value)} className="w-40">
-          <option value="">All Namespaces</option>
+          <option value="">{t('allNamespaces')}</option>
           {namespaces?.map((ns) => (
             <option key={ns} value={ns}>
               {ns}
@@ -134,34 +138,34 @@ export function JobsPage() {
           ))}
         </Select>
         <Select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} className="w-32">
-          <option value="">All States</option>
-          <option value="Running">Running</option>
-          <option value="Succeeded">Succeeded</option>
-          <option value="Failed">Failed</option>
-          <option value="Pending">Pending</option>
+          <option value="">{t('allStates')}</option>
+          <option value="Running">{t('running')}</option>
+          <option value="Succeeded">{tc('stSucceeded')}</option>
+          <option value="Failed">{tc('stFailed')}</option>
+          <option value="Pending">{tc('stPending')}</option>
         </Select>
-        <Input placeholder="Search job, namespace, or image…" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-40" />
+        <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-40" />
       </div>
 
       {/* Jobs Table */}
-      <Card title={`Jobs (${filteredJobs.length})`} className="mb-4">
+      <Card title={`${t('title')} (${filteredJobs.length})`} className="mb-4">
         {!filteredJobs.length ? (
-          <EmptyState title="No jobs found" hint={jobs?.length ? 'Try adjusting filters' : 'No jobs yet'} />
+          <EmptyState title={t('noJobsFound')} hint={jobs?.length ? t('jobDetailsHint') : t('noJobs')} />
         ) : (
           <div className="overflow-x-auto">
             <table className="tbl w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-3 py-2 text-left font-medium">Namespace</th>
-                  <th className="px-3 py-2 text-left font-medium">State</th>
-                  <th className="px-3 py-2 text-center font-medium">Pods</th>
-                  <th className="px-3 py-2 text-left font-medium">Queue / Priority</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('namespace')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('state')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{t('pods')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('queue')} / {tc('priority')}</th>
                   <th className="px-3 py-2 text-center font-medium">GPU</th>
-                  <th className="px-3 py-2 text-left font-medium">Image</th>
-                  <th className="px-3 py-2 text-right font-medium">Age</th>
-                  <th className="px-3 py-2 text-left font-medium">Duration</th>
-                  <th className="px-3 py-2 text-right font-medium">Actions</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('image')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tc('age')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tc('duration')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tc('actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -215,7 +219,7 @@ export function JobsPage() {
                               setLogsFollow(false);
                             }}
                             className="rounded px-2 py-1 hover:bg-bg-elev-2"
-                            title="View logs"
+                            title={t('logs')}
                           >
                             <Zap size={14} className="text-fg-muted" />
                           </button>
@@ -223,7 +227,7 @@ export function JobsPage() {
                             <button
                               onClick={() => setDeleteConfirm(job)}
                               className="rounded px-2 py-1 hover:bg-red-500/10"
-                              title="Delete job"
+                              title={t('delete')}
                             >
                               <Trash2 size={14} className="text-err" />
                             </button>
@@ -244,7 +248,7 @@ export function JobsPage() {
         <Dialog
           open={!!selectedJob}
           onClose={() => setSelectedJob(null)}
-          title={`Logs: ${selectedJob.name}`}
+          title={`${t('logs')}: ${selectedJob.name}`}
           width="xl"
         >
           <LogViewer job={selectedJob} podIdx={selectedPodIdx} setPodIdx={setSelectedPodIdx} follow={logsFollow} setFollow={setLogsFollow} />
@@ -256,18 +260,18 @@ export function JobsPage() {
         <Dialog
           open={!!deleteConfirm}
           onClose={() => setDeleteConfirm(null)}
-          title="Delete Job"
+          title={t('deleteConfirm', { name: deleteConfirm.name })}
         >
           <div className="space-y-4">
             <p className="text-sm">
-              Delete job <strong>{deleteConfirm.name}</strong> in <strong>{deleteConfirm.namespace}</strong>?
+              {t('deleteConfirm', { name: deleteConfirm.name })}
             </p>
             <div className="flex gap-2 justify-end">
               <Button onClick={() => setDeleteConfirm(null)} variant="secondary">
-                Cancel
+                {tc('cancel')}
               </Button>
               <Button onClick={handleDelete} variant="danger">
-                Delete
+                {tc('delete')}
               </Button>
             </div>
           </div>
@@ -275,11 +279,11 @@ export function JobsPage() {
       )}
 
       {/* Cluster Events */}
-      <Card title="Cluster Events" description={`Last 100 from namespace ${namespace || 'all'}`}>
+      <Card title={t('clusterEvents')} description={t('clusterEventsDesc', { ns: namespace || t('allNamespaces') })}>
         {eventsLoading ? (
           <Spinner />
         ) : !events?.length ? (
-          <EmptyState title="No events" />
+          <EmptyState title={t('noEvents')} />
         ) : (
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {events.map((e, i) => (
@@ -319,6 +323,8 @@ function LogViewer({
   follow: boolean;
   setFollow: (v: boolean) => void;
 }) {
+  const t = useT('jobs');
+  const tc = useT('common');
   const pods = job.pods ?? [];
   const pod = pods[podIdx];
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -334,13 +340,13 @@ function LogViewer({
     return logsData.lines.filter((line) => line.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [logsData?.lines, searchTerm]);
 
-  if (!pod) return <EmptyState title="No pods" />;
+  if (!pod) return <EmptyState title={t('noJobs')} />;
 
   return (
     <div className="space-y-3">
       {/* Pod Selector */}
       <div className="flex gap-2 items-center">
-        <span className="text-xs font-medium">Pod:</span>
+        <span className="text-xs font-medium">{t('pods')}:</span>
         <select value={podIdx} onChange={(e) => setPodIdx(Number(e.target.value))} className="rounded border border-border bg-bg-elev px-2 py-1 text-xs">
           {pods.map((p, i) => (
             <option key={i} value={i}>
@@ -351,21 +357,21 @@ function LogViewer({
       </div>
       {me.data?.role === 'admin' && <label className="flex items-center gap-2 text-xs text-fg-muted">
         <input type="checkbox" checked={retained} onChange={event => setRetained(event.target.checked)} />
-        기존 Kubernetes 작업의 현재 로그 보기 · 보관 이력과 비밀값 필터 없음
+        {t('retainedLogsLabel')}
       </label>}
       <ErrorBox error={logsError} />
 
       {/* Log Viewer Controls */}
       <div className="flex gap-2 items-center">
         <Input
-          placeholder="Search logs…"
+          placeholder={t('searchPlaceholder')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="flex-1 text-xs"
         />
         <label className="flex items-center gap-1 text-xs cursor-pointer">
           <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-          Follow
+          {t('followLogs')}
         </label>
         <button
           onClick={() => {
@@ -379,7 +385,7 @@ function LogViewer({
             URL.revokeObjectURL(url);
           }}
           className="rounded p-1 hover:bg-bg-elev-2"
-          title="Download logs"
+          title={tc('download')}
         >
           <Download size={14} />
         </button>
@@ -390,7 +396,7 @@ function LogViewer({
         {isLoading ? (
           <Spinner />
         ) : !filteredLines.length ? (
-          <div className="text-fg-muted">No logs</div>
+          <div className="text-fg-muted">{tc('notAvailable')}</div>
         ) : (
           <div>
             {filteredLines.map((line, i) => (
@@ -403,7 +409,7 @@ function LogViewer({
       </div>
 
       <div className="text-xs text-fg-muted">
-        Source: {logsData?.source} {logsData?.phase ? `• Phase: ${logsData.phase}` : ''}
+        {tc('status')}: {logsData?.source} {logsData?.phase ? `• ${t('phase')}: ${logsData.phase}` : ''}
       </div>
     </div>
   );

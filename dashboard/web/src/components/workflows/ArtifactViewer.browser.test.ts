@@ -61,7 +61,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('artifact viewer browser
     const tab = await context.newPage(); tab.setDefaultTimeout(5000); tab.on('pageerror', e => errors.push(e.message));
     try {
       await tab.goto(origin);
-      await tab.getByText('3 files · 1 media · 2 tasks').waitFor();
+      await tab.getByText('3개 파일 · 미디어 1개 · 작업 2개').waitFor();
       await tab.getByText('구버전 결과', { exact: false }).waitFor();
       const image = tab.locator('img[alt="plots/traj_0.jpeg"]');
       await image.waitFor();
@@ -69,7 +69,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('artifact viewer browser
       const signed = requests.filter(r => r.pathname === '/api/datasets/eval/versions/1/download');
       expect(signed.map(r => [r.searchParams.get('path'), r.searchParams.get('inline')])).toEqual([['plots/traj_0.jpeg', '1']]);
 
-      await tab.getByRole('button', { name: '파일' }).click();
+      await tab.getByRole('radio', { name: '파일' }).click();
       await tab.getByRole('button', { name: /evaluation\.json/ }).click();
       await tab.getByText('"mse_mean": 185.96', { exact: false }).waitFor();
       await tab.getByRole('button', { name: /model\.safetensors/ }).click();

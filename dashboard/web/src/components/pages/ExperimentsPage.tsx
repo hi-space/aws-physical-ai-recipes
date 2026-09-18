@@ -4,8 +4,9 @@ import { useQueries } from '@tanstack/react-query';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button, Card, EmptyState, ErrorBox, Select, Spinner, StatusPill, Table, Tabs } from '@/components/ui';
 import { TimeSeries } from '@/components/charts/TimeSeries';
-import { ago, classNames as cx, fmtBytes, fmtNum, shortId } from '@/lib/format';
+import { classNames as cx, shortId } from '@/lib/format';
 import { apiQueryOptions, useApi } from '@/lib/api-client';
+import { useT, useFormat } from '@/lib/i18n';
 import { compareParams, latestMetrics, metricSeries, type MetricHistory } from './experiment-compare';
 
 interface MlExperiment {
@@ -54,6 +55,9 @@ interface RunDetail {
 }
 
 export function ExperimentsPage() {
+  const t = useT('experiments');
+  const tc = useT('common');
+  const { ago, fmtNum, fmtBytes } = useFormat();
   const { data: experiments, isLoading: expLoading, error: expError } = useApi<MlExperiment[]>('/api/mlflow/experiments');
   const [selectedExp, setSelectedExp] = React.useState<string | null>(null);
   const [comparisonRuns, setComparisonRuns] = React.useState<MlRun[]>([]);
@@ -110,27 +114,27 @@ export function ExperimentsPage() {
   if (expError?.code === 'not_configured') {
     return (
       <>
-        <PageHeader title="실험" />
-        <EmptyState title="MLflow 연결이 설정되지 않았습니다." />
+        <PageHeader title={t('title')} />
+        <EmptyState title={t('notConfigured')} />
       </>
     );
   }
 
   return (
     <>
-      <PageHeader title="실험" description="최대 4개 run을 선택해 학습 곡선과 파라미터를 비교합니다." />
+      <PageHeader title={t('title')} description={t('description')} />
       {uiUrlError && <ErrorBox error={uiUrlError} />}
       {comparisonRuns.length > 0 && (
         <RunComparison runs={comparisonRuns} onRemove={(id) => setComparisonRuns((previous) => previous.filter((run) => run.info.run_id !== id))} />
       )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Left: Experiments list */}
-        <Card title="실험 목록" actions={<Button onClick={handleOpenMlflow} disabled={!uiUrlData?.url}>MLflow 열기</Button>} className="lg:col-span-1">
+        <Card title={t('experimentsList')} actions={<Button onClick={handleOpenMlflow} disabled={!uiUrlData?.url}>{t('experimentOpen')}</Button>} className="lg:col-span-1">
           {expError && <ErrorBox error={expError} />}
           {expLoading && !experiments ? (
-            <Spinner label="실험을 불러오는 중…" />
+            <Spinner label={t('loadingExperiments')} />
           ) : !experiments?.length && !expError ? (
-            <EmptyState title="등록된 실험이 없습니다." />
+            <EmptyState title={t('noExperiments')} />
           ) : (
             <div className="space-y-1">
               {experiments?.map((exp) => (
@@ -150,7 +154,7 @@ export function ExperimentsPage() {
                 >
                   <div className="font-medium">{exp.name}</div>
                   <div className="text-xs text-fg-muted">
-                    {exp.last_update_time && <>업데이트 {ago(exp.last_update_time)}</>}
+                    {exp.last_update_time && <>{tc('updated')} {ago(exp.last_update_time)}</>}
                   </div>
                   <div className="mono text-xs text-fg-faint">{shortId(exp.experiment_id)}</div>
                 </button>
@@ -165,20 +169,20 @@ export function ExperimentsPage() {
           <Card title={`Runs${selectedExp ? ` • ${shortId(selectedExp)}` : ''}`}>
             {runsError && <ErrorBox error={runsError} />}
             {!selectedExp ? (
-              <EmptyState title="실험을 선택하세요." />
+              <EmptyState title={t('runSelect')} />
             ) : runsLoading && !runs ? (
-              <Spinner label="run을 불러오는 중…" />
+              <Spinner label={t('loadingRuns')} />
             ) : !runs?.length && !runsError ? (
-              <EmptyState title="이 실험에 run이 없습니다." />
+              <EmptyState title={tc('empty')} />
             ) : (
               <Table
                 head={[
-                  '비교',
-                  'Run',
-                  '상태',
-                  '시작',
-                  '실행 시간',
-                  '사용자',
+                  t('colCompare'),
+                  t('colRun'),
+                  t('colStatus'),
+                  tc('started'),
+                  t('colDuration'),
+                  tc('user'),
                   ...commonMetrics.map((k) => k),
                 ]}
                 dense
@@ -196,7 +200,7 @@ export function ExperimentsPage() {
                       <td>
                         <input
                           type="checkbox"
-                          aria-label={`${run.info.run_name || run.info.run_id} 비교 선택`}
+                          aria-label={t('compareSelectAriaLabel', { run: run.info.run_name || run.info.run_id })}
                           checked={isSelected}
                           disabled={!isSelected && comparisonRuns.length >= 4}
                           onClick={(e) => e.stopPropagation()}
@@ -231,17 +235,17 @@ export function ExperimentsPage() {
 
           {/* Run detail */}
           {detailError && <ErrorBox error={detailError} />}
-          {detailLoading && <Spinner label="run 상세를 불러오는 중…" />}
+          {detailLoading && <Spinner label={tc('loading')} />}
           {selectedRun && runDetail && (
-            <Card title="Run 상세" description={runDetail.run.info.run_name || shortId(selectedRun)}>
+            <Card title={t('runDetail')} description={runDetail.run.info.run_name || shortId(selectedRun)}>
               <Tabs
                 value={tab}
                 onChange={(t) => setTab(t as any)}
                 items={[
-                  { id: 'metrics' as const, label: '지표' },
-                  { id: 'params' as const, label: '파라미터' },
-                  { id: 'tags' as const, label: '태그' },
-                  { id: 'artifacts' as const, label: '아티팩트' },
+                  { id: 'metrics' as const, label: t('tabMetrics') },
+                  { id: 'params' as const, label: t('tabParams') },
+                  { id: 'tags' as const, label: t('tabTags') },
+                  { id: 'artifacts' as const, label: t('tabArtifacts') },
                 ]}
               />
               <div className="mt-4">
@@ -264,17 +268,17 @@ export function ExperimentsPage() {
                       ))}
                     </div>
                     {metricError && <ErrorBox error={metricError} />}
-                    {metricLoading ? <Spinner label="학습 곡선을 불러오는 중…" /> : metricKey && metricHistory ? (
+                    {metricLoading ? <Spinner label={t('metricLoadingHistory')} /> : metricKey && metricHistory ? (
                       <TimeSeries xAxis="step" series={metricSeries([runDetail.run], { [selectedRun]: metricHistory }, metricKey)} />
                     ) : (
-                      <div className="text-sm text-fg-muted">곡선으로 볼 지표를 선택하세요.</div>
+                      <div className="text-sm text-fg-muted">{t('metricTrend')}</div>
                     )}
                   </div>
                 )}
                 {tab === 'params' && (
                   <div className="space-y-2">
                     {!runDetail.run.data.params?.length ? (
-                      <div className="text-sm text-fg-muted">기록된 파라미터가 없습니다.</div>
+                      <div className="text-sm text-fg-muted">{t('noParams')}</div>
                     ) : (
                       <div className="space-y-2">
                         {runDetail.run.data.params.map((p) => (
@@ -290,7 +294,7 @@ export function ExperimentsPage() {
                 {tab === 'tags' && (
                   <div className="space-y-2">
                     {!runDetail.run.data.tags?.length ? (
-                      <div className="text-sm text-fg-muted">태그가 없습니다.</div>
+                      <div className="text-sm text-fg-muted">{t('noTags')}</div>
                     ) : (
                       <div className="space-y-2">
                         {runDetail.run.data.tags.map((t) => (
@@ -306,7 +310,7 @@ export function ExperimentsPage() {
                 {tab === 'artifacts' && (
                   <div className="space-y-1">
                     {!runDetail.artifacts?.length ? (
-                      <div className="text-sm text-fg-muted">아티팩트가 없습니다.</div>
+                      <div className="text-sm text-fg-muted">{t('noArtifacts')}</div>
                     ) : (
                       runDetail.artifacts.map((a) => (
                         <div key={a.path} className="flex items-center gap-2 border-b border-border py-2">
@@ -328,6 +332,8 @@ export function ExperimentsPage() {
 }
 
 function RunComparison({ runs, onRemove }: { runs: MlRun[]; onRemove: (id: string) => void }) {
+  const t = useT('experiments');
+  const tc = useT('common');
   const [metricKey, setMetricKey] = React.useState('');
   const details = useQueries({
     queries: runs.map((run) => apiQueryOptions<RunDetail>(`/api/mlflow/runs/${encodeURIComponent(run.info.run_id)}`, { refetch: 10000 })),
@@ -346,11 +352,11 @@ function RunComparison({ runs, onRemove }: { runs: MlRun[]; onRemove: (id: strin
   const params = compareParams(currentRuns);
 
   return (
-    <Card title={`Run 비교 (${runs.length}/4)`} description="가로축은 학습 step입니다. 누락된 지표와 파라미터는 0으로 채우지 않습니다." className="mb-4">
+    <Card title={`${t('comparisonTitle')} (${runs.length}/4)`} className="mb-4">
       <div className="flex flex-wrap gap-2 mb-3">
         {currentRuns.map((run) => (
           <Button key={run.info.run_id} size="sm" variant="ghost" onClick={() => onRemove(run.info.run_id)}>
-            {run.info.run_name || 'Run'} · {shortId(run.info.run_id)} — 선택 해제
+            {run.info.run_name || 'Run'} · {shortId(run.info.run_id)} — {t('comparisonRemove')}
           </Button>
         ))}
       </div>
@@ -359,29 +365,29 @@ function RunComparison({ runs, onRemove }: { runs: MlRun[]; onRemove: (id: strin
       {keys.length > 0 ? (
         <>
           <label className="block text-xs mb-2">
-            비교 지표
+            {t('comparisonMetrics')}
             <Select value={key} onChange={(event) => setMetricKey(event.target.value)} className="mt-1">
               {keys.map((metric) => <option key={metric} value={metric}>{metric}</option>)}
             </Select>
           </label>
-          {histories.some((query) => query.isLoading) && <Spinner label="비교 곡선을 불러오는 중…" />}
+          {histories.some((query) => query.isLoading) && <Spinner label={tc('loading')} />}
           <TimeSeries xAxis="step" series={series} />
           {series.map((s, i) => !histories[i].isLoading && !histories[i].error && !s.values.length && (
-            <p key={runs[i].info.run_id} className="text-xs text-fg-muted">{s.name}: {key} 데이터 없음</p>
+            <p key={runs[i].info.run_id} className="text-xs text-fg-muted">{s.name}: {key} {t('colNoData')}</p>
           ))}
         </>
-      ) : <EmptyState title="기록된 비교 지표가 없습니다." />}
-      <h3 className="text-sm font-medium mt-4 mb-2">파라미터 비교</h3>
+      ) : <EmptyState title={tc('empty')} />}
+      <h3 className="text-sm font-medium mt-4 mb-2">{t('comparisonParams')}</h3>
       {params.length ? (
-        <Table head={['파라미터', ...currentRuns.map((run) => `${run.info.run_name || 'Run'} · ${shortId(run.info.run_id)}`)]} dense>
+        <Table head={[t('colParamKey'), ...currentRuns.map((run) => `${run.info.run_name || 'Run'} · ${shortId(run.info.run_id)}`)]} dense>
           {params.map((row) => (
             <tr key={row.key} className={row.differs ? 'bg-accent/10' : ''}>
-              <td className="font-mono">{row.key}{row.differs && <span className="ml-2 text-xs text-fg-muted">다름</span>}</td>
+              <td className="font-mono">{row.key}{row.differs && <span className="ml-2 text-xs text-fg-muted">{t('colDiffers')}</span>}</td>
               {row.values.map((value, i) => <td key={runs[i].info.run_id} className="font-mono">{value ?? '—'}</td>)}
             </tr>
           ))}
         </Table>
-      ) : <EmptyState title="기록된 파라미터가 없습니다." />}
+      ) : <EmptyState title={tc('empty')} />}
     </Card>
   );
 }

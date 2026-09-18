@@ -1,8 +1,10 @@
 'use client';
 import * as React from 'react';
 import { useApi, useMe } from '@/lib/api-client';
+import { useT } from '@/lib/i18n';
 
 export function ProjectSwitcher() {
+  const t = useT('nav');
   const projects = useApi<Array<{ id: string; name: string }>>('/api/projects');
   const me = useMe();
   const [selected, setSelected] = React.useState('');
@@ -11,16 +13,16 @@ export function ProjectSwitcher() {
     if (cookie) setSelected(decodeURIComponent(cookie.slice('pai-project='.length)));
   }, []);
   return <div className="border-b border-border px-3 py-3">
-    <label htmlFor="project-switcher" className="mb-1 block text-[11px] font-medium text-fg-muted">연구 프로젝트</label>
-    <select id="project-switcher" className="w-full rounded border border-border bg-bg px-2 py-2 text-xs" value={selected}
+    <label htmlFor="project-switcher" className="mb-1 block text-xs font-medium text-fg-muted">{t('project')}</label>
+    <select id="project-switcher" className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-[13px]" value={selected}
       onChange={(event) => {
         const value = event.target.value;
         document.cookie = `pai-project=${encodeURIComponent(value)}; Path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
         location.reload();
       }}>
-      <option value="">{me.data?.role === 'admin' ? '전체 프로젝트 / 이전 실행' : '프로젝트 선택'}</option>
+      <option value="">{me.data?.role === 'admin' ? t('allProjects') : t('selectProject')}</option>
       {projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select>
-    {projects.error && <p className="mt-1 text-xs text-err">프로젝트를 불러오지 못했습니다.</p>}
+    {projects.error && <p className="mt-1 text-xs text-err">{t('projectsLoadFailed')}</p>}
   </div>;
 }

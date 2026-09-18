@@ -1,9 +1,11 @@
 'use client';
 import * as React from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, KeyValue, Spinner, Tabs, Table, Toast, Toggle, Textarea } from '@/components/ui';
-import { ago, classNames as cx, fmtTime, fmtUsd } from '@/lib/format';
-import { useApi, useApiMutation, useMe } from '@/lib/api-client';
+import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, Tabs, Table, Toast } from '@/components/ui';
+import { classNames as cx } from '@/lib/format';
+import { api, useApi, useApiMutation, useMe } from '@/lib/api-client';
+import { useT, useFormat } from '@/lib/i18n';
+import type { AuditEntry } from '@/server/store/types';
 
 interface User {
   username: string;
@@ -22,16 +24,6 @@ interface Group {
 interface UsersData {
   users: User[];
   groups: Group[];
-}
-
-interface AuditEntry {
-  ts: string;
-  actor: string;
-  role: string;
-  action: string;
-  target: string;
-  result: string;
-  message?: string;
 }
 
 interface SettingsData {
@@ -54,36 +46,35 @@ interface CostData {
   daily: { date: string; amount: number }[];
 }
 
-interface UseMe {
-  role: string;
-  [key: string]: any;
-}
-
 export function AdminPage() {
-  const me = useMe() as any;
+  const t = useT('admin');
+  const tc = useT('common');
+  const me = useMe();
   const [tab, setTab] = React.useState<'users' | 'audit' | 'settings' | 'cost'>('users');
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
 
-  if (!me || me.role !== 'admin') {
+  if (me.isLoading) return <><PageHeader title={t('title')} /><Spinner label={t('loadingIdentity')} /></>;
+  if (me.error) return <><PageHeader title={t('title')} /><ErrorBox error={me.error} /></>;
+  if (me.data?.role !== 'admin') {
     return (
       <>
-        <PageHeader title="Admin" />
-        <EmptyState title="Admin role required" hint="You do not have permission to access this page" />
+        <PageHeader title={t('title')} />
+        <EmptyState title={t('adminRoleRequired')} hint={t('adminOnlyHint')} />
       </>
     );
   }
 
   return (
     <>
-      <PageHeader title="Admin Panel" />
+      <PageHeader title={t('adminPanel')} description={t('description')} />
       <Tabs
         value={tab}
-        onChange={(t) => setTab(t as any)}
+        onChange={setTab}
         items={[
-          { id: 'users' as const, label: 'Users' },
-          { id: 'audit' as const, label: 'Audit Log' },
-          { id: 'settings' as const, label: 'Settings' },
-          { id: 'cost' as const, label: 'Cost' },
+          { id: 'users' as const, label: t('usersTab') },
+          { id: 'audit' as const, label: t('auditTab') },
+          { id: 'settings' as const, label: t('settingsTab') },
+          { id: 'cost' as const, label: t('costTab') },
         ]}
       />
       <div className="mt-4">
@@ -99,6 +90,8 @@ export function AdminPage() {
 }
 
 function UsersTab({ setToast }: { setToast: any }) {
+  const t = useT('admin');
+  const tc = useT('common');
   const { data, isLoading, error, refetch } = useApi<UsersData>('/api/admin/users');
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
   const [newUserForm, setNewUserForm] = React.useState({
@@ -116,7 +109,6 @@ function UsersTab({ setToast }: { setToast: any }) {
 
   const generatePassword = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    // Cryptographic RNG with rejection sampling (no modulo bias).
     const limit = 256 - (256 % chars.length);
     let pwd = '';
     while (pwd.length < 16) {
@@ -124,36 +116,21 @@ function UsersTab({ setToast }: { setToast: any }) {
       crypto.getRandomValues(buf);
       for (const b of buf) if (b < limit && pwd.length < 16) pwd += chars.charAt(b % chars.length);
     }
-    setNewUserForm((p) => ({ ...p, password: pwd }));
+    return pwd;
   };
 
   const createUserMutation = useApiMutation(
-    (data: any) =>
-      fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
+    (data: typeof newUserForm) => api('/api/admin/users', { method: 'POST', json: data }),
     ['/api/admin/users']
   );
 
-  const setGroupMutation = useApiMutation(
-    (data: any) =>
-      fetch(`/api/admin/users/${groupUsername}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'groups', groups: [groupValue] }),
-      }).then((r) => r.json()),
+  const setGroupMutation = useApiMutation<void>(
+    () => api(`/api/admin/users/${groupUsername}`, { method: 'POST', json: { action: 'groups', groups: [groupValue] } }),
     ['/api/admin/users']
   );
 
-  const resetPasswordMutation = useApiMutation(
-    (data: any) =>
-      fetch(`/api/admin/users/${resetUsername}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reset', password: resetPassword }),
-      }).then((r) => r.json()),
+  const resetPasswordMutation = useApiMutation<void>(
+    () => api(`/api/admin/users/${resetUsername}`, { method: 'POST', json: { action: 'reset', password: resetPassword } }),
     ['/api/admin/users']
   );
 
@@ -162,7 +139,7 @@ function UsersTab({ setToast }: { setToast: any }) {
       await createUserMutation.mutateAsync(newUserForm);
       setNewUserForm({ username: '', email: '', password: '', group: 'researchers' });
       setShowCreateDialog(false);
-      setToast({ message: 'User created', tone: 'ok' });
+      setToast({ message: t('userCreated'), tone: 'ok' });
       refetch();
     } catch (e) {
       setToast({ message: (e as Error).message, tone: 'err' });
@@ -171,9 +148,9 @@ function UsersTab({ setToast }: { setToast: any }) {
 
   const handleSetGroup = async () => {
     try {
-      await setGroupMutation.mutateAsync({});
+      await setGroupMutation.mutateAsync();
       setShowGroupDialog(false);
-      setToast({ message: 'Group updated', tone: 'ok' });
+      setToast({ message: t('groupUpdated'), tone: 'ok' });
       refetch();
     } catch (e) {
       setToast({ message: (e as Error).message, tone: 'err' });
@@ -182,33 +159,33 @@ function UsersTab({ setToast }: { setToast: any }) {
 
   const handleResetPassword = async () => {
     try {
-      await resetPasswordMutation.mutateAsync({});
+      await resetPasswordMutation.mutateAsync();
       setShowResetDialog(false);
       setResetUsername('');
       setResetPassword('');
-      setToast({ message: 'Password reset', tone: 'ok' });
+      setToast({ message: t('passwordReset'), tone: 'ok' });
       refetch();
     } catch (e) {
       setToast({ message: (e as Error).message, tone: 'err' });
     }
   };
 
-  if (isLoading && !data) return <Spinner label="Loading users…" />;
+  if (isLoading && !data) return <Spinner label={t('loadingUsers')} />;
 
   return (
     <div className="space-y-4">
       <Card>
-        <Button onClick={() => setShowCreateDialog(true)}>Create User</Button>
+        <Button variant="primary" onClick={() => setShowCreateDialog(true)}>{t('createUser')}</Button>
       </Card>
 
       {error && <ErrorBox error={error} />}
 
-      <Card title="Users" description={`${data?.users.length ?? 0} total`}>
+      <Card title={t('usersTab')} description={t('usersDesc', { count: data?.users.length ?? 0 })}>
         {!data?.users.length ? (
-          <EmptyState title="No users" />
+          <EmptyState title={t('noUsers')} />
         ) : (
           <Table
-            head={['Username', 'Email', 'Status', 'Groups', 'Created', 'Actions']}
+            head={[tc('name'), tc('email'), tc('status'), t('groups'), tc('created'), tc('actions')]}
             dense
           >
             {data.users.map((u) => (
@@ -219,8 +196,8 @@ function UsersTab({ setToast }: { setToast: any }) {
                   <Badge tone={u.enabled ? 'ok' : 'warn'}>{u.status}</Badge>
                 </td>
                 <td className="text-sm">{u.groups.join(', ')}</td>
-                <td className="text-xs text-fg-muted">{ago(u.created)}</td>
-                <td>
+                <td className="text-xs text-fg-muted">{u.created}</td>
+                <td className="flex gap-1">
                   <Button
                     size="sm"
                     onClick={() => {
@@ -229,7 +206,7 @@ function UsersTab({ setToast }: { setToast: any }) {
                       setShowGroupDialog(true);
                     }}
                   >
-                    Role
+                    {t('roleBtn')}
                   </Button>
                   <Button
                     size="sm"
@@ -239,7 +216,7 @@ function UsersTab({ setToast }: { setToast: any }) {
                       setShowResetDialog(true);
                     }}
                   >
-                    Reset
+                    {t('resetBtn')}
                   </Button>
                 </td>
               </tr>
@@ -248,28 +225,28 @@ function UsersTab({ setToast }: { setToast: any }) {
         )}
       </Card>
 
-      {/* Create User Dialog */}
       <Dialog
-        title="Create User"
+        title={t('createUserTitle')}
         open={showCreateDialog}
         onClose={() => setShowCreateDialog(false)}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowCreateDialog(false)}>
-              Cancel
+              {tc('cancel')}
             </Button>
             <Button
+              variant="primary"
               onClick={handleCreateUser}
               disabled={createUserMutation.isPending || !newUserForm.username || !newUserForm.email || !newUserForm.password}
             >
-              Create
+              {tc('create')}
             </Button>
           </div>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Username</label>
+            <label className="text-sm font-medium">{t('username')}</label>
             <Input
               value={newUserForm.username}
               onChange={(e) => setNewUserForm((p) => ({ ...p, username: e.target.value }))}
@@ -277,7 +254,7 @@ function UsersTab({ setToast }: { setToast: any }) {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Email</label>
+            <label className="text-sm font-medium">{tc('email')}</label>
             <Input
               type="email"
               value={newUserForm.email}
@@ -286,7 +263,7 @@ function UsersTab({ setToast }: { setToast: any }) {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Password</label>
+            <label className="text-sm font-medium">{t('password')}</label>
             <div className="mt-1 flex gap-2">
               <Input
                 type="password"
@@ -294,38 +271,37 @@ function UsersTab({ setToast }: { setToast: any }) {
                 onChange={(e) => setNewUserForm((p) => ({ ...p, password: e.target.value }))}
                 className="flex-1"
               />
-              <Button onClick={generatePassword} variant="secondary">
-                Generate
+              <Button onClick={() => setNewUserForm(p => ({ ...p, password: generatePassword() }))} variant="secondary">
+                {t('generate')}
               </Button>
             </div>
           </div>
           <div>
-            <label className="text-sm font-medium">Role</label>
+            <label className="text-sm font-medium">{t('role')}</label>
             <select
               value={newUserForm.group}
               onChange={(e) => setNewUserForm((p) => ({ ...p, group: e.target.value }))}
               className="mt-1 w-full rounded border border-border bg-bg px-3 py-2 text-sm"
             >
-              <option value="admins">Admin</option>
-              <option value="researchers">Researcher</option>
-              <option value="viewers">Viewer</option>
+              <option value="admins">{t('adminRole')}</option>
+              <option value="researchers">{t('researcherRole')}</option>
+              <option value="viewers">{t('viewerRole')}</option>
             </select>
           </div>
         </div>
       </Dialog>
 
-      {/* Set Group Dialog */}
       <Dialog
-        title={`Set Role for ${groupUsername}`}
+        title={t('setRoleTitle', { username: groupUsername })}
         open={showGroupDialog}
         onClose={() => setShowGroupDialog(false)}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowGroupDialog(false)}>
-              Cancel
+              {tc('cancel')}
             </Button>
-            <Button onClick={handleSetGroup} disabled={setGroupMutation.isPending}>
-              Update
+            <Button variant="primary" onClick={handleSetGroup} disabled={setGroupMutation.isPending}>
+              {tc('save')}
             </Button>
           </div>
         }
@@ -336,32 +312,31 @@ function UsersTab({ setToast }: { setToast: any }) {
             onChange={(e) => setGroupValue(e.target.value)}
             className="w-full rounded border border-border bg-bg px-3 py-2 text-sm"
           >
-            <option value="admins">Admin</option>
-            <option value="researchers">Researcher</option>
-            <option value="viewers">Viewer</option>
+            <option value="admins">{t('adminRole')}</option>
+            <option value="researchers">{t('researcherRole')}</option>
+            <option value="viewers">{t('viewerRole')}</option>
           </select>
         </div>
       </Dialog>
 
-      {/* Reset Password Dialog */}
       <Dialog
-        title={`Reset Password for ${resetUsername}`}
+        title={t('resetPasswordTitle')}
         open={showResetDialog}
         onClose={() => setShowResetDialog(false)}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowResetDialog(false)}>
-              Cancel
+              {tc('cancel')}
             </Button>
-            <Button onClick={handleResetPassword} disabled={resetPasswordMutation.isPending || !resetPassword}>
-              Reset
+            <Button variant="primary" onClick={handleResetPassword} disabled={resetPasswordMutation.isPending || !resetPassword}>
+              {t('resetBtn')}
             </Button>
           </div>
         }
       >
         <div className="space-y-2">
           <div>
-            <label className="text-sm font-medium">New Password (min 12 chars)</label>
+            <label className="text-sm font-medium">{t('newPassword')}</label>
             <Input
               type="password"
               value={resetPassword}
@@ -369,8 +344,8 @@ function UsersTab({ setToast }: { setToast: any }) {
               className="mt-1"
             />
           </div>
-          <Button onClick={generatePassword} variant="secondary" className="w-full">
-            Generate
+          <Button onClick={() => setResetPassword(generatePassword())} variant="secondary" className="w-full">
+            {t('generate')}
           </Button>
         </div>
       </Dialog>
@@ -379,22 +354,25 @@ function UsersTab({ setToast }: { setToast: any }) {
 }
 
 function AuditTab() {
+  const t = useT('admin');
+  const tc = useT('common');
+  const { fmtTime } = useFormat();
   const { data, isLoading, error } = useApi<AuditEntry[]>('/api/admin/audit?limit=200', { refetch: 30000 });
 
-  if (isLoading && !data) return <Spinner label="Loading audit log…" />;
+  if (isLoading && !data) return <Spinner label={t('loadingUsers')} />;
 
   return (
-    <Card title="Audit Log" description={`${data?.length ?? 0} entries`}>
+    <Card title={t('auditTab')} description={t('auditDesc')}>
       {error && <ErrorBox error={error} />}
       {!data?.length ? (
-        <EmptyState title="No audit entries" />
+        <EmptyState title={tc('empty')} />
       ) : (
         <Table
-          head={['Time', 'Actor', 'Role', 'Action', 'Target', 'Result', 'Message']}
+          head={[t('timestamp'), t('actor'), tc('role'), t('action'), t('resource'), t('result'), t('details')]}
           dense
         >
           {data.map((e, i) => (
-            <tr key={i} className={cx(e.result === 'OK' ? 'text-ok' : 'text-err')}>
+            <tr key={i} className={cx(e.result === 'ok' ? 'text-ok' : 'text-err')}>
               <td className="text-xs text-fg-muted">{fmtTime(e.ts)}</td>
               <td className="font-mono text-xs">{e.actor}</td>
               <td className="text-xs">{e.role}</td>
@@ -411,6 +389,9 @@ function AuditTab() {
 }
 
 function SettingsTab({ setToast }: { setToast: any }) {
+  const t = useT('admin');
+  const tc = useT('common');
+  const { ago } = useFormat();
   const { data, isLoading, error, refetch } = useApi<AdminSettings>('/api/admin/settings');
   const [notifyOn, setNotifyOn] = React.useState<string[]>(['SUCCEEDED', 'FAILED']);
   const [defaultNamespace, setDefaultNamespace] = React.useState('default');
@@ -425,31 +406,30 @@ function SettingsTab({ setToast }: { setToast: any }) {
   }, [data?.settings]);
 
   const saveMutation = useApiMutation(
-    (payload: any) =>
-      fetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).then((r) => r.json()),
+    (payload: SettingsData) => api('/api/admin/settings', { method: 'PUT', json: payload }),
     ['/api/admin/settings']
   );
 
   const handleSave = async () => {
+    if (!data?.settings || error) return;
     try {
       await saveMutation.mutateAsync({ notifyOn, defaultNamespace, defaultPriority: defaultPriority || undefined });
-      setToast({ message: 'Settings saved', tone: 'ok' });
+      setToast({ message: tc('saved'), tone: 'ok' });
     } catch (e) {
       setToast({ message: (e as Error).message, tone: 'err' });
     }
   };
 
-  if (isLoading && !data) return <Spinner label="Loading settings…" />;
+  if (isLoading && !data) return <Spinner label={t('loadingUsers')} />;
 
   return (
     <div className="space-y-4">
-      {error && <ErrorBox error={error} />}
+      {error && <div className="space-y-2">
+        <ErrorBox error={error} />
+        <Button variant="secondary" onClick={() => void refetch()}>{tc('retry')}</Button>
+      </div>}
 
-      <Card title="Notifications">
+      <Card title={t('notifications')}>
         <div className="space-y-2">
           {['SUCCEEDED', 'FAILED', 'CANCELLED'].map((status) => (
             <div key={status} className="flex items-center gap-2">
@@ -470,10 +450,10 @@ function SettingsTab({ setToast }: { setToast: any }) {
         </div>
       </Card>
 
-      <Card title="Defaults">
+      <Card title={tc('value')}>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Default Namespace</label>
+            <label className="text-sm font-medium">{t('defaultNamespace')}</label>
             <Input
               value={defaultNamespace}
               onChange={(e) => setDefaultNamespace(e.target.value)}
@@ -481,7 +461,7 @@ function SettingsTab({ setToast }: { setToast: any }) {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Default Priority (optional)</label>
+            <label className="text-sm font-medium">{t('defaultPriority')}</label>
             <Input
               value={defaultPriority}
               onChange={(e) => setDefaultPriority(e.target.value)}
@@ -492,35 +472,35 @@ function SettingsTab({ setToast }: { setToast: any }) {
       </Card>
 
       {data?.controller && (
-        <Card title="Controller Status">
+        <Card title={t('controllerStatus')}>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-fg-muted">Running</span>
+              <span className="text-fg-muted">{t('running')}</span>
               <Badge tone={data.controller.running ? 'ok' : 'err'}>
-                {data.controller.running ? 'Yes' : 'No'}
+                {data.controller.running ? tc('yes') : tc('no')}
               </Badge>
             </div>
             {data.controller.holder && (
               <div className="flex justify-between">
-                <span className="text-fg-muted">Lease Holder</span>
+                <span className="text-fg-muted">{t('leaseHolder')}</span>
                 <span className="font-mono">{data.controller.holder}</span>
               </div>
             )}
             {data.controller.lastTick && (
               <div className="flex justify-between">
-                <span className="text-fg-muted">Last Tick</span>
+                <span className="text-fg-muted">{t('lastTick')}</span>
                 <span>{ago(data.controller.lastTick)}</span>
               </div>
             )}
             {data.controller.ticks && (
               <div className="flex justify-between">
-                <span className="text-fg-muted">Ticks</span>
+                <span className="text-fg-muted">{t('ticks')}</span>
                 <span className="num">{data.controller.ticks}</span>
               </div>
             )}
             {data.controller.lastError && (
               <div className="flex justify-between text-err">
-                <span>Last Error</span>
+                <span>{t('lastError')}</span>
                 <span className="text-xs">{data.controller.lastError}</span>
               </div>
             )}
@@ -529,7 +509,7 @@ function SettingsTab({ setToast }: { setToast: any }) {
       )}
 
       {data?.config && (
-        <Card title="Discovered Configuration">
+        <Card title={t('discoveredConfiguration')}>
           <div className="space-y-2 text-xs">
             {flattenConfig(data.config).map(([k, v]) => (
               <div key={k} className="flex justify-between">
@@ -542,58 +522,10 @@ function SettingsTab({ setToast }: { setToast: any }) {
       )}
 
       <Card>
-        <Button onClick={handleSave} disabled={saveMutation.isPending}>
-          {saveMutation.isPending ? 'Saving…' : 'Save Settings'}
+        <Button variant="primary" onClick={handleSave} disabled={saveMutation.isPending || !data?.settings || Boolean(error)}>
+          {saveMutation.isPending ? tc('saving') : tc('save')}
         </Button>
       </Card>
-    </div>
-  );
-}
-
-function CostTab() {
-  const { data, isLoading, error } = useApi<CostData>('/api/cost', { refetch: 60000 });
-
-  if (isLoading && !data) return <Spinner label="Loading cost data…" />;
-
-  return (
-    <div className="space-y-4">
-      {error && <ErrorBox error={error} />}
-
-      {data && (
-        <>
-          <Card title="30-Day Total">
-            <div className="text-2xl font-bold">{fmtUsd(data.total)}</div>
-          </Card>
-
-          <Card title="By Service" description={`Top ${data.byService.length} services`}>
-            {!data.byService.length ? (
-              <EmptyState title="No cost data" />
-            ) : (
-              <Table head={['Service', 'Amount']} dense>
-                {data.byService.map((s) => (
-                  <tr key={s.service}>
-                    <td className="text-sm">{s.service}</td>
-                    <td className="num text-sm">{fmtUsd(s.amount)}</td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-          </Card>
-
-          {data.daily.length > 0 && (
-            <Card title="Daily Trend">
-              <div className="space-y-2 text-xs">
-                {data.daily.map((d) => (
-                  <div key={d.date} className="flex justify-between">
-                    <span className="text-fg-muted">{d.date}</span>
-                    <span className="num">{fmtUsd(d.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -610,4 +542,55 @@ function flattenConfig(obj: Record<string, any>, prefix = ''): Array<[string, an
     }
   }
   return result;
+}
+
+function CostTab() {
+  const t = useT('admin');
+  const tc = useT('common');
+  const { fmtUsd } = useFormat();
+  const { data, isLoading, error } = useApi<CostData>('/api/cost', { refetch: 60000 });
+
+  if (isLoading && !data) return <Spinner label={tc('loading')} />;
+
+  return (
+    <div className="space-y-4">
+      {error && <ErrorBox error={error} />}
+
+      {data && (
+        <>
+          <Card title={t('costDesc')}>
+            <div className="text-2xl font-bold">{fmtUsd(data.total)}</div>
+          </Card>
+
+          <Card title={t('byService')}>
+            {!data.byService.length ? (
+              <EmptyState title={t('noCost')} />
+            ) : (
+              <Table head={[tc('name'), tc('value')]} dense>
+                {data.byService.map((s) => (
+                  <tr key={s.service}>
+                    <td className="text-sm">{s.service}</td>
+                    <td className="num text-sm">{fmtUsd(s.amount)}</td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Card>
+
+          {data.daily.length > 0 && (
+            <Card title={t('daily')}>
+              <div className="space-y-2 text-xs">
+                {data.daily.map((d) => (
+                  <div key={d.date} className="flex justify-between">
+                    <span className="text-fg-muted">{d.date}</span>
+                    <span className="num">{fmtUsd(d.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
