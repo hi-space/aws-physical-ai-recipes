@@ -35,6 +35,8 @@ export class AuthConstruct extends Construct {
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       deletionProtection: true,
+      // Managed login (branding v2) requires Essentials or Plus; Lite only has the classic hosted UI.
+      featurePlan: cognito.FeaturePlan.ESSENTIALS,
     });
 
     for (const [name, description, precedence] of [
@@ -45,7 +47,11 @@ export class AuthConstruct extends Construct {
       new cognito.CfnUserPoolGroup(this, `Group-${name}`, { userPoolId: this.userPool.userPoolId, groupName: name, description, precedence });
     }
 
-    this.userPoolDomain = this.userPool.addDomain('Domain', { cognitoDomain: { domainPrefix: `physical-ai-${props.accountId}` } });
+    this.userPoolDomain = this.userPool.addDomain('Domain', {
+      cognitoDomain: { domainPrefix: `physical-ai-${props.accountId}` },
+      // v2 = managed login (enables the branding style below); v1 is the classic hosted UI.
+      managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
+    });
 
     this.userPoolClient = this.userPool.addClient('AlbClient', {
       userPoolClientName: 'alb',
@@ -62,6 +68,81 @@ export class AuthConstruct extends Construct {
       accessTokenValidity: cdk.Duration.hours(1),
       idTokenValidity: cdk.Duration.hours(1),
       refreshTokenValidity: cdk.Duration.days(30),
+    });
+
+    // ---- managed login (branding v2) themed to the dashboard's dark palette (web/src/app/globals.css).
+    // Colours are RRGGBBAA. colorSchemeMode=DARK renders the darkMode values; lightMode values are the
+    // Cognito defaults, kept for completeness (never shown while the mode is DARK). Mirror of auth.tf.
+    const c = {
+      bg: '0b0e14ff', bgElev: '111622ff', bgElev2: '171d2bff', border: '232b3bff', borderStr: '33405aff',
+      fg: 'e6e9f0ff', fgMuted: '98a2b8ff', fgFaint: '66718aff', accent: '6ea8feff', accentStr: '3b82f6ff',
+    };
+    new cognito.CfnManagedLoginBranding(this, 'AlbBranding', {
+      userPoolId: this.userPool.userPoolId,
+      clientId: this.userPoolClient.userPoolClientId,
+      // settings alone applies the theme; Cognito fills every unspecified key with its defaults.
+      settings: {
+        categories: {
+          global: { colorSchemeMode: 'DARK', pageHeader: { enabled: false }, pageFooter: { enabled: false }, spacingDensity: 'REGULAR' },
+          form: { displayGraphics: true, location: { horizontal: 'CENTER', vertical: 'CENTER' } },
+        },
+        components: {
+          pageBackground: { image: { enabled: false }, darkMode: { color: c.bg }, lightMode: { color: 'ffffffff' } },
+          pageText: {
+            darkMode: { headingColor: c.fg, bodyColor: c.fgMuted, descriptionColor: c.fgMuted },
+            lightMode: { headingColor: '000716ff', bodyColor: '414d5cff', descriptionColor: '414d5cff' },
+          },
+          form: {
+            borderRadius: 12,
+            backgroundImage: { enabled: false },
+            logo: { enabled: false, location: 'CENTER', position: 'TOP', formInclusion: 'IN' },
+            darkMode: { backgroundColor: c.bgElev, borderColor: c.border },
+            lightMode: { backgroundColor: 'ffffffff', borderColor: 'c6c6cdff' },
+          },
+          primaryButton: {
+            darkMode: {
+              defaults: { backgroundColor: c.accentStr, textColor: 'ffffffff' },
+              hover: { backgroundColor: c.accent, textColor: c.bg },
+              active: { backgroundColor: c.accent, textColor: c.bg },
+              disabled: { backgroundColor: c.bgElev2, borderColor: c.border },
+            },
+            lightMode: {
+              defaults: { backgroundColor: '0972d3ff', textColor: 'ffffffff' },
+              hover: { backgroundColor: '033160ff', textColor: 'ffffffff' },
+              active: { backgroundColor: '033160ff', textColor: 'ffffffff' },
+              disabled: { backgroundColor: 'ffffffff', borderColor: 'ffffffff' },
+            },
+          },
+          secondaryButton: {
+            darkMode: {
+              defaults: { backgroundColor: c.bgElev, borderColor: c.borderStr, textColor: c.accent },
+              hover: { backgroundColor: c.bgElev2, borderColor: c.accent, textColor: c.accent },
+              active: { backgroundColor: c.border, borderColor: c.accent, textColor: c.accent },
+            },
+            lightMode: {
+              defaults: { backgroundColor: 'ffffffff', borderColor: '0972d3ff', textColor: '0972d3ff' },
+              hover: { backgroundColor: 'f2f8fdff', borderColor: '033160ff', textColor: '033160ff' },
+              active: { backgroundColor: 'd3e7f9ff', borderColor: '033160ff', textColor: '033160ff' },
+            },
+          },
+        },
+        componentClasses: {
+          buttons: { borderRadius: 8 },
+          input: {
+            borderRadius: 8,
+            darkMode: { defaults: { backgroundColor: c.bg, borderColor: c.borderStr }, placeholderColor: c.fgFaint },
+            lightMode: { defaults: { backgroundColor: 'ffffffff', borderColor: '7d8998ff' }, placeholderColor: '5f6b7aff' },
+          },
+          inputLabel: { darkMode: { textColor: c.fg }, lightMode: { textColor: '000716ff' } },
+          inputDescription: { darkMode: { textColor: c.fgMuted }, lightMode: { textColor: '5f6b7aff' } },
+          link: {
+            darkMode: { defaults: { textColor: c.accent }, hover: { textColor: c.accentStr } },
+            lightMode: { defaults: { textColor: '0972d3ff' }, hover: { textColor: '033160ff' } },
+          },
+          focusState: { darkMode: { borderColor: c.accent }, lightMode: { borderColor: '0972d3ff' } },
+          divider: { darkMode: { borderColor: c.border }, lightMode: { borderColor: 'ebebf0ff' } },
+        },
+      },
     });
 
     // ---- bootstrap admin
