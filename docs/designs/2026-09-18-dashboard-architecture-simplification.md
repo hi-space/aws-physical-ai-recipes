@@ -74,7 +74,7 @@ None. `orchestrationStatus`, `orchestrationError`, `computeResultBeforeOrchestra
 - Delete the SQS client, `receiveRequests()`, `heartbeatCallbacks()` call, and the three SFN/SQS env checks (`WORKFLOW_QUEUE_URL`, `WORKFLOW_STATE_MACHINE_ARN`, `WORKFLOW_CALLBACKS_TABLE`). `DASHBOARD_ARTIFACT_BUCKET` remains required.
 - Keep the 20 s loop that renews the `CONTROLLER` lease.
 - `/health` returns 200 when the last completed reconcile tick is ≤ 30 s old (three tick intervals). `controllerStatus().lastTick` already records this (`controller.ts:71,117`); no new state. This replaces "last successful SQS poll ≤ 120 s".
-- Emit one CloudWatch EMF line per tick: `ReconcileLagSeconds` (now − previous tick end) and `ActiveRunLeases` (count of `WF#*/LEASE` items with `expires > now`, obtained from the reconcile pass that already pages every workflow). Namespace `PhysicalAI/Dashboard`, dimension `Service=controller`.
+- Emit one CloudWatch EMF line per tick: `ReconcileLagSeconds` (tick start − previous tick end), `ReconcileDurationSeconds`, and `ActiveWorkflows` (the non-terminal count `reconcileAll` already returns). Namespace `PhysicalAI/Dashboard`, dimension `Service=controller`.
 
 **Data model.** Remove from `Workflow` (`store/types.ts`): `executionArn`, `orchestrationStatus`, `orchestrationError`, `computeResultBeforeOrchestrationFailure`. Remove `'dispatch' | 'enqueue'` from `OutboxEntry.kind`. Remove `dispatchWorkflow` and `enqueueWorkflow` from `ControllerDeps`.
 
