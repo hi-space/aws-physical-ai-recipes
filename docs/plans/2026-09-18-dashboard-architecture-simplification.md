@@ -26,7 +26,7 @@
 | File | Responsibility after this plan |
 |---|---|
 | `dashboard/web/src/server/store/types.ts` | `Workflow` without SFN fields; `OutboxEntry.kind` = `'complete' \| 'notify'` |
-| `dashboard/web/src/server/store/repo.ts` | `listOutbox` ignores legacy kinds; new `runLeaseActive(runId)` |
+| `dashboard/web/src/server/store/repo.ts` | `listOutbox` ignores legacy kinds |
 | `dashboard/web/src/server/workflow/ports.ts` | `ControllerDeps` without `dispatchWorkflow`/`enqueueWorkflow` |
 | `dashboard/web/src/server/workflow/outbox.ts` | delivers `complete` and `notify` only |
 | `dashboard/web/src/server/workflow/submission.ts` | seeds no outbox kinds at creation; `deferLaunch` or immediate reconcile |
@@ -52,11 +52,11 @@ Phases map to spec §4 rollout: **A** (Tasks 1–8) orchestration removal = firs
 
 **Files:**
 - Modify: `dashboard/web/src/server/store/types.ts:17-20,38,256-257`
-- Modify: `dashboard/web/src/server/store/repo.ts:448-450` (`listOutbox`), add method after `runLeaseValid` (~line 424)
+- Modify: `dashboard/web/src/server/store/repo.ts:448-450` (`listOutbox`)
 - Test: `dashboard/web/src/server/store/outbox-legacy.test.ts` (new)
 
 **Interfaces:**
-- Produces: `OutboxEntry.kind: 'complete' | 'notify'`; `Repo.listOutbox(runId)` returns only those kinds; `Repo.runLeaseActive(runId: string): Promise<boolean>` (true when `WF#<id>/LEASE` exists and `expires > Date.now()`).
+- Produces: `OutboxEntry.kind: 'complete' | 'notify'`; `Repo.listOutbox(runId)` returns only those kinds.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -77,23 +77,14 @@ describe('outbox compatibility after Step Functions removal', () => {
     expect(entries.map(e => e.kind)).toEqual(['notify']);
   });
 
-  it('reports whether a run lease is currently held', async () => {
-    const kv = new MemoryKV();
-    const repo = new Repo(kv);
-    expect(await repo.runLeaseActive('none')).toBe(false);
-    const lease = await repo.acquireRunLease('held', 30);
-    expect(lease).toBeDefined();
-    expect(await repo.runLeaseActive('held')).toBe(true);
-    await kv.put({ pk: 'WF#expired', sk: 'LEASE', holder: 'x', expires: Date.now() - 1000 });
-    expect(await repo.runLeaseActive('expired')).toBe(false);
-  });
+});
 });
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `cd dashboard/web && npx vitest run src/server/store/outbox-legacy.test.ts`
-Expected: FAIL — first case returns `['dispatch','enqueue','notify']`; second case `runLeaseActive is not a function`.
+Expected: FAIL — returns `['dispatch','enqueue','notify']`.
 
 - [ ] **Step 3: Edit `types.ts`**
 
@@ -126,14 +117,6 @@ Replace `listOutbox`:
   }
 ```
 
-Add after `runLeaseValid`:
-
-```ts
-  async runLeaseActive(runId: string) {
-    const item = await this.kv.get(`WF#${runId}`, 'LEASE');
-    return Number(item?.expires) > Date.now();
-  }
-```
 
 - [ ] **Step 5: Run the test and the typecheck**
 
@@ -468,7 +451,7 @@ export function emfMetrics(values: Record<string, number>, timestamp = Date.now(
       CloudWatchMetrics: [{
         Namespace: 'PhysicalAI/Dashboard',
         Dimensions: [['Service']],
-        Metrics: Object.keys(values).map(name => ({ name, unit: name.endsWith('Seconds') ? 'Seconds' : 'Count' })).map(({ name, unit }) => ({ Name: name, Unit: unit })),
+        Metrics: Object.keys(values).map(name => ({ Name: name, Unit: name.endsWith('Seconds') ? 'Seconds' : 'Count' })),
       }],
     },
     Service: 'controller',
