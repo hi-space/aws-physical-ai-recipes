@@ -165,7 +165,7 @@ export function imageProfilesService(session: Session, d: ImageProfileDeps = def
       const add = (code: string, severity: ProfileFinding['severity'], message: string) => result.findings.push({ code, severity, message, task: task.name });
       tasks.push(result);
       try { parsePrivateEcrImage(task.image, d.scope); }
-      catch (error) { add(error instanceof HttpError ? error.code : 'image_mirror_required', 'error', '현재 계정의 us-east-1 private ECR 이미지가 필요합니다.'); continue; }
+      catch (error) { add(error instanceof HttpError ? error.code : 'image_mirror_required', 'error', `현재 계정의 ${config().region} private ECR 이미지가 필요합니다.`); continue; }
       const matches = profiles.filter(profile => profile.image.requestedImage === task.image || profile.image.resolvedImage === task.image);
       if (matches.length !== 1) { add(matches.length ? 'image_profile_ambiguous' : 'image_profile_unapproved', 'error', '정확히 하나의 활성 관리자 승인 프로필이 필요합니다.'); continue; }
       const profile = matches[0];

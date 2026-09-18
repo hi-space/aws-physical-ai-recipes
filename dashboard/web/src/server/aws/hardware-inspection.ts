@@ -1,6 +1,9 @@
-import { DescribeInstanceTypesCommand, EC2Client, type InstanceTypeInfo, type _InstanceType } from '@aws-sdk/client-ec2';
 import { config } from '../config';
 import { listNodes } from '../k8s/resources';
+import { describeInstanceTypes, instanceType as normalizeInstanceType, type InstanceCatalogEntry } from './instance-catalog';
+
+// Re-export for backward compatibility
+export { instanceType } from './instance-catalog';
 
 export interface HardwareNode {
   name: string; instanceType?: string; architecture?: string; ready: boolean; schedulable: boolean;
@@ -15,11 +18,7 @@ interface ProbeNode {
   spec?: { unschedulable?: boolean };
   status?: { conditions?: { type: string; status: string }[]; allocatable?: Record<string, string> };
 }
-export interface HardwareInspectionDeps { nodes(): Promise<ProbeNode[]>; instanceTypes(names: string[]): Promise<InstanceTypeInfo[]>; now(): Date }
-export function instanceType(value?: string) {
-  const name = value?.replace(/^ml\./, '');
-  return name && /^[a-z][a-z0-9-]*\.[a-z0-9]+$/.test(name) ? name : undefined;
-}
+export interface HardwareInspectionDeps { nodes(): Promise<ProbeNode[]>; catalogEntry(name: string): Promise<InstanceCatalogEntry | undefined>; now(): Date }
 export function quantity(value: unknown, kind: 'cpu' | 'memory'): number | undefined {
   const match = /^(\d+(?:\.\d+)?)(m|Ki|Mi|Gi|Ti|k|K|M|G|T)?$/.exec(String(value ?? ''));
   if (!match) return;
@@ -30,49 +29,51 @@ export function quantity(value: unknown, kind: 'cpu' | 'memory'): number | undef
 }
 const arch = (value: string) => value === 'x86_64' ? 'amd64' : value;
 function defaults(): HardwareInspectionDeps {
-  const ec2 = new EC2Client({ region: config().region });
-  return { nodes: listNodes, now: () => new Date(), instanceTypes: async (names) => {
-    const result: InstanceTypeInfo[] = [];
-    for (let i = 0; i < names.length; i += 100) {
-      let next: string | undefined;
-      const seen = new Set<string>();
-      do {
-        const response = await ec2.send(new DescribeInstanceTypesCommand({ InstanceTypes: names.slice(i, i + 100) as _InstanceType[], NextToken: next }), { abortSignal: AbortSignal.timeout(15_000) });
-        result.push(...(response.InstanceTypes ?? [])); next = response.NextToken;
-        if (next && (seen.has(next) || seen.size >= 100)) throw new Error('Instance type pagination failed');
-        if (next) seen.add(next);
-      } while (next);
-    }
-    return result;
-  } };
+  return {
+    nodes: listNodes,
+    now: () => new Date(),
+    catalogEntry: async (name) => {
+      const map = await describeInstanceTypes([name]);
+      return map.get(normalizeInstanceType(name) ?? name);
+    },
+  };
 }
 /** Catalog memory describes the instance type, not a measured GPU/driver or free resource reservation. */
 export async function inspectHardware(d = defaults()): Promise<HardwareSnapshot> {
   const nodes = await d.nodes();
-  const names = [...new Set(nodes.map(n => instanceType(n.metadata.labels?.['node.kubernetes.io/instance-type'])).filter((n): n is string => !!n))];
-  let types: InstanceTypeInfo[] = [], catalogAvailable = true;
-  try { if (names.length) types = await d.instanceTypes(names); } catch { catalogAvailable = false; }
-  return { source: 'eks-nodes+ec2-instance-types', checkedAt: d.now().toISOString(), catalogAvailable,
-    nodes: nodes.map(n => {
-      const platform = instanceType(n.metadata.labels?.['node.kubernetes.io/instance-type']);
-      const type = types.find(t => t.InstanceType === platform);
-      const gpus = type?.GpuInfo?.Gpus;
-      const memoryKnown = gpus?.length && gpus.every(g => Number.isFinite(g.MemoryInfo?.SizeInMiB));
-      return {
-        name: n.metadata.name, instanceType: platform, architecture: n.metadata.labels?.['kubernetes.io/arch'],
-        ready: n.status?.conditions?.some(c => c.type === 'Ready' && c.status === 'True') ?? false,
-        schedulable: !n.spec?.unschedulable && !n.metadata.deletionTimestamp &&
-          (!n.metadata.labels?.['sagemaker.amazonaws.com/node-health-status'] || n.metadata.labels['sagemaker.amazonaws.com/node-health-status'] === 'Schedulable'),
-        allocatable: { cpu: quantity(n.status?.allocatable?.cpu, 'cpu'), memoryMiB: quantity(n.status?.allocatable?.memory, 'memory'),
-          gpu: n.status?.allocatable?.['nvidia.com/gpu'] === undefined ? undefined : quantity(n.status.allocatable['nvidia.com/gpu'], 'cpu') },
-        ...(type ? { catalog: {
-          cpu: type.VCpuInfo?.DefaultVCpus, memoryMiB: type.MemoryInfo?.SizeInMiB,
-          architectures: (type.ProcessorInfo?.SupportedArchitectures ?? []).map(arch),
-          gpuCount: !type.GpuInfo ? 0 : gpus?.every(g => Number.isInteger(g.Count)) ? gpus.reduce((sum, g) => sum + g.Count!, 0) : undefined,
-          gpuMemoryMiB: memoryKnown ? Math.min(...gpus!.map(g => g.MemoryInfo!.SizeInMiB!)) : undefined,
-          gpuNames: gpus?.flatMap(g => g.Name ? [g.Name] : []) ?? [],
-        } } : {}),
-      };
-    }),
+  let catalogAvailable = true;
+
+  const inspectedNodes = await Promise.all(nodes.map(async n => {
+    const platform = normalizeInstanceType(n.metadata.labels?.['node.kubernetes.io/instance-type']);
+    let type: InstanceCatalogEntry | undefined;
+    if (platform) {
+      try {
+        type = await d.catalogEntry(platform);
+      } catch {
+        catalogAvailable = false;
+      }
+    }
+    return {
+      name: n.metadata.name, instanceType: platform, architecture: n.metadata.labels?.['kubernetes.io/arch'],
+      ready: n.status?.conditions?.some(c => c.type === 'Ready' && c.status === 'True') ?? false,
+      schedulable: !n.spec?.unschedulable && !n.metadata.deletionTimestamp &&
+        (!n.metadata.labels?.['sagemaker.amazonaws.com/node-health-status'] || n.metadata.labels['sagemaker.amazonaws.com/node-health-status'] === 'Schedulable'),
+      allocatable: { cpu: quantity(n.status?.allocatable?.cpu, 'cpu'), memoryMiB: quantity(n.status?.allocatable?.memory, 'memory'),
+        gpu: n.status?.allocatable?.['nvidia.com/gpu'] === undefined ? undefined : quantity(n.status.allocatable['nvidia.com/gpu'], 'cpu') },
+      ...(type ? { catalog: {
+        cpu: type.vCpu, memoryMiB: type.memoryMiB,
+        architectures: [], // Note: architecture info is not available from the simplified catalog
+        gpuCount: type.gpuCount,
+        gpuMemoryMiB: type.gpuMemoryMiB,
+        gpuNames: type.gpuName ? [type.gpuName] : [],
+      } } : {}),
+    };
+  }));
+
+  return {
+    source: 'eks-nodes+ec2-instance-types',
+    checkedAt: d.now().toISOString(),
+    catalogAvailable,
+    nodes: inspectedNodes,
   };
 }

@@ -299,9 +299,10 @@ async function reconcileRun(id: string, signal: AbortSignal, d: SourceBuildDeps)
     try {
       const output = await d.provider.inspectOutput(row, build, ctl.signal);
       const account = row.target.serviceRoleArn.split(':')[4];
-      if (output.accountId !== account || output.region !== 'us-east-1' || output.repository !== row.target.outputRepositoryName ||
+      const region = config().region;
+      if (output.accountId !== account || output.region !== region || output.repository !== row.target.outputRepositoryName ||
         !/^sha256:[a-f0-9]{64}$/.test(output.digest) ||
-        output.resolvedImage !== `${account}.dkr.ecr.us-east-1.amazonaws.com/${row.target.outputRepositoryName}@${output.digest}`) {
+        output.resolvedImage !== `${account}.dkr.ecr.${region}.amazonaws.com/${row.target.outputRepositoryName}@${output.digest}`) {
         throw new SourceBuildProviderError('output_provenance_mismatch', true);
       }
       await save({ state: 'SUCCEEDED', errorCode: undefined, provenance: {

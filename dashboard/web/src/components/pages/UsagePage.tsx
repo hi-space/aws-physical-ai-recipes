@@ -5,12 +5,14 @@ import { api, useApi, useMe } from '@/lib/api-client';
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Select, Spinner, Stat, Table } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { useT } from '@/lib/i18n';
+import { useFormat } from '@/lib/i18n';
 import { PricingBasis, usageNumber, usageUsd } from '@/components/usage/UsageSummary';
 import type { projectUsage } from '@/server/services/usage';
 type ProjectUsage = Awaited<ReturnType<typeof projectUsage>>;
 export function UsagePage() {
   const t = useT('usage');
   const tc = useT('common');
+  const { fmtNum, fmtUsd } = useFormat();
   const me = useMe(), projects = useApi<Array<{ id: string; name: string }>>('/api/projects');
   const [selected, setSelected] = useState<string>();
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
@@ -40,9 +42,9 @@ export function UsagePage() {
     {query.data && <Card title={`${query.data.project.name} · ${query.data.runs.length} ${t('runsCount')}`}>
       {!query.data.runs.length ? <EmptyState title={t('noRuns')} hint={t('noRunsHint')} /> : <>
         <div className="mb-4 grid gap-3 md:grid-cols-3">
-          <Stat label={t('cpuHours')} value={usageNumber(query.data.cpuHours, t('unknown'))} />
-          <Stat label={t('gpuHours')} value={usageNumber(query.data.gpuHours, t('unknown'))} />
-          <Stat label={t('estimatedCost')} value={usageUsd(query.data.estimatedUsd, t('unknown'))} />
+          <Stat label={t('cpuHours')} value={usageNumber(query.data.cpuHours, t('unknown'), fmtNum)} />
+          <Stat label={t('gpuHours')} value={usageNumber(query.data.gpuHours, t('unknown'), fmtNum)} />
+          <Stat label={t('estimatedCost')} value={usageUsd(query.data.estimatedUsd, t('unknown'), fmtUsd)} />
         </div>
         <p className="mb-3 text-xs text-fg-muted">{t('caveat')}</p>
         <p className="mb-3 text-xs text-fg-muted">{query.data.discoveryBasis}</p>
@@ -50,7 +52,7 @@ export function UsagePage() {
         <Table head={[tc('name'), 'backend', 'CPU-hours', 'GPU-hours', t('estimatedCost'), t('status')]} dense>
           {query.data.runs.map(run => <tr key={run.workflowId}>
             <td><Link href={`/workflows/${encodeURIComponent(run.workflowId)}`} className="underline">{run.name ?? run.workflowId}</Link></td>
-            <td>{run.backendId}</td><td>{usageNumber(run.cpuHours, t('unknown'))}</td><td>{usageNumber(run.gpuHours, t('unknown'))}</td><td>{usageUsd(run.estimatedUsd, t('unknown'))}</td>
+            <td>{run.backendId}</td><td>{usageNumber(run.cpuHours, t('unknown'), fmtNum)}</td><td>{usageNumber(run.gpuHours, t('unknown'), fmtNum)}</td><td>{usageUsd(run.estimatedUsd, t('unknown'), fmtUsd)}</td>
             <td><Badge tone={run.complete ? 'info' : 'warn'}>{run.complete ? t('complete') : t('incomplete')}</Badge></td>
           </tr>)}
         </Table>

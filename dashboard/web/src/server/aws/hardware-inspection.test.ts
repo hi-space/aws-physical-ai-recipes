@@ -7,10 +7,9 @@ it('combines current node allocatable resources with per-GPU EC2 memory without 
       metadata: { name: 'gpu-a', uid: 'uid-a', labels: { 'node.kubernetes.io/instance-type': 'ml.g5.8xlarge', 'kubernetes.io/arch': 'amd64' } },
       spec: {}, status: { conditions: [{ type: 'Ready', status: 'True' }], allocatable: { cpu: '31500m', memory: '120Gi', 'nvidia.com/gpu': '1' } },
     }],
-    instanceTypes: async (names) => {
-      expect(names).toEqual(['g5.8xlarge']);
-      return [{ InstanceType: 'g5.8xlarge', VCpuInfo: { DefaultVCpus: 32 }, MemoryInfo: { SizeInMiB: 131072 }, ProcessorInfo: { SupportedArchitectures: ['x86_64'] },
-        GpuInfo: { Gpus: [{ Name: 'A10G', Count: 1, MemoryInfo: { SizeInMiB: 24576 } }], TotalGpuMemoryInMiB: 24576 } }];
+    catalogEntry: async (name) => {
+      expect(['ml.g5.8xlarge', 'g5.8xlarge']).toContain(name);
+      return { vCpu: 32, memoryMiB: 131072, gpuCount: 1, gpuName: 'A10G', gpuMemoryMiB: 24576 };
     },
     now: () => new Date('2026-09-16T12:00:00Z'),
   };
@@ -23,7 +22,7 @@ it('combines current node allocatable resources with per-GPU EC2 memory without 
 it('does not divide total GPU memory into invented per-device memory, or infer installed drivers', async () => {
   const result = await inspectHardware({
     nodes: async () => [{ metadata: { name: 'n', labels: { 'node.kubernetes.io/instance-type': 'g5.12xlarge' } }, status: { allocatable: { 'nvidia.com/gpu': '4' } } }],
-    instanceTypes: async () => [{ InstanceType: 'g5.12xlarge', GpuInfo: { Gpus: [{ Count: 4 }], TotalGpuMemoryInMiB: 98304 } }],
+    catalogEntry: async () => ({ vCpu: 48, memoryMiB: 196608, gpuCount: 4, gpuName: 'A10G' }),
     now: () => new Date(),
   });
   expect(result.nodes[0].catalog?.gpuMemoryMiB).toBeUndefined();
@@ -35,7 +34,7 @@ it('does not divide total GPU memory into invented per-device memory, or infer i
 it('preserves missing catalog data as unknown and excludes no nodes silently', async () => {
   const result = await inspectHardware({
     nodes: async () => [{ metadata: { name: 'n', labels: { 'node.kubernetes.io/instance-type': 'c5.4xlarge' } } }],
-    instanceTypes: async () => { throw new Error('fixture denied'); }, now: () => new Date(),
+    catalogEntry: async () => { throw new Error('fixture denied'); }, now: () => new Date(),
   });
   expect(result.catalogAvailable).toBe(false);
   expect(result.nodes).toHaveLength(1);

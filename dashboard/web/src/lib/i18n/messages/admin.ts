@@ -23,6 +23,7 @@ export const admin = defineMessages({
     discoveredConfiguration: 'Discovered Configuration',
     costDesc: 'Account-wide cost',
     noCost: 'No cost data available.', byService: 'By service', daily: 'Daily trend',
+    costExplorer: 'Cost Explorer', fetchedAt: 'queried {time}', costPeriod: '{start}–{end}', costEstimated: 'Some amounts are Cost Explorer estimates (unconfirmed).', costOther: 'Other {count} services',
   },
   ko: {
     title: '관리', description: '사용자 관리, 감사 로그, 설정, 계정 비용을 확인합니다.',
@@ -46,5 +47,6 @@ export const admin = defineMessages({
     discoveredConfiguration: '확인된 설정',
     costDesc: '계정 전체 비용',
     noCost: '비용 데이터가 없습니다.', byService: '서비스별', daily: '일별 추이',
+    costExplorer: 'Cost Explorer', fetchedAt: '{time}에 조회', costPeriod: '{start}–{end}', costEstimated: '일부 금액은 Cost Explorer 추정치(미확정)입니다.', costOther: '기타 {count}개 서비스',
   },
 });

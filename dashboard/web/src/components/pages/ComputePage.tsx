@@ -15,7 +15,19 @@ interface ClusterSummary {
   arn?: string;
   createdAt?: string;
   failureMessage?: string;
-  groups: { name: string; instanceType: string; current: number; target: number; status?: string; isGpu: boolean; isSystem: boolean }[];
+  groups: {
+    name: string;
+    instanceType: string;
+    current: number;
+    target: number;
+    status?: string;
+    gpuCount?: number;
+    vCpu?: number;
+    memoryGiB?: number;
+    gpuName?: string;
+    role?: 'controller' | 'login' | 'worker';
+    isGpu?: boolean;
+  }[];
   nodes: { id: string; group: string; instanceType: string; status: string; launchTime?: string }[];
   events?: { EventId?: string; EventTime?: string; ResourceType?: string; Description?: string }[];
 }
@@ -162,14 +174,28 @@ export function ComputePage() {
                 <EmptyState title={t('noGroups')} />
               ) : (
                 <Table
-                  head={[t('groupName'), t('instType'), t('current'), tc('status'), can(me.data, 'admin') ? t('capacityPlan') : '']}
+                  head={[t('groupName'), 'Details', t('current'), tc('status'), can(me.data, 'admin') ? t('capacityPlan') : '']}
                   dense
                 >
                   {activeCluster.groups.map((g) => (
-                    <tr key={g.name} className={g.isSystem ? 'opacity-60' : ''}>
-                      <td className="font-medium">{g.name}</td>
-                      <td>
-                        {g.isGpu && <Badge tone="accent">GPU</Badge>} {g.instanceType}
+                    <tr key={g.name}>
+                      <td className="font-medium">
+                        <div>{g.name}</div>
+                        {g.role && <Badge tone="info" className="mt-1">{g.role}</Badge>}
+                      </td>
+                      <td className="text-xs">
+                        <div className="space-y-1">
+                          <div>{g.instanceType}</div>
+                          <div className="text-fg-muted">
+                            {[
+                              g.vCpu && `${g.vCpu} vCPU`,
+                              g.memoryGiB && `${g.memoryGiB.toFixed(0)} GB`,
+                              g.gpuCount !== undefined && g.gpuCount > 0 && `GPU ${g.gpuCount}× ${g.gpuName || 'N/A'}`,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <Bar value={g.current} max={g.target || 1} label={`${g.current} / ${g.target}`} />
@@ -180,8 +206,6 @@ export function ComputePage() {
                           <Button size="sm" variant="ghost" onClick={() => handleScaleClick(activeCluster.name, g.name, g.target)}>
                             {ts('openButton')}
                           </Button>
-                        ) : g.isSystem ? (
-                          <span className="text-[11px] text-fg-faint">{t('system')}</span>
                         ) : null}
                       </td>
                     </tr>
@@ -264,11 +288,15 @@ export function ComputePage() {
               {activeTab === 'eks' ? (
                 <div className="space-y-3">
                   <div>
-                    <div className="mb-2 text-xs font-medium text-fg-muted">{t('updateKubeconfig')}:</div>
-                    <CodeBlock
-                      code={`aws eks update-kubeconfig --name ${me.data?.clusters.eksName ?? 'hyperpod-eks'} --region ${me.data?.region ?? 'us-east-1'} --alias hyperpod-eks`}
-                      lang="bash"
-                    />
+                    {me.data?.region && me.data?.clusters.eksName ? (
+                      <>
+                        <div className="mb-2 text-xs font-medium text-fg-muted">{t('updateKubeconfig')}:</div>
+                        <CodeBlock
+                          code={`aws eks update-kubeconfig --name ${me.data.clusters.eksName} --region ${me.data.region} --alias hyperpod-eks`}
+                          lang="bash"
+                        />
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ) : (

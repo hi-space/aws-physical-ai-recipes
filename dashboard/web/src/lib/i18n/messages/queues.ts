@@ -24,6 +24,10 @@ export const queues = defineMessages({
     deleteThisKind: 'Delete this {kind}? This action cannot be undone.',
     quotaAutoCreates: 'Creating a quota auto-creates namespace hyperpod-ns-{team} + queues within ~1–2 min.',
     fillAllFields: 'Fill in every field.', className: 'Class name', weight: 'Weight', addClass: 'Add class', fairShareEnable: 'Enable fair share',
+    clusterInstancesUnavailable: 'Could not load cluster instance groups.',
+    selectInstanceType: 'Select instance type',
+    noInstanceTypes: 'No instance types available',
+    loading: 'Loading…',
   },
   ko: {
     title: '대기열', description: 'Kueue 및 SageMaker 작업 거버넌스 설정을 확인합니다.',
@@ -48,5 +52,9 @@ export const queues = defineMessages({
     deleteThisKind: 'This {kind}을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.',
     quotaAutoCreates: '할당량을 생성하면 네임스페이스 hyperpod-ns-{team} + 대기열이 약 1-2분 이내에 자동으로 생성됩니다.',
     fillAllFields: '모든 항목을 입력하세요.', className: '클래스 이름', weight: '가중치', addClass: '클래스 추가', fairShareEnable: '공정 분배 사용',
+    clusterInstancesUnavailable: '클러스터 인스턴스 그룹을 조회하지 못했습니다.',
+    selectInstanceType: '인스턴스 유형 선택',
+    noInstanceTypes: '사용 가능한 인스턴스 유형이 없습니다',
+    loading: '로드 중…',
   },
 });

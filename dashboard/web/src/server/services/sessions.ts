@@ -475,17 +475,28 @@ export async function hyperPodDcvTargets() {
       const clusterId = d.ClusterArn?.split('/').pop() ?? '';
       const nodes = await hp.listNodes(name);
       const isEks = Boolean(d.Orchestrator?.Eks);
+
+      // Fetch instance type specs to check GPU
+      const { describeInstanceTypes } = await import('../aws/instance-catalog');
+      const { readClusterRoles, mapGroupToRole } = await import('./compute');
+      const instanceTypeNames = (d.InstanceGroups ?? []).map((g) => g.InstanceType).filter(Boolean) as string[];
+      const catalog = await describeInstanceTypes(instanceTypeNames).catch(() => new Map());
+      // Slurm controller/login groups come from the cluster's own provisioning_parameters.json; unknown roles are not guessed.
+      const roles = isEks ? undefined : await readClusterRoles(d.InstanceGroups?.[0]?.LifeCycleConfig?.SourceS3Uri);
+
       for (const n of nodes) {
-        const isGpu = /^ml\.(g|p)/.test(n.InstanceType ?? '');
-        const isHead = n.InstanceGroupName === 'head';
-        if (isHead || (!isGpu && isEks)) continue; // DCV runs on GPU nodes (EKS) or GPU/CPU compute nodes (Slurm)
+        const instanceTypeName = n.InstanceType ?? '';
+        const catalogEntry = catalog.get(instanceTypeName.replace(/^ml\./, ''));
+        const hasGpu = (catalogEntry?.gpuCount ?? 0) > 0;
+        const role = isEks ? undefined : mapGroupToRole(n.InstanceGroupName ?? '', roles);
+        if (role === 'controller' || role === 'login' || (!hasGpu && isEks)) continue; // DCV runs on GPU nodes (EKS) or compute nodes (Slurm)
         const target = `sagemaker-cluster:${clusterId}_${n.InstanceGroupName}-${n.InstanceId}`;
         out.push({
           cluster: name,
           orchestrator: isEks ? 'eks' : 'slurm',
           group: n.InstanceGroupName ?? '',
           instanceId: n.InstanceId ?? '',
-          instanceType: n.InstanceType ?? '',
+          instanceType: instanceTypeName,
           status: n.InstanceStatus?.Status ?? '',
           target,
           portForward: `aws ssm start-session --region ${c.region} --target ${target} --document-name AWS-StartPortForwardingSession --parameters portNumber=8443,localPortNumber=8444`,

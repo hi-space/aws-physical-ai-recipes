@@ -44,6 +44,10 @@ interface CostData {
   total: number;
   byService: { service: string; amount: number }[];
   daily: { date: string; amount: number }[];
+  estimated?: boolean;
+  fetchedAt?: string;
+  start?: string;
+  end?: string;
 }
 
 export function AdminPage() {
@@ -548,6 +552,7 @@ function CostTab() {
   const t = useT('admin');
   const tc = useT('common');
   const { fmtUsd } = useFormat();
+  const { ago } = useFormat();
   const { data, isLoading, error } = useApi<CostData>('/api/cost', { refetch: 60000 });
 
   if (isLoading && !data) return <Spinner label={tc('loading')} />;
@@ -559,6 +564,11 @@ function CostTab() {
       {data && (
         <>
           <Card title={t('costDesc')}>
+            <div className="mb-3 text-xs text-fg-muted space-y-0.5">
+              <div>{t('costExplorer')} · {t('fetchedAt', { time: data.fetchedAt ? ago(new Date(data.fetchedAt)) : '—' })}</div>
+              <div>{t('costPeriod', { start: data.start, end: data.end })}</div>
+              {data.estimated && <div className="text-accent">{t('costEstimated')}</div>}
+            </div>
             <div className="text-2xl font-bold">{fmtUsd(data.total)}</div>
           </Card>
 
@@ -567,12 +577,18 @@ function CostTab() {
               <EmptyState title={t('noCost')} />
             ) : (
               <Table head={[tc('name'), tc('value')]} dense>
-                {data.byService.map((s) => (
+                {data.byService.slice(0, 10).map((s) => (
                   <tr key={s.service}>
                     <td className="text-sm">{s.service}</td>
                     <td className="num text-sm">{fmtUsd(s.amount)}</td>
                   </tr>
                 ))}
+                {data.byService.length > 10 && (
+                  <tr>
+                    <td className="text-sm">{t('costOther', { count: data.byService.length - 10 })}</td>
+                    <td className="num text-sm">{fmtUsd(data.byService.slice(10).reduce((a, b) => a + b.amount, 0))}</td>
+                  </tr>
+                )}
               </Table>
             )}
           </Card>

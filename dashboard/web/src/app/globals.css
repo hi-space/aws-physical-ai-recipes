@@ -52,7 +52,7 @@ a {
   color: inherit;
 }
 
-/* data tables: 13px body, readable row height, quiet uppercase heads */
+/* data tables: 13px body, readable row height, quiet sentence-case heads */
 .tbl {
   width: 100%;
   border-collapse: collapse;
@@ -62,9 +62,7 @@ a {
   text-align: left;
   font-weight: 500;
   font-size: 12px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--color-fg-faint);
+  color: var(--color-fg-muted);
   padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;

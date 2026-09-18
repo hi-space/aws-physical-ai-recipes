@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { DescribeImagesCommand, ECRClient, GetAuthorizationTokenCommand } from '@aws-sdk/client-ecr';
 import { HttpError } from '../errors';
+import { config } from '../config';
 
 export interface ImageScope { accountId: string; region: string }
 export type ImageArchitecture = 'amd64' | 'arm64';
@@ -21,14 +22,16 @@ const sha = (bytes: Uint8Array) => `sha256:${createHash('sha256').update(bytes).
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
 const failure = () => new HttpError(503, 'ECR 이미지 manifest/config를 검증하지 못했습니다. 권한과 이미지 형식을 확인하세요.', 'image_inspection_failed');
 export function parsePrivateEcrImage(image: string, scope: ImageScope): EcrImageReference {
-  if (!/^\d{12}$/.test(scope.accountId) || scope.region !== 'us-east-1') {
-    throw new HttpError(503, '현재 계정과 us-east-1 이미지 검사 구성이 필요합니다.', 'image_configuration');
+  const homeRegion = config().region;
+  if (!/^\d{12}$/.test(scope.accountId) || scope.region !== homeRegion) {
+    throw new HttpError(503, `현재 계정과 ${homeRegion} 이미지 검사 구성이 필요합니다.`, 'image_configuration');
   }
-  const match = /^(\d{12})\.dkr\.ecr\.us-east-1\.amazonaws\.com\/([a-z0-9]+(?:(?:[._/]|__|-+)[a-z0-9]+)*)(?::([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})|@(sha256:[a-f0-9]{64}))$/.exec(image);
+  const registryPattern = new RegExp(`^(\\d{12})\\.dkr\\.ecr\\.${scope.region}\\.amazonaws\\.com/([a-z0-9]+(?:(?:[._/]|__|-+)[a-z0-9]+)*)(?::([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})|@(sha256:[a-f0-9]{64}))$`);
+  const match = registryPattern.exec(image);
   if (!match || match[1] !== scope.accountId || match[2].length > 256) {
-    throw new HttpError(400, '현재 계정의 us-east-1 private ECR에 미러링하고 명시적인 tag 또는 digest를 사용하세요.', 'image_mirror_required');
+    throw new HttpError(400, `현재 계정의 ${homeRegion} private ECR에 미러링하고 명시적인 tag 또는 digest를 사용하세요.`, 'image_mirror_required');
   }
-  return { ...scope, registry: `${scope.accountId}.dkr.ecr.us-east-1.amazonaws.com`, repository: match[2], tag: match[3], digest: match[4] };
+  return { ...scope, registry: `${scope.accountId}.dkr.ecr.${scope.region}.amazonaws.com`, repository: match[2], tag: match[3], digest: match[4] };
 }
 function defaults(scope: ImageScope): EcrInspectionDeps {
   const ecr = new ECRClient({ region: scope.region });
@@ -66,8 +69,8 @@ async function boundedBytes(response: Response, limit: number): Promise<Uint8Arr
 }
 /** Only ECR's documented regional layer bucket can receive a credential-free blob redirect. */
 function layerRedirect(location: string): URL {
-  const url = new URL(location), bucket = 'prod-us-east-1-starport-layer-bucket';
-  const hosts = [`${bucket}.s3.us-east-1.amazonaws.com`, `${bucket}.s3.amazonaws.com`, `${bucket}.s3-us-east-1.amazonaws.com`];
+  const url = new URL(location), region = config().region, bucket = `prod-${region}-starport-layer-bucket`;
+  const hosts = [`${bucket}.s3.${region}.amazonaws.com`, `${bucket}.s3.amazonaws.com`, `${bucket}.s3-${region}.amazonaws.com`];
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash || !hosts.includes(url.hostname)) throw failure();
   return url;
 }

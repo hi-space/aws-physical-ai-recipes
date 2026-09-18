@@ -26,7 +26,7 @@ export function OverviewPage() {
   const serviceErrors = [...new Set([...data.errors, data.nodes.error].filter((message): message is string => Boolean(message)))];
   const nodeError = Boolean(data.nodes.error);
   const gpuAverage = !nodeError && data.nodes.gpuCapacity > 0 && Number.isFinite(data.nodes.gpuUtilAvg)
-    ? t('gpuAverage', { value: fmtNum(data.nodes.gpuUtilAvg) }) : t('gpuAverageNa');
+    ? t('gpuAverageSub', { value: fmtNum(data.nodes.gpuUtilAvg) }) : t('gpuAverageNa');
   const status = data.workflows.byStatus;
   const researcher = can(me.data, 'researcher');
 
@@ -116,11 +116,15 @@ export function OverviewPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="info">{cluster.orchestrator}</Badge>
                       {cluster.status && !cluster.status.startsWith('error:') && <StatusPill status={cluster.status} />}
-                      {cluster.groups.map((group) => (
-                        <span key={group.name} className="text-[13px] text-fg-muted">
-                          <Badge tone={group.isGpu ? 'accent' : 'neutral'}>{group.name}</Badge> {t('groupCounts', { current: group.current, target: group.target })}
-                        </span>
-                      ))}
+                      {cluster.groups.map((group) => {
+                        const gpuCount = group.gpuCount ?? (group.isGpu ? 1 : 0);
+                        const gpuBadge = gpuCount > 0 ? <Badge tone="accent">{t('gpuBadge', { count: gpuCount })}</Badge> : gpuCount === 0 ? null : <Badge tone="neutral">?</Badge>;
+                        return (
+                          <span key={group.name} className="text-[13px] text-fg-muted flex items-center gap-1">
+                            <Badge tone="neutral">{group.name}</Badge> {t('groupCounts', { current: group.current, target: group.target })} {gpuBadge}
+                          </span>
+                        );
+                      })}
                     </div>
                     {cluster.status?.startsWith('error:') && <ErrorBox error={{ message: cluster.status }} />}
                     {'failureMessage' in cluster && cluster.failureMessage && <ErrorBox error={{ message: cluster.failureMessage }} />}
@@ -148,7 +152,12 @@ export function OverviewPage() {
         </div>
 
         {cost && (
-          <Card title={t('accountCost')} description={t('accountCostDesc')}>
+          <Card title={t('accountCost')}>
+            <div className="mb-4 text-xs text-fg-muted space-y-0.5">
+              <div>{t('costExplorer')} · {t('fetchedAt', { time: cost.fetchedAt ? ago(new Date(cost.fetchedAt)) : '—' })}</div>
+              <div>{t('costPeriod', { start: cost.start, end: cost.end })}</div>
+              {cost.estimated && <div className="text-accent">{t('costEstimated')}</div>}
+            </div>
             {costDaily.length > 0 && <div className="mb-4" aria-label={t('costTrend')}><Sparkline values={costDaily} width={240} height={36} /></div>}
             {!cost.byService.length ? <EmptyState title={t('noCost')} /> : (
               <div className="space-y-3">
@@ -158,6 +167,12 @@ export function OverviewPage() {
                     <Bar value={service.amount} max={costMax} tone="accent" />
                   </div>
                 ))}
+                {cost.byService.length > 10 && (
+                  <div>
+                    <div className="mb-1 flex justify-between text-[13px]"><span className="text-fg-muted">{t('costOther', { count: cost.byService.length - 10 })}</span><span className="num">{fmtUsd(cost.byService.slice(10).reduce((a, b) => a + b.amount, 0))}</span></div>
+                    <Bar value={cost.byService.slice(10).reduce((a, b) => a + b.amount, 0)} max={costMax} tone="accent" />
+                  </div>
+                )}
               </div>
             )}
           </Card>

@@ -3,6 +3,7 @@ import { ECRClient, DescribeRepositoriesCommand, DescribeImagesCommand } from '@
 import { CloudWatchLogsClient, GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { S3Client, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
+import { config } from '../config';
 import { inspectEcrImage, type ImageScope } from './ecr-inspection';
 import { canonicalGitUrl, hashBuildValue, outputTag, parseBuildTargets, sourceBuildspec, sourceBuildspecHash, SourceBuildProviderError, builderCredentials, sourceLocation,
   type SourceBuildProvider, type SourceBuildTarget, type SourceBuildRun, type BuildObservation, type SourceSnapshot } from '../services/source-builds-contract';
@@ -128,7 +129,7 @@ export function createSourceBuildProvider(scope: ImageScope, clients?: SourceBui
         : !!project?.source?.location && canonicalGitUrl(project.source.location, target.sourceType) === target.repositoryUrl; } catch { /* mismatch */ }
       const auth = project?.source?.auth;
       const connection = !auth || target.sourceType === 'GITHUB' && auth.type === 'CODECONNECTIONS' &&
-        new RegExp(`^arn:aws:(?:codeconnections|codestar-connections):us-east-1:${scope.accountId}:connection/[A-Za-z0-9-]+$`).test(auth.resource ?? '');
+        new RegExp(`^arn:aws:(?:codeconnections|codestar-connections):${scope.region}:${scope.accountId}:connection/[A-Za-z0-9-]+$`).test(auth.resource ?? '');
       if (!project || project.arn !== `arn:aws:codebuild:${scope.region}:${scope.accountId}:project/${target.codeBuildProjectName}` ||
         project.serviceRole !== target.serviceRoleArn || !sourceMatches || project.source?.type !== target.sourceType ||
         project.source.buildspec !== sourceBuildspec || !connection || project.source.insecureSsl ||

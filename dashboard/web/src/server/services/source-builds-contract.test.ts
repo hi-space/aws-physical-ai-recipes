@@ -1,9 +1,10 @@
-import { expect, it } from 'vitest';
+import { expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import YAML from 'yaml';
+import { resetConfigForTests } from '../config';
 import { parseBuildTargets, sourceBuildspec, sourceCommitSchema, outputTag } from './source-builds-contract';
 
 const accountId = '123456789012';
@@ -62,4 +63,20 @@ it('the exact shared buildspec is valid shell and its snapshot extractor preserv
     execFileSync('python3', ['-c', `import zipfile,sys\nwith zipfile.ZipFile(sys.argv[1],'w') as z:z.writestr('../escape','bad')`, archive]);
     expect(() => execFileSync('python3', ['-c', python, archive, destination], { stdio: 'pipe' })).toThrow();
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+it('validates region configuration without hardcoded us-east-1 literals', () => {
+  vi.stubEnv('AWS_REGION', 'us-west-2');
+  resetConfigForTests();
+  const westTarget = {
+    ...target,
+    builderImage: `${accountId}.dkr.ecr.us-west-2.amazonaws.com/builder@sha256:${'a'.repeat(64)}`,
+  };
+  // Should parse successfully with correct region in both target and config
+  const result = parseBuildTargets(JSON.stringify([westTarget]), accountId, 'us-west-2', []);
+  expect(result[0].builderImage).toContain('us-west-2');
+  // Should reject when region doesn't match config
+  expect(() => parseBuildTargets(JSON.stringify([westTarget]), accountId, 'us-east-1', [])).toThrow();
+  vi.unstubAllEnvs();
+  resetConfigForTests();
 });

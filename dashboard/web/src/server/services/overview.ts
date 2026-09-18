@@ -30,7 +30,7 @@ export async function overview(session?: Session) {
     safe(c.eks?.ampWorkspaceId ? queryInstant('avg(DCGM_FI_DEV_GPU_UTIL)') : Promise.resolve([]), []),
   ]);
   if (session?.role === 'admin' && (!costCache || Date.now() - costCache.at > 3600_000)) {
-    const r = await safe(last30DaysByService(), { total: 0, byService: [], daily: [] });
+    const r = await safe(last30DaysByService(), { total: 0, byService: [], daily: [], fetchedAt: new Date().toISOString() });
     if (!r.error) costCache = { at: Date.now(), value: r.value };
   }
   const wfs = session ? await filterAccessible(session, workflows.value) : [];

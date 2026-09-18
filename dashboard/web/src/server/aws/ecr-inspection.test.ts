@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { resetConfigForTests } from '../config';
 import { inspectEcrImage, parsePrivateEcrImage, type EcrInspectionDeps } from './ecr-inspection';
 
 const scope = { accountId: '123456789012', region: 'us-east-1' };
@@ -105,8 +106,30 @@ describe('private ECR inspection', () => {
     expect((await inspectEcrImage(uri, scope, f.deps)).architectures).toEqual(['amd64']);
   });
 
-  it('requires the fixed supported region and explicit current account', () => {
+  it('requires the configured region and explicit current account', () => {
     expect(() => parsePrivateEcrImage(uri, { accountId: '', region: 'us-east-1' })).toThrow();
     expect(() => parsePrivateEcrImage(uri, { ...scope, region: 'us-west-2' })).toThrow();
+  });
+});
+
+describe('ECR with alternate region', () => {
+  beforeEach(() => {
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetConfigForTests();
+  });
+
+  it('validates ECR images against the configured region (no us-east-1 literal)', () => {
+    resetConfigForTests();
+    const westScope = { accountId: '123456789012', region: 'us-west-2' };
+    const westRegistry = '123456789012.dkr.ecr.us-west-2.amazonaws.com';
+    const westUri = `${westRegistry}/recipes/train:stable`;
+    // Should accept a properly formatted us-west-2 image
+    const parsed = parsePrivateEcrImage(westUri, westScope);
+    expect(parsed.registry).toBe(westRegistry);
+    // Should reject the same image with wrong region in the scope
+    expect(() => parsePrivateEcrImage(westUri, { ...westScope, region: 'us-east-1' })).toThrow();
   });
 });

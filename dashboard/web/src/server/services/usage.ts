@@ -1,14 +1,14 @@
 import type { Workflow, Task } from '../store/types';
 import type { Item } from '../store/dynamo';
 import { getRepo, type Repo } from '../store/repo';
-import { rateIsFresh, readRates, type ComputeRate, type RateSnapshot } from '../aws/hyperpod-rates';
+import { rateIsFresh, readRates, ensureRates, type ComputeRate, type RateSnapshot } from '../aws/hyperpod-rates';
 import { TERMINAL_TASK, TERMINAL_WF } from '../store/types';
 import { config } from '../config';
 import type { Session } from '../auth/session';
 import { canReadResource, resolveProject } from '../auth/projects';
 import { notFound } from '../errors';
 
-export interface UsageIssue { code: string; message: string; task?: string }
+export interface UsageIssue { code: string; task?: string }
 export interface TaskUsage {
   name: string; platform?: string; attemptsObserved: number; attemptsExpected: number; replicaHours: number;
   cpuHours: number | null; gpuHours: number | null; estimatedUsd: number | null; dedicatedInstanceUsd: number | null;
@@ -23,11 +23,31 @@ function cpu(value: unknown) {
 }
 const validGpu = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
-export function estimateRunUsage(workflow: Workflow, tasks: Task[], runtime: Item[], rates: RateSnapshot, now: Date, region: string) {
+export function estimateRunUsage(workflow: Workflow, tasks: Task[], runtime: Item[], rates: RateSnapshot | undefined, now: Date, region: string) {
   const issues: UsageIssue[] = [];
+  if (!rates) {
+    issues.push({ code: 'no_rates' });
+    // Return early with all null values when no rates snapshot
+    const results: TaskUsage[] = workflow.spec.workflow.tasks.map(spec => ({
+      name: spec.name, attemptsObserved: 0, attemptsExpected: 0, replicaHours: 0,
+      cpuHours: null, gpuHours: null, estimatedUsd: null, dedicatedInstanceUsd: null,
+      knownCpuHours: 0, knownGpuHours: 0, knownEstimatedUsd: 0,
+      timingBasis: 'unknown' as const,
+    }));
+    return {
+      workflowId: workflow.id, name: workflow.name, projectId: workflow.projectId, backendId: workflow.backendId ?? 'default', observedAt: now.toISOString(),
+      complete: false,
+      cpuHours: null, gpuHours: null, estimatedUsd: null, dedicatedInstanceUsd: null,
+      knownCpuHours: 0, knownGpuHours: 0, knownEstimatedUsd: 0, tasks: results, issues,
+      pricing: { service: 'AmazonSageMaker', region, currency: 'USD', term: 'OnDemand', sourceUrl: '', retrievedAt: '', publicationDate: '', catalogVersion: '', sha256: '', rates: [], fresh: false },
+      basis: 'requested-resource-share' as const,
+      formula: 'replica 실행시간 × HyperPod 노드 시간단가 × max(요청 CPU/노드 vCPU, 요청 GPU/노드 GPU)',
+      exclusions: [],
+    };
+  }
   const fresh = rateIsFresh(rates, now);
-  if (!fresh) issues.push({ code: 'stale_rates', message: '단가 조회 후 30일이 지났거나 조회 시각이 유효하지 않습니다. 금액은 확인할 수 없습니다.' });
-  const add = (task: string, code: string, message: string) => { if (!issues.some(i => i.task === task && i.code === code)) issues.push({ task, code, message }); };
+  if (!fresh) issues.push({ code: 'stale_rates' });
+  const add = (task: string, code: string) => { if (!issues.some(i => i.task === task && i.code === code)) issues.push({ task, code }); };
   const results: TaskUsage[] = workflow.spec.workflow.tasks.map(spec => {
     const ledger = tasks.find(t => t.name === spec.name);
     const resource = workflow.spec.workflow.resources[spec.resource];
@@ -45,7 +65,7 @@ export function estimateRunUsage(workflow: Workflow, tasks: Task[], runtime: Ite
     };
     if (!ledger || !Number.isSafeInteger(ledger.attempts) || ledger.attempts < 0 || ledger.replicas !== spec.parallelism) {
       timingComplete = false;
-      add(spec.name, 'missing_ledger', '작업의 실행 횟수·replica 기록을 확인할 수 없습니다.');
+      add(spec.name, 'missing_ledger');
     } else if (epochs.length) {
       basis = 'runtime-receipts'; attemptsObserved = epochs.length;
       for (const epoch of epochs) {
@@ -71,12 +91,12 @@ export function estimateRunUsage(workflow: Workflow, tasks: Task[], runtime: Ite
       interval(ledger.startedAt, TERMINAL_TASK.has(ledger.phase) ? ledger.finishedAt : !TERMINAL_WF.has(workflow.status) ? now.toISOString() : undefined, ledger.replicas);
       if (ledger.attempts > 1) timingComplete = false;
     }
-    if (!timingComplete) add(spec.name, 'incomplete_timing', '이전 retry 또는 일부 replica의 시작·종료 기록이 없어 전체 사용 시간을 확정할 수 없습니다.');
+    if (!timingComplete) add(spec.name, 'incomplete_timing');
     const cpuKnown = requestedCpu !== undefined && Number.isFinite(requestedCpu) && requestedCpu > 0, gpuKnown = validGpu(requestedGpu);
-    if (!cpuKnown || !gpuKnown) add(spec.name, 'unknown_resources', '요청 CPU/GPU 수를 해석하지 못했습니다.');
+    if (!cpuKnown || !gpuKnown) add(spec.name, 'unknown_resources');
     const knownCpuHours = round(hours * (cpuKnown ? requestedCpu! : 0)), knownGpuHours = round(hours * (gpuKnown ? requestedGpu : 0));
     const priced = fresh && !!rate && rate.gpu !== null && cpuKnown && gpuKnown && requestedCpu! <= rate.vCpu && requestedGpu <= rate.gpu;
-    if (hours > 0 && !priced) add(spec.name, 'unpriced_platform', '동일 리전·HyperPod On-Demand 플랫폼의 유효한 단가와 자원 구성을 확인하지 못했습니다.');
+    if (hours > 0 && !priced) add(spec.name, 'unpriced_platform');
     const share = priced ? Math.max(requestedCpu! / rate!.vCpu, requestedGpu === 0 ? 0 : requestedGpu / rate!.gpu!) : 0;
     const knownEstimatedUsd = round(hours * share * (rate?.usdPerHour ?? 0));
     const noCompute = timingComplete && hours === 0;
@@ -103,15 +123,15 @@ export function estimateRunUsage(workflow: Workflow, tasks: Task[], runtime: Ite
       '과거 실행도 표시된 조회 시점의 단가로 재산정합니다. 누락된 retry 시간은 0으로 간주하지 않습니다.'],
   };
 }
-export async function runUsage(id: string, session: Session, repo: Repo = getRepo(), rates?: RateSnapshot, now = () => new Date()) {
+export async function runUsage(id: string, session: Session, repo: Repo = getRepo(), rates?: RateSnapshot | undefined, now = () => new Date()) {
   const workflow = await repo.getWorkflow(id);
   if (!workflow || !await canReadResource(session, workflow, repo)) throw notFound('workflow');
-  const [tasks, runtime, snapshot] = await Promise.all([repo.listTasks(id), repo.kv.query(`WF#${id}`, 'RUNTIME#'), rates ?? readRates(repo)]);
+  const [tasks, runtime, snapshot] = await Promise.all([repo.listTasks(id), repo.kv.query(`WF#${id}`, 'RUNTIME#'), rates !== undefined ? Promise.resolve(rates) : ensureRates(config().region, repo)]);
   return estimateRunUsage(workflow, tasks, runtime, snapshot, now(), config().region);
 }
 export async function projectUsage(id: string, session: Session, repo: Repo = getRepo(), now = () => new Date()) {
   const project = await resolveProject(session, id, repo);
-  const rates = await readRates(repo), observed = now();
+  const rates = await ensureRates(config().region, repo), observed = now();
   const runs: Awaited<ReturnType<typeof runUsage>>[] = [];
   const seen = new Set<string>(); let cursor: string | undefined, completeDiscovery = true;
   do {
@@ -127,5 +147,5 @@ export async function projectUsage(id: string, session: Session, repo: Repo = ge
     cpuHours: sum('cpuHours'), gpuHours: sum('gpuHours'), estimatedUsd: sum('estimatedUsd'), runs,
     complete: completeDiscovery && runs.every(r => r.complete), completeDiscovery,
     discoveryBasis: '프로젝트 인덱스에서 조회한 실행 기준입니다. 방금 생성된 실행은 아직 포함되지 않을 수 있습니다.',
-    pricing: { ...rates, rates: undefined, fresh: rateIsFresh(rates, observed) } };
+    pricing: { ...(rates ?? { service: 'AmazonSageMaker', region: config().region, currency: 'USD', term: 'OnDemand', sourceUrl: '', retrievedAt: '', publicationDate: '', catalogVersion: '', sha256: '', rates: [], fresh: false }), rates: undefined, fresh: rates ? rateIsFresh(rates, observed) : false } };
 }

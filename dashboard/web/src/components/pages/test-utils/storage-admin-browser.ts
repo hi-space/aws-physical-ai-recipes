@@ -26,11 +26,12 @@ export function json(response: ServerResponse, value: unknown, status = 200) {
   response.end(JSON.stringify(value));
 }
 
-export async function storageAdminBrowser(component: 'storage' | 'dataset' | 'admin', handler: Handler) {
+export async function storageAdminBrowser(component: 'storage' | 'dataset' | 'admin' | 'queues', handler: Handler) {
   const entry = {
     storage: `import {S3Browser} from './src/components/storage/S3Browser'; const element=<S3Browser bucket="fixture-bucket" allowUpload />;`,
     dataset: `import {DatasetDetailPage} from './src/components/pages/DatasetDetailPage'; const element=<DatasetDetailPage name="fixture-data" />;`,
     admin: `import {AdminPage} from './src/components/pages/AdminPage'; const element=<AdminPage />;`,
+    queues: `import {QueuesPage} from './src/components/pages/QueuesPage'; const element=<QueuesPage />;`,
   }[component];
   const result = await build({
     stdin: {

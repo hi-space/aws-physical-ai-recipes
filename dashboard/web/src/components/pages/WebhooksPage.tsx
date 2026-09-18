@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Badge, Button, Card, EmptyState, ErrorBox, Spinner } from '@/components/ui';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { api, useApi } from '@/lib/api-client';
 import { useT } from '@/lib/i18n';
 import type { HookMetadata } from '@/server/services/webhooks';
@@ -31,12 +32,7 @@ export function WebhooksPage() {
     try { await work(); } catch (e) { setError(e); } finally { setBusy(false); }
   }
   return <div className="space-y-5">
-    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-5">
-      <div><p className="text-xs uppercase tracking-wider text-fg-faint">{t('pageLabel')}</p>
-        <h1 className="mt-1 text-2xl font-semibold">{t('title')}</h1>
-        <p className="mt-2 text-sm text-fg-muted">{registry.data?.project.name ?? tc('project')} · {t('description')}</p></div>
-      <Badge tone="info">{t('badge')}</Badge>
-    </header>
+    <PageHeader title={t('title')} description={<>{registry.data?.project.name ?? tc('project')} · {t('description')}</>} actions={<Badge tone="info">{t('badge')}</Badge>} />
     <ErrorBox error={registry.error ?? error} />
     {notice && <p role="status" className="rounded border border-border p-3 text-sm">{notice}</p>}
     {registry.isLoading && <Spinner label={t('pageLabel')} />}

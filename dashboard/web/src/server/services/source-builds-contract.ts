@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import buildspecContract from './source-buildspec.json';
 import { z } from 'zod';
 import { badRequest, HttpError } from '../errors';
+import { config } from '../config';
 import type { Item } from '../store/dynamo';
 import type { Repo } from '../store/repo';
 import type { ImageInspection } from '../aws/ecr-inspection';
@@ -32,14 +33,15 @@ export function canonicalGitUrl(value: string, type: SourceBuildTarget['sourceTy
     if (url.hostname !== 'github.com' || !/^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(url.pathname)) throw badRequest('A registered GitHub repository is required');
     return `https://github.com${url.pathname.replace(/\/$/, '').replace(/\.git$/, '')}`;
   }
-  if (url.hostname !== 'git-codecommit.us-east-1.amazonaws.com' || !/^\/v1\/repos\/[A-Za-z0-9_.-]+$/.test(url.pathname)) throw badRequest('A registered us-east-1 CodeCommit repository is required');
+  const region = config().region;
+  if (url.hostname !== `git-codecommit.${region}.amazonaws.com` || !/^\/v1\/repos\/[A-Za-z0-9_.-]+$/.test(url.pathname)) throw badRequest(`A registered ${region} CodeCommit repository is required`);
   return url.toString();
 }
 export function parseBuildTargets(raw: string, accountId: string, region: string, operations: string[]): SourceBuildTarget[] {
   try {
     const targets = z.array(targetSchema).max(32).parse(JSON.parse(raw || '[]'));
     if (!targets.length) return [];
-    if (!/^\d{12}$/.test(accountId) || region !== 'us-east-1') throw Error('scope');
+    if (!/^\d{12}$/.test(accountId) || region !== config().region) throw Error('scope');
     const ids = new Set<string>(), jobs = new Set<string>();
     for (const target of targets) {
       if (ids.has(target.id) || jobs.has(target.codeBuildProjectName) || operations.includes(target.codeBuildProjectName)) throw Error('duplicate or Operations target');
@@ -52,7 +54,7 @@ export function parseBuildTargets(raw: string, accountId: string, region: string
       }
       if (!target.serviceRoleArn.startsWith(`arn:aws:iam::${accountId}:role/`) ||
           !(target.builderImage === 'aws/codebuild/standard:7.0' ||
-            new RegExp(`^${accountId}\\.dkr\\.ecr\\.us-east-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$`).test(target.builderImage)) ||
+            new RegExp(`^${accountId}\\.dkr\\.ecr\\.${region}\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$`).test(target.builderImage)) ||
           !target.outputRepositoryName.startsWith(`physical-ai/projects/${target.projectId}/`)) throw Error('target scope');
     }
     return targets;

@@ -34,7 +34,7 @@ const revKey = (version: number) => `REV#${String(version).padStart(10, '0')}`;
 const dns = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,252}$/);
 const profileSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/).refine(id => id !== DEFAULT_BACKEND),
-  configVersion: z.number().int().positive(), accountId: z.string().regex(/^\d{12}$/), region: z.literal('us-east-1'),
+  configVersion: z.number().int().positive(), accountId: z.string().regex(/^\d{12}$/), region: z.string(),
   vpcId: z.string().regex(/^vpc-[a-z0-9]+$/),
   eks: z.object({
     eksClusterName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/), hyperPodClusterName: dns,
@@ -58,7 +58,7 @@ export function configuredBackend(id: string): BackendProfile {
   const profile = configuredBackends().find(p => p.id === id);
   if (!profile) throw failure('Backend is not in the deployment allowlist');
   const home = config();
-  if (home.region !== 'us-east-1' || profile.region !== home.region || !home.accountId || profile.accountId !== home.accountId) throw failure('Only current-account us-east-1 EKS backends are supported');
+  if (profile.region !== home.region || !home.accountId || profile.accountId !== home.accountId) throw failure(`Only current-account ${home.region} EKS backends are supported`);
   if (!process.env.BACKEND_HOME_VPC_ID || profile.vpcId !== process.env.BACKEND_HOME_VPC_ID) throw failure('Backend must use the verified shared home VPC');
   if (profile.eks.eksClusterName === home.eks?.eksClusterName) throw failure('The home EKS cluster uses the default backend identity');
   return profile;

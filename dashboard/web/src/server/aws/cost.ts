@@ -2,9 +2,18 @@ import { GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
 import { costExplorer } from './clients';
 
 export interface AccountCost {
-  total: number; byService: { service: string; amount: number }[]; daily: { date: string; amount: number }[];
-  currency?: 'USD'; observedAt?: string; period?: { start: string; end: string };
-  source?: 'AWS Cost Explorer / UnblendedCost'; scope?: 'account'; estimated?: boolean;
+  total: number;
+  byService: { service: string; amount: number }[];
+  daily: { date: string; amount: number }[];
+  currency?: 'USD';
+  observedAt?: string;
+  period?: { start: string; end: string };
+  source?: 'AWS Cost Explorer / UnblendedCost';
+  scope?: 'account';
+  estimated?: boolean;
+  fetchedAt?: string;
+  start?: string;
+  end?: string;
 }
 export async function last30DaysByService(): Promise<AccountCost> {
   const end = new Date();
@@ -40,7 +49,19 @@ export async function last30DaysByService(): Promise<AccountCost> {
   } while (token);
   const daily = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, amount]) => ({ date, amount }));
   const list = [...byService.entries()].map(([service, amount]) => ({ service, amount })).sort((a, b) => b.amount - a.amount);
-  return { total: list.reduce((a, b) => a + b.amount, 0), byService: list.slice(0, 12), daily,
-    currency: 'USD' as const, observedAt: end.toISOString(), period: { start: fmt(start), end: fmt(end) },
-    source: 'AWS Cost Explorer / UnblendedCost' as const, scope: 'account' as const, estimated };
+  const total = list.reduce((a, b) => a + b.amount, 0);
+  return {
+    total,
+    byService: list,
+    daily,
+    currency: 'USD' as const,
+    observedAt: end.toISOString(),
+    period: { start: fmt(start), end: fmt(end) },
+    source: 'AWS Cost Explorer / UnblendedCost' as const,
+    scope: 'account' as const,
+    estimated,
+    fetchedAt: new Date().toISOString(),
+    start: fmt(start),
+    end: fmt(end),
+  };
 }

@@ -78,6 +78,16 @@ describe('registered backends', () => {
     expect(observed).toEqual([['alpha', 'eks-alpha', 'home', 'home-table'], ['beta', 'eks-beta', 'home', 'home-table']]);
     expect(currentBackend()).toBeUndefined(); expect(process.env.EKS_CLUSTER_NAME).toBe('home');
   });
+  it('enforces region matching when config uses alternate region (no us-east-1 literal)', async () => {
+    vi.stubEnv('AWS_REGION', 'us-west-2');
+    const p = { ...profile('alpha'), region: 'us-west-2' };
+    vi.stubEnv('EKS_BACKENDS_JSON', JSON.stringify([p]));
+    resetConfigForTests();
+    await registerBackend(admin, { id: 'alpha', expectedVersion: 0, enabled: true }, repo, now);
+    const registered = await readBackend('alpha', repo, now);
+    expect(registered.status).toBe('UNREADY'); // Needs probe but no hardcoded region literals
+    expect(registered.profile.region).toBe('us-west-2');
+  });
   it('binds duplicate namespace names independently and checks namespace access within the selected backend', async () => {
     for (const id of ['alpha', 'beta']) {
       await registerBackend(admin, { id, expectedVersion: 0, enabled: true }, repo, now);

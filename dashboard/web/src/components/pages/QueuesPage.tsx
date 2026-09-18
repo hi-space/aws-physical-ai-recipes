@@ -69,7 +69,11 @@ interface QuotasData {
   policies: any[];
 }
 
-const INSTANCE_TYPES = ['ml.c5.4xlarge', 'ml.g5.8xlarge', 'ml.g5.12xlarge', 'ml.g6e.12xlarge', 'ml.p4d.24xlarge', 'ml.p5.48xlarge'];
+interface ClusterSummary {
+  name: string;
+  orchestrator: 'eks' | 'slurm';
+  groups: { name: string; instanceType: string; current: number; target: number; isGpu?: boolean; gpuCount?: number }[];
+}
 
 export function QueuesPage() {
   const t = useT('queues');
@@ -514,11 +518,23 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
   const tc = useT('common');
   const [name, setName] = React.useState('');
   const [team, setTeam] = React.useState('');
-  const [fairShare, setFairShare] = React.useState(0);
-  const [instances, setInstances] = React.useState<Array<{ instanceType: string; count: string }>>([{ instanceType: 'ml.g5.8xlarge', count: '1' }]);
+  const [fairShare, setFairShare] = React.useState(50);
+  const [instances, setInstances] = React.useState<Array<{ instanceType: string; count: string }>>([{ instanceType: '', count: '1' }]);
   const [borrowLimit, setBorrowLimit] = React.useState('100');
   const [preempt, setPreempt] = React.useState('LowerPriority');
   const [loading, setLoading] = React.useState(false);
+  const { data: clusterData, isLoading: clustersLoading } = useApi<{ clusters: ClusterSummary[] }>('/api/clusters');
+
+  // Instance types offered are exactly those present in the HyperPod EKS cluster's instance groups (DescribeCluster).
+  const eksGroups = React.useMemo(() => clusterData?.clusters.find((c) => c.orchestrator === 'eks')?.groups ?? [], [clusterData]);
+  const instanceTypeOptions = React.useMemo(() => [...new Set(eksGroups.map((g) => g.instanceType).filter(Boolean))], [eksGroups]);
+  const defaultInstanceType = React.useMemo(() => {
+    const gpu = eksGroups.find((g) => (g.gpuCount ?? (g.isGpu ? 1 : 0)) > 0)?.instanceType;
+    return gpu ?? instanceTypeOptions[0];
+  }, [eksGroups, instanceTypeOptions]);
+  React.useEffect(() => {
+    if (defaultInstanceType) setInstances((rows) => (rows.length === 1 && rows[0].instanceType === '' ? [{ instanceType: defaultInstanceType, count: rows[0].count }] : rows));
+  }, [defaultInstanceType]);
 
   const handleSubmit = async () => {
     if (!name || !team || instances.some((i) => !i.instanceType || !i.count)) {
@@ -534,7 +550,7 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
           kind: 'quota',
           name,
           team,
-          fairShareWeight: fairShare || undefined,
+          fairShareWeight: fairShare,
           instances: instances.map((i) => ({ instanceType: i.instanceType, count: Number(i.count) })),
           borrowLimit: Number(borrowLimit) || undefined,
           preempt: preempt as 'LowerPriority' | 'Never',
@@ -570,6 +586,9 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
 
         <div>
           <label className="block text-xs font-medium mb-2">{t('instances')}</label>
+          {!instanceTypeOptions.length && !clustersLoading && (
+            <div className="mb-2 text-xs text-fg-muted">{t('clusterInstancesUnavailable')}</div>
+          )}
           {instances.map((inst, i) => (
             <div key={i} className="flex gap-2 mb-2">
               <select
@@ -579,9 +598,11 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
                   newInsts[i].instanceType = e.target.value;
                   setInstances(newInsts);
                 }}
-                className="rounded border border-border bg-bg-elev px-2 py-1 text-xs flex-1"
+                disabled={!instanceTypeOptions.length}
+                className="rounded border border-border bg-bg-elev px-2 py-1 text-xs flex-1 disabled:opacity-50"
               >
-                {INSTANCE_TYPES.map((t) => (
+                <option value="">{clustersLoading ? t('loading') : instanceTypeOptions.length ? t('selectInstanceType') : t('noInstanceTypes')}</option>
+                {instanceTypeOptions.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -610,8 +631,9 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
             </div>
           ))}
           <button
-            onClick={() => setInstances([...instances, { instanceType: 'ml.g5.8xlarge', count: '1' }])}
-            className="text-xs text-accent hover:underline"
+            onClick={() => setInstances([...instances, { instanceType: defaultInstanceType ?? '', count: '1' }])}
+            disabled={!instanceTypeOptions.length}
+            className="text-xs text-accent hover:underline disabled:opacity-50"
           >
             {t('addInstanceType')}
           </button>

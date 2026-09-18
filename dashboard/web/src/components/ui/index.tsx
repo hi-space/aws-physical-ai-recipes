@@ -47,7 +47,7 @@ export function Card({ title, actions, children, className, padded = true, descr
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-fg">{title}</h3>
+            <h3 className="text-[13px] font-semibold text-fg">{title}</h3>
             {description && <p className="mt-0.5 text-[13px] text-fg-muted">{description}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -63,7 +63,7 @@ export function Stat({ label, value, sub, tone, className }: { label: string; va
   const t = { ok: 'text-ok', warn: 'text-warn', err: 'text-err', info: 'text-info' };
   return (
     <div className={cx('rounded-lg border border-border bg-bg-elev px-5 py-4', className)}>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-faint">{label}</div>
+      <div className="text-xs font-medium text-fg-muted">{label}</div>
       <div className={cx('num mt-1.5 text-2xl font-semibold leading-tight', tone && t[tone])}>{value}</div>
       {sub && <div className="mt-1 text-[13px] text-fg-muted">{sub}</div>}
     </div>

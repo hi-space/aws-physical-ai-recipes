@@ -33,6 +33,7 @@ export const greengrass = memo(() => new GreengrassV2Client(region()));
 export const iot = memo(() => new IoTClient(region()));
 export const cognito = memo(() => new CognitoIdentityProviderClient(region()));
 export const sns = memo(() => new SNSClient(region()));
+// Cost Explorer is a global service; its endpoint is always us-east-1 regardless of home region.
 export const costExplorer = memo(() => new CostExplorerClient({ region: 'us-east-1' }));
 export const ssm = memo(() => new SSMClient(region()));
 export const sts = memo(() => new STSClient(region()));
