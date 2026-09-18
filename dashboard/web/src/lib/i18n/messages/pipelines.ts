@@ -63,6 +63,8 @@ export const pipelines = defineMessages({
     trainingJobSelectionFineTune: ' · fine-tuning', trainingJobSelectionSmoke: ' · model load · inference check',
     // training job detail
     trainingJobTitle: 'Training Job · {step}', trainingJobName: '{name}',
+    stopTrainingJobButton: 'Stop training job', stopTrainingJobAccepted: 'Stop requested', stopTrainingJobConfirm: 'Call SageMaker StopTrainingJob for {name}? The job stops with status Stopped and the pipeline step fails; checkpoints already written to S3 stay.',
+    stopTrainingJobNote: 'StopTrainingJob accepted {time}. The status above changes to Stopping, then Stopped.',
     trainingJobStatus: 'Status', trainingJobSecondaryStatus: 'Secondary Status',
     trainingJobInstanceType: 'Instance Type', trainingJobInstanceCount: 'Instance Count', trainingJobBillableTime: 'Billable Time',
     trainingJobModelArtifacts: 'Model Artifacts', trainingJobHyperparameters: 'Hyperparameters',
@@ -139,6 +141,8 @@ export const pipelines = defineMessages({
     trainingJobSelectionFineTune: ' · 파인튜닝', trainingJobSelectionSmoke: ' · 모델 로드·추론 확인',
     // training job detail
     trainingJobTitle: 'Training Job · {step}', trainingJobName: '{name}',
+    stopTrainingJobButton: '학습 작업 중지', stopTrainingJobAccepted: '중지 요청됨', stopTrainingJobConfirm: '{name}에 SageMaker StopTrainingJob을 호출할까요? 작업은 Stopped 상태로 끝나고 파이프라인 단계는 실패 처리됩니다. 이미 S3에 저장된 체크포인트는 남습니다.',
+    stopTrainingJobNote: '{time}에 StopTrainingJob이 접수되었습니다. 위 상태가 Stopping을 거쳐 Stopped로 바뀝니다.',
     trainingJobStatus: 'Status', trainingJobSecondaryStatus: 'Secondary Status',
     trainingJobInstanceType: 'Instance Type', trainingJobInstanceCount: 'Instance Count', trainingJobBillableTime: 'Billable Time',
     trainingJobModelArtifacts: 'Model Artifacts', trainingJobHyperparameters: 'Hyperparameters',

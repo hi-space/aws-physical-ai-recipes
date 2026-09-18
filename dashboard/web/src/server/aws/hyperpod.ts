@@ -14,6 +14,9 @@ import {
   ListComputeQuotasCommand,
   UpdateClusterCommand,
   BatchDeleteClusterNodesCommand,
+  BatchRebootClusterNodesCommand,
+  BatchReplaceClusterNodesCommand,
+  UpdateComputeQuotaCommand,
   SageMakerClient,
   type DescribeClusterResponse,
   type ClusterInstanceGroupDetails,
@@ -114,6 +117,20 @@ export async function deleteIdleNodes(name: string, nodeIds: string[], expectedH
   return capacityClient().send(new BatchDeleteClusterNodesCommand({ ClusterName: name, NodeIds: nodeIds }), { abortSignal: AbortSignal.timeout(30_000) });
 }
 
+const INSTANCE_ID = /^i-[a-f0-9]{8}(?:[a-f0-9]{9})?$/;
+/**
+ * HyperPod node recovery APIs (docs: "Manually quarantine, replace, or reboot a node"). One node per call from the UI;
+ * no SDK retries because a retried reboot/replace after an ambiguous response would act twice.
+ */
+export async function rebootNodes(name: string, nodeIds: string[]) {
+  if (!nodeIds.length || nodeIds.length > 25 || nodeIds.some((id) => !INSTANCE_ID.test(id))) throw badRequest('Invalid node id set');
+  return capacityClient().send(new BatchRebootClusterNodesCommand({ ClusterName: name, NodeIds: nodeIds }), { abortSignal: AbortSignal.timeout(30_000) });
+}
+export async function replaceNodes(name: string, nodeIds: string[]) {
+  if (!nodeIds.length || nodeIds.length > 25 || nodeIds.some((id) => !INSTANCE_ID.test(id))) throw badRequest('Invalid node id set');
+  return capacityClient().send(new BatchReplaceClusterNodesCommand({ ClusterName: name, NodeIds: nodeIds }), { abortSignal: AbortSignal.timeout(30_000) });
+}
+
 export async function listEvents(name: string, max = 25) {
   const out = await sagemaker().send(new ListClusterEventsCommand({ ClusterName: name, MaxResults: max, SortBy: 'EventTime', SortOrder: 'Descending' }));
   return out.Events ?? [];
@@ -172,6 +189,34 @@ export async function createComputeQuota(i: CreateQuotaInput) {
         ComputeQuotaResources: i.instances.map((x) => ({ InstanceType: x.instanceType as never, Count: x.count })),
         ResourceSharingConfig: { Strategy: i.borrowLimit === undefined ? 'DontLend' : 'LendAndBorrow', BorrowLimit: i.borrowLimit },
         PreemptTeamTasks: i.preempt ?? 'LowerPriority',
+      },
+    }),
+  );
+}
+export interface UpdateQuotaInput {
+  id: string;
+  /** DescribeComputeQuota.ComputeQuotaVersion observed by the caller; SageMaker rejects a stale version. */
+  targetVersion: number;
+  team: string;
+  fairShareWeight: number;
+  instances: { instanceType: string; count: number }[];
+  borrowLimit?: number;
+  preempt: 'LowerPriority' | 'Never';
+  activationState: 'Enabled' | 'Disabled';
+  description?: string;
+}
+export async function updateComputeQuota(i: UpdateQuotaInput) {
+  return sagemaker().send(
+    new UpdateComputeQuotaCommand({
+      ComputeQuotaId: i.id,
+      TargetVersion: i.targetVersion,
+      Description: i.description,
+      ActivationState: i.activationState,
+      ComputeQuotaTarget: { TeamName: i.team, FairShareWeight: i.fairShareWeight },
+      ComputeQuotaConfig: {
+        ComputeQuotaResources: i.instances.map((x) => ({ InstanceType: x.instanceType as never, Count: x.count })),
+        ResourceSharingConfig: { Strategy: i.borrowLimit === undefined ? 'DontLend' : 'LendAndBorrow', BorrowLimit: i.borrowLimit },
+        PreemptTeamTasks: i.preempt,
       },
     }),
   );

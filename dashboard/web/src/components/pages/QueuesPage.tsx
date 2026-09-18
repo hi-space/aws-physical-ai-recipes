@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, KeyValue, Spinner, Table } from '@/components/ui';
 import { fmtNum, parseQuantity, classNames as cx } from '@/lib/format';
-import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
+import { api, useApi, useApiMutation, useMe, can } from '@/lib/api-client';
 import { useT } from '@/lib/i18n';
 
 interface ClusterQueue {
@@ -86,6 +86,7 @@ export function QueuesPage() {
   const [newQuotaDialog, setNewQuotaDialog] = React.useState(false);
   const [newPolicyDialog, setNewPolicyDialog] = React.useState(false);
   const [deleteItem, setDeleteItem] = React.useState<{ id: string; kind: 'quota' | 'policy' } | null>(null);
+  const [editQuota, setEditQuota] = React.useState<any | null>(null);
 
   const { data: queuesData, isLoading: queuesLoading, error: queuesError } = useApi<QueuesData>('/api/queues', { refetch: 8000 });
   const { data: quotasData, isLoading: quotasLoading, error: quotasError } = useApi<QuotasData>('/api/quotas', { refetch: 8000 });
@@ -447,12 +448,16 @@ export function QueuesPage() {
                         </td>
                         {can(me, 'admin') && (
                           <td className="px-3 py-2 text-center">
-                            <button
-                              onClick={() => setDeleteItem({ id: q.ComputeQuotaId, kind: 'quota' })}
-                              className="text-err hover:underline"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                              <Button size="sm" variant="ghost" disabled={!q.detail} onClick={() => setEditQuota(q)}>{tc('edit')}</Button>
+                              <button
+                                onClick={() => setDeleteItem({ id: q.ComputeQuotaId, kind: 'quota' })}
+                                className="text-err hover:underline"
+                                aria-label={tc('delete')}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -494,6 +499,14 @@ export function QueuesPage() {
             </div>
           </div>
         </Dialog>
+      )}
+
+      {editQuota && (
+        <EditQuotaDialog
+          quota={editQuota}
+          onClose={() => setEditQuota(null)}
+          onSuccess={() => { setEditQuota(null); setToast({ message: t('quotaUpdated'), tone: 'ok' }); }}
+        />
       )}
 
       {/* New Quota Dialog */}
@@ -677,6 +690,92 @@ function NewQuotaDialog({ onClose, onSuccess, onError }: { onClose: () => void; 
           <Button onClick={handleSubmit} variant="primary" loading={loading}>
             {tc('create')}
           </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * UpdateComputeQuota. Every field is prefilled from DescribeComputeQuota and the observed ComputeQuotaVersion is sent as
+ * TargetVersion, so a quota changed elsewhere in the meantime is rejected by SageMaker instead of overwritten.
+ */
+function EditQuotaDialog({ quota, onClose, onSuccess }: { quota: any; onClose: () => void; onSuccess: () => void }) {
+  const t = useT('queues');
+  const tc = useT('common');
+  const d = quota.detail ?? {};
+  const cfg = d.ComputeQuotaConfig ?? {};
+  const [team] = React.useState<string>(d.ComputeQuotaTarget?.TeamName ?? quota.ComputeQuotaTarget?.TeamName ?? '');
+  const [fairShare, setFairShare] = React.useState<string>(String(d.ComputeQuotaTarget?.FairShareWeight ?? 50));
+  const [instances, setInstances] = React.useState<Array<{ instanceType: string; count: string }>>((cfg.ComputeQuotaResources ?? []).map((r: any) => ({ instanceType: r.InstanceType, count: String(r.Count ?? 0) })));
+  const [borrowLimit, setBorrowLimit] = React.useState<string>(cfg.ResourceSharingConfig?.Strategy === 'DontLend' ? '' : String(cfg.ResourceSharingConfig?.BorrowLimit ?? ''));
+  const [preempt, setPreempt] = React.useState<'LowerPriority' | 'Never'>(cfg.PreemptTeamTasks ?? 'LowerPriority');
+  const [activation, setActivation] = React.useState<'Enabled' | 'Disabled'>(d.ActivationState ?? 'Enabled');
+  const [error, setError] = React.useState<unknown>();
+  const [busy, setBusy] = React.useState(false);
+  const version: number | undefined = d.ComputeQuotaVersion ?? quota.ComputeQuotaVersion;
+  const { data: clusterData } = useApi<{ clusters: ClusterSummary[] }>('/api/clusters');
+  const instanceTypeOptions = React.useMemo(() => {
+    const fromCluster = clusterData?.clusters.find((c) => c.orchestrator === 'eks')?.groups.map((g) => g.instanceType) ?? [];
+    return [...new Set([...fromCluster, ...instances.map((i) => i.instanceType)].filter(Boolean))];
+  }, [clusterData, instances]);
+
+  async function submit() {
+    if (version === undefined) { setError(new Error(t('quotaVersionUnknown'))); return; }
+    setBusy(true); setError(undefined);
+    try {
+      await api('/api/quotas', { method: 'PATCH', json: {
+        id: quota.ComputeQuotaId, targetVersion: version, team, fairShareWeight: Number(fairShare),
+        instances: instances.map((i) => ({ instanceType: i.instanceType, count: Number(i.count) })),
+        borrowLimit: borrowLimit === '' ? undefined : Number(borrowLimit), preempt, activationState: activation, description: d.Description || undefined,
+      } });
+      onSuccess();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={t('editQuotaTitle', { name: quota.Name })}>
+      <div className="space-y-4">
+        <ErrorBox error={error} />
+        <p className="text-xs text-fg-muted">{t('editQuotaVersion', { version: version ?? '?', team })}</p>
+        <div>
+          <label className="block text-xs font-medium mb-1">{t('fairShareWeight')}</label>
+          <Input type="number" value={fairShare} onChange={(e) => setFairShare(e.target.value)} min={0} max={100} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-2">{t('instances')}</label>
+          {instances.map((inst, i) => (
+            <div key={i} className="flex gap-2 mb-2">
+              <select value={inst.instanceType} onChange={(e) => { const rows = [...instances]; rows[i] = { ...rows[i], instanceType: e.target.value }; setInstances(rows); }} className="rounded border border-border bg-bg-elev px-2 py-1 text-xs flex-1">
+                {instanceTypeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+              <Input type="number" value={inst.count} min={0} className="w-20" onChange={(e) => { const rows = [...instances]; rows[i] = { ...rows[i], count: e.target.value }; setInstances(rows); }} />
+              {instances.length > 1 && <button onClick={() => setInstances(instances.filter((_, j) => j !== i))} className="px-2 py-1 rounded hover:bg-red-500/10 text-err">×</button>}
+            </div>
+          ))}
+          <button onClick={() => setInstances([...instances, { instanceType: instanceTypeOptions[0] ?? '', count: '1' }])} disabled={!instanceTypeOptions.length} className="text-xs text-accent hover:underline disabled:opacity-50">{t('addInstanceType')}</button>
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">{t('borrowLimitPercent')}</label>
+          <Input type="number" value={borrowLimit} onChange={(e) => setBorrowLimit(e.target.value)} min={0} max={500} placeholder={t('borrowDontLend')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">{t('preemption')}</label>
+          <select value={preempt} onChange={(e) => setPreempt(e.target.value as 'LowerPriority' | 'Never')} className="w-full rounded border border-border bg-bg-elev px-2 py-1 text-xs">
+            <option value="LowerPriority">{t('lowerPriority')}</option>
+            <option value="Never">{t('never')}</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">{t('activationState')}</label>
+          <select value={activation} onChange={(e) => setActivation(e.target.value as 'Enabled' | 'Disabled')} className="w-full rounded border border-border bg-bg-elev px-2 py-1 text-xs">
+            <option value="Enabled">{tc('enabled')}</option>
+            <option value="Disabled">{tc('disabled')}</option>
+          </select>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button onClick={onClose} variant="secondary" disabled={busy}>{tc('cancel')}</Button>
+          <Button onClick={() => void submit()} variant="primary" loading={busy} disabled={instances.some((i) => !i.instanceType)}>{tc('save')}</Button>
         </div>
       </div>
     </Dialog>

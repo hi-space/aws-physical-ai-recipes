@@ -37,7 +37,7 @@ interface ClusterSummary {
 
 interface ClusterResponse {
   clusters: ClusterSummary[];
-  k8sNodes: { name: string; instanceType?: string; group?: string; health?: string; ready: boolean; gpuCapacity: number; gpuAllocatable: number; cpu?: string; memory?: string; kubelet?: string; taints: string[]; unschedulable: boolean }[];
+  k8sNodes: { name: string; instanceId?: string; instanceType?: string; group?: string; health?: string; ready: boolean; gpuCapacity: number; gpuAllocatable: number; cpu?: string; memory?: string; kubelet?: string; taints: string[]; unschedulable: boolean }[];
   addons: { name: string; version?: string; status?: string; health: number }[];
   events?: { EventId?: string; EventTime?: string; ResourceType?: string; Description?: string }[];
 }
@@ -72,7 +72,7 @@ export function ComputePage() {
   const [exportDialog, setExportDialog] = React.useState<{ fileSystemId: string } | null>(null);
   const [exportPaths, setExportPaths] = React.useState<string>('/fsx/checkpoints');
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
-  const [nodeRecoveryDialog, setNodeRecoveryDialog] = React.useState<{ cluster: string; node: string; action: 'reboot' | 'replace' } | null>(null);
+  const [nodeRecoveryDialog, setNodeRecoveryDialog] = React.useState<{ cluster: string; instanceId: string; action: 'reboot' | 'replace' } | null>(null);
 
   const clustersResp = useApi<ClusterResponse>('/api/clusters', { refetch: 10000 });
   const fsxResp = useApi<FileSystem[]>('/api/fsx', { refetch: 10000 });
@@ -237,6 +237,31 @@ export function ComputePage() {
               )}
             </Card>
 
+            {/* HyperPod instances (SageMaker ListClusterNodes) — the only node view for Slurm clusters */}
+            <Card title={t('hpNodes')}>
+              {activeCluster.nodes.length === 0 ? <EmptyState title={t('noHpNodes')} /> : (
+                <Table head={[t('instanceId'), t('group'), t('instType'), tc('status'), t('launchTime'), can(me.data, 'admin') ? tc('actions') : '']} dense>
+                  {activeCluster.nodes.map((n) => (
+                    <tr key={n.id}>
+                      <td className="mono text-[11px]">{n.id}</td>
+                      <td className="text-xs text-fg-muted">{n.group}</td>
+                      <td className="text-xs">{n.instanceType}</td>
+                      <td><StatusPill status={n.status} /></td>
+                      <td className="text-xs text-fg-muted">{n.launchTime ? fmtTime(n.launchTime) : '—'}</td>
+                      {can(me.data, 'admin') && (
+                        <td>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: activeCluster.name, instanceId: n.id, action: 'reboot' })}>{t('nodeReboot')}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: activeCluster.name, instanceId: n.id, action: 'replace' })}>{t('nodeReplace')}</Button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </Table>
+              )}
+            </Card>
+
             {/* K8s Nodes */}
             {activeTab === 'eks' && (
               <Card title={t('nodes')}>
@@ -266,14 +291,12 @@ export function ComputePage() {
                         <td className="text-xs text-fg-muted">{n.taints.length > 0 ? n.taints.join(', ') : '—'}</td>
                         {can(me.data, 'admin') && eksCluster && (
                           <td>
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, node: n.name, action: 'reboot' })}>
-                                {t('nodeReboot')}
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, node: n.name, action: 'replace' })}>
-                                {t('nodeReplace')}
-                              </Button>
-                            </div>
+                            {n.instanceId ? (
+                              <div className="flex gap-1">
+                                <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, instanceId: n.instanceId!, action: 'reboot' })}>{t('nodeReboot')}</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, instanceId: n.instanceId!, action: 'replace' })}>{t('nodeReplace')}</Button>
+                              </div>
+                            ) : <span className="text-xs text-fg-faint">—</span>}
                           </td>
                         )}
                       </tr>
@@ -460,7 +483,7 @@ export function ComputePage() {
       {nodeRecoveryDialog && (
         <NodeActions
           cluster={nodeRecoveryDialog.cluster}
-          node={nodeRecoveryDialog.node}
+          instanceId={nodeRecoveryDialog.instanceId}
           action={nodeRecoveryDialog.action}
           onClose={() => setNodeRecoveryDialog(null)}
           onCompleted={() => { void clustersResp.refetch(); }}

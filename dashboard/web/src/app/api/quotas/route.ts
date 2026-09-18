@@ -25,6 +25,17 @@ export const POST = route('admin', async ({ req }) => {
   if (b.kind === 'quota') return hp.createComputeQuota({ ...b, clusterArn: arn });
   return hp.createSchedulerConfig(b.name, arn, b.priorityClasses, b.fairShare);
 }, { audit: 'quota.create' });
+const updateSchema = z.object({
+  id: z.string().min(1), targetVersion: z.number().int().min(1), team: z.string().min(1).max(40), fairShareWeight: z.number().int().min(0).max(100),
+  instances: z.array(z.object({ instanceType: z.string(), count: z.number().int().min(0) })).min(1), borrowLimit: z.number().int().min(0).max(500).optional(),
+  preempt: z.enum(['LowerPriority', 'Never']), activationState: z.enum(['Enabled', 'Disabled']), description: z.string().max(1024).optional(),
+});
+/** UpdateComputeQuota with the version the admin reviewed; SageMaker rejects the call when the quota changed meanwhile. */
+export const PATCH = route('admin', async ({ req }) => {
+  const b = await body(req, updateSchema);
+  await eksArn();
+  return hp.updateComputeQuota(b);
+}, { audit: 'quota.update' });
 export const DELETE = route('admin', async ({ url }) => {
   const id = q(url, 'id');
   const kind = q(url, 'kind') ?? 'quota';

@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Button, Card, CodeBlock, EmptyState, ErrorBox, Field, Input, Select, Spinner, StatusPill, Table } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
-import { api, useApi, useMe, type Me } from '@/lib/api-client';
+import { api, can, useApi, useMe, type Me } from '@/lib/api-client';
 import type { PipelineArchiveRecord } from '@/server/evaluations/pipeline-types';
 import type { RegisteredModel } from '@/server/evaluations/types';
 
@@ -155,6 +155,7 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
   const [stopError, setStopError] = React.useState<Error>();
   const [stopAccepted, setStopAccepted] = React.useState(false);
   const [selectedTraining, setSelectedTraining] = React.useState('');
+  const [jobStop, setJobStop] = React.useState<{ pending: boolean; requestedAt?: string; error?: unknown }>({ pending: false });
   React.useEffect(() => {
     setSelectedTraining(''); setExpandedStep(null); setExpandedHyperparams(false);
     setStopAccepted(false); setStopError(undefined);
@@ -310,8 +311,20 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
           {trainingStep && !trainingJobName && <p className="mt-2 text-xs text-fg-muted">{t('trainingJobSelectionNote', { name: trainingStep.StepName })}</p>}
         </Card>}
         {jobData?.job && (
-          <Card title={t('trainingJobTitle', { step: trainingStep?.StepName ?? '' })} description={trainingJobName ? t('trainingJobName', { name: trainingJobName }) : undefined}>
+          <Card title={t('trainingJobTitle', { step: trainingStep?.StepName ?? '' })} description={trainingJobName ? t('trainingJobName', { name: trainingJobName }) : undefined}
+            actions={data?.canStop && trainingJobName && jobData.job.TrainingJobStatus === 'InProgress' && can(me.data, 'researcher') ? (
+              <Button size="sm" variant="danger" disabled={jobStop.pending || Boolean(jobStop.requestedAt)} onClick={async () => {
+                if (!window.confirm(t('stopTrainingJobConfirm', { name: trainingJobName }))) return;
+                setJobStop({ pending: true });
+                try {
+                  const out = await api<{ requestedAt: string }>(`/api/pipelines/training-jobs/${encodeURIComponent(trainingJobName)}/stop`, { method: 'POST', headers });
+                  setJobStop({ pending: false, requestedAt: out.requestedAt });
+                } catch (failure) { setJobStop({ pending: false, error: failure }); }
+              }}>{jobStop.requestedAt ? t('stopTrainingJobAccepted') : t('stopTrainingJobButton')}</Button>
+            ) : undefined}>
             <div className="space-y-4">
+              <ErrorBox error={jobStop.error} />
+              {jobStop.requestedAt && <p className="text-xs text-fg-muted">{t('stopTrainingJobNote', { time: fmtTime(jobStop.requestedAt) })}</p>}
               <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                 <div>
                   <span className="text-fg-muted">{t('trainingJobStatus')}</span>

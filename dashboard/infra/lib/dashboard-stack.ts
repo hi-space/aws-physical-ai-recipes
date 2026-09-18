@@ -231,12 +231,16 @@ export class DashboardStack extends cdk.Stack {
           'sagemaker:ListClusterNodes',
           'sagemaker:DescribeClusterNode',
           'sagemaker:UpdateCluster',
+          // Node recovery from the Compute page (plan → acknowledge → apply); preferred over the node-label path.
+          'sagemaker:BatchRebootClusterNodes',
+          'sagemaker:BatchReplaceClusterNodes',
           'sagemaker:ListClusterEvents',
           'sagemaker:DescribeClusterEvent',
           'sagemaker:ListComputeQuotas',
           'sagemaker:DescribeComputeQuota',
           'sagemaker:CreateComputeQuota',
           'sagemaker:DeleteComputeQuota',
+          'sagemaker:UpdateComputeQuota',
           'sagemaker:ListClusterSchedulerConfigs',
           'sagemaker:DescribeClusterSchedulerConfig',
           'sagemaker:CreateClusterSchedulerConfig',
@@ -285,6 +289,11 @@ export class DashboardStack extends cdk.Stack {
       }
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['sagemaker:StopPipelineExecution'], resources: [`${pipelineArn}/execution/*`],
+      }));
+      // Stop a single training job started by the pipeline (SageMaker names them `pipelines-<execution-id>-<step>-…`).
+      role.addToPolicy(new iam.PolicyStatement({
+        sid: 'StopPipelineTrainingJob', actions: ['sagemaker:StopTrainingJob'],
+        resources: [`arn:aws:sagemaker:${props.region}:${props.accountId}:training-job/pipelines-*`],
       }));
       role.addToPolicy(new iam.PolicyStatement({ sid: 'ExplicitVerifiedModelApproval',
         actions: ['sagemaker:UpdateModelPackage'], resources: [packages] }));

@@ -1,47 +1,34 @@
 import { z } from 'zod';
-import { route, body, q } from '@/server/api';
-import { describeCluster } from '@/server/aws/hyperpod';
-import { planNodeRecovery, executeNodeRecovery } from '@/server/services/node-recovery';
+import { body, q, route } from '@/server/api';
 import { backendConfig } from '@/server/backends/context';
+import { describeCluster } from '@/server/aws/hyperpod';
 import { badRequest, notFound } from '@/server/errors';
+import { executeNodeRecovery, planNodeRecovery } from '@/server/services/node-recovery';
+import { knownClusters } from '@/server/services/compute';
 
 type Params = { name: string; nodeId: string };
+export const dynamic = 'force-dynamic';
 
-// GET: fetch the recovery plan
+function assertKnownCluster(name: string) {
+  backendConfig();
+  if (!knownClusters().some((c) => c.name === name)) throw notFound(`cluster ${name}`);
+}
+const actionOf = (value?: string) => {
+  if (value !== 'reboot' && value !== 'replace') throw badRequest('action must be "reboot" or "replace"');
+  return value;
+};
+
+/** Plan: DescribeClusterNode + (EKS) Kubernetes node and pods. Admin only; nothing is changed. */
 export const GET = route<Params>('admin', async ({ params, url }) => {
-  const action = q(url, 'action');
-  if (action !== 'reboot' && action !== 'replace') throw badRequest('action must be "reboot" or "replace"');
-
-  // Verify cluster param equals configured hyperPodClusterName
-  const config = backendConfig();
-  if (!config.eks || params.name !== config.eks.hyperPodClusterName) {
-    throw notFound(`Cluster ${params.name} not found`);
-  }
-
-  const cluster = await describeCluster(params.name);
-  const plan = await planNodeRecovery(cluster, params.nodeId, action);
-
-  return { plan };
+  assertKnownCluster(params.name);
+  const action = actionOf(q(url, 'action'));
+  return { plan: await planNodeRecovery(await describeCluster(params.name), params.nodeId, action) };
 });
 
-// POST: execute the recovery
-const ExecuteSchema = z.object({
-  action: z.enum(['reboot', 'replace']),
-  token: z.string(),
-  acknowledgeRunningPods: z.boolean().default(false),
-});
-
+const ExecuteSchema = z.object({ action: z.enum(['reboot', 'replace']), token: z.string().min(1), acknowledgeRunningPods: z.boolean().default(false) });
+/** Execute: re-plans, compares the token, then calls BatchReboot/ReplaceClusterNodes for this one instance. */
 export const POST = route<Params>('admin', async ({ params, req }) => {
+  assertKnownCluster(params.name);
   const { action, token, acknowledgeRunningPods } = await body(req, ExecuteSchema);
-
-  // Verify cluster param equals configured hyperPodClusterName
-  const config = backendConfig();
-  if (!config.eks || params.name !== config.eks.hyperPodClusterName) {
-    throw notFound(`Cluster ${params.name} not found`);
-  }
-
-  const cluster = await describeCluster(params.name);
-  const result = await executeNodeRecovery(cluster, params.nodeId, action, token, acknowledgeRunningPods);
-
-  return result;
+  return executeNodeRecovery(await describeCluster(params.name), params.nodeId, action, token, acknowledgeRunningPods);
 }, { audit: 'node.recovery' });

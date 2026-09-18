@@ -5,6 +5,7 @@ import * as hp from '../aws/hyperpod';
 import { listNodes as listK8sNodes, type Node } from '../k8s/resources';
 import { describeInstanceTypes } from '../aws/instance-catalog';
 import { getText, parseS3Uri } from '../aws/s3';
+import { extractInstanceId } from '../k8s/node-ops';
 
 export interface ClusterGroup {
   name: string;
@@ -129,6 +130,8 @@ export async function allClusters(): Promise<ClusterSummary[]> {
 
 export interface K8sNodeView {
   name: string;
+  /** EC2 instance id from spec.providerID (HyperPod: aws:///<az-id>/sagemaker/cluster/<…>-<i-…>) */
+  instanceId?: string;
   instanceType?: string;
   group?: string;
   health?: string;
@@ -148,6 +151,7 @@ export function viewNode(n: Node): K8sNodeView {
   const l = n.metadata.labels ?? {};
   return {
     name: n.metadata.name,
+    instanceId: extractInstanceId(n.spec?.providerID),
     instanceType: l['node.kubernetes.io/instance-type'],
     group: l['sagemaker.amazonaws.com/instance-group-name'],
     health: l['sagemaker.amazonaws.com/node-health-status'],

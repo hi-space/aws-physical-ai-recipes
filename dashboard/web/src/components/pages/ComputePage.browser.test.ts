@@ -36,6 +36,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('compute page node recov
           k8sNodes: [
             {
               name: 'hyperpod-node-1',
+              instanceId: 'i-0123456789abcdef0',
               group: 'gpu',
               health: 'Schedulable',
               ready: true,
@@ -51,14 +52,15 @@ describe.skipIf(!existsSync(chromium.executablePath()))('compute page node recov
       if (url.pathname === '/api/fsx' && method === 'GET') {
         return json(response, []);
       }
-      if (url.pathname.startsWith('/api/clusters/hyperpod-eks/nodes/hyperpod-node-1/recovery')) {
+      if (url.pathname.startsWith('/api/clusters/hyperpod-eks/nodes/i-0123456789abcdef0/recovery')) {
         if (method === 'GET') {
           recoveryGetCalls++;
           return json(response, {
             plan: {
               observedAt: new Date().toISOString(),
-              node: { name: 'hyperpod-node-1', group: 'gpu', health: 'Schedulable', ready: true, unschedulable: false, gpuCapacity: 1, instanceId: 'i-123456' },
-              cluster: { nodeRecovery: 'Automatic' },
+              action: 'reboot', api: 'BatchRebootClusterNodes',
+              node: { instanceId: 'i-0123456789abcdef0', group: 'gpu', instanceType: 'ml.g4dn.xlarge', instanceStatus: 'Running', k8sName: 'hyperpod-node-1', health: 'Schedulable', ready: true, unschedulable: false, gpuCapacity: 1 },
+              cluster: { name: 'hyperpod-eks', orchestrator: 'eks', status: 'InService', nodeRecovery: 'Automatic' },
               pods: [
                 {
                   namespace: 'default',
@@ -81,11 +83,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('compute page node recov
           });
         }
         if (method === 'POST') {
-          return json(response, {
-            appliedAt: new Date().toISOString(),
-            label: 'UnschedulablePendingReboot',
-            node: { name: 'hyperpod-node-1', health: 'UnschedulablePendingReboot' },
-          });
+          return json(response, { appliedAt: new Date().toISOString(), api: 'BatchRebootClusterNodes', successful: ['i-0123456789abcdef0'], failed: [] });
         }
       }
       json(response, { error: `unexpected ${method} ${url.pathname}` }, 404);
@@ -112,7 +110,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('compute page node recov
     await dialog.getByRole('cell', { name: 'job-abc-1' }).waitFor({ state: 'visible' });
 
     // Execute button should be disabled
-    const executeButton = dialog.getByRole('button', { name: '라벨 적용' });
+    const executeButton = dialog.getByRole('button', { name: '지금 재부팅' });
     await executeButton.waitFor({ state: 'attached' });
     const disabledBefore = await executeButton.isDisabled();
     expect(disabledBefore).toBe(true);

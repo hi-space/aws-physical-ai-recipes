@@ -32,3 +32,12 @@ describe('METRICS allow-list', () => {
     expect(METRICS.pod_cpu({ pod: 'wf-abc.*', namespace: 'rl' })).toContain('namespace="rl"');
   });
 });
+
+describe('node recovery and quota update requests', () => {
+  it('rejects malformed or oversized node id sets before calling SageMaker', async () => {
+    const { rebootNodes, replaceNodes } = await import('./hyperpod');
+    await expect(rebootNodes('c', [])).rejects.toThrow(/Invalid node id set/);
+    await expect(replaceNodes('c', ['node-1'])).rejects.toThrow(/Invalid node id set/);
+    await expect(rebootNodes('c', Array.from({ length: 26 }, (_, i) => `i-${String(i).padStart(17, '0')}`))).rejects.toThrow(/Invalid node id set/);
+  });
+});

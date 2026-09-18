@@ -1,215 +1,124 @@
 import { createHash } from 'node:crypto';
-import { HttpError } from '../errors';
-import * as nodeOps from '../k8s/node-ops';
-import { SYSTEM_NAMESPACES } from '../k8s/client';
-import { listPodsOnNode } from '../k8s/node-ops';
 import type { DescribeClusterResponse } from '@aws-sdk/client-sagemaker';
+import { HttpError } from '../errors';
+import * as hp from '../aws/hyperpod';
+import { SYSTEM_NAMESPACES } from '../k8s/client';
+import { findNodeByInstanceId, listPodsOnNode } from '../k8s/node-ops';
 
 /** Label the workflow adapters put on every run pod (see src/server/workflow-adapters). */
 const WORKFLOW_LABEL_KEY = 'pai.aws/workflow-id';
+export type RecoveryAction = 'reboot' | 'replace';
+export const RECOVERY_API: Record<RecoveryAction, string> = { reboot: 'BatchRebootClusterNodes', replace: 'BatchReplaceClusterNodes' };
 
 export interface NodeRecoveryPlan {
   observedAt: string;
+  action: RecoveryAction;
+  /** SageMaker API the execute step will call. */
+  api: string;
   node: {
-    name: string;
-    instanceId?: string;
+    instanceId: string;
     group?: string;
+    instanceType?: string;
+    /** DescribeClusterNode.InstanceStatus.Status (Running, Pending, SystemUpdating, …) */
+    instanceStatus?: string;
+    instanceStatusMessage?: string;
+    launchTime?: string;
+    /** Kubernetes side (EKS clusters only, when the instance has joined). */
+    k8sName?: string;
     health?: string;
-    ready: boolean;
-    unschedulable: boolean;
-    gpuCapacity: number;
+    ready?: boolean;
+    unschedulable?: boolean;
+    gpuCapacity?: number;
   };
-  cluster: {
-    /** DescribeCluster.NodeRecovery: 'Automatic' | 'None' */
-    nodeRecovery?: string;
-  };
-  pods: Array<{
-    namespace: string;
-    name: string;
-    phase?: string;
-    owner?: 'daemonset' | 'job' | 'pod' | string;
-    workflowId?: string;
-  }>;
+  cluster: { name: string; orchestrator: 'eks' | 'slurm'; status?: string; nodeRecovery?: string };
+  pods: Array<{ namespace: string; name: string; phase?: string; owner?: string; workflowId?: string }>;
   /** `code` is translated by the UI; `params` carry the values; `message` is an English fallback for API clients. */
-  blockers: Array<{ code: 'node_recovery_disabled' | 'not_hyperpod_node' | 'already_pending' | 'cluster_mismatch'; message: string; params?: Record<string, string> }>;
-  warnings: Array<{ code: 'running_pods'; message: string; params?: Record<string, string> }>;
+  blockers: Array<{ code: 'instance_not_running' | 'cluster_not_in_service' | 'not_in_cluster'; message: string; params?: Record<string, string> }>;
+  warnings: Array<{ code: 'running_pods' | 'k8s_node_missing'; message: string; params?: Record<string, string> }>;
   token: string;
 }
 
 export interface NodeRecoveryResult {
   appliedAt: string;
-  label: string;
-  node: {
-    name: string;
-    health?: string;
-  };
+  api: string;
+  successful: string[];
+  failed: { nodeId?: string; code?: string; message?: string }[];
 }
 
-export async function planNodeRecovery(
-  cluster: DescribeClusterResponse,
-  nodeName: string,
-  action: 'reboot' | 'replace',
-): Promise<NodeRecoveryPlan> {
+export async function planNodeRecovery(cluster: DescribeClusterResponse, instanceId: string, action: RecoveryAction): Promise<NodeRecoveryPlan> {
   const observedAt = new Date().toISOString();
-  const node = await nodeOps.getNode(nodeName);
-  const groupLabel = node.metadata.labels?.['sagemaker.amazonaws.com/instance-group-name'];
-  const instanceId = nodeOps.extractInstanceId(node.spec?.providerID);
-  const health = node.metadata.labels?.['sagemaker.amazonaws.com/node-health-status'];
-  const ready = node.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True') ?? false;
-  const unschedulable = node.spec?.unschedulable ?? false;
-  const gpuCapacity = Number(node.status?.capacity?.['nvidia.com/gpu'] ?? 0);
-
-  // Fetch pods on this node
-  const allPods = await listPodsOnNode(nodeName);
-
-  // Categorize pods: mark DaemonSet-owned and system-namespace pods
-  const pods = allPods.map((pod) => {
-    const podNamespace = pod.metadata.namespace ?? 'default';
-    const ownerRef = pod.metadata.ownerReferences?.find((o) => o.kind);
-    const owner = ownerRef?.kind.toLowerCase();
-    const workflowId =
-      !SYSTEM_NAMESPACES.has(podNamespace) && owner !== 'daemonset'
-        ? pod.metadata.labels?.[WORKFLOW_LABEL_KEY]
-        : undefined;
-    return {
-      namespace: podNamespace,
-      name: pod.metadata.name,
-      phase: pod.status?.phase,
-      owner: owner,
-      workflowId,
-    };
-  });
-
+  const clusterName = cluster.ClusterName ?? '';
+  const orchestrator: 'eks' | 'slurm' = cluster.Orchestrator?.Eks ? 'eks' : 'slurm';
   const blockers: NodeRecoveryPlan['blockers'] = [];
   const warnings: NodeRecoveryPlan['warnings'] = [];
 
-  // Blocker: node_recovery_disabled
-  if (cluster.NodeRecovery !== 'Automatic') {
-    blockers.push({
-      code: 'node_recovery_disabled',
-      message: `Cluster NodeRecovery is not Automatic (current: ${cluster.NodeRecovery ?? 'not set'})`,
-      params: { current: cluster.NodeRecovery ?? 'None' },
-    });
+  let details: Awaited<ReturnType<typeof hp.describeNode>>['NodeDetails'];
+  try {
+    details = (await hp.describeNode(clusterName, instanceId)).NodeDetails;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    blockers.push({ code: 'not_in_cluster', message: `DescribeClusterNode failed: ${message}`, params: { instanceId, cluster: clusterName, error: message } });
+  }
+  const instanceStatus = details?.InstanceStatus?.Status;
+  if (details && instanceStatus !== 'Running') {
+    blockers.push({ code: 'instance_not_running', message: `Instance status is ${instanceStatus ?? 'unknown'}`, params: { status: instanceStatus ?? 'unknown' } });
+  }
+  if (cluster.ClusterStatus !== 'InService') {
+    blockers.push({ code: 'cluster_not_in_service', message: `Cluster status is ${cluster.ClusterStatus ?? 'unknown'}`, params: { status: cluster.ClusterStatus ?? 'unknown' } });
   }
 
-  // Blocker: not_hyperpod_node
-  if (!groupLabel) {
-    blockers.push({
-      code: 'not_hyperpod_node',
-      message: 'Node is not part of a HyperPod instance group (missing sagemaker.amazonaws.com/instance-group-name label)',
-    });
+  // Kubernetes view (EKS only): health label, readiness and the pods that will be terminated.
+  let k8s: NodeRecoveryPlan['node'] extends infer N ? Partial<N> : never = {};
+  let podUids: string[] = [];
+  let pods: NodeRecoveryPlan['pods'] = [];
+  if (orchestrator === 'eks' && details) {
+    const node = await findNodeByInstanceId(instanceId).catch(() => undefined);
+    if (!node) {
+      warnings.push({ code: 'k8s_node_missing', message: 'No Kubernetes node with this instance id; pods on it cannot be listed.' });
+    } else {
+      k8s = {
+        k8sName: node.metadata.name,
+        health: node.metadata.labels?.['sagemaker.amazonaws.com/node-health-status'],
+        ready: node.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True') ?? false,
+        unschedulable: node.spec?.unschedulable ?? false,
+        gpuCapacity: Number(node.status?.capacity?.['nvidia.com/gpu'] ?? 0),
+      };
+      const all = await listPodsOnNode(node.metadata.name);
+      podUids = all.map((p) => p.metadata.uid ?? '').sort();
+      pods = all.map((pod) => {
+        const namespace = pod.metadata.namespace ?? 'default';
+        const owner = pod.metadata.ownerReferences?.[0]?.kind.toLowerCase();
+        return { namespace, name: pod.metadata.name, phase: pod.status?.phase, owner, workflowId: pod.metadata.labels?.[WORKFLOW_LABEL_KEY] };
+      });
+      const running = pods.filter((p) => !SYSTEM_NAMESPACES.has(p.namespace) && p.owner !== 'daemonset' && (p.phase === 'Running' || p.phase === 'Pending'));
+      if (running.length) {
+        const list = running.map((p) => `${p.namespace}/${p.name}${p.workflowId ? ` (${p.workflowId})` : ''}`).join(', ');
+        warnings.push({ code: 'running_pods', message: `${running.length} running pod(s) will be terminated: ${list}`, params: { count: String(running.length), pods: list } });
+      }
+    }
   }
 
-  // Blocker: cluster_mismatch — the node carries the HyperPod cluster it belongs to; refuse when it is another cluster
-  const nodeCluster = node.metadata.labels?.['sagemaker.amazonaws.com/cluster-name'];
-  if (nodeCluster && cluster.ClusterName && nodeCluster !== cluster.ClusterName) {
-    blockers.push({ code: 'cluster_mismatch', message: `Node belongs to cluster ${nodeCluster}, not ${cluster.ClusterName}`, params: { node: nodeCluster, cluster: cluster.ClusterName } });
-  }
-
-  // Blocker: already_pending
-  const targetLabel = action === 'reboot' ? 'UnschedulablePendingReboot' : 'UnschedulablePendingReplacement';
-  if (health === targetLabel) {
-    blockers.push({
-      code: 'already_pending',
-      message: `Node is already labeled with ${targetLabel}`,
-      params: { label: targetLabel },
-    });
-  }
-
-  // Warning: running_pods (non-DaemonSet pods in non-system namespaces)
-  const runningPods = pods.filter(
-    (p) =>
-      !SYSTEM_NAMESPACES.has(p.namespace) &&
-      p.owner !== 'daemonset' &&
-      (p.phase === 'Running' || p.phase === 'Pending'),
-  );
-
-  if (runningPods.length > 0) {
-    const podList = runningPods
-      .map((p) => `${p.namespace}/${p.name}${p.workflowId ? ` (${p.workflowId})` : ''}`)
-      .join(', ');
-    warnings.push({
-      code: 'running_pods',
-      message: `${runningPods.length} running pod(s) will be terminated: ${podList}`,
-      params: { count: String(runningPods.length), pods: podList },
-    });
-  }
-
-  // Generate token: hash of (node uid, current health label, sorted pod uids)
-  const token = generateToken(
-    node.metadata.uid ?? '',
-    health ?? '',
-    allPods
-      .map((p) => p.metadata.uid ?? '')
-      .sort()
-      .join(','),
-  );
-
+  const token = createHash('sha256').update([clusterName, instanceId, action, instanceStatus ?? '', k8s.health ?? '', podUids.join(',')].join('|')).digest('hex');
   return {
-    observedAt,
+    observedAt, action, api: RECOVERY_API[action],
     node: {
-      name: nodeName,
-      instanceId,
-      group: groupLabel,
-      health,
-      ready,
-      unschedulable,
-      gpuCapacity,
+      instanceId, group: details?.InstanceGroupName, instanceType: details?.InstanceType, instanceStatus,
+      instanceStatusMessage: details?.InstanceStatus?.Message, launchTime: details?.LaunchTime?.toISOString(), ...k8s,
     },
-    cluster: {
-      nodeRecovery: cluster.NodeRecovery,
-    },
-    pods,
-    blockers,
-    warnings,
-    token,
+    cluster: { name: clusterName, orchestrator, status: cluster.ClusterStatus, nodeRecovery: cluster.NodeRecovery },
+    pods, blockers, warnings, token,
   };
 }
 
-export async function executeNodeRecovery(
-  cluster: DescribeClusterResponse,
-  nodeName: string,
-  action: 'reboot' | 'replace',
-  token: string,
-  acknowledgeRunningPods: boolean,
-): Promise<NodeRecoveryResult> {
-  // Re-verify the plan
-  const currentPlan = await planNodeRecovery(cluster, nodeName, action);
-
-  // Verify token
-  if (currentPlan.token !== token) {
-    throw new HttpError(409, 'Node state has changed. Please review the plan again.', 'node_state_changed');
-  }
-
-  // Check for blockers
-  if (currentPlan.blockers.length > 0) {
-    throw new HttpError(
-      409,
-      `Cannot execute: ${currentPlan.blockers.map((b) => b.message).join('; ')}`,
-      currentPlan.blockers[0]?.code ?? 'blocker_present',
-    );
-  }
-
-  // Check for running_pods warning
-  const runningPodsWarning = currentPlan.warnings.find((w) => w.code === 'running_pods');
-  if (runningPodsWarning && !acknowledgeRunningPods) {
-    throw new HttpError(400, 'Running pods will be terminated. Please acknowledge before proceeding.', 'ack_required');
-  }
-
-  // Apply the label
-  const targetLabel = action === 'reboot' ? 'UnschedulablePendingReboot' : 'UnschedulablePendingReplacement';
-  const updatedNode = await nodeOps.setNodeHealthLabel(nodeName, targetLabel);
-
+export async function executeNodeRecovery(cluster: DescribeClusterResponse, instanceId: string, action: RecoveryAction, token: string, acknowledgeRunningPods: boolean): Promise<NodeRecoveryResult> {
+  const current = await planNodeRecovery(cluster, instanceId, action);
+  if (current.token !== token) throw new HttpError(409, 'Node state has changed. Review the plan again.', 'node_state_changed');
+  if (current.blockers.length) throw new HttpError(409, `Cannot execute: ${current.blockers.map((b) => b.message).join('; ')}`, current.blockers[0].code);
+  if (current.warnings.some((w) => w.code === 'running_pods') && !acknowledgeRunningPods) throw new HttpError(400, 'Running pods will be terminated. Acknowledge before proceeding.', 'ack_required');
+  const out = action === 'reboot' ? await hp.rebootNodes(current.cluster.name, [instanceId]) : await hp.replaceNodes(current.cluster.name, [instanceId]);
   return {
-    appliedAt: new Date().toISOString(),
-    label: targetLabel,
-    node: {
-      name: updatedNode.metadata.name,
-      health: updatedNode.metadata.labels?.['sagemaker.amazonaws.com/node-health-status'],
-    },
+    appliedAt: new Date().toISOString(), api: RECOVERY_API[action],
+    successful: out.Successful ?? [],
+    failed: (out.Failed ?? []).map((f) => ({ nodeId: f.NodeId, code: f.ErrorCode, message: f.Message })),
   };
-}
-
-function generateToken(...parts: string[]): string {
-  return createHash('sha256').update(parts.join('|')).digest('hex');
 }
