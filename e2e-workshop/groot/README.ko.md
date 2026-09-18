@@ -43,7 +43,7 @@ source .venv/bin/activate
 
 ### 2) 컨테이너 이미지 확인
 
-학습 이미지(`groot-sm-training:latest`)는 GrootFinetune 스택 배포 시 CodeBuild(`groot-sm-training-build`)가 자동으로 빌드합니다(flash-attn 등을 포함하므로 약 20–40분). 완료 여부만 확인합니다:
+학습 이미지(`groot-sm-training:latest`)는 GrootFinetune 스택 배포 시 런타임 이미지 빌드가 끝난 뒤 CodeBuild(`groot-sm-training-build`)가 이어서 자동으로 빌드합니다(flash-attn 등을 포함하므로 약 20–40분, 배포 후 약 1시간 안에 완료). 완료 여부만 확인합니다:
 
 ```bash
 aws ecr describe-images --repository-name groot-sm-training --query 'imageDetails[].imageTags'

@@ -35,7 +35,7 @@ npm install
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 npx cdk bootstrap aws://${ACCOUNT_ID}/us-east-1
 
-# 4) 배포 (~15분 + 런타임/학습 이미지 CodeBuild ~30~40분이 백그라운드로 이어짐)
+# 4) 배포 (~15분 + 런타임 이미지 CodeBuild ~30~40분, 이어서 학습 이미지 ~30~40분이 백그라운드로 진행)
 npm run deploy -- -c region=us-east-1
 
 # 5) 학습/추론 코드가 읽는 config.yaml 갱신
@@ -45,7 +45,7 @@ npx ts-node bin/update-config.ts --region us-east-1
 배포되는 스택 이름은 `GrootFinetune-<ACCOUNT_ID>` 하나입니다. 배포 직후 CodeBuild
 `groot-runtime-build`가 GR00T 런타임 이미지(~27GB)를 ECR `groot-runtime`에,
 `groot-sm-training-build`가 SageMaker 학습 이미지를 ECR `groot-sm-training`에 자동으로
-빌드·푸시합니다(각 약 30~40분, 병렬). 빌드 상태 확인:
+빌드·푸시합니다(각 약 30~40분, 런타임 → 학습 순차; 동시에 시작하면 새 계정의 CodeBuild 큐 한도에 걸림). 빌드 상태 확인:
 
 ```bash
 aws codebuild list-builds-for-project --project-name groot-runtime-build --max-items 1

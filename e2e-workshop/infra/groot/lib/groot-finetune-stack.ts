@@ -64,8 +64,9 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
  * 2-스택 구성을 1인 1계정 전제로 단일 스택으로 통합했다.
  *
  *   - GR00T 런타임 ECR + CodeBuild (배포 시 자동 트리거; 모듈 2/3/5 Policy Server 이미지)
- *   - SageMaker training ECR + CodeBuild (배포 시 자동 트리거; 모듈 4 Training Job 이미지.
- *     Dockerfile 을 고친 뒤 재빌드할 때만 trigger_build.py 로 zip 업로드 후 빌드)
+ *   - SageMaker training ECR + CodeBuild (런타임 빌드가 끝나면 이어서 자동 빌드; 모듈 4 Training Job
+ *     이미지. 계정의 CodeBuild 큐 한도 때문에 동시에 시작하지 않는다. Dockerfile 을 고친 뒤
+ *     재빌드할 때만 trigger_build.py 로 zip 업로드 후 빌드)
  *   - SageMaker Studio Domain + UserProfile (실행 역할은 단일 Notebook role)
  *   - S3 아티팩트 버킷 (+ 부모 FSx가 있을 때만 DRA /groot ↔ s3://<bucket>)
  *   - S3 Files 파일시스템 + 마운트 타깃 (기본 on; DCV 가 /mnt/s3/groot 로 NFS 마운트)
@@ -88,11 +89,12 @@ export class GrootFinetuneStack extends cdk.Stack {
     cdk.Tags.of(this).add('Project', 'GrootFinetune');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
 
-    // ---------- [0] CodeBuild 자동 트리거(startBuild) Lambda 의 공용 역할 ----------
-    // AwsCustomResource 는 스택당 singleton Lambda 를 공유하므로 실행 역할도 하나여야 한다.
-    // 두 프로젝트 이름은 고정 문자열이라 ARN 을 먼저 만들 수 있다 (생성 순서 의존 없음).
+    // ---------- [0] CodeBuild 자동 트리거(startBuild) Lambda 의 역할 ----------
+    // 배포 시 StartBuild 는 런타임 빌드 하나만 한다. 학습 빌드는 런타임 빌드가 끝날 때 이어서 시작한다
+    // (codebuild-infra.ts `nextBuild`). 두 빌드를 동시에 시작하면 새 계정(Workshop Studio 이벤트 계정)의
+    // CodeBuild 한도 "Cannot have more than 1 builds in queue for the account" 에 걸려 스택이 롤백된다.
     // 권한은 inlinePolicies 로 넣는다 — 별도 AWS::IAM::Policy 는 전파 전에 Lambda 가 호출될 수 있다
-    // (codebuild-infra.ts 주석 참고).
+    // (codebuild-infra.ts 주석 참고). 프로젝트 이름은 고정 문자열이라 ARN 을 먼저 만들 수 있다.
     const buildTriggerRole = new iam.Role(this, 'BuildTriggerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -105,7 +107,6 @@ export class GrootFinetuneStack extends cdk.Stack {
               actions: ['codebuild:StartBuild'],
               resources: [
                 this.formatArn({ service: 'codebuild', resource: 'project', resourceName: RUNTIME_BUILD_PROJECT }),
-                this.formatArn({ service: 'codebuild', resource: 'project', resourceName: SM_TRAINING_BUILD_PROJECT }),
               ],
             }),
           ],
@@ -113,20 +114,10 @@ export class GrootFinetuneStack extends cdk.Stack {
       },
     });
 
-    // ---------- [1] GR00T 런타임 ECR + CodeBuild (auto-trigger build) ----------
-    // 모듈 2의 Greengrass 추론과 모듈 3/5의 Policy Server가 공유하는 groot-runtime 이미지.
-    const runtimeEcr = new EcrRepo(this, 'BatchEcr');
-    const runtimeCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
-      repository: runtimeEcr.repository,
-      useStableGroot: props.useStableGroot,
-      grootVersion: props.grootVersion,
-      triggerRole: buildTriggerRole,
-    });
-    runtimeCodeBuild.node.addDependency(runtimeEcr);
-
-    // ---------- [2] SageMaker training ECR + CodeBuild (auto-trigger build) ----------
-    // 모듈 4 SageMaker Training Job 이 쓰는 groot-sm-training 이미지. 런타임 이미지와 같이 배포
-    // 직후 빌드가 시작되어(~30~40분) 참가자가 모듈 3 §3.4 에서 기다리지 않게 한다.
+    // ---------- [1] SageMaker training ECR + CodeBuild ----------
+    // 모듈 4 SageMaker Training Job 이 쓰는 groot-sm-training 이미지. 런타임 빌드가 끝나면 이어서
+    // 빌드되어(~30~40분) 참가자가 모듈 3 §3.4 에서 상태만 확인하면 된다. 런타임 construct 가 이
+    // 프로젝트를 참조하므로 먼저 만든다.
     const smEcr = new TrainingEcr(this, 'SmEcr', {
       trainingRepoName: SM_TRAINING_REPO_NAME,
     });
@@ -140,9 +131,20 @@ export class GrootFinetuneStack extends cdk.Stack {
       role: smCodeBuildRole.role,
       trainingRepository: smEcr.trainingRepository,
       repositoryUrl: props.repositoryUrl ?? '',
-      autoTriggerRole: buildTriggerRole,
     });
     smCodeBuild.node.addDependency(smEcr);
+
+    // ---------- [2] GR00T 런타임 ECR + CodeBuild (배포 시 자동 시작 → 학습 빌드로 체인) ----------
+    // 모듈 2의 Greengrass 추론과 모듈 3/5의 Policy Server가 공유하는 groot-runtime 이미지.
+    const runtimeEcr = new EcrRepo(this, 'BatchEcr');
+    const runtimeCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
+      repository: runtimeEcr.repository,
+      useStableGroot: props.useStableGroot,
+      grootVersion: props.grootVersion,
+      triggerRole: buildTriggerRole,
+      nextBuild: { project: smCodeBuild.trainingProject, assetHash: smCodeBuild.sourceAsset?.assetHash },
+    });
+    runtimeCodeBuild.node.addDependency(runtimeEcr);
 
     // ---------- [3] S3 아티팩트 버킷 ----------
     const artifactsBucket = new ArtifactsBucket(this, 'ArtifactsBucket', {

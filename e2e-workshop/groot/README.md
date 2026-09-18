@@ -43,7 +43,7 @@ source .venv/bin/activate
 
 ### 2) Check the container image
 
-The training image (`groot-sm-training:latest`) is built automatically by CodeBuild (`groot-sm-training-build`) when the GrootFinetune stack is deployed (about 20–40 minutes because it includes flash-attn and other dependencies). Just confirm it is there:
+The training image (`groot-sm-training:latest`) is built automatically by CodeBuild (`groot-sm-training-build`) after the runtime image build that the GrootFinetune stack starts at deploy (about 20–40 minutes because it includes flash-attn and other dependencies; done within about an hour of deployment). Just confirm it is there:
 
 ```bash
 aws ecr describe-images --repository-name groot-sm-training --query 'imageDetails[].imageTags'

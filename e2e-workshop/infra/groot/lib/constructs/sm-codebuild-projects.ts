@@ -4,7 +4,6 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3_assets from 'aws-cdk-lib/aws-s3-assets';
-import * as cr from 'aws-cdk-lib/custom-resources';
 import * as path from 'path';
 import { Construct } from 'constructs';
 
@@ -14,28 +13,24 @@ export interface SmContainerBuildProjectsProps {
   trainingRepository: ecr.IRepository;
   /**
    * GitHub 소스 URL. 비워두면(기본) `../../groot/training/container` 디렉터리를 S3 asset 으로
-   * 올려 CodeBuild 소스로 쓰고, 배포 시 빌드를 자동 트리거한다 (runtime 이미지와 같은 방식).
+   * 올려 CodeBuild 소스로 쓴다 (runtime 이미지와 같은 방식). 빌드는 런타임 빌드 뒤에 이어진다.
    */
   repositoryUrl: string;
-  /**
-   * 배포 시 빌드를 자동 시작하는 커스텀 리소스 Lambda 의 실행 역할. 스택의 다른
-   * AwsCustomResource 와 singleton Lambda 를 공유하므로 스택에서 하나 만들어 넘긴다
-   * (codebuild-infra.ts 주석 참고). 지정하지 않으면 자동 트리거를 만들지 않는다.
-   */
-  autoTriggerRole?: iam.IRole;
 }
 
 /**
  * SageMaker 학습 이미지 빌드용 CodeBuild 프로젝트.
  *   - PrivilegedMode (Docker in Docker), aws/codebuild/standard:7.0.
- *   - 기본: `groot/training/container` 를 S3 asset 으로 업로드해 소스로 쓰고, 배포/asset 변경 시
- *     자동으로 빌드를 시작한다. 참가자는 모듈 3 §3.4 에서 상태만 확인하면 된다.
+ *   - 기본: `groot/training/container` 를 S3 asset 으로 업로드해 소스로 쓴다. 빌드는 이 construct 가
+ *     직접 시작하지 않는다: 런타임 빌드(codebuild-infra.ts)가 끝나면 `NEXT_BUILD_PROJECT` 로 이어서
+ *     시작한다(동시에 두 빌드를 StartBuild 하면 새 계정의 CodeBuild 큐 한도 1에 걸린다).
+ *     참가자는 모듈 3 §3.4 에서 상태만 확인하면 된다.
  *   - `training/scripts/trigger_build.py` 는 Dockerfile 을 고친 뒤 수동 재빌드할 때 쓴다
  *     (같은 레이아웃의 zip 을 올려 sourceLocationOverride 로 빌드).
  */
 export class SmContainerBuildProjects extends Construct {
   public readonly trainingProject: codebuild.Project;
-  /** S3 asset 소스일 때만 존재. 해시가 바뀌면 재배포 시 빌드가 다시 돈다. */
+  /** S3 asset 소스일 때만 존재. 해시가 바뀌면 재배포 시 런타임→학습 체인 빌드가 다시 돈다. */
   public readonly sourceAsset?: s3_assets.Asset;
 
   constructor(scope: Construct, id: string, props: SmContainerBuildProjectsProps) {
@@ -73,7 +68,7 @@ export class SmContainerBuildProjects extends Construct {
 
     this.trainingProject = new codebuild.Project(this, 'TrainingBuild', {
       projectName: props.trainingProjectName,
-      description: 'GR00T-N1.6 학습 컨테이너 빌드 및 ECR 푸시 (배포 시 자동 트리거)',
+      description: 'GR00T-N1.6 학습 컨테이너 빌드 및 ECR 푸시 (배포 시 groot-runtime-build 뒤에 자동 시작)',
       role: props.role,
       source,
       buildSpec,
@@ -107,23 +102,6 @@ export class SmContainerBuildProjects extends Construct {
 
     // asset 버킷 읽기 권한은 codebuild.Source.s3 가 프로젝트 롤에 자동으로 부여한다
     // (GR00TCodeBuildRole 자체는 */codebuild-source/* 만 허용).
-
-    if (this.sourceAsset && props.autoTriggerRole) {
-      const physicalId = `${props.trainingProjectName}-${this.sourceAsset.assetHash}`;
-      const startBuild = {
-        service: 'CodeBuild',
-        action: 'startBuild',
-        parameters: { projectName: this.trainingProject.projectName },
-        physicalResourceId: cr.PhysicalResourceId.of(physicalId),
-      };
-      const trigger = new cr.AwsCustomResource(this, 'TriggerBuild', {
-        onCreate: startBuild,
-        onUpdate: startBuild,
-        role: props.autoTriggerRole,
-        installLatestAwsSdk: false,
-      });
-      trigger.node.addDependency(this.trainingProject);
-    }
   }
 }
 
