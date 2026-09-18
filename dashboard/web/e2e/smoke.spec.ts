@@ -1,41 +1,50 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { loginThroughHostedUi as login } from './ui-audit-helpers';
 
 /**
  * Live smoke test: logs in through the Cognito hosted UI (ALB authenticate-cognito),
  * then visits every page and asserts it renders without an error box.
  *   DASHBOARD_URL=https://... DASHBOARD_USER=admin DASHBOARD_PASSWORD=... npx playwright test
  */
-const PAGES = ['/', '/workflows', '/workflows/new', '/jobs', '/queues', '/compute', '/metrics', '/experiments', '/datasets', '/models', '/sessions', '/pipelines', '/edge', '/storage', '/admin'];
-
-async function login(page: Page) {
-  await page.goto('/');
-  if (page.url().includes('amazoncognito.com') || page.url().includes('/login')) {
-    const user = process.env.DASHBOARD_USER ?? 'admin';
-    const pass = process.env.DASHBOARD_PASSWORD;
-    if (!pass) throw new Error('DASHBOARD_PASSWORD is required for the live smoke test');
-    // Classic hosted UI renders two forms (mobile/desktop); fill the visible one.
-    const userInput = page.locator('input[name="username"]:visible').first();
-    await userInput.waitFor({ state: 'visible', timeout: 30_000 });
-    await userInput.fill(user);
-    await page.locator('input[name="password"]:visible').first().fill(pass);
-    await page.locator('input[name="signInSubmitButton"]:visible, button[type="submit"]:visible').first().click();
-    await page.waitForURL((u) => !u.href.includes('amazoncognito.com'), { timeout: 60_000 });
-  }
-  await expect(page.getByText('Physical AI')).toBeVisible();
-}
+const PAGES = [
+  ['/', '/api/overview'], ['/projects', '/api/projects'], ['/workflows', '/api/workflows'],
+  ['/workflows/new', '/api/templates'], ['/jobs', '/api/k8s/jobs'], ['/queues', '/api/queues'],
+  ['/compute', '/api/clusters'], ['/backends', '/api/backends'], ['/metrics', '/api/metrics/query'],
+  ['/experiments', '/api/mlflow/experiments'], ['/usage', '/api/usage'], ['/datasets', '/api/datasets'],
+  ['/models', '/api/models'], ['/sessions', '/api/sessions'], ['/pipelines', '/api/pipelines'],
+  ['/edge', '/api/edge'], ['/storage', '/api/s3'], ['/image-profiles', '/api/image-profiles'],
+  ['/builds', '/api/builds'], ['/access', '/api/credentials'], ['/webhooks', '/api/webhooks'],
+  ['/admin', '/api/admin/users'],
+] as const;
 
 test.describe.configure({ mode: 'serial' });
 
 test('login and visit every page', async ({ page }) => {
   await login(page);
-  for (const p of PAGES) {
-    await page.goto(p);
-    await page.waitForLoadState('load', { timeout: 60_000 }).catch(() => undefined);
-    await page.waitForTimeout(2500);
-    await expect(page.locator('h1').first()).toBeVisible({ timeout: 30_000 });
-    const status = await page.evaluate(() => document.body.innerText.includes('401') && document.body.innerText.includes('Unauthorized'));
-    expect(status, `${p} should not be a 401 page`).toBe(false);
-    await page.screenshot({ path: `test-results/page${p.replace(/\//g, '_') || '_root'}.png`, fullPage: true });
+  for (const [path, primaryApi] of PAGES) {
+    const failures: string[] = [], pageErrors: string[] = [];
+    const onResponse = (response: import('@playwright/test').Response) => {
+      const url = new URL(response.url());
+      if (url.pathname.startsWith('/api/') && response.status() >= 400) failures.push(`${response.status()} ${url.pathname}`);
+    };
+    const onError = (error: Error) => pageErrors.push(error.message);
+    page.on('response', onResponse); page.on('pageerror', onError);
+    try {
+      const primary = page.waitForResponse(response => new URL(response.url()).pathname === primaryApi, { timeout: 30_000 });
+      const [document, response] = await Promise.all([page.goto(path), primary]);
+      expect(document?.status(), path).toBe(200);
+      expect(response.status(), `${path} primary API`).toBe(200);
+      await expect(page.locator('h1').first()).toBeVisible();
+      if (path === '/admin') await expect(page.getByRole('heading', { name: 'Admin Panel', exact: true })).toBeVisible();
+      // Initial requests can cause dependent requests (for example, bucket -> listing).
+      await page.waitForLoadState('networkidle', { timeout: 15_000 });
+      await expect(page.getByText(/^(Admin role required|You do not have permission to access this page|401 Unauthorized)$/)).toHaveCount(0);
+      expect(failures, `${path} API failures`).toEqual([]);
+      expect(pageErrors, `${path} browser errors`).toEqual([]);
+      await page.screenshot({ path: test.info().outputPath(`page${path.replace(/\//g, '_') || '_root'}.png`), fullPage: true });
+    } finally {
+      page.off('response', onResponse); page.off('pageerror', onError);
+    }
   }
 });
 
