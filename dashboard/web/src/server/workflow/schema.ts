@@ -105,7 +105,7 @@ export const taskSchema = z.object({
   topology: z.object({
     key: z.string().min(1),
     mode: z.enum(['required', 'preferred']).default('required')
-  }).strict().optional()
+  }).strict().optional().describe('JobSet group members only; standalone Jobs use resource.topology')
 }).strict();
 const timeouts = z.preprocess(value => {
   if (!value || typeof value !== 'object') return value;
@@ -207,6 +207,9 @@ export function validateSpec(spec: WorkflowSpec): string[] {
     names.add(t.name);
     if (!t.command?.length) errors.push(`task ${t.name}: explicit command is required`);
     if (t.group && !groupNames.has(t.group)) errors.push(`task ${t.name}: unknown group ${t.group}`);
+    if (t.topology && !spec.workflow.groups?.some(g => g.name === t.group && g.tasks.some(member => member.name === t.name))) {
+      errors.push(`task ${t.name}: task topology is supported only for JobSet group members; use resource-level workflow.resources[resource].topology for standalone Jobs`);
+    }
     if (t.lead && !t.group) errors.push(`task ${t.name}: lead requires a group`);
     try {
       const portNames = new Set<string>();

@@ -117,7 +117,7 @@ export async function scaleSnapshot(cluster: string, group: string, d = scalingD
   if (reads.some(r => r.status === 'rejected')) activity.blockers.push({ code: 'activity_unknown', message: '노드·Pod·워크플로·세션·결과 확정 기록 중 일부를 조회하지 못했습니다.' });
   else activity = inspectActivity(d.backendId, target, (reads[0] as PromiseFulfilledResult<ScaleNode[]>).value,
     (reads[1] as PromiseFulfilledResult<ScalePod[]>).value, (reads[2] as PromiseFulfilledResult<ClusterNodeSummary[]>).value,
-    (reads[3] as PromiseFulfilledResult<ActivityRows>).value, d.now(), operationId);
+    (reads[3] as PromiseFulfilledResult<ActivityRows>).value, d.now(), operationId, description.ClusterArn);
   if (reads[4].status !== 'fulfilled' || reads[4].value !== true) activity.blockers.push({ code: 'cordon_permission_unknown', message: '노드 사용 중지·복구 권한을 확인하지 못했습니다. 권한 없이 종료 요청을 보내지 않습니다.' });
   if (savedPolicy && (!Array.isArray(savedPolicy.protectedInstanceIds) || savedPolicy.protectedInstanceIds.length < Math.max(savedPolicy.minCount, savedPolicy.baselineCount) ||
     savedPolicy.protectedInstanceIds.some(id => !activity.targets.some(node => node.instanceId === id)))) baseBlockers.push({ code: 'baseline_identity_changed', message: '정책에서 보호한 기준 인스턴스를 확인하지 못했습니다. 기준을 다시 검토해야 합니다.' });

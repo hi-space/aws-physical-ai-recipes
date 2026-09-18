@@ -40,7 +40,27 @@ The schema accepts `workflow.groups`, lead designation, barriers, `ignoreNonlead
 
 Execution requires the JobSet adapter **and** a real `groupRuntime.observe/fence` adapter plus `runtimeImage` (or an explicitly preinstalled `runtimeCommand`). When `runtimeImage` is configured, a trusted init container copies `/opt/pai/runtime` from that image into an emptyDir. The workload mounts the binary read-only at `/opt/pai/runtime`, so its image needs no Python or preinstalled agent. `runtimeEnvironment(workflow, task, epoch, attempt)` supplies scoped `PAI_RUNTIME_*` variables after launch intent is persisted and before manifests are created. User overrides remain forbidden. The executable runs in the workload container as `runtimeCommand --contract <JSON> -- <user argv>`. The contract carries workflowId, projectId, namespace, task, attempt, epoch, outputPath, replicaIndexEnv, group membership, leader, barrier setting, exit policies and checkpoints. Groups include both member IDs and structured `{ id, task, replicaIndex, resource }` participants. Every group child is an Indexed Job, including one-replica members, and `PAI_REPLICA_INDEX` uses the completion-index Downward API. The runtime must report actual user exits, implement initialization/barrier handshakes, normalize ignored nonleader exits for JobSet, upload periodic/final checkpoints, and durably reject invalidated epochs. No worker process executes user shell code.
 
-The parent provides the actual static runtime and participant API; these compiler and controller hooks use them directly. Submission fails explicitly when they are absent. Independent nonleader rescheduling with `ignoreNonleadStatus: true` is unsupported; use whole-group retry with false. Native hierarchical topology metadata parses, but execution explicitly rejects it because a verified Kueue co-location translation is not supplied. Task/group `{key, mode}` topology hints are a separate compiler extension, not native hierarchy equivalence. Checkpoint execution requires an installed trusted runtime. Native exitActions use the configured bounded `retry` budget (default zero retries).
+The parent provides the actual static runtime and participant API; these compiler and controller hooks use them directly. Submission fails explicitly when they are absent. Independent nonleader rescheduling with `ignoreNonleadStatus: true` is unsupported; use whole-group retry with false. Checkpoint execution requires an installed trusted runtime. Native exitActions use the configured bounded `retry` budget (default zero retries).
+
+Task/group `topology: {key, mode}` is the dashboard's JobSet-only Kueue annotation form. A task must be declared in `workflow.groups[].tasks`; adding a `group` name to a standalone task does not establish membership. Group topology takes precedence over member task topology. Standalone tasks reject this form during validation, before workflow persistence, for both `required` (the default) and `preferred`; the direct compiler also rejects it.
+
+For standalone Jobs, declare native topology on the referenced resource instead:
+
+```yaml
+workflow:
+  name: placed-job
+  namespace: hyperpod-ns-team
+  queue: hyperpod-ns-team-localqueue
+  resources:
+    cpu:
+      cpu: 2
+      topology:
+        - { key: zone, group: workers, requirementType: required }
+  tasks:
+    - { name: train, resource: cpu, image: busybox, command: [echo, ok], parallelism: 2 }
+```
+
+Native `workflow.resources[resource].topology` uses logical keys from the backend's registered namespace/queue inventory (`zone` above must be registered). The planner verifies available placement and persists a fenced plan; the compiler enforces its node selectors and affinity for standalone Jobs and JobSet members. A required constraint is never relaxed to obtain a fit. Native topology and task/group `{key, mode}` topology cannot be combined within one admission unit. Group names express placement relationships, not literal zone values; cross-task relationships must fit within one admission unit.
 
 ## Artifact collector cleanup
 

@@ -99,6 +99,21 @@ it('accepts native resource topology, excluded nodes and default resource while 
     requirementType: 'preferred'
   });
 });
+it.each(['{ key: topology.kubernetes.io/zone }', '{ key: topology.kubernetes.io/zone, mode: required }', '{ key: topology.kubernetes.io/zone, mode: preferred }'])(
+  'rejects unsupported standalone task topology %s with resource topology guidance', topology => {
+    expect(() => parseWorkflowYaml(base + `      topology: ${topology}\n`)).toThrow(/task a:.*topology.*JobSet.*resource/i);
+  },
+);
+it('does not accept task topology just because a standalone task claims an existing group name', () => {
+  const source = base + `      group: pair
+      topology: { key: topology.kubernetes.io/zone, mode: required }
+  groups:
+    - name: pair
+      tasks:
+        - { name: leader, lead: true, resource: cpu, image: busybox, command: [echo, ok] }
+`;
+  expect(() => parseWorkflowYaml(source)).toThrow(/task a:.*topology.*JobSet.*resource/i);
+});
 it('rejects cycles introduced by contracting concurrent groups into admission units', () => {
   expect(() => parseWorkflowYaml(`workflow:
   name: cyclic-groups

@@ -105,8 +105,11 @@ export class DashboardStack extends cdk.Stack {
 
     const auth = new AuthConstruct(this, 'Auth', { accountId: props.accountId, domainName: props.domainName, adminUsername: props.adminUsername, adminEmail: props.adminEmail });
 
+    const discoveredEnvironment = buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn });
+    const pipelineName = discoveredEnvironment.SM_PIPELINE_NAME;
+    const pipelineArn = pipelineName ? `arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${pipelineName}` : undefined;
     const environment = {
-      ...buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn }),
+      ...discoveredEnvironment,
       ...workloadImages.environment,
       IMAGE_PROFILES_ENFORCED: '1',
       LOG_ARCHIVE_ENABLED: '1',
@@ -238,13 +241,6 @@ export class DashboardStack extends cdk.Stack {
           'sagemaker:DescribeClusterSchedulerConfig',
           'sagemaker:CreateClusterSchedulerConfig',
           'sagemaker:DeleteClusterSchedulerConfig',
-          'sagemaker:DescribePipeline',
-          'sagemaker:ListPipelineExecutions',
-          'sagemaker:StartPipelineExecution',
-          'sagemaker:StopPipelineExecution',
-          'sagemaker:DescribePipelineExecution',
-          'sagemaker:ListPipelineExecutionSteps',
-          'sagemaker:ListPipelineParametersForExecution',
           'sagemaker:ListTrainingJobs',
           'sagemaker:DescribeTrainingJob',
           'sagemaker:ListModelPackages',
@@ -264,18 +260,16 @@ export class DashboardStack extends cdk.Stack {
         conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
       }),
     );
-    if (d.groot?.PipelineName) svc.controllerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['sagemaker:StartPipelineExecution'],
-      resources: [`arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${d.groot.PipelineName}`],
-    }));
     if (d.groot?.SageMakerRoleArn) svc.controllerRole.addToPolicy(new iam.PolicyStatement({
       actions: ['iam:PassRole'], resources: [d.groot.SageMakerRoleArn],
       conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
     }));
-    if (d.groot) {
-      const pipelineArn = `arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${d.groot.PipelineName ?? `groot-sm-finetuning-${props.accountId}`}`;
+    if (pipelineArn) {
       const packages = `arn:aws:sagemaker:${props.region}:${props.accountId}:model-package/groot-sm-models-${props.accountId}/*`;
       for (const reader of [role, svc.controllerRole]) {
+        reader.addToPolicy(new iam.PolicyStatement({
+          actions: ['sagemaker:StartPipelineExecution'], resources: [pipelineArn],
+        }));
         reader.addToPolicy(new iam.PolicyStatement({
           sid: 'PipelineArchiveEvidence',
           actions: ['sagemaker:DescribePipeline', 'sagemaker:DescribePipelineExecution', 'sagemaker:DescribePipelineDefinitionForExecution',
@@ -289,6 +283,9 @@ export class DashboardStack extends cdk.Stack {
         reader.addToPolicy(new iam.PolicyStatement({ sid: 'ConfiguredModelPackageEvidence',
           actions: ['sagemaker:DescribeModelPackage'], resources: [packages] }));
       }
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['sagemaker:StopPipelineExecution'], resources: [`${pipelineArn}/execution/*`],
+      }));
       role.addToPolicy(new iam.PolicyStatement({ sid: 'ExplicitVerifiedModelApproval',
         actions: ['sagemaker:UpdateModelPackage'], resources: [packages] }));
     }

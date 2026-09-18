@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { parseWorkflowYaml } from './template';
+import { parseWorkflowYaml, specToYaml } from './template';
 import { compileGroup } from './groups';
 const text = `workflow:
   name: g
@@ -39,6 +39,35 @@ it('compiles a group as one admission root with fenced replicas and explicit bar
     expect(child.template.spec.backoffLimit).toBe(0);
     expect(child.template.spec.template.metadata?.labels?.['pai.aws/epoch']).toBe('epoch');
     expect(child.template.spec.template.spec.containers[0].command?.join(' ')).toContain('/pai-runtime');
+  }
+});
+it.each(['required', 'preferred'] as const)('preserves %s task topology on the corresponding JobSet child', mode => {
+  const source = text.replace('lead: true,', `lead: true, topology: {key: topology.kubernetes.io/zone, mode: ${mode}},`);
+  const { spec } = parseWorkflowYaml(specToYaml(parseWorkflowYaml(source).spec));
+  const result = compileGroup(spec, spec.workflow.groups![0], {
+    workflowId: 'r', owner: 'a', namespace: 'n', queue: 'q',
+    credentialValues: {}, datasetPaths: {}, runtimeCommand: '/pai-runtime',
+  }, 'epoch');
+  const [leader, worker] = result.jobSet.spec.replicatedJobs;
+  expect(leader.template.spec.template.metadata?.annotations?.[`kueue.x-k8s.io/podset-${mode}-topology`])
+    .toBe('topology.kubernetes.io/zone');
+  expect(worker.template.spec.template.metadata?.annotations?.[`kueue.x-k8s.io/podset-${mode}-topology`]).toBeUndefined();
+  expect(result.jobSet.spec.suspend).toBe(true);
+  expect(result.jobSet.metadata.labels?.['kueue.x-k8s.io/queue-name']).toBe('q');
+});
+it('preserves group topology precedence over task topology on every JobSet child', () => {
+  const source = text
+    .replace('name: pair', 'name: pair\n      topology: {key: topology.kubernetes.io/zone, mode: required}')
+    .replace('lead: true,', 'lead: true, topology: {key: kubernetes.io/hostname, mode: preferred},');
+  const { spec } = parseWorkflowYaml(source);
+  const result = compileGroup(spec, spec.workflow.groups![0], {
+    workflowId: 'r', owner: 'a', namespace: 'n', queue: 'q',
+    credentialValues: {}, datasetPaths: {}, runtimeCommand: '/pai-runtime',
+  }, 'epoch');
+  for (const child of result.jobSet.spec.replicatedJobs) {
+    expect(child.template.spec.template.metadata?.annotations?.['kueue.x-k8s.io/podset-required-topology'])
+      .toBe('topology.kubernetes.io/zone');
+    expect(child.template.spec.template.metadata?.annotations?.['kueue.x-k8s.io/podset-preferred-topology']).toBeUndefined();
   }
 });
 it('keeps generated JobSet child Job and Pod names within Kubernetes DNS limits', () => {

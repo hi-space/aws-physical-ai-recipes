@@ -35,7 +35,7 @@ export function buildEnv(d: DiscoveredOutputs, extra: Record<string, string | un
     ARTIFACTS_BUCKET: d.groot?.BucketName,
     MLFLOW_TRACKING_SERVER_ARN: d.groot?.MlflowTrackingServerArn,
     MLFLOW_TRACKING_SERVER_NAME: d.groot?.MlflowTrackingServerName,
-    SM_PIPELINE_NAME: d.groot ? `groot-sm-finetuning-${d.accountId}` : undefined,
+    SM_PIPELINE_NAME: d.groot ? d.groot.PipelineName ?? `groot-sm-finetuning-${d.accountId}` : undefined,
     SM_MODEL_PACKAGE_GROUP: d.groot ? `groot-sm-models-${d.accountId}` : undefined,
     SM_TRAINING_IMAGE_URI: d.groot?.TrainingRepositoryUri ? `${d.groot.TrainingRepositoryUri}:latest` : undefined,
     SM_ROLE_ARN: d.groot?.SageMakerRoleArn,

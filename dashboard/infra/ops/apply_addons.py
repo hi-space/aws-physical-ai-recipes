@@ -23,6 +23,7 @@ def resources(namespaces):
             {"apiGroups": [""], "resources": ["pods", "events"], "verbs": ["get", "list", "watch"]},
             {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["get", "list", "watch"]},
             {"apiGroups": ["storage.k8s.io"], "resources": ["storageclasses"], "verbs": ["get", "list", "watch"]},
+            {"apiGroups": ["scheduling.k8s.io"], "resources": ["priorityclasses"], "verbs": ["get", "list", "watch"]},
             {"apiGroups": ["kueue.x-k8s.io"], "resources": ["clusterqueues", "localqueues", "resourceflavors", "workloads", "workloadpriorityclasses", "topologies"], "verbs": ["get", "list", "watch"]},
         ],
     }, {

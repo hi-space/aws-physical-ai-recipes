@@ -89,6 +89,11 @@ describe('compileTask', () => {
   const job = train.job as any;
   const pod = job.spec.template.spec;
   const c = pod.containers[0];
+  it.each(['required', 'preferred'] as const)('rejects %s task topology when compiling a standalone Job directly', mode => {
+    const task = { ...spec.workflow.tasks[1], topology: { key: 'topology.kubernetes.io/zone', mode } };
+    expect(() => compileTask(spec, task, ctx)).toThrow(/topology.*JobSet.*resource/i);
+    expect(() => compileTask(spec, { ...task, group: 'claimed-group' }, ctx)).toThrow(/topology.*JobSet.*resource/i);
+  });
   it('names and labels like render.sh with Kueue labels on job and pod', () => {
     expect(train.jobName).toBe('wf-abc123-train');
     expect(job.metadata.labels['kueue.x-k8s.io/queue-name']).toBe('hyperpod-ns-team-a-localqueue');

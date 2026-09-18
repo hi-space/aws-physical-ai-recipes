@@ -41,10 +41,10 @@ export async function listExecutions(max = 25) {
   return out.PipelineExecutionSummaries ?? [];
 }
 
-export async function startExecution(params: Record<string, string>, displayName?: string, clientRequestToken = crypto.randomUUID()) {
+export async function startExecution(params: Record<string, string>, displayName?: string, clientRequestToken = crypto.randomUUID(), expectedPipelineArn?: string) {
   const out = await sagemaker().send(
     new StartPipelineExecutionCommand({
-      PipelineName: pipelineName(),
+      PipelineName: expectedPipelineArn ?? pipelineName(),
       PipelineExecutionDisplayName: displayName?.replace(/[^A-Za-z0-9-]/g, '-').slice(0, 82),
       PipelineParameters: Object.entries(params).map(([Name, Value]) => ({ Name, Value })),
       ClientRequestToken: clientRequestToken,

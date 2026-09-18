@@ -106,6 +106,7 @@ export function usesRuntime(task: TaskSpec, ctx: Pick<CompileContext, 'projectId
 }
 export function compileTask(spec: WorkflowSpec, task: TaskSpec, ctx: CompileContext): CompiledTask {
   const wf = spec.workflow;
+  if (task.topology && !ctx.group) throw new Error(`task ${task.name}: task topology is supported only for JobSet group members; use resource-level workflow.resources[resource].topology for standalone Jobs`);
   if (ctx.projectId && task.volumes.length) throw new Error('user volumes are not permitted for project workloads');
   const res: ResourceSpec = wf.resources[task.resource] ?? {};
   const executionProfile = ctx.executionProfile;

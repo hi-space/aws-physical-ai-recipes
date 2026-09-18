@@ -9,6 +9,9 @@ locals {
   cloudmap_namespace    = "${local.prefix}.internal"
   runtime_api_url       = "http://controller.${local.cloudmap_namespace}:3001"
   operations_project    = "${local.prefix}-operations"
+  # Match the final environment's override precedence so IAM uses the same name.
+  groot_pipeline_name = local.has_groot ? lookup(var.extra_environment, "SM_PIPELINE_NAME",
+  lookup(local.groot_out, "PipelineName", "groot-sm-finetuning-${local.account}")) : ""
 
   build_projects = compact([local.has_eks ? local.operations_project : "", lookup(local.groot_out, "SmTrainingBuildProjectName", ""), lookup(local.groot_out, "RuntimeCodeBuildProjectName", "")])
 
@@ -34,7 +37,7 @@ locals {
     ARTIFACTS_BUCKET            = lookup(local.groot_out, "BucketName", "")
     MLFLOW_TRACKING_SERVER_ARN  = lookup(local.groot_out, "MlflowTrackingServerArn", "")
     MLFLOW_TRACKING_SERVER_NAME = lookup(local.groot_out, "MlflowTrackingServerName", "")
-    SM_PIPELINE_NAME            = local.has_groot ? "groot-sm-finetuning-${local.account}" : ""
+    SM_PIPELINE_NAME            = local.groot_pipeline_name
     SM_MODEL_PACKAGE_GROUP      = local.has_groot ? "groot-sm-models-${local.account}" : ""
     SM_TRAINING_IMAGE_URI       = lookup(local.groot_out, "TrainingRepositoryUri", "") != "" ? "${local.groot_out["TrainingRepositoryUri"]}:latest" : ""
     SM_ROLE_ARN                 = lookup(local.groot_out, "SageMakerRoleArn", "")

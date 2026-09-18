@@ -30,7 +30,11 @@ Platform admin browser sessions only:
 
 Registry values reside in the **home DDB table**, under `BACKEND#id`: `META`, `REV#0000000001`, `CHECK#version`. Config values come from deployment allowlist only; HTTP bodies cannot set endpoints, roles, CA, filesystem IDs or bucket names.
 
-The explicit probe checks the discovered EKS ARN/account/region, ACTIVE cluster, private endpoint/shared VPC, Kubernetes version and JobSet API, each governed namespace/local queue, bound FSx PVC/PV identity and mount fields, workload service account, and required SelfSubjectAccessReview permissions. Only the current process principal is dynamically probed. Readiness additionally requires the distinct deployment evidence described above. A failed probe remains visible as UNREADY; registration alone never means ready.
+The explicit probe checks the discovered EKS ARN/account/region, ACTIVE cluster, private endpoint/shared VPC, Kubernetes version and JobSet API, each governed namespace/local queue, bound FSx PVC/PV identity and mount fields, workload service account, and web/controller workload SelfSubjectAccessReview permissions. Only the current process principal is dynamically probed. The discovery role includes read access to Kubernetes priority classes.
+
+`pods/exec` and `pods/portforward` belong only to the gateway role, so the web/controller probe does not request those permissions for itself. Full readiness still requires current, separately verified `gateway-eks-access` and `gateway-api-network` deployment evidence. A successful workload probe cannot replace missing, unknown or expired gateway evidence; the backend stays UNREADY in those cases. Connections use the persisted session's gateway identity and are subject to Kubernetes authorization at execution time. Do not grant exec/port-forward to web/controller to satisfy readiness.
+
+A failed workload probe remains visible as UNREADY; registration alone never means ready.
 
 Probe receipts expire after 15 minutes. The worker refreshes existing enabled registrations every five minutes; it never registers or enables a target. No automatic retry can fabricate evidence for unknown prerequisite paths.
 

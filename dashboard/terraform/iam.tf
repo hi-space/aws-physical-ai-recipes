@@ -8,7 +8,7 @@ locals {
     "arn:${local.partition}:codebuild:${var.region}:${local.account}:project/${name}",
     "arn:${local.partition}:codebuild:${var.region}:${local.account}:build/${name}:*",
   ]])
-  groot_pipeline_arn = "arn:${local.partition}:sagemaker:${var.region}:${local.account}:pipeline/${lookup(local.groot_out, "PipelineName", "groot-sm-finetuning-${local.account}")}"
+  groot_pipeline_arn = "arn:${local.partition}:sagemaker:${var.region}:${local.account}:pipeline/${local.groot_pipeline_name}"
   groot_packages_arn = "arn:${local.partition}:sagemaker:${var.region}:${local.account}:model-package/groot-sm-models-${local.account}/*"
   dcv_instance_arn   = local.has_dcv ? "arn:${local.partition}:ec2:${var.region}:${local.account}:instance/${local.isaac_out["InstanceId"]}" : ""
 }
@@ -185,11 +185,24 @@ data "aws_iam_policy_document" "web" {
     actions = ["sagemaker:ListClusters", "sagemaker:DescribeCluster", "sagemaker:ListClusterNodes", "sagemaker:DescribeClusterNode", "sagemaker:UpdateCluster",
       "sagemaker:ListClusterEvents", "sagemaker:DescribeClusterEvent", "sagemaker:ListComputeQuotas", "sagemaker:DescribeComputeQuota", "sagemaker:CreateComputeQuota",
       "sagemaker:DeleteComputeQuota", "sagemaker:ListClusterSchedulerConfigs", "sagemaker:DescribeClusterSchedulerConfig", "sagemaker:CreateClusterSchedulerConfig",
-      "sagemaker:DeleteClusterSchedulerConfig", "sagemaker:DescribePipeline", "sagemaker:ListPipelineExecutions", "sagemaker:StartPipelineExecution",
-      "sagemaker:StopPipelineExecution", "sagemaker:DescribePipelineExecution", "sagemaker:ListPipelineExecutionSteps", "sagemaker:ListPipelineParametersForExecution",
+      "sagemaker:DeleteClusterSchedulerConfig",
       "sagemaker:ListTrainingJobs", "sagemaker:DescribeTrainingJob", "sagemaker:ListModelPackages", "sagemaker:DescribeMlflowTrackingServer",
     "sagemaker:CreatePresignedMlflowTrackingServerUrl", "sagemaker:AddTags"]
     resources = ["*"]
+  }
+  dynamic "statement" {
+    for_each = local.has_groot ? [1] : []
+    content {
+      actions   = ["sagemaker:StartPipelineExecution"]
+      resources = [local.groot_pipeline_arn]
+    }
+  }
+  dynamic "statement" {
+    for_each = local.has_groot ? [1] : []
+    content {
+      actions   = ["sagemaker:StopPipelineExecution"]
+      resources = ["${local.groot_pipeline_arn}/execution/*"]
+    }
   }
   statement {
     sid       = "MlflowRest"

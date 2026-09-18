@@ -37,7 +37,18 @@ export async function scanScalingActivity(): Promise<ActivityRows> {
   } while (key);
   return { items, complete: true, observedAt };
 }
-export function inspectActivity(backendId: string, group: ClusterInstanceGroupDetails, nodes: ScaleNode[], pods: ScalePod[], instances: ClusterNodeSummary[], rows: ActivityRows, now: Date, operationId?: string) {
+/** Accept complete AWS identities only; a provider ID is stronger evidence than a reusable node name. */
+function providerMatchesInstance(provider: string, instanceId: string, clusterArn?: string): boolean {
+  const match = /^aws:\/\/\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:sagemaker\/cluster\/hyperpod-([a-z0-9]{12})-)?(i-[a-f0-9]{8}(?:[a-f0-9]{9})?)$/.exec(provider);
+  // JS $ also matches before a final newline, which is not part of a valid identity.
+  if (!match || match[0] !== provider || match[2] !== instanceId) return false;
+  if (match[1] && clusterArn !== undefined) {
+    const cluster = /^arn:aws[a-z-]*:sagemaker:[a-z0-9-]+:[0-9]{12}:cluster\/([a-z0-9]{12})$/.exec(clusterArn);
+    if (!cluster || cluster[0] !== clusterArn || cluster[1] !== match[1]) return false;
+  }
+  return true;
+}
+export function inspectActivity(backendId: string, group: ClusterInstanceGroupDetails, nodes: ScaleNode[], pods: ScalePod[], instances: ClusterNodeSummary[], rows: ActivityRows, now: Date, operationId?: string, clusterArn?: string) {
   const blockers: Blocker[] = [], targets: NodeTarget[] = [];
   const add = (code: string, message: string, resources?: string[]) => blockers.push({ code, message, ...(resources?.length ? { resources: resources.slice(0, 20) } : {}) });
   if (!rows.complete || !Number.isFinite(Date.parse(rows.observedAt)) || Math.abs(now.getTime() - Date.parse(rows.observedAt)) > 60_000) add('activity_unknown', '작업·세션 기록을 빠짐없이 최근 시각으로 읽지 못했습니다.');
@@ -49,10 +60,12 @@ export function inspectActivity(backendId: string, group: ClusterInstanceGroupDe
       const provider = node.spec?.providerID;
       // A DNS name/IP can be reused after recovery. Never override a conflicting
       // provider identity with a weaker name match.
-      return provider ? provider.split('/').pop() === instance.InstanceId : node.metadata.name === `hyperpod-${instance.InstanceId}`;
+      return provider === undefined ? node.metadata.name === `hyperpod-${instance.InstanceId}` :
+        typeof provider === 'string' && providerMatchesInstance(provider, instance.InstanceId, clusterArn);
     });
     const node = matching[0];
     if (matching.length !== 1 || !node?.metadata.uid || !node.metadata.resourceVersion ||
+      nodes.filter(other => other.metadata.name === node.metadata.name || other.metadata.uid === node.metadata.uid).length !== 1 ||
       node.metadata.deletionTimestamp || !node.status?.conditions?.some(c => c.type === 'Ready' && c.status === 'True')) {
       add('node_mapping_unknown', '인스턴스와 Ready Kubernetes 노드의 UID·버전을 확인하지 못했습니다.', [instance.InstanceId ?? 'unknown']); continue;
     }

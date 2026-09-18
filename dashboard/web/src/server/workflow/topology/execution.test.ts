@@ -47,6 +47,25 @@ beforeEach(() => {
   };
 });
 afterEach(() => vi.useRealTimers());
+it.each(['required', 'preferred'])('rejects standalone task topology (%s) before persisting even a deferred submission', async mode => {
+  const single = `workflow:
+  name: single
+  namespace: n
+  queue: q
+  resources: { r: { cpu: 2 } }
+  tasks:
+    - name: task
+      resource: r
+      image: busybox
+      command: ["true"]
+      topology: { key: topology.kubernetes.io/zone, mode: ${mode} }
+`;
+  const outcome = await submitWorkflow({ yaml: single, owner: 'alice', idempotencyKey: 'task-topology', deferLaunch: true }, deps)
+    .then(() => undefined, error => error);
+  expect(await repo.listWorkflows()).toEqual([]);
+  expect(outcome).toMatchObject({ status: 400, message: expect.stringMatching(/topology.*JobSet.*resource/i) });
+  expect(cluster.roots.size).toBe(0);
+});
 describe('durable native topology execution', () => {
   it('persists the placement before create and adopts the same plan after a lost reply', async () => {
     const create = cluster.createJobSet.bind(cluster);

@@ -27,7 +27,7 @@ export function assertBucket(bucket: string): void {
 
 export async function list(bucket: string, prefix: string, token?: string, max = 200): Promise<S3Listing> {
   assertBucket(bucket);
-  const out = await s3().send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token, MaxKeys: max }));
+  const out = await s3().send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token || undefined, MaxKeys: max }));
   const entries: S3Entry[] = [];
   for (const p of out.CommonPrefixes ?? []) entries.push({ key: p.Prefix!, name: p.Prefix!.slice(prefix.length).replace(/\/$/, ''), isPrefix: true });
   for (const o of out.Contents ?? []) {

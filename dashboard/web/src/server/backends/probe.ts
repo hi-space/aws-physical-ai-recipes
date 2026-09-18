@@ -3,7 +3,11 @@ import { inspectOnBackend } from './context';
 import type { BackendProbe, Finding } from './registry';
 const k8sJson = <T>(path: string, init: K8sRequestInit = {}) => request<T>(path, { ...init, signal: AbortSignal.timeout(10_000) });
 
-/** EKS calls occur only when an administrator explicitly requests inspection. No resources are provisioned. */
+/**
+ * Inspect the workload permissions held by web/controller without provisioning.
+ * The registry separately requires current deployment evidence for gateway
+ * identity/network access; this principal cannot prove another role's access.
+ */
 export const probeBackend: BackendProbe = async profile => inspectOnBackend(profile, async () => {
   const findings: Finding[] = [];
   const check = async (code: string, action: () => Promise<boolean>) => {
@@ -43,7 +47,6 @@ export const probeBackend: BackendProbe = async profile => inspectOnBackend(prof
       ['batch', 'jobs', ['get', 'list', 'create', 'delete']],
       ['jobset.x-k8s.io', 'jobsets', ['get', 'list', 'create', 'delete']],
       ['', 'pods', ['get', 'list', 'delete']], ['', 'pods/log', ['get']],
-      ['', 'pods/exec', ['get', 'create']], ['', 'pods/portforward', ['get', 'create']],
       ['', 'configmaps', ['get', 'list', 'create', 'update', 'delete']], ['', 'secrets', ['get', 'list', 'create', 'update', 'delete']],
       ['', 'events', ['get', 'list']], ['', 'persistentvolumeclaims', ['get']], ['', 'serviceaccounts', ['get']],
       ['kueue.x-k8s.io', 'localqueues', ['get', 'list']], ['kueue.x-k8s.io', 'workloads', ['get', 'list']],

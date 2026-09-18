@@ -8,6 +8,8 @@ import { reconcilePipelineArchives } from './pipeline-archives';
 import type { KV, Item } from '../store/dynamo';
 
 interface PipelineIntent extends Item {
+  state?: 'ACCEPTED';
+  pipelineArn?: string; // Absent only on legacy records.
   operationId: string;
   projectId: string;
   ownerSubject: string;
@@ -18,6 +20,22 @@ interface PipelineIntent extends Item {
   createdAt: string;
   arn?: string;
 }
+interface PipelineRejection extends Item {
+  state: 'REJECTED';
+  operationId: string;
+  projectId: string;
+  ownerSubject: string;
+  inputHash: string;
+  reason: string;
+  expectedPipelineArn?: string;
+}
+type PipelineRequestRecord = PipelineIntent | PipelineRejection;
+interface PipelineInput {
+  parameters: Record<string, string>;
+  displayName?: string;
+  expectedPipelineArn?: string;
+  expectedOwnerSubject?: string;
+}
 export interface PipelineDeps {
   kv: KV;
   aws: Pick<typeof sm, 'startExecution' | 'stopExecution' | 'describeExecution' | 'describePipeline' | 'pipelineName'>;
@@ -27,40 +45,107 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 const subject = (session: Session) => session.subject ?? session.user;
 const execKey = (arn: string) => ({ pk: `PIPELINE_EXECUTION#${arn}`, sk: 'META' });
 export const PIPELINE_IDENTITY_PARAMETERS = ['DashboardProjectId', 'DashboardOwnerSubject'] as const;
+const sortedParameters = (parameters: Record<string, string>) =>
+  Object.fromEntries(Object.entries(parameters).sort(([a], [b]) => a.localeCompare(b)));
+const inputHash = (input: PipelineInput) => digest(JSON.stringify([sortedParameters(input.parameters), input.displayName ?? '']));
+const targetName = (arn: string) => /^arn:aws[a-z-]*:sagemaker:[a-z0-9-]+:\d{12}:pipeline\/([A-Za-z0-9-]+)$/.exec(arn)?.[1];
+const matchesConfiguredTarget = (arn: string, configured: string) => configured === arn || configured === targetName(arn);
+const targetChanged = () => new HttpError(409, '저장된 실행 대상과 현재 파이프라인 구성이 다릅니다. 기존 대상을 복원한 뒤 동일 요청으로 확인하세요.', 'pipeline_target_changed');
 
-export async function startProjectPipeline(session: Session, project: Project, input: { parameters: Record<string, string>; displayName?: string }, requestId = randomUUID() as string, d = deps()) {
+async function replayPipelineRequest(record: PipelineRequestRecord, input: PipelineInput, requestId: string, d: PipelineDeps) {
+  if (record.state === 'REJECTED') {
+    if (record.inputHash !== inputHash(input) || record.expectedPipelineArn !== undefined && record.expectedPipelineArn !== input.expectedPipelineArn) {
+      throw new HttpError(409, '같은 실행 요청 키에 다른 파라미터를 사용할 수 없습니다.');
+    }
+    throw new HttpError(400, record.reason, 'pipeline_not_submitted', {
+      submissionState: 'not_submitted', requestId, projectId: record.projectId, ownerSubject: record.ownerSubject,
+    });
+  }
+  for (const name of PIPELINE_IDENTITY_PARAMETERS) {
+    if (Object.hasOwn(input.parameters, name)) throw badRequest('Project identity parameters are server controlled');
+  }
+  const recordedTarget = record.pipelineArn ?? record.arn?.split('/execution/')[0];
+  if (input.expectedPipelineArn && recordedTarget && input.expectedPipelineArn !== recordedTarget) throw targetChanged();
+  // Replay the intent validated on the first attempt. A refreshed definition must
+  // not prevent receipt recovery or change server-controlled identity parameters.
+  const selected = { ...input.parameters };
+  for (const name of PIPELINE_IDENTITY_PARAMETERS) {
+    if (Object.hasOwn(record.parameters, name)) selected[name] = record.parameters[name];
+  }
+  if (record.hash !== inputHash({ ...input, parameters: selected })) throw new HttpError(409, '같은 실행 요청 키에 다른 파라미터를 사용할 수 없습니다.');
+  return dispatch(record, d);
+}
+
+export async function startProjectPipeline(session: Session, project: Project, input: PipelineInput, requestId = randomUUID() as string, d = deps()) {
+  if (input.expectedOwnerSubject !== undefined && input.expectedOwnerSubject !== subject(session)) {
+    // The original owner may already have an accepted intent. Do not reserve a
+    // new owner's key or issue a rejection receipt that could unlock that draft.
+    throw new HttpError(403, '로그인 계정이 실행 요청을 만든 계정과 다릅니다. 원래 계정으로 로그인한 뒤 동일 요청을 확인하세요.', 'pipeline_owner_changed');
+  }
   if (!requestId.trim() || requestId.length > 256) throw badRequest('Invalid idempotency key');
+  const operationId = digest(JSON.stringify([project.id, subject(session), requestId]));
+  const key = { pk: `PROJECT#${project.id}`, sk: `PIPELINE#${operationId}` };
+  const existing = await d.kv.get(key.pk, key.sk) as PipelineRequestRecord | undefined;
+  if (existing) return replayPipelineRequest(existing, input, requestId, d);
+  async function reserve(record: PipelineRequestRecord) {
+    await d.kv.put(record, 'not_exists');
+    // The atomic winner is authoritative, including a concurrent acceptance/rejection.
+    const saved = await d.kv.get(key.pk, key.sk) as PipelineRequestRecord | undefined;
+    if (!saved) throw new HttpError(503, '실행 요청 상태를 확인하지 못했습니다. 동일 요청으로 다시 확인하세요.');
+    return replayPipelineRequest(saved, input, requestId, d);
+  }
+  function rejectBeforeSubmission(reason: string) {
+    // A terminal rejection receipt reserves the key without creating an executable intent.
+    return reserve({
+      ...key, state: 'REJECTED', operationId, projectId: project.id, ownerSubject: subject(session),
+      inputHash: inputHash(input), reason,
+      ...(input.expectedPipelineArn !== undefined ? { expectedPipelineArn: input.expectedPipelineArn } : {}),
+    });
+  }
   const pipeline = await d.aws.describePipeline();
+  if (input.expectedPipelineArn && input.expectedPipelineArn !== pipeline.PipelineArn) {
+    return rejectBeforeSubmission('화면에서 선택한 파이프라인 대상이 변경되었습니다. 미제출 초안을 버리고 현재 대상을 확인하세요.');
+  }
   const allowed = new Map(pipeline.parameters.map((parameter) => [parameter.Name, parameter]));
   for (const [name, value] of Object.entries(input.parameters)) {
-    if (PIPELINE_IDENTITY_PARAMETERS.includes(name as typeof PIPELINE_IDENTITY_PARAMETERS[number])) throw badRequest('Project identity parameters are server controlled');
     const parameter = allowed.get(name);
-    if (!parameter || value.length > 1024 || (parameter.Type === 'Integer' && !/^[1-9]\d*$|^0$/.test(value))) throw badRequest(`파라미터를 확인해 주세요: ${name}`);
+    const identityOverride = PIPELINE_IDENTITY_PARAMETERS.includes(name as typeof PIPELINE_IDENTITY_PARAMETERS[number]);
+    if (identityOverride || !parameter || value.length > 1024 || (parameter.Type === 'Integer' && !/^[1-9]\d*$|^0$/.test(value))) {
+      // This terminal receipt cannot be dispatched or reconciled. Keep it under
+      // the operation key so no late/concurrent caller can turn it into an intent.
+      return rejectBeforeSubmission(identityOverride ? 'Project identity parameters are server controlled' : `파라미터를 확인해 주세요: ${name}`);
+    }
+  }
+  if (!pipeline.PipelineArn || !targetName(pipeline.PipelineArn)) throw new HttpError(503, '파이프라인 대상 ARN을 확인하지 못했습니다.');
+  if (!matchesConfiguredTarget(pipeline.PipelineArn, d.aws.pipelineName())) {
+    return rejectBeforeSubmission('파이프라인 구성이 변경되었습니다. 미제출 초안을 버리고 현재 대상을 확인하세요.');
   }
   const selected = { ...input.parameters };
   if (allowed.has('DashboardProjectId')) selected.DashboardProjectId = project.id;
   if (allowed.has('DashboardOwnerSubject')) selected.DashboardOwnerSubject = subject(session);
-  const parameters = Object.fromEntries(Object.entries(selected).sort(([a], [b]) => a.localeCompare(b)));
-  const hash = digest(JSON.stringify([parameters, input.displayName ?? '']));
-  const operationId = digest(JSON.stringify([project.id, subject(session), requestId]));
-  const key = { pk: `PROJECT#${project.id}`, sk: `PIPELINE#${operationId}` };
-  let intent = await d.kv.get(key.pk, key.sk) as PipelineIntent | undefined;
-  if (!intent) {
-    const created: PipelineIntent = {
-      ...key, gsi1pk: 'TYPE#PIPELINE_INTENT', gsi1sk: `${Date.now()}#${operationId}`,
-      operationId, projectId: project.id, ownerSubject: subject(session), owner: session.user,
-      parameters, hash, displayName: input.displayName || `pai-${project.id}-${operationId.slice(0, 16)}`,
-      createdAt: new Date().toISOString(),
-    };
-    await d.kv.put(created, 'not_exists');
-    intent = await d.kv.get(key.pk, key.sk) as PipelineIntent;
-  }
-  if (intent.hash !== hash) throw new HttpError(409, '같은 실행 요청 키에 다른 파라미터를 사용할 수 없습니다.');
-  return dispatch(intent, d);
+  const parameters = sortedParameters(selected);
+  const hash = inputHash({ ...input, parameters });
+  const created: PipelineIntent = {
+    ...key, gsi1pk: 'TYPE#PIPELINE_INTENT', gsi1sk: `${Date.now()}#${operationId}`,
+    operationId, projectId: project.id, ownerSubject: subject(session), owner: session.user, pipelineArn: pipeline.PipelineArn,
+    parameters, hash, displayName: input.displayName || `pai-${project.id}-${operationId.slice(0, 16)}`,
+    createdAt: new Date().toISOString(),
+  };
+  return reserve(created);
 }
 
 async function dispatch(intent: PipelineIntent, d: PipelineDeps) {
-  const arn = intent.arn ?? await d.aws.startExecution(intent.parameters, intent.displayName, intent.operationId);
+  let arn = intent.arn;
+  if (!arn) {
+    if (!intent.pipelineArn || !targetName(intent.pipelineArn)) {
+      throw new HttpError(409, '이전 실행 요청에 대상 ARN이 기록되지 않았습니다. 기존 AWS 실행을 확인해야 합니다.', 'pipeline_target_unverified');
+    }
+    if (!matchesConfiguredTarget(intent.pipelineArn, d.aws.pipelineName())) throw targetChanged();
+    const current = await d.aws.describePipeline();
+    if (current.PipelineArn !== intent.pipelineArn || !matchesConfiguredTarget(intent.pipelineArn, d.aws.pipelineName())) throw targetChanged();
+    // Pass the ARN all the way to the SDK; a config read inside the adapter cannot retarget the call.
+    arn = await d.aws.startExecution(intent.parameters, intent.displayName, intent.operationId, intent.pipelineArn);
+  }
   // The AWS client token adopts an already accepted request after a process crash.
   const updated = { ...intent, arn };
   const recorded = await d.kv.transaction([

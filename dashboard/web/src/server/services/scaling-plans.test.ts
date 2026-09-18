@@ -119,6 +119,21 @@ describe('reviewed HyperPod capacity operations', () => {
     expect((await plan()).status).toBe('BLOCKED');
     expect(remove).not.toHaveBeenCalled();
   });
+  it('maps HyperPod providers using the described cluster ID rather than its display name', async () => {
+    nodes.forEach((node, index) => { node.spec!.providerID = `aws:///use1-az4/sagemaker/cluster/hyperpod-abcdefghijkl-${ids[index]}`; });
+    const snapshot = await scaleSnapshot(cluster, group, d);
+    expect(snapshot.blockers.some(b => b.code === 'node_mapping_unknown')).toBe(false);
+    expect(snapshot.targets.map(t => t.instanceId)).toEqual(ids);
+    expect(remove).not.toHaveBeenCalled(); expect(increase).not.toHaveBeenCalled();
+    expect(nodes.every(n => !n.spec!.unschedulable)).toBe(true);
+  });
+  it('rejects a matching HyperPod instance from a different described cluster', async () => {
+    nodes[0].spec!.providerID = `aws:///use1-az4/sagemaker/cluster/hyperpod-tqci9uwuwqiz-${ids[0]}`;
+    const snapshot = await scaleSnapshot(cluster, group, d);
+    expect(snapshot.blockers).toContainEqual(expect.objectContaining({ code: 'node_mapping_unknown', resources: [ids[0]] }));
+    expect(snapshot.targets.some(t => t.instanceId === ids[0])).toBe(false);
+    expect(remove).not.toHaveBeenCalled(); expect(increase).not.toHaveBeenCalled();
+  });
   it('does not claim privileged execution-profile hosts are idle based only on ordinary Pod visibility', async () => {
     await policy(); nodes[0].metadata.labels = { 'pai.aws.node-restriction.kubernetes.io/execution-profile': 'trusted-host' };
     const result = await plan();
