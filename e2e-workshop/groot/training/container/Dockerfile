@@ -98,7 +98,9 @@ RUN git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T.git . &
     echo "GR00T version info:" && \
     git log -1 --format="%H %ai %s"
 
-RUN uv pip install --system -e ".[train]"
+# tensorrt 상류 드리프트 회피: cu13 v11(소스빌드 필요, CUDA12 비호환) 대신 cu12 계열 10.x prebuilt wheel 고정
+RUN printf 'tensorrt<11\ntensorrt-cu12<11\n' > /tmp/trt-constraints.txt && \
+    uv pip install --system -e ".[train]" --constraint /tmp/trt-constraints.txt
 
 # ---------------------------------------------------------------------------
 # torchcodec (AV1 코덱 비디오 디코딩에 필요)

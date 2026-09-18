@@ -52,6 +52,19 @@ RUN chmod +x ${ISAACLAB_PATH}/isaaclab.sh && \
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip show isaaclab > /dev/null && \
     echo "isaaclab core install verified"
 
+# CUDA 런타임 라이브러리 경로를 시스템 링커에 등록.
+# Isaac Sim 코어 확장(isaacsim.core.simulation_manager/prims 등)이 dlopen 하는
+# libcudart.so.12 / libcublas.so.12 / libcusparseLt.so.0 는 Isaac Sim 의
+# pip_prebundle(cu12) 안에 있으나 기본 LD 경로에 없어 로드에 실패한다. 이 실패가
+# 이어지는 확장 dlopen 과정에서 glibc static TLS 를 오염시켜 프로세스가
+# `Inconsistency detected by ld.so: dl-tls.c:1044 _dl_add_to_slotinfo: Assertion idx==0`
+# 로 죽는다(headless 학습 포함 전 모듈 공통). 해당 lib 디렉터리를 ld.so.conf 에 등록해
+# 링커가 찾도록 하면 확장이 정상 로드된다. site-packages/nvidia/cu13(드리프트로 유입되는
+# CUDA 13 계열)은 제외하기 위해 pip_prebundle 아래만 등록한다.
+RUN find /isaac-sim/exts/omni.isaac.ml_archive/pip_prebundle -type d -name lib > /etc/ld.so.conf.d/isaac-cuda.conf && \
+    ldconfig && \
+    (ldconfig -p | grep -q 'libcudart.so.12' && echo "CUDA runtime libs registered" || echo "WARN: libcudart.so.12 not in ldconfig cache")
+
 WORKDIR /workspace
 
 # 분산 학습 스크립트 복사
