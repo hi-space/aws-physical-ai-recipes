@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Button, Card, CodeBlock, EmptyState, ErrorBox, Spinner, Tabs } from '@/components/ui';
 import { TimeSeries, toSeries } from '@/components/charts/TimeSeries';
 import { fmtBytes } from '@/lib/format';
@@ -18,6 +19,7 @@ interface MetricsResult {
 
 export function MetricsPage() {
   const t = useT('metrics');
+  const tr = useT('resources');
   const tc = useT('common');
   const me = useMe();
   const admin = me.data?.role === 'admin';
@@ -115,9 +117,17 @@ export function MetricsPage() {
     return { allocatable, requested };
   }, [metricsData]);
 
+  const res = me.data?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('amp'), value: res?.amp?.workspaceId, console: res?.amp ? { kind: 'amp-workspace', id: res.amp.workspaceId } : undefined },
+          { label: tr('clusterLogGroup'), value: res?.hyperPodEks?.logGroupPrefix, console: res?.hyperPodEks?.logGroupPrefix ? { kind: 'log-group', name: res.hyperPodEks.logGroupPrefix } : undefined },
+        ]}
+      />
 
       <Tabs
         items={[

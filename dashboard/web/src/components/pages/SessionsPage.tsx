@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { DcvBrowserCard } from '@/components/sessions/DcvBrowserCard';
 import { Badge, Button, Card, CodeBlock, CopyButton, Dialog, EmptyState, ErrorBox, Input, Select, Spinner, StatusPill, Table, Toast } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
@@ -20,6 +21,7 @@ interface ConnectionOptions { replicas: Array<{ replicaIndex: number; ports: str
 
 export function SessionsPage() {
   const t = useT('sessions');
+  const tr = useT('resources');
   const tc = useT('common');
   const { fmtTime } = useFormat();
   const names: Record<Kind, string> = { jupyter: t('appJupyterLab'), 'code-server': t('appVsCode'), tensorboard: t('appTensorBoard'), terminal: t('appTerminal'), 'port-forward': t('appPortForward') };
@@ -106,8 +108,17 @@ export function SessionsPage() {
   }
   const canCreate = !!project && (!attached || !!workflowId && !!taskName && !!selectedReplica && (kind !== 'port-forward' || selectedReplica.ports.includes(portName))) && (kind !== 'tensorboard' || !!logDir) && ttlMinutes >= 5 && ttlMinutes <= 1440;
   const liveCount = sessions.data?.filter((s) => s.status !== 'CLOSED').length ?? 0;
+  const res = me.data?.resources;
   return <>
     <PageHeader title={t('title')} />
+    <ResourceStrip
+      source={t('resourceSource')}
+      items={[
+        { label: tr('dcvInstance'), value: res?.dcv?.instanceId, console: res?.dcv ? { kind: 'ec2-instance', id: res.dcv.instanceId } : undefined },
+        { label: tr('eksCluster'), value: res?.hyperPodEks?.eksClusterName, console: res?.hyperPodEks ? { kind: 'eks-cluster', name: res.hyperPodEks.eksClusterName } : undefined },
+        { label: tr('namespace'), value: me.data?.defaultNamespace },
+      ]}
+    />
     {me.data?.features?.sessions === false && <ErrorBox className="mb-5" error={{ message: t('notConfigured') }} />}
     {me.data?.role === 'admin' && me.data?.features?.sessions !== false && <DcvBrowserCard />}
     <div className="mb-5 flex flex-wrap items-center justify-between gap-4">

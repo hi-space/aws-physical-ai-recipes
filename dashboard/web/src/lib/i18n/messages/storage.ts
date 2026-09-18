@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const storage = defineMessages({
   en: {
     title: 'Storage', description: 'Browse S3 buckets and FSx file systems.',
+    resourceSource: 'S3 ListObjectsV2 · GetObject · PutObject (presigned) / FSx DescribeFileSystems · DescribeDataRepositoryAssociations · DescribeDataRepositoryTasks · CreateDataRepositoryTask',
     s3Title: 'S3 buckets', s3Desc: '{count} buckets', fsxTitle: 'File systems', fsxDesc: '{count} configured',
     noBuckets: 'No buckets configured.', noFileSystems: 'No file systems.', noEntries: 'Empty.',
     loadingBuckets: 'Loading buckets…', loadingFileSystem: 'Loading file system details…', loadingTasks: 'Loading tasks…',
@@ -28,6 +29,7 @@ export const storage = defineMessages({
   },
   ko: {
     title: '스토리지', description: 'S3 버킷과 FSx 파일 시스템을 탐색합니다.',
+    resourceSource: 'S3 ListObjectsV2 · GetObject · PutObject (presigned) / FSx DescribeFileSystems · DescribeDataRepositoryAssociations · DescribeDataRepositoryTasks · CreateDataRepositoryTask',
     s3Title: 'S3 버킷', s3Desc: '{count}개', fsxTitle: '파일 시스템', fsxDesc: '{count}개 구성됨',
     noBuckets: '구성된 버킷이 없습니다.', noFileSystems: '파일 시스템이 없습니다.', noEntries: '비어있습니다.',
     loadingBuckets: '버킷을 불러오는 중…', loadingFileSystem: '파일 시스템 상세를 불러오는 중…', loadingTasks: '작업을 불러오는 중…',

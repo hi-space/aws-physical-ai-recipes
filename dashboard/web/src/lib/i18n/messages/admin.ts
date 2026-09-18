@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const admin = defineMessages({
   en: {
     title: 'Admin', description: 'Manage users, audit logs, settings, and account costs.',
+    resourceSource: 'Cognito ListUsers · ListGroups · AdminCreateUser · AdminSetUserPassword · AdminAddUserToGroup / DynamoDB settings and audit log / Cost Explorer GetCostAndUsage',
     loadingIdentity: 'Loading identity…', adminRoleRequired: 'Admin role required', adminOnlyHint: 'You do not have permission to access this page',
     adminPanel: 'Admin Panel',
     usersTab: 'Users', auditTab: 'Audit Log', settingsTab: 'Settings', costTab: 'Cost',
@@ -27,6 +28,7 @@ export const admin = defineMessages({
   },
   ko: {
     title: '관리', description: '사용자 관리, 감사 로그, 설정, 계정 비용을 확인합니다.',
+    resourceSource: 'Cognito ListUsers · ListGroups · AdminCreateUser · AdminSetUserPassword · AdminAddUserToGroup / DynamoDB settings and audit log / Cost Explorer GetCostAndUsage',
     loadingIdentity: '신원을 확인하는 중…', adminRoleRequired: '관리자 역할 필요', adminOnlyHint: '이 페이지에 접근할 권한이 없습니다',
     adminPanel: '관리 패널',
     usersTab: '사용자', auditTab: '감시 로그', settingsTab: '설정', costTab: '비용',

@@ -50,9 +50,12 @@ const STATE_COLORS: Record<string, 'ok' | 'warn' | 'err' | 'info'> = {
   Unknown: 'warn',
 };
 
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
+
 export function JobsPage() {
   const t = useT('jobs');
   const tc = useT('common');
+  const tr = useT('resources');
   const { ago, fmtTime } = useFormat();
   const { data: me } = useMe();
   const [namespace, setNamespace] = React.useState('');
@@ -103,9 +106,17 @@ export function JobsPage() {
 
   if (jobsLoading && !jobs) return <Spinner label={t('loadingJobs')} />;
 
+  const res = me?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('eksCluster'), value: res?.hyperPodEks?.eksClusterName, console: res?.hyperPodEks ? { kind: 'eks-cluster', name: res.hyperPodEks.eksClusterName } : undefined },
+          { label: tr('namespace'), value: me?.defaultNamespace },
+        ]}
+      />
 
       {/* Toast */}
       {toast && (

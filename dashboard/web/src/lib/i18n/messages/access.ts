@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const access = defineMessages({
   en: {
     title: 'Access control', description: 'Manage credentials and personal API tokens for the current project.',
+    resourceSource: 'DynamoDB API-token records · SSM PutParameter · DeleteParameter (credentials) · Cognito AdminGetUser',
     projectSelectHint: 'Select the project you want to work with from the project menu.',
     projectBadge: '{projectId}', inconsistentProject: 'Project info mismatch. Refresh the page.',
     credentialsTitle: 'Training credentials', credentialsDesc: 'HF, NGC, and generic secrets are stored encrypted. Only references are shown on screen and in list APIs.',
@@ -32,6 +33,7 @@ export const access = defineMessages({
   },
   ko: {
     title: '접근 관리', description: '현재 연구 프로젝트의 자격증명과 개인 API 토큰을 관리합니다.',
+    resourceSource: 'DynamoDB API-token records · SSM PutParameter · DeleteParameter (credentials) · Cognito AdminGetUser',
     projectSelectHint: '프로젝트 선택 메뉴에서 작업할 프로젝트를 선택하세요.',
     projectBadge: '{projectId}', inconsistentProject: '프로젝트 정보가 일치하지 않습니다. 페이지를 새로고침하세요.',
     credentialsTitle: '학습 자격증명', credentialsDesc: 'HF·NGC·일반 비밀값은 암호화 저장소에 보관합니다. 화면과 목록 API에는 참조만 표시됩니다.',

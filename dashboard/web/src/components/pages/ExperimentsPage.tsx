@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Button, Card, EmptyState, ErrorBox, Select, Spinner, StatusPill, Table, Tabs } from '@/components/ui';
 import { TimeSeries } from '@/components/charts/TimeSeries';
 import { classNames as cx, shortId } from '@/lib/format';
@@ -56,8 +57,10 @@ interface RunDetail {
 
 export function ExperimentsPage() {
   const t = useT('experiments');
+  const tr = useT('resources');
   const tc = useT('common');
   const { ago, fmtNum, fmtBytes } = useFormat();
+  const me = useApi<any>('/api/me');
   const { data: experiments, isLoading: expLoading, error: expError } = useApi<MlExperiment[]>('/api/mlflow/experiments');
   const [selectedExp, setSelectedExp] = React.useState<string | null>(null);
   const [comparisonRuns, setComparisonRuns] = React.useState<MlRun[]>([]);
@@ -120,9 +123,16 @@ export function ExperimentsPage() {
     );
   }
 
+  const res = me.data?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('mlflow'), value: res?.mlflow?.trackingServerName ?? res?.mlflow?.trackingServerArn },
+        ]}
+      />
       {uiUrlError && <ErrorBox error={uiUrlError} />}
       {comparisonRuns.length > 0 && (
         <RunComparison runs={comparisonRuns} onRemove={(id) => setComparisonRuns((previous) => previous.filter((run) => run.info.run_id !== id))} />

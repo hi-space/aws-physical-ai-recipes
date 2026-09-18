@@ -2,6 +2,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Button, Card, CopyButton, EmptyState, ErrorBox, Field, Input, LinkButton, Select, Spinner, Table } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
 import { api, useApi, useMe } from '@/lib/api-client';
@@ -277,6 +278,7 @@ function LegacyModels() {
 
 export function ModelsPage() {
   const t = useT('models');
+  const tr = useT('resources');
   const tc = useT('common');
   const me = useMe();
   const [view, setView] = React.useState<'models' | 'legacy'>('models');
@@ -292,8 +294,16 @@ export function ModelsPage() {
   const detail = useApi<ModelDetail>(selectedId ? `/api/models/${selectedId}` : null, { refetch: 15000 });
   const isAdmin = me.data?.role === 'admin';
   const refresh = async () => { await Promise.all([result.refetch(), detail.refetch()]); };
+  const res = me.data?.resources;
   return <>
     <PageHeader title={t('title')} description={t('description')} actions={result.data?.canWrite ? <Button onClick={() => { setRegister(!register); setView('models'); }}>{register ? t('registerFormClose') : t('registerButton')}</Button> : undefined} />
+    <ResourceStrip
+      source={t('resourceSource')}
+      items={[
+        { label: tr('modelGroup'), value: res?.pipeline?.modelPackageGroup },
+        { label: tr('artifactsBucket'), value: res?.artifactsBucket, console: res?.artifactsBucket ? { kind: 's3-bucket', bucket: res.artifactsBucket } : undefined },
+      ]}
+    />
     {isAdmin && <div className="mb-4 flex gap-2 border-b border-border pb-2"><Button variant={view === 'models' ? 'secondary' : 'ghost'} onClick={() => setView('models')}>{t('projectModels')}</Button><Button variant={view === 'legacy' ? 'secondary' : 'ghost'} onClick={() => setView('legacy')}>{t('legacyModels')}</Button></div>}
     {view === 'legacy' && isAdmin ? <LegacyModels /> : <div className="space-y-4">
       <ErrorBox error={result.error} />{result.error && result.data && <p className="text-xs text-warn">{tc('errorStale')}</p>}

@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const metrics = defineMessages({
   en: {
     title: 'Metrics', description: 'GPU, node, and Kueue metrics from Amazon Managed Prometheus',
+    resourceSource: 'Amazon Managed Service for Prometheus query_range · query (PromQL over SigV4)',
     timeRange: 'Time range', auto: 'Auto-refresh', nodeFilter: 'Node filter', dashboards: 'Dashboards', grafana: 'Grafana',
     gpuMetrics: 'GPU', utilization: 'Utilization (%)', memory: 'Memory (GiB)', power: 'Power (W)',
     temperature: 'Temperature (°C)', clock: 'SM Clock (MHz)', noGpuData: 'No GPU metrics available',
@@ -21,6 +22,7 @@ export const metrics = defineMessages({
   },
   ko: {
     title: '메트릭', description: 'Amazon Managed Prometheus의 GPU·노드·Kueue 지표',
+    resourceSource: 'Amazon Managed Service for Prometheus query_range · query (PromQL over SigV4)',
     timeRange: '시간 범위', auto: '자동 새로 고침', nodeFilter: '노드 필터', dashboards: '대시보드', grafana: 'Grafana',
     gpuMetrics: 'GPU', utilization: '사용률 (%)', memory: '메모리 (GiB)', power: '전력 (W)',
     temperature: '온도 (°C)', clock: 'SM 클록 (MHz)', noGpuData: 'GPU 메트릭을 사용할 수 없습니다',

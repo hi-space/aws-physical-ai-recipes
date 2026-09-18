@@ -79,6 +79,21 @@ export function useApiMutation<TIn, TOut = unknown>(fn: (input: TIn) => Promise<
   });
 }
 
+export interface MeResources {
+  hyperPodEks?: { clusterName: string; eksClusterName: string; logGroupPrefix: string };
+  hyperPodSlurm?: { clusterName: string; dataBucket?: string; fsxFileSystemId?: string };
+  fsx?: { fileSystemId: string; dnsName?: string; mountName?: string };
+  dataBucket?: string;
+  artifactsBucket?: string;
+  amp?: { workspaceId: string };
+  mlflow?: { trackingServerArn: string; trackingServerName?: string };
+  pipeline?: { name: string; roleArn?: string; modelPackageGroup?: string; trainingLogGroup?: string; trainingImageUri?: string };
+  dcv?: { instanceId: string };
+  edge?: { thingGroup: string; inferenceComponent?: string };
+  cognito?: { userPoolId: string };
+  table: string;
+  workflowServiceAccount?: string;
+}
 export interface Me {
   user: string;
   subject?: string;
@@ -89,6 +104,8 @@ export interface Me {
   features: Record<'eks' | 'slurm' | 'amp' | 'mlflow' | 'pipeline' | 'dcv' | 'fsx' | 'edge' | 'cognito' | 'sessions', boolean>;
   clusters: { eks?: string; slurm?: string; eksName?: string };
   buckets: { data?: string; artifacts?: string };
+  /** AWS resource identifiers behind the pages (from the deployment contract); absent in older fixtures. */
+  resources?: MeResources;
   defaultNamespace: string;
   project?: { id: string; name: string; role: 'viewer' | 'researcher' | 'project-admin' };
 }

@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const jobs = defineMessages({
   en: {
     title: 'Jobs', description: 'Kubernetes job execution, pods, and workload logs',
+    resourceSource: 'Kubernetes API batch/v1 Job · Pod · Event',
     running: 'Running', pending: 'Pending', succeeded: 'Succeeded', failed: 'Failed',
     stateFilter: 'State filter', search: 'Search', hideFinished: 'Hide finished',
     name: 'Name', namespace: 'Namespace', created: 'Created', status: 'Status', age: 'Age',
@@ -18,6 +19,7 @@ export const jobs = defineMessages({
   },
   ko: {
     title: '작업', description: 'Kubernetes 작업 실행, Pod, 워크로드 로그를 확인합니다.',
+    resourceSource: 'Kubernetes API batch/v1 Job · Pod · Event',
     running: '실행 중', pending: '대기', succeeded: '성공', failed: '실패',
     stateFilter: '상태 필터', search: '검색', hideFinished: '완료 항목 숨기기',
     name: '이름', namespace: '네임스페이스', created: '생성', status: '상태', age: '경과',

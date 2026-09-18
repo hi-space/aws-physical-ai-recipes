@@ -32,6 +32,19 @@ describe('compute.ts DTO shape', () => {
     expect(mockGroup).toHaveProperty('isGpu');
   });
 
+  it('ClusterSummary should include nodeRecovery field', () => {
+    const mockSummary: any = {
+      name: 'test-cluster',
+      orchestrator: 'eks',
+      nodeRecovery: 'Automatic',
+      groups: [],
+      nodes: [],
+    };
+
+    expect(mockSummary).toHaveProperty('nodeRecovery');
+    expect(mockSummary.nodeRecovery).toBe('Automatic');
+  });
+
   it('isGpu should be derived boolean: true when gpuCount > 0, false when gpuCount === 0, undefined when unknown', () => {
     expect(true).toBe(1 > 0);
     expect(false).toBe(0 > 0);

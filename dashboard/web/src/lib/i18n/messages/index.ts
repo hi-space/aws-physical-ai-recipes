@@ -34,6 +34,7 @@ import { webhooks } from './webhooks';
 import { edge } from './edge';
 import { pipelines } from './pipelines';
 import { sessions } from './sessions';
+import { resources } from './resources';
 
 export const catalog = {
   common,
@@ -68,6 +69,7 @@ export const catalog = {
   edge,
   pipelines,
   sessions,
+  resources,
 } as const;
 
 export type Catalog = typeof catalog;

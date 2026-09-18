@@ -7,6 +7,8 @@ import { fmtBytes, shortId } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
 import { useT, useFormat } from '@/lib/i18n';
 import { ScaleControls } from '@/components/compute/ScaleControls';
+import { NodeActions } from '@/components/compute/NodeActions';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 
 interface ClusterSummary {
   name: string;
@@ -15,6 +17,7 @@ interface ClusterSummary {
   arn?: string;
   createdAt?: string;
   failureMessage?: string;
+  nodeRecovery?: string;
   groups: {
     name: string;
     instanceType: string;
@@ -61,6 +64,7 @@ export function ComputePage() {
   const t = useT('compute');
   const ts = useT('scaling');
   const tc = useT('common');
+  const tr = useT('resources');
   const { fmtTime, ago } = useFormat();
   const me = useMe();
   const [activeTab, setActiveTab] = React.useState<'eks' | 'slurm'>('eks');
@@ -68,6 +72,7 @@ export function ComputePage() {
   const [exportDialog, setExportDialog] = React.useState<{ fileSystemId: string } | null>(null);
   const [exportPaths, setExportPaths] = React.useState<string>('/fsx/checkpoints');
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' } | null>(null);
+  const [nodeRecoveryDialog, setNodeRecoveryDialog] = React.useState<{ cluster: string; node: string; action: 'reboot' | 'replace' } | null>(null);
 
   const clustersResp = useApi<ClusterResponse>('/api/clusters', { refetch: 10000 });
   const fsxResp = useApi<FileSystem[]>('/api/fsx', { refetch: 10000 });
@@ -119,6 +124,7 @@ export function ComputePage() {
   const addons = clustersResp.data?.addons ?? [];
   const fileSystems = fsxResp.data ?? [];
 
+  const res = me.data?.resources;
   const eksCluster = clusters.find((c) => c.orchestrator === 'eks');
   const slurmCluster = clusters.find((c) => c.orchestrator === 'slurm');
 
@@ -128,6 +134,16 @@ export function ComputePage() {
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('hyperPodCluster'), value: res?.hyperPodEks?.clusterName, console: res?.hyperPodEks ? { kind: 'hyperpod-cluster', name: res.hyperPodEks.clusterName } : undefined },
+          { label: tr('hyperPodSlurm'), value: res?.hyperPodSlurm?.clusterName, console: res?.hyperPodSlurm ? { kind: 'hyperpod-cluster', name: res.hyperPodSlurm.clusterName } : undefined },
+          { label: tr('eksCluster'), value: res?.hyperPodEks?.eksClusterName, console: res?.hyperPodEks ? { kind: 'eks-cluster', name: res.hyperPodEks.eksClusterName } : undefined },
+          { label: tr('fsx'), value: res?.fsx?.fileSystemId, console: res?.fsx ? { kind: 'fsx-filesystem', id: res.fsx.fileSystemId } : undefined },
+          { label: tr('clusterLogGroup'), value: res?.hyperPodEks?.logGroupPrefix, console: res?.hyperPodEks ? { kind: 'log-group', name: res.hyperPodEks.logGroupPrefix } : undefined },
+        ]}
+      />
       <div className="space-y-4">
         {clustersResp.error && <ErrorBox error={clustersResp.error} />}
 
@@ -151,6 +167,13 @@ export function ComputePage() {
                 <div>
                   <h3 className="text-sm font-semibold">{activeCluster.name}</h3>
                   {activeCluster.status && <StatusPill status={activeCluster.status} className="mt-2" />}
+                  {activeCluster.nodeRecovery && (
+                    <div className="mt-2">
+                      <Badge tone={activeCluster.nodeRecovery === 'Automatic' ? 'ok' : 'warn'}>
+                        {activeCluster.nodeRecovery === 'Automatic' ? t('nodeRecoveryAutomatic') : t('nodeRecoveryDisabled')}
+                      </Badge>
+                    </div>
+                  )}
                   {activeCluster.failureMessage && <ErrorBox error={new Error(activeCluster.failureMessage)} className="mt-2" />}
                 </div>
                 <div className="flex-1">
@@ -221,7 +244,7 @@ export function ComputePage() {
                   <EmptyState title={t('noNodes')} />
                 ) : (
                   <Table
-                    head={[t('node'), t('group'), tc('status'), t('gpu'), t('health'), t('kubelet'), t('taints')]}
+                    head={[t('node'), t('group'), tc('status'), t('gpu'), t('health'), t('kubelet'), t('taints'), can(me.data, 'admin') ? tc('actions') : '']}
                     dense
                   >
                     {k8sNodes.map((n) => (
@@ -241,6 +264,18 @@ export function ComputePage() {
                         </td>
                         <td className="text-xs text-fg-muted">{shortId(n.kubelet, 12)}</td>
                         <td className="text-xs text-fg-muted">{n.taints.length > 0 ? n.taints.join(', ') : '—'}</td>
+                        {can(me.data, 'admin') && eksCluster && (
+                          <td>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, node: n.name, action: 'reboot' })}>
+                                {t('nodeReboot')}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setNodeRecoveryDialog({ cluster: eksCluster.name, node: n.name, action: 'replace' })}>
+                                {t('nodeReplace')}
+                              </Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </Table>
@@ -421,6 +456,17 @@ export function ComputePage() {
           </div>
         </div>
       </Dialog>
+
+      {nodeRecoveryDialog && (
+        <NodeActions
+          cluster={nodeRecoveryDialog.cluster}
+          node={nodeRecoveryDialog.node}
+          action={nodeRecoveryDialog.action}
+          onClose={() => setNodeRecoveryDialog(null)}
+          onCompleted={() => { void clustersResp.refetch(); }}
+        />
+      )}
+
 
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </>

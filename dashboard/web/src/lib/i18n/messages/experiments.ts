@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const experiments = defineMessages({
   en: {
     title: 'Experiments', description: 'Select up to 4 runs to compare training curves and parameters.',
+    resourceSource: 'SageMaker MLflow REST API (search-experiments · search-runs · metrics/get-history) · CreatePresignedMlflowTrackingServerUrl',
     notConfigured: 'MLflow integration not configured.',
     loadingExperiments: 'Loading experiments…', loadingRuns: 'Loading runs…',
     noExperiments: 'No experiments registered.',
@@ -20,6 +21,7 @@ export const experiments = defineMessages({
   },
   ko: {
     title: '실험', description: '최대 4개 run을 선택해 학습 곡선과 파라미터를 비교합니다.',
+    resourceSource: 'SageMaker MLflow REST API (search-experiments · search-runs · metrics/get-history) · CreatePresignedMlflowTrackingServerUrl',
     notConfigured: 'MLflow 연결이 설정되지 않았습니다.',
     loadingExperiments: '실험을 불러오는 중…', loadingRuns: '실행 목록을 불러오는 중…',
     noExperiments: '등록된 실험이 없습니다.',

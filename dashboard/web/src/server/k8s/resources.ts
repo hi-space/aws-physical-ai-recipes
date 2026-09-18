@@ -2,7 +2,7 @@ import type { JobSet } from '../workflow/ports';
 import { backendConfig as config, currentBackend } from '../backends/context';
 import { assertWritableNamespace, K8sError, k8sGetOrNull, k8sJson, k8sRequest } from './client';
 
-export interface Meta { name: string; namespace?: string; uid?: string; labels?: Record<string, string>; annotations?: Record<string, string>; creationTimestamp?: string; deletionTimestamp?: string }
+export interface Meta { name: string; namespace?: string; uid?: string; labels?: Record<string, string>; annotations?: Record<string, string>; creationTimestamp?: string; deletionTimestamp?: string; ownerReferences?: {kind: string; name: string; uid?: string; controller?: boolean; apiVersion?: string}[] }
 export interface K8sList<T> { items: T[]; metadata?: { continue?: string } }
 export interface Job {
   metadata: Meta;
@@ -27,8 +27,8 @@ export interface Pod {
 export interface ContainerStatus { name: string; ready: boolean; restartCount: number; state?: Record<string, { reason?: string; message?: string; exitCode?: number; startedAt?: string; finishedAt?: string }> }
 export interface Node {
   metadata: Meta;
+  spec?: { taints?: { key: string; value?: string; effect: string }[]; unschedulable?: boolean; providerID?: string };
   status?: { capacity?: Record<string, string>; allocatable?: Record<string, string>; conditions?: { type: string; status: string; reason?: string }[]; nodeInfo?: { kubeletVersion?: string; osImage?: string; kernelVersion?: string }; addresses?: { type: string; address: string }[] };
-  spec?: { taints?: { key: string; value?: string; effect: string }[]; unschedulable?: boolean };
 }
 export interface Event { metadata: Meta; type?: string; reason?: string; message?: string; involvedObject?: { kind?: string; name?: string; namespace?: string }; firstTimestamp?: string; lastTimestamp?: string; eventTime?: string; count?: number; source?: { component?: string } }
 

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Badge, Bar, Card, EmptyState, ErrorBox, LinkButton, Spinner, Stat, StatusPill, Table } from '@/components/ui';
 import { Sparkline } from '@/components/charts/Sparkline';
+import { ArchitectureMap } from '@/components/overview/ArchitectureMap';
 import { useFormat, useT } from '@/lib/i18n';
 import { useApi, useMe, can } from '@/lib/api-client';
 import type { overview } from '@/server/services/overview';
@@ -105,6 +106,8 @@ export function OverviewPage() {
             </Table>
           )}
         </Card>
+
+        <ArchitectureMap />
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <Card title={t('clusters')} description={t('clustersDesc', { count: data.clusters.length })}>

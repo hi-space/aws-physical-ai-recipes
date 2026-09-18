@@ -38,6 +38,16 @@ function makeClient(role = 'researcher', data?: ReturnType<typeof overviewData>)
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: false } } });
   client.setQueryData(['api', '/api/me'], { role });
   if (data) client.setQueryData(['api', '/api/overview'], data);
+  // Fixture for the architecture map (fetched separately by the component)
+  client.setQueryData(['api', '/api/architecture'], {
+    fetchedAt: '2026-09-18T12:00:00Z', region: 'us-east-1', accountId: '123456789012',
+    components: [
+      { id: 'data-bucket', layer: 'data', service: 'Amazon S3', resource: 'data-bucket', evidence: 'describe', api: 'S3 HeadBucket', tone: 'ok' },
+      { id: 'hyperpod-eks', layer: 'compute', service: 'Amazon SageMaker HyperPod', resource: 'hyperpod-cluster', evidence: 'describe', api: 'SageMaker DescribeCluster', status: 'InService', tone: 'ok', facts: [{ key: 'instanceGroups', value: 2 }, { key: 'nodeRecovery', value: 'Automatic' }], console: { kind: 'hyperpod-cluster', name: 'hyperpod-cluster' } },
+      { id: 'amp', layer: 'compute', service: 'Amazon Managed Service for Prometheus', resource: 'ws-1', evidence: 'config', tone: 'unknown' },
+      { id: 'eks', layer: 'compute', service: 'Amazon EKS', resource: 'eks-a', evidence: 'describe', api: 'EKS DescribeCluster', tone: 'unknown', error: 'AccessDeniedException' },
+    ],
+  });
   clients.push(client);
   return client;
 }
@@ -66,8 +76,9 @@ describe('overview service DTO integration', () => {
   it.each(['researcher', 'viewer'])('hides account-wide cost from %s even if the payload contains it', (role) => {
     const html = render(makeClient(role, overviewData()));
     expect(html).not.toContain('$76,000.00');
-    expect(html).not.toContain('Amazon SageMaker');
     expect(html).not.toContain('AWS 계정 전체 비용');
+    // Make sure cost service breakdown doesn't appear (the "cost by service" section specifically)
+    expect(html).not.toMatch(/(?:Account-wide|계정 전체|cost by service|서비스별 계정)/);
   });
 
   it('labels admin cost as account-wide and converts daily amount objects for the chart', () => {
@@ -108,5 +119,18 @@ describe('overview service DTO integration', () => {
     expect(summary).toBeGreaterThan(action);
     expect(html).toContain('href="/datasets"');
     expect(html).toContain('href="/experiments"');
+  });
+
+  it('renders the architecture map: raw status, facts, identifier-only marker, describe errors, console link from the response region', () => {
+    const html = render(makeClient('researcher', overviewData()));
+    expect(html).toContain('이 배포의 AWS 아키텍처');
+    expect(html).toContain('hyperpod-cluster');
+    expect(html).toContain('InService');
+    expect(html).toContain('인스턴스 그룹 2개');
+    expect(html).toContain('노드 복구 Automatic');
+    expect(html).toContain('배포 설정의 식별자');
+    expect(html).toContain('AccessDeniedException');
+    expect(html).toContain('https://us-east-1.console.aws.amazon.com/sagemaker/home?region=us-east-1#/cluster-management/hyperpod-cluster');
+    expect(html).not.toContain('layer_simulation');
   });
 });

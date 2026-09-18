@@ -4,6 +4,7 @@ export const pipelines = defineMessages({
   en: {
     // PipelinesPage
     title: 'Pipelines', description: '{projectName} ({projectId}) · SageMaker managed pipeline',
+    resourceSource: 'SageMaker DescribePipeline · ListPipelineExecutions · DescribePipelineExecution · ListPipelineExecutionSteps · DescribeTrainingJob / CloudWatch Logs GetLogEvents',
     selectProject: 'Select research project.',
     noProjectTracking: 'Current pipeline definition has no project experiment tags. Apply new definition to use project MLflow comparison. Existing unscoped experiments are admin-only.',
     startExecution: 'Start execution', discardDraft: 'Discard unsaved draft', discardDraftNote: 'Discard saved draft to create new draft in currently selected project.',
@@ -79,6 +80,7 @@ export const pipelines = defineMessages({
   ko: {
     // PipelinesPage
     title: '파이프라인', description: '{projectName} ({projectId}) · SageMaker 관리형 파이프라인',
+    resourceSource: 'SageMaker DescribePipeline · ListPipelineExecutions · DescribePipelineExecution · ListPipelineExecutionSteps · DescribeTrainingJob / CloudWatch Logs GetLogEvents',
     selectProject: '연구 프로젝트를 선택하세요.',
     noProjectTracking: '현재 파이프라인 정의에는 프로젝트 실험 태그가 없습니다. 프로젝트 MLflow 비교를 사용하려면 새 정의를 적용해야 합니다. 기존 unscoped 실험은 관리자 전용입니다.',
     startExecution: '실행 시작', discardDraft: '미제출 초안 버리기', discardDraftNote: '저장된 초안을 버리면 현재 선택한 프로젝트에서 새 초안을 작성할 수 있습니다.',

@@ -4,6 +4,7 @@ export const workflows = defineMessages({
   en: {
     title: 'Runs',
     description: 'Monitor workflow runs and execution history. Open a run to view step-by-step logs, metrics, artifacts and development sessions.',
+    resourceSource: 'DynamoDB run records, written by the run controller from Kubernetes Job · JobSet · Pod state (Kubernetes API)',
     newRun: 'New run',
     allStatus: 'All statuses',
     searchPlaceholder: 'Search runs by name, ID, or owner',
@@ -36,6 +37,7 @@ export const workflows = defineMessages({
   ko: {
     title: '실행',
     description: '작업 흐름과 실행 이력을 확인합니다. 실행을 열면 단계별 로그, 메트릭, 데이터와 개발 세션으로 이어집니다.',
+    resourceSource: 'DynamoDB run records, written by the run controller from Kubernetes Job · JobSet · Pod state (Kubernetes API)',
     newRun: '새 실행',
     allStatus: '모든 상태',
     searchPlaceholder: '전체 이력에서 이름·ID·소유자 검색',

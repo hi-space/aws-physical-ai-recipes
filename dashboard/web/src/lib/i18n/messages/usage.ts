@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const usage = defineMessages({
   en: {
     title: 'Usage', description: 'Project resource consumption estimate and cost. Billed resources per project vs. account-wide cost.',
+    resourceSource: 'DynamoDB task ledger · AWS Price List Bulk API (AmazonSageMaker offer file for the home region)',
     caveat: 'This is an estimate, not the actual bill.', details: 'Details & assumptions',
     project: 'Project', selectProject: 'Select project', refreshUsage: 'Refresh usage', refreshRates: 'Refresh official rates',
     loading: 'Loading usage…', noProjects: 'No projects joined.', noRuns: 'No runs to estimate.', noRunsHint: 'Does not mean project cost is $0.',
@@ -33,6 +34,7 @@ export const usage = defineMessages({
   },
   ko: {
     title: '사용량', description: '프로젝트 리소스 소비 추정치 및 비용을 확인합니다. 프로젝트별 청구 자원 vs 계정 전체 비용',
+    resourceSource: 'DynamoDB task ledger · AWS Price List Bulk API (AmazonSageMaker offer file for the home region)',
     caveat: '이것은 추정치이며 실제 청구액이 아닙니다.', details: '세부 정보 및 가정',
     project: '비용 추정 프로젝트', selectProject: '프로젝트 선택', refreshUsage: '사용량 다시 조회', refreshRates: '공식 단가 새로 조회',
     loading: '사용량 근거를 읽는 중…', noProjects: '참여한 프로젝트가 없습니다.', noRuns: '추정할 실행 기록이 없습니다.', noRunsHint: '이는 프로젝트의 실제 청구액이 0이라는 뜻이 아닙니다.',

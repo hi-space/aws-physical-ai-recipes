@@ -3,8 +3,9 @@ import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Button, Card, CopyButton, EmptyState, ErrorBox, Field, Input, Select, Spinner, Table, Textarea } from '@/components/ui';
-import { api, useApi } from '@/lib/api-client';
+import { api, useApi, type Me } from '@/lib/api-client';
 import { useT, useFormat } from '@/lib/i18n';
 import type { BenchmarkEvidence, Device, DevicesService, EdgeOperation, PublicLease } from '@/server/services/devices';
 import type { ModelDetail, RegisteredModel } from '@/server/evaluations/types';
@@ -195,7 +196,9 @@ export function EdgePage() {
 }
 function EdgeContent() {
   const t = useT('edge');
+  const tr = useT('resources');
   const tc = useT('common');
+  const me = useApi<Me>('/api/me');
   const search = useSearchParams(); const requested = search.get('model_id') ?? search.get('modelId');
   const validModelId = requested && /^mdl-[a-f0-9]{24}$/.test(requested) ? requested : undefined;
   const selectedModel = useApi<ModelDetail>(validModelId ? `/api/models/${validModelId}` : null);
@@ -208,8 +211,16 @@ function EdgeContent() {
   const refresh = async () => { await Promise.all([query.refetch(), ...(id ? [detail.refetch()] : [])]); };
   const data = query.data, current = detail.data;
   const statusLabel: Record<EdgeOperation['status'], string> = { PREPARED: t('operationViewStatusPrepared'), SUBMITTING: t('operationViewStatusSubmitting'), SUBMISSION_UNKNOWN: t('operationViewStatusSubmissionUnknown'), SUBMITTED: t('operationViewStatusSubmitted'), RUNNING: t('operationViewStatusRunning'), SUCCEEDED: t('operationViewStatusSucceeded'), FAILED: t('operationViewStatusFailed') };
+  const res = me.data?.resources;
   return <>
     <PageHeader title={t('title')} description={t('description')} actions={data?.canRegister ? <Button onClick={() => setRegistration(!registration)}>{registration ? t('closingRegistrationForm') : t('registrationTitle')}</Button> : undefined} />
+    <ResourceStrip
+      source={t('resourceSource')}
+      items={[
+        { label: tr('thingGroup'), value: res?.edge?.thingGroup, console: res?.edge?.thingGroup ? { kind: 'iot-thing-group', name: res.edge.thingGroup } : undefined },
+        { label: tr('component'), value: res?.edge?.inferenceComponent },
+      ]}
+    />
     <div className="space-y-4">
       <ErrorBox error={query.error} />{query.isLoading && !data && <Spinner label={t('loadingDevices')} />}
       {requested && !validModelId && <ErrorBox error={new Error(t('invalidModelId'))} />}

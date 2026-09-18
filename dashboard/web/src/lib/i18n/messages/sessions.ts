@@ -4,6 +4,7 @@ export const sessions = defineMessages({
   en: {
     // page header & description
     title: 'Simulation · development sessions', description: 'Open personal research workspace or connect to running tasks.',
+    resourceSource: 'DynamoDB session records · Kubernetes API Deployment · Service · Ingress · Pod / EC2 DescribeInstances · StartInstances · StopInstances (workstation)',
     notConfigured: 'This deployment has no session host domain (GATEWAY_BASE_DOMAIN) configured. Cannot open apps, terminals, files, or DCV sessions. Configure domain then redeploy.',
     // intro
     intro: 'Open personal research workspace or connect to one of your running tasks. Workspaces use your project queue and close when time expires.',
@@ -72,6 +73,7 @@ export const sessions = defineMessages({
   ko: {
     // page header & description
     title: '시뮬레이션·개발 세션', description: '개인 연구 워크스페이스를 열거나 실행 중인 작업에 연결합니다.',
+    resourceSource: 'DynamoDB session records · Kubernetes API Deployment · Service · Ingress · Pod / EC2 DescribeInstances · StartInstances · StopInstances (workstation)',
     notConfigured: '이 배포에는 세션 호스트 도메인(GATEWAY_BASE_DOMAIN)이 설정되지 않아 앱·터미널·파일·DCV 세션을 열 수 없습니다. 도메인을 구성한 뒤 다시 배포하세요.',
     // intro
     intro: '개인 연구 워크스페이스를 열거나 실행 중인 작업 중 하나에 연결합니다. 워크스페이스는 프로젝트 대기열을 사용하며 시간 만료 시 종료됩니다.',

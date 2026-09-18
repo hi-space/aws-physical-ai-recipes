@@ -4,6 +4,7 @@ export const edge = defineMessages({
   en: {
     // page header
     title: 'Devices · Edge execution', description: 'Manage registered project targets, pinned model deployments, performance evidence, and HIL exclusive leases.',
+    resourceSource: 'IoT DescribeThingGroup · ListThingsInThingGroup · DescribeThing / Greengrass GetCoreDevice · ListInstalledComponents · ListDeployments · GetDeployment · CreateDeployment / DynamoDB device records',
     // registration
     registrationTitle: 'Project device registration', registrationDescription: 'Project administrators explicitly register targets. Registration is not hardware validation or deployment.',
     registrationFormLabel: 'Display name', registrationFormLabelTarget: 'Target kind', registrationFormLabelTargetName: 'Thing / Group / virtual device name',
@@ -98,6 +99,7 @@ export const edge = defineMessages({
   ko: {
     // page header
     title: '디바이스·엣지 실행', description: '등록된 프로젝트 대상, 고정된 모델 배포, 성능 증거와 HIL 독점 lease를 관리합니다.',
+    resourceSource: 'IoT DescribeThingGroup · ListThingsInThingGroup · DescribeThing / Greengrass GetCoreDevice · ListInstalledComponents · ListDeployments · GetDeployment · CreateDeployment / DynamoDB device records',
     // registration
     registrationTitle: '프로젝트 디바이스 등록', registrationDescription: '프로젝트 관리자가 대상을 명시적으로 등록합니다. 등록은 하드웨어 검증이나 배포가 아닙니다.',
     registrationFormLabel: '표시 이름', registrationFormLabelTarget: '대상 종류', registrationFormLabelTargetName: 'Thing / Group / 가상 장치 이름',

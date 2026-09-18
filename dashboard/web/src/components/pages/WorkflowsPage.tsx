@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { api, can, useApi, useMe } from '@/lib/api-client';
 import { Bar, Button, Card, Dialog, EmptyState, ErrorBox, Input, LinkButton, Select, StatusPill } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { useT, useFormat } from '@/lib/i18n';
 import type { Workflow } from '@/server/store/types';
 
 export function WorkflowsPage() {
   const t = useT('workflows');
+  const tr = useT('resources');
   const tc = useT('common');
   const { ago, fmtDuration } = useFormat();
   const me = useMe();
@@ -52,8 +54,19 @@ export function WorkflowsPage() {
       window.location.href = `/workflows/${result.id}`;
     } catch (value) { setError(value); }
   }
+  const res = me.data?.resources;
   return <div className="space-y-5">
     <PageHeader title={t('title')} actions={canWrite && <LinkButton href="/workflows/new" variant="primary">{t('newRun')}</LinkButton>} />
+    <ResourceStrip
+      source={t('resourceSource')}
+      items={[
+        { label: tr('hyperPodCluster'), value: res?.hyperPodEks?.clusterName, console: res?.hyperPodEks ? { kind: 'hyperpod-cluster', name: res.hyperPodEks.clusterName } : undefined, href: '/compute' },
+        { label: tr('eksCluster'), value: res?.hyperPodEks?.eksClusterName, console: res?.hyperPodEks ? { kind: 'eks-cluster', name: res.hyperPodEks.eksClusterName } : undefined },
+        { label: tr('namespace'), value: me.data?.defaultNamespace },
+        { label: tr('serviceAccount'), value: res?.workflowServiceAccount },
+        { label: tr('dataBucket'), value: res?.dataBucket, console: res?.dataBucket ? { kind: 's3-bucket', bucket: res.dataBucket } : undefined, href: '/datasets' },
+      ]}
+    />
     <p className="text-sm text-fg-muted">{t('description')}</p>
     {(error || page.error) && <ErrorBox error={error ?? page.error} />}
     {notice && <p role="status" className="text-sm text-info">{notice}</p>}

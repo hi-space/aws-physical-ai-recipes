@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, KeyValue, Spinner, Table } from '@/components/ui';
 import { fmtNum, parseQuantity, classNames as cx } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
@@ -77,6 +78,7 @@ interface ClusterSummary {
 
 export function QueuesPage() {
   const t = useT('queues');
+  const tr = useT('resources');
   const tc = useT('common');
   const { data: me } = useMe();
   const [hideFinished, setHideFinished] = React.useState(false);
@@ -113,9 +115,17 @@ export function QueuesPage() {
 
   if ((queuesLoading || quotasLoading) && !queuesData) return <Spinner label={t('loadingQueues')} />;
 
+  const res = me?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('hyperPodCluster'), value: res?.hyperPodEks?.clusterName, console: res?.hyperPodEks ? { kind: 'hyperpod-cluster', name: res.hyperPodEks.clusterName } : undefined, href: '/compute' },
+          { label: tr('eksCluster'), value: res?.hyperPodEks?.eksClusterName, console: res?.hyperPodEks ? { kind: 'eks-cluster', name: res.hyperPodEks.eksClusterName } : undefined },
+        ]}
+      />
 
       {/* Toast */}
       {toast && (

@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import {
   Badge,
   Button,
@@ -55,6 +56,7 @@ interface DataRepositoryTask {
 
 export function StoragePage() {
   const t = useT('storage');
+  const tr = useT('resources');
   const tc = useT('common');
   const { fmtNum } = useFormat();
   const me = useMe();
@@ -112,9 +114,17 @@ export function StoragePage() {
     return <Spinner label={t('loadingBuckets')} />;
   }
 
+  const res = me.data?.resources;
   return (
     <>
       <PageHeader title={t('title')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('dataBucket'), value: res?.dataBucket, console: res?.dataBucket ? { kind: 's3-bucket', bucket: res.dataBucket } : undefined },
+          { label: tr('artifactsBucket'), value: res?.artifactsBucket, console: res?.artifactsBucket ? { kind: 's3-bucket', bucket: res.artifactsBucket } : undefined },
+        ]}
+      />
       <div className="space-y-4">
         {(bucketsError || fsxError) && <ErrorBox error={bucketsError || fsxError} />}
 

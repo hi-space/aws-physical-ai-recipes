@@ -2,6 +2,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import {
   Badge,
   Button,
@@ -35,6 +36,7 @@ interface Dataset {
 
 export function DatasetsPage() {
   const t = useT('datasets');
+  const tr = useT('resources');
   const tc = useT('common');
   const { ago, fmtNum } = useFormat();
   const me = useMe();
@@ -86,10 +88,19 @@ export function DatasetsPage() {
 
   if (isLoading && !data) return <Spinner label={legacy ? t('loadingLegacy') : t('loadingLegacy')} />;
 
+  const res = me.data?.resources;
   return (
     <>
       <label className="mb-3 flex items-center gap-2 text-xs text-fg-muted"><input type="checkbox" checked={legacy} onChange={(event) => setLegacy(event.target.checked)} />{t('showLegacy')}</label>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('dataBucket'), value: res?.dataBucket, console: res?.dataBucket ? { kind: 's3-bucket', bucket: res.dataBucket, prefix: 'datasets/' } : undefined },
+          { label: tr('fsx'), value: res?.fsx?.fileSystemId, console: res?.fsx ? { kind: 'fsx-filesystem', id: res.fsx.fileSystemId } : undefined },
+          { label: tr('fsxMount'), value: res?.fsx?.mountName },
+        ]}
+      />
       <div className="space-y-4">
         {error && <ErrorBox error={error} />}
 

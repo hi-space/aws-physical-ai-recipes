@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const queues = defineMessages({
   en: {
     title: 'Queues', description: 'Kueue and SageMaker task governance',
+    resourceSource: 'SageMaker ListComputeQuotas · DescribeComputeQuota · ListClusterSchedulerConfigs · DescribeClusterSchedulerConfig / Kueue ClusterQueue · LocalQueue · ResourceFlavor · WorkloadPriorityClass (Kubernetes API)',
     explainer: 'HyperPod task governance creates a Kueue ClusterQueue per team (compute quota); jobs in {ns} namespaces are admitted against that quota, can borrow from the shared cohort, and are preempted by priority.',
     clusterQueues: 'Cluster queues', cohort: 'Cohort', pending: 'Pending', admitted: 'Admitted', reserving: 'Reserving',
     fairShare: 'Fair share', flavor: 'Flavor', resource: 'Resource', quota: 'Quota', usageBorrowed: 'Usage / borrowed',
@@ -31,6 +32,7 @@ export const queues = defineMessages({
   },
   ko: {
     title: '대기열', description: 'Kueue 및 SageMaker 작업 거버넌스 설정을 확인합니다.',
+    resourceSource: 'SageMaker ListComputeQuotas · DescribeComputeQuota · ListClusterSchedulerConfigs · DescribeClusterSchedulerConfig / Kueue ClusterQueue · LocalQueue · ResourceFlavor · WorkloadPriorityClass (Kubernetes API)',
     explainer: 'HyperPod 작업 거버넌스는 팀당 Kueue ClusterQueue를 생성합니다(컴퓨트 할당량). {ns} 네임스페이스의 작업은 할당량에 대해 인정되며 공유 cohort에서 빌릴 수 있고 우선순위로 선점됩니다.',
     clusterQueues: '클러스터 대기열', cohort: 'Cohort', pending: '대기', admitted: '승인됨', reserving: '예약 중',
     fairShare: 'Fair share', flavor: 'Flavor', resource: 'Resource', quota: 'Quota', usageBorrowed: '사용량 / 차용',

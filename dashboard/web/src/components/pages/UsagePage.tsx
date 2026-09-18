@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { api, useApi, useMe } from '@/lib/api-client';
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Select, Spinner, Stat, Table } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { useT } from '@/lib/i18n';
 import { useFormat } from '@/lib/i18n';
 import { PricingBasis, usageNumber, usageUsd } from '@/components/usage/UsageSummary';
@@ -11,6 +12,7 @@ import type { projectUsage } from '@/server/services/usage';
 type ProjectUsage = Awaited<ReturnType<typeof projectUsage>>;
 export function UsagePage() {
   const t = useT('usage');
+  const tr = useT('resources');
   const tc = useT('common');
   const { fmtNum, fmtUsd } = useFormat();
   const me = useMe(), projects = useApi<Array<{ id: string; name: string }>>('/api/projects');
@@ -27,8 +29,15 @@ export function UsagePage() {
     try { await api('/api/usage/rates', { method: 'POST' }); await query.refetch(); }
     catch (cause) { setError(cause); } finally { setBusy(false); }
   }
+  const res = me.data?.resources;
   return <div className="space-y-5">
     <PageHeader title={t('title')} description={t('description')} />
+    <ResourceStrip
+      source={t('resourceSource')}
+      items={[
+        { label: tr('priceList'), value: me.data?.region },
+      ]}
+    />
     <ErrorBox error={me.error} /><ErrorBox error={projects.error} /><ErrorBox error={query.error} /><ErrorBox error={error} />
     <div className="flex flex-wrap items-end gap-3">
       <Field label={t('project')}><Select value={projectId ?? ''} onChange={event => setSelected(event.target.value)}>

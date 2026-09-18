@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Button, Card, CopyButton, Dialog, EmptyState, ErrorBox, Field, Input, Select, Spinner, Table } from '@/components/ui';
-import { api, useApi } from '@/lib/api-client';
+import { api, useApi, useMe } from '@/lib/api-client';
 import { useT } from '@/lib/i18n';
 import type { CredentialMetadata } from '@/server/services/credentials';
 import type { ApiScope, ApiTokenMetadata } from '@/server/auth/api-tokens';
@@ -12,7 +13,9 @@ interface TokenList { projectId: string; tokens: ApiTokenMetadata[]; availableSc
 
 export function AccessPage() {
   const t = useT('access');
+  const tr = useT('resources');
   const tc = useT('common');
+  const me = useMe();
   const credentials = useApi<CredentialList>('/api/credentials', { refetch: 15000 });
   const tokens = useApi<TokenList>('/api/tokens', { refetch: 15000 });
   const [mode, setMode] = useState<'value' | 'legacy'>('value');
@@ -82,9 +85,16 @@ export function AccessPage() {
     });
   }
 
+  const res = me.data?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('userPool'), value: res?.cognito?.userPoolId, console: res?.cognito ? { kind: 'cognito-user-pool', id: res.cognito.userPoolId } : undefined },
+        ]}
+      />
       <div className="space-y-4">
         <p className="text-sm text-fg-muted">{t('projectSelectHint')} {projectId && <Badge>{t('projectBadge', { projectId })}</Badge>}</p>
         {error !== undefined && <ErrorBox error={error} />}

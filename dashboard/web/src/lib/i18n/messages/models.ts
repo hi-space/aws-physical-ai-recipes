@@ -3,6 +3,7 @@ import { defineMessages } from '../define';
 export const models = defineMessages({
   en: {
     title: 'Models & evaluations', description: 'Register checkpoints and validate quality via evaluations.',
+    resourceSource: 'DynamoDB model and evaluation records · SageMaker DescribeModelPackage · ListModelPackages · S3 GetObject (artifacts bucket)',
     projectModels: 'Project models', legacyModels: 'Legacy models · Admin',
     loadingModels: 'Loading project models…', loadingDetail: 'Loading model lineage and evaluations…',
     registerButton: 'Register from output', registerFormClose: 'Close registration',
@@ -71,6 +72,7 @@ export const models = defineMessages({
   },
   ko: {
     title: '모델·평가', description: '학습 출력에서 모델을 등록하고, 검증된 평가 결과로 품질을 판단합니다.',
+    resourceSource: 'DynamoDB model and evaluation records · SageMaker DescribeModelPackage · ListModelPackages · S3 GetObject (artifacts bucket)',
     projectModels: '프로젝트 모델', legacyModels: '기존 AWS 모델 · 관리자',
     loadingModels: '프로젝트 모델을 불러오는 중…', loadingDetail: '모델 계보와 평가를 불러오는 중…',
     registerButton: '출력에서 모델 등록', registerFormClose: '등록 폼 닫기',

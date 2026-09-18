@@ -36,6 +36,7 @@ export interface ClusterSummary {
   arn?: string;
   createdAt?: string;
   failureMessage?: string;
+  nodeRecovery?: string;
   groups: ClusterGroup[];
   nodes: { id: string; group: string; instanceType: string; status: string; launchTime?: string }[];
 }
@@ -100,6 +101,7 @@ export async function summarizeCluster(name: string, orchestrator: 'eks' | 'slur
     arn: d.ClusterArn,
     createdAt: d.CreationTime?.toISOString(),
     failureMessage: d.FailureMessage,
+    nodeRecovery: d.NodeRecovery,
     groups: (d.InstanceGroups ?? []).map((g) => {
       const instanceTypeName = g.InstanceType ?? '';
       const catalogEntry = catalog.get(instanceTypeName.replace(/^ml\./, ''));

@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, Toast } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
 import { api, ApiError, useApi, useMe, can, type Me } from '@/lib/api-client';
@@ -39,6 +40,7 @@ interface PipelinesData {
 
 export function PipelinesPage() {
   const t = useT('pipelines');
+  const tr = useT('resources');
   const tc = useT('common');
   const { fmtTime, ago } = useFormat();
   const defaultMe = useMe();
@@ -138,10 +140,19 @@ export function PipelinesPage() {
 
   if (!restored || defaultMe.isLoading || (isLoading && !data)) return <Spinner label={t('loadingPipelines')} />;
 
+  const res = me.data?.resources ?? defaultMe.data?.resources;
   return (
     <>
       <PageHeader title={t('title')} description={project ? t('description', { projectName: project.name, projectId: project.id }) : undefined} />
-
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('pipeline'), value: res?.pipeline?.name },
+          { label: tr('pipelineRole'), value: res?.pipeline?.roleArn },
+          { label: tr('trainingLogGroup'), value: res?.pipeline?.trainingLogGroup, console: res?.pipeline?.trainingLogGroup ? { kind: 'log-group', name: res.pipeline.trainingLogGroup } : undefined },
+          { label: tr('trainingImage'), value: res?.pipeline?.trainingImageUri },
+        ]}
+      />
       <ErrorBox error={restoreError ?? error ?? me.error ?? defaultMe.error} />
       {!project && <EmptyState title={t('selectProject')} />}
       {data?.pipeline.projectTrackingSupported === false && <p className="mb-4 rounded border border-border p-3 text-xs text-warn">

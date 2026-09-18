@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, Tabs, Table, Toast } from '@/components/ui';
 import { classNames as cx } from '@/lib/format';
 import { api, useApi, useApiMutation, useMe } from '@/lib/api-client';
@@ -52,6 +53,7 @@ interface CostData {
 
 export function AdminPage() {
   const t = useT('admin');
+  const tr = useT('resources');
   const tc = useT('common');
   const me = useMe();
   const [tab, setTab] = React.useState<'users' | 'audit' | 'settings' | 'cost'>('users');
@@ -68,9 +70,17 @@ export function AdminPage() {
     );
   }
 
+  const res = me.data?.resources;
   return (
     <>
       <PageHeader title={t('adminPanel')} description={t('description')} />
+      <ResourceStrip
+        source={t('resourceSource')}
+        items={[
+          { label: tr('table'), value: res?.table, console: res?.table ? { kind: 'dynamodb-table', name: res.table } : undefined },
+          { label: tr('userPool'), value: res?.cognito?.userPoolId, console: res?.cognito ? { kind: 'cognito-user-pool', id: res.cognito.userPoolId } : undefined },
+        ]}
+      />
       <Tabs
         value={tab}
         onChange={setTab}
