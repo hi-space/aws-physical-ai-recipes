@@ -1,0 +1,43 @@
+{
+  "checkedAt": "2026-09-18T08:46:12.550Z",
+  "workflows": [
+    {
+      "id": "ef625dfd5600b755",
+      "http": 200,
+      "status": "SUCCEEDED",
+      "tasks": [
+        {
+          "name": "hello",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "id": "de2aa487a34e3266",
+      "http": 200,
+      "status": "SUCCEEDED",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "SUCCEEDED"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    }
+  ],
+  "model": {
+    "http": 200,
+    "id": "mdl-4b30c8271947005451a13393",
+    "qualityApproved": false,
+    "evaluationCount": 1,
+    "gates": [
+      {
+        "decision": "review",
+        "approved": false
+      }
+    ]
+  }
+}

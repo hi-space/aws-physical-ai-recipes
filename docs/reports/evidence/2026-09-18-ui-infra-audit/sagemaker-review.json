@@ -1,0 +1,1138 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "sanitized_normalized_reconstruction_of_previously_returned_AWS_fields",
+  "written_at_utc": "2026-09-18T08:40:19.809387+00:00",
+  "observations_date_utc": "2026-09-18",
+  "exact_api_observation_timestamps_retained": false,
+  "collection_context": {
+    "aws_account_id": "913524902871",
+    "aws_region": "us-east-1",
+    "new_aws_requests_made_to_create_this_file": false,
+    "aws_mutations_performed": false,
+    "browser_tests_performed_by_this_reviewer": false,
+    "repository_edits_performed_by_this_reviewer": false,
+    "primary_evidence_source": "Successful read-only boto3 responses already returned in this audit conversation.",
+    "relevant_api_operations": [
+      "ListPipelines",
+      "DescribePipeline",
+      "ListPipelineVersions",
+      "ListPipelineExecutions",
+      "DescribePipelineExecution",
+      "ListPipelineExecutionSteps",
+      "ListPipelineParametersForExecution",
+      "DescribeTrainingJob",
+      "ListModelPackageGroups",
+      "ListModelPackages",
+      "DescribeModelPackage"
+    ]
+  },
+  "sanitization": {
+    "method": "Explicit field allowlist; this is not an unfiltered AWS response dump.",
+    "retained_resource_identifiers": "Account, region, resource ARNs, S3 URIs, image URIs, execution/job names and API-observed metrics.",
+    "excluded": [
+      "credentials and credential values",
+      "credential-reference environment entries",
+      "authentication headers and cookies",
+      "presigned URLs",
+      "caller IAM user identity",
+      "owner subject values",
+      "raw environment dumps",
+      "AWS ResponseMetadata and request IDs",
+      "unrelated account resources"
+    ]
+  },
+  "aws_observations": {
+    "pipeline": {
+      "PipelineArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871",
+      "PipelineName": "groot-sm-finetuning-913524902871",
+      "PipelineStatus": "Active",
+      "RoleArn": "arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1",
+      "CreationTime": "2026-09-14T19:03:50.504Z",
+      "LastModifiedTime": "2026-09-16T21:37:05.218Z",
+      "versions": [
+        {
+          "PipelineVersionId": 2,
+          "PipelineVersionDisplayName": "V2",
+          "CreationTime": "2026-09-16T21:37:05.218Z",
+          "last_execution_reference_returned": false
+        },
+        {
+          "PipelineVersionId": 1,
+          "PipelineVersionDisplayName": "V1",
+          "CreationTime": "2026-09-14T19:03:50.504Z",
+          "LastExecutionPipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/r4ib9i57o09e"
+        }
+      ],
+      "latest_version_id_from_list_versions": 2,
+      "definition_projection": {
+        "Parameters": [
+          {
+            "Name": "EmbodimentTag",
+            "Type": "String",
+            "DefaultValue": "NEW_EMBODIMENT"
+          },
+          {
+            "Name": "HfDatasetId",
+            "Type": "String",
+            "DefaultValue": "LightwheelAI/leisaac-pick-orange"
+          },
+          {
+            "Name": "InstanceType",
+            "Type": "String",
+            "DefaultValue": "ml.g5.12xlarge"
+          },
+          {
+            "Name": "EvalInstanceType",
+            "Type": "String",
+            "DefaultValue": "ml.g5.2xlarge"
+          },
+          {
+            "Name": "MaxSteps",
+            "Type": "Integer",
+            "DefaultValue": 100
+          },
+          {
+            "Name": "GlobalBatchSize",
+            "Type": "Integer",
+            "DefaultValue": 32
+          },
+          {
+            "Name": "NumGpus",
+            "Type": "Integer",
+            "DefaultValue": 0
+          },
+          {
+            "Name": "SaveSteps",
+            "Type": "Integer",
+            "DefaultValue": 50
+          },
+          {
+            "Name": "DashboardProjectId",
+            "Type": "String",
+            "DefaultValue": ""
+          },
+          {
+            "Name": "DashboardOwnerSubject",
+            "Type": "String",
+            "DefaultValue": ""
+          }
+        ],
+        "Steps": [
+          {
+            "Name": "TransformDataset",
+            "Type": "Processing",
+            "Arguments": {
+              "RoleArn": "arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1",
+              "ProcessingResources": {
+                "ClusterConfig": {
+                  "InstanceType": "ml.m5.2xlarge",
+                  "InstanceCount": 1,
+                  "VolumeSizeInGB": 100
+                }
+              },
+              "AppSpecification": {
+                "ImageUri": "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
+                "ContainerArguments": [
+                  "--hf-dataset-id",
+                  {
+                    "Get": "Parameters.HfDatasetId"
+                  },
+                  "--output-dir",
+                  "/opt/ml/processing/output",
+                  "--region",
+                  "us-east-1"
+                ],
+                "ContainerEntrypoint": [
+                  "/bin/bash",
+                  "/opt/ml/processing/input/entrypoint/runproc.sh"
+                ]
+              },
+              "ProcessingOutputConfig": {
+                "Outputs": [
+                  {
+                    "OutputName": "dataset",
+                    "AppManaged": false,
+                    "S3Output": {
+                      "S3Uri": {
+                        "Std:Join": {
+                          "On": "/",
+                          "Values": [
+                            "s3://groot-sm-artifacts-913524902871-us-east-1/processed",
+                            {
+                              "Get": "Execution.PipelineExecutionId"
+                            }
+                          ]
+                        }
+                      },
+                      "LocalPath": "/opt/ml/processing/output",
+                      "S3UploadMode": "EndOfJob"
+                    }
+                  }
+                ]
+              }
+            },
+            "CacheConfig": {
+              "Enabled": true,
+              "ExpireAfter": "30d"
+            }
+          },
+          {
+            "Name": "GR00TFinetune",
+            "Type": "Training",
+            "Arguments": {
+              "RoleArn": "arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1",
+              "AlgorithmSpecification": {
+                "TrainingInputMode": "File",
+                "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+                "MetricDefinitions": [
+                  {
+                    "Name": "train:loss",
+                    "Regex": "'loss':\\s*([0-9.eE+-]+)"
+                  },
+                  {
+                    "Name": "train:grad_norm",
+                    "Regex": "'grad_norm':\\s*([0-9.eE+-]+)"
+                  },
+                  {
+                    "Name": "train:learning_rate",
+                    "Regex": "'learning_rate':\\s*([0-9.eE+-]+)"
+                  }
+                ]
+              },
+              "ResourceConfig": {
+                "InstanceType": {
+                  "Get": "Parameters.InstanceType"
+                },
+                "InstanceCount": 1,
+                "VolumeSizeInGB": 30
+              },
+              "StoppingCondition": {
+                "MaxRuntimeInSeconds": 86400
+              },
+              "OutputDataConfig": {
+                "S3OutputPath": "s3://groot-sm-artifacts-913524902871-us-east-1/output"
+              },
+              "InputDataConfig": [
+                {
+                  "ChannelName": "dataset",
+                  "DataSource": {
+                    "S3DataSource": {
+                      "S3DataType": "S3Prefix",
+                      "S3DataDistributionType": "FullyReplicated",
+                      "S3Uri": {
+                        "Get": "Steps.TransformDataset.ProcessingOutputConfig.Outputs['dataset'].S3Output.S3Uri"
+                      }
+                    }
+                  }
+                }
+              ],
+              "HyperParameters": {
+                "embodiment_tag": {
+                  "Get": "Parameters.EmbodimentTag"
+                },
+                "max_steps": {
+                  "Std:Join": {
+                    "On": "",
+                    "Values": [
+                      {
+                        "Get": "Parameters.MaxSteps"
+                      }
+                    ]
+                  }
+                },
+                "global_batch_size": {
+                  "Std:Join": {
+                    "On": "",
+                    "Values": [
+                      {
+                        "Get": "Parameters.GlobalBatchSize"
+                      }
+                    ]
+                  }
+                },
+                "save_steps": {
+                  "Std:Join": {
+                    "On": "",
+                    "Values": [
+                      {
+                        "Get": "Parameters.SaveSteps"
+                      }
+                    ]
+                  }
+                },
+                "num_gpus": {
+                  "Std:Join": {
+                    "On": "",
+                    "Values": [
+                      {
+                        "Get": "Parameters.NumGpus"
+                      }
+                    ]
+                  }
+                },
+                "export_s3_uri": {
+                  "Std:Join": {
+                    "On": "/",
+                    "Values": [
+                      "s3://groot-sm-artifacts-913524902871-us-east-1/models/groot-sm",
+                      {
+                        "Get": "Execution.PipelineExecutionId"
+                      }
+                    ]
+                  }
+                },
+                "checkpoint_s3_uri": {
+                  "Std:Join": {
+                    "On": "/",
+                    "Values": [
+                      "s3://groot-sm-artifacts-913524902871-us-east-1/checkpoints",
+                      {
+                        "Get": "Execution.PipelineExecutionId"
+                      }
+                    ]
+                  }
+                },
+                "sagemaker_program": "\"train.py\""
+              },
+              "Environment": {
+                "MLFLOW_TRACKING_URI": "arn:aws:sagemaker:us-east-1:913524902871:mlflow-tracking-server/groot-mlflow-913524902871",
+                "MLFLOW_EXPERIMENT_NAME": {
+                  "Std:Join": {
+                    "On": "/",
+                    "Values": [
+                      "pai",
+                      {
+                        "Get": "Parameters.DashboardProjectId"
+                      },
+                      {
+                        "Get": "Execution.PipelineExecutionId"
+                      }
+                    ]
+                  }
+                },
+                "MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING": "true",
+                "PAI_PROJECT_ID": {
+                  "Get": "Parameters.DashboardProjectId"
+                },
+                "PAI_OWNER_SUBJECT": {
+                  "Get": "Parameters.DashboardOwnerSubject"
+                }
+              },
+              "CheckpointConfig": {
+                "S3Uri": {
+                  "Std:Join": {
+                    "On": "/",
+                    "Values": [
+                      "s3://groot-sm-artifacts-913524902871-us-east-1/checkpoints",
+                      {
+                        "Get": "Execution.PipelineExecutionId"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "DependsOn": [
+              "TransformDataset"
+            ],
+            "RetryPolicies": [
+              {
+                "BackoffRate": 2.0,
+                "IntervalSeconds": 180,
+                "MaxAttempts": 5,
+                "ExceptionType": [
+                  "SageMaker.RESOURCE_LIMIT",
+                  "SageMaker.CAPACITY_ERROR"
+                ]
+              }
+            ]
+          },
+          {
+            "Name": "SmokeEval",
+            "Type": "Training",
+            "Arguments": {
+              "RoleArn": "arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1",
+              "AlgorithmSpecification": {
+                "TrainingInputMode": "File",
+                "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest"
+              },
+              "ResourceConfig": {
+                "InstanceType": {
+                  "Get": "Parameters.EvalInstanceType"
+                },
+                "InstanceCount": 1,
+                "VolumeSizeInGB": 100
+              },
+              "StoppingCondition": {
+                "MaxRuntimeInSeconds": 3600
+              },
+              "OutputDataConfig": {
+                "S3OutputPath": "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval"
+              },
+              "InputDataConfig": [
+                {
+                  "ChannelName": "model",
+                  "DataSource": {
+                    "S3DataSource": {
+                      "S3DataType": "S3Prefix",
+                      "S3DataDistributionType": "FullyReplicated",
+                      "S3Uri": {
+                        "Get": "Steps.GR00TFinetune.ModelArtifacts.S3ModelArtifacts"
+                      }
+                    }
+                  }
+                }
+              ],
+              "HyperParameters": {
+                "report_s3_uri": {
+                  "Std:Join": {
+                    "On": "/",
+                    "Values": [
+                      "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval",
+                      {
+                        "Get": "Execution.PipelineExecutionId"
+                      },
+                      "evaluation.json"
+                    ]
+                  }
+                },
+                "sagemaker_program": "\"smoke_eval.py\""
+              }
+            },
+            "RetryPolicies": [
+              {
+                "BackoffRate": 2.0,
+                "IntervalSeconds": 180,
+                "MaxAttempts": 5,
+                "ExceptionType": [
+                  "SageMaker.RESOURCE_LIMIT",
+                  "SageMaker.CAPACITY_ERROR"
+                ]
+              }
+            ]
+          },
+          {
+            "Name": "SmokeGate",
+            "Type": "Condition",
+            "DependsOn": [
+              "SmokeEval"
+            ],
+            "Arguments": {
+              "Conditions": [
+                {
+                  "Type": "Equals",
+                  "LeftValue": {
+                    "Std:JsonGet": {
+                      "S3Uri": {
+                        "Std:Join": {
+                          "On": "/",
+                          "Values": [
+                            "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval",
+                            {
+                              "Get": "Execution.PipelineExecutionId"
+                            },
+                            "evaluation.json"
+                          ]
+                        }
+                      },
+                      "Path": "smoke.passed"
+                    }
+                  },
+                  "RightValue": 1
+                }
+              ],
+              "IfSteps": [
+                {
+                  "Name": "RegisterModel-RegisterModel",
+                  "Type": "RegisterModel",
+                  "Arguments": {
+                    "ModelPackageGroupName": "groot-sm-models-913524902871",
+                    "InferenceSpecification": {
+                      "Containers": [
+                        {
+                          "Image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+                          "Environment": {},
+                          "ModelDataUrl": {
+                            "Get": "Steps.GR00TFinetune.ModelArtifacts.S3ModelArtifacts"
+                          }
+                        }
+                      ],
+                      "SupportedContentTypes": [
+                        "application/x-npy"
+                      ],
+                      "SupportedResponseMIMETypes": [
+                        "application/json"
+                      ],
+                      "SupportedRealtimeInferenceInstanceTypes": [
+                        "ml.g6.4xlarge"
+                      ],
+                      "SupportedTransformInstanceTypes": [
+                        "ml.g6.4xlarge"
+                      ]
+                    },
+                    "ModelApprovalStatus": "PendingManualApproval",
+                    "SkipModelValidation": "None"
+                  }
+                }
+              ],
+              "ElseSteps": [
+                {
+                  "Name": "SmokeFailed",
+                  "Type": "Fail",
+                  "Arguments": {
+                    "ErrorMessage": "Smoke eval failed — model not registered"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "definition_projection_is_complete_raw_definition": false,
+      "definition_projection_omissions": [
+        "code-bundle input locations",
+        "nonessential SDK hyperparameters",
+        "debugger/profiler settings",
+        "credential-reference environment entries"
+      ],
+      "full_pipeline_definition_hash": null,
+      "job_steps_without_customer_vpc_configuration_in_observed_definition": [
+        "TransformDataset",
+        "GR00TFinetune",
+        "SmokeEval"
+      ]
+    },
+    "execution_list": {
+      "source": "ListPipelineExecutions for the named native pipeline",
+      "response_had_next_token": false,
+      "total_returned": 8,
+      "status_counts": {
+        "Stopped": 4,
+        "Failed": 3,
+        "Succeeded": 1
+      },
+      "executions": [
+        {
+          "execution_id": "r4ib9i57o09e",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/r4ib9i57o09e",
+            "StartTime": "2026-09-16T13:17:21.363Z",
+            "PipelineExecutionStatus": "Stopped",
+            "PipelineExecutionDisplayName": "pai-quick-cbdf5ed3aa42"
+          },
+          "detail_inspected": true,
+          "PipelineVersionId": 1,
+          "version_verification": "DescribePipelineExecution",
+          "selective_execution_status": "no_configuration_returned",
+          "SelectiveExecutionConfig": null,
+          "parameters_observed": {
+            "HfDatasetId": "LightwheelAI/leisaac-pick-orange",
+            "EmbodimentTag": "NEW_EMBODIMENT",
+            "MaxSteps": "100",
+            "GlobalBatchSize": "4",
+            "SaveSteps": "50",
+            "InstanceType": "ml.g6e.2xlarge",
+            "EvalInstanceType": "ml.g5.2xlarge",
+            "NumGpus": "1"
+          },
+          "project_identity_parameter_names_present_in_response": [],
+          "steps_in_aws_return_order": [
+            {
+              "StepName": "GR00TFinetune",
+              "StepStatus": "Stopped",
+              "Metadata": {
+                "TrainingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-r4ib9i57o09e-GR00TFinetune-1dR58eQOUn"
+                }
+              },
+              "AttemptCount": 1
+            },
+            {
+              "StepName": "TransformDataset",
+              "StepStatus": "Succeeded",
+              "CacheHitResult": {
+                "SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6"
+              },
+              "Metadata": {
+                "ProcessingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:processing-job/pipelines-ml4xq8v9ahl6-TransformDataset-RVysSEFuSZ"
+                }
+              },
+              "AttemptCount": 1
+            }
+          ]
+        },
+        {
+          "execution_id": "w9r84qbsl8xn",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/w9r84qbsl8xn",
+            "StartTime": "2026-09-16T12:18:01.756Z",
+            "PipelineExecutionStatus": "Stopped",
+            "PipelineExecutionDisplayName": "pai-quick-adc28be300e5"
+          },
+          "detail_inspected": true,
+          "PipelineVersionId": 1,
+          "version_verification": "DescribePipelineExecution",
+          "selective_execution_status": "no_configuration_returned",
+          "SelectiveExecutionConfig": null,
+          "parameters_observed": {
+            "HfDatasetId": "LightwheelAI/leisaac-pick-orange",
+            "EmbodimentTag": "NEW_EMBODIMENT",
+            "MaxSteps": "100",
+            "GlobalBatchSize": "4",
+            "SaveSteps": "50",
+            "InstanceType": "ml.g5.12xlarge",
+            "EvalInstanceType": "ml.g5.2xlarge",
+            "NumGpus": "0"
+          },
+          "project_identity_parameter_names_present_in_response": [],
+          "steps_in_aws_return_order": [
+            {
+              "StepName": "GR00TFinetune",
+              "StepStatus": "Stopped",
+              "Metadata": {
+                "TrainingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-w9r84qbsl8xn-GR00TFinetune-4IpxyB8M49"
+                }
+              },
+              "AttemptCount": 1
+            },
+            {
+              "StepName": "TransformDataset",
+              "StepStatus": "Succeeded",
+              "CacheHitResult": {
+                "SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6"
+              },
+              "Metadata": {
+                "ProcessingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:processing-job/pipelines-ml4xq8v9ahl6-TransformDataset-RVysSEFuSZ"
+                }
+              },
+              "AttemptCount": 1
+            }
+          ]
+        },
+        {
+          "execution_id": "n4r1xdb896rc",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/n4r1xdb896rc",
+            "StartTime": "2026-09-16T11:57:48.754Z",
+            "PipelineExecutionStatus": "Failed",
+            "PipelineExecutionDisplayName": "pai-quick-44602655c64b",
+            "PipelineExecutionFailureReason": "Step failure: One or multiple steps failed."
+          },
+          "detail_inspected": true,
+          "PipelineVersionId": 1,
+          "version_verification": "DescribePipelineExecution",
+          "selective_execution_status": "no_configuration_returned",
+          "SelectiveExecutionConfig": null,
+          "parameters_observed": {
+            "HfDatasetId": "LightwheelAI/leisaac-pick-orange",
+            "EmbodimentTag": "NEW_EMBODIMENT",
+            "MaxSteps": "100",
+            "GlobalBatchSize": "4",
+            "SaveSteps": "50",
+            "InstanceType": "ml.g5.4xlarge",
+            "EvalInstanceType": "ml.g5.2xlarge",
+            "NumGpus": "1"
+          },
+          "project_identity_parameter_names_present_in_response": [],
+          "steps_in_aws_return_order": [
+            {
+              "StepName": "GR00TFinetune",
+              "StepStatus": "Failed",
+              "Metadata": {
+                "TrainingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-n4r1xdb896rc-GR00TFinetune-B2BSpB4jKA"
+                }
+              },
+              "AttemptCount": 1
+            },
+            {
+              "StepName": "TransformDataset",
+              "StepStatus": "Succeeded",
+              "CacheHitResult": {
+                "SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6"
+              },
+              "Metadata": {
+                "ProcessingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:processing-job/pipelines-ml4xq8v9ahl6-TransformDataset-RVysSEFuSZ"
+                }
+              },
+              "AttemptCount": 1
+            }
+          ]
+        },
+        {
+          "execution_id": "iz67fn1w6rtq",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/iz67fn1w6rtq",
+            "StartTime": "2026-09-14T23:25:50.889Z",
+            "PipelineExecutionStatus": "Stopped",
+            "PipelineExecutionDisplayName": "execution-1789428350997"
+          },
+          "detail_inspected": false,
+          "PipelineVersionId": null,
+          "version_verification": "not_inspected",
+          "selective_execution_status": "not_inspected",
+          "SelectiveExecutionConfig": null
+        },
+        {
+          "execution_id": "vl1ytu6nrd8m",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/vl1ytu6nrd8m",
+            "StartTime": "2026-09-14T23:24:17.502Z",
+            "PipelineExecutionStatus": "Failed",
+            "PipelineExecutionDisplayName": "execution-1789428257582",
+            "PipelineExecutionFailureReason": "Step failure: One or multiple steps failed."
+          },
+          "detail_inspected": false,
+          "PipelineVersionId": null,
+          "version_verification": "not_inspected",
+          "selective_execution_status": "not_inspected",
+          "SelectiveExecutionConfig": null
+        },
+        {
+          "execution_id": "olsvzf6o2fuv",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/olsvzf6o2fuv",
+            "StartTime": "2026-09-14T21:40:53.227Z",
+            "PipelineExecutionStatus": "Succeeded",
+            "PipelineExecutionDisplayName": "execution-1789422053330"
+          },
+          "detail_inspected": true,
+          "PipelineVersionId": 1,
+          "version_verification": "DescribePipelineExecution",
+          "selective_execution_status": "configured",
+          "SelectiveExecutionConfig": {
+            "SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6",
+            "SelectedSteps": [
+              {
+                "StepName": "SmokeEval"
+              },
+              {
+                "StepName": "SmokeGate"
+              }
+            ]
+          },
+          "parameters_observed": {
+            "HfDatasetId": "LightwheelAI/leisaac-pick-orange",
+            "EmbodimentTag": "NEW_EMBODIMENT",
+            "MaxSteps": "100",
+            "GlobalBatchSize": "4",
+            "SaveSteps": "50",
+            "InstanceType": "ml.g5.12xlarge",
+            "EvalInstanceType": "ml.g6.4xlarge",
+            "NumGpus": "0"
+          },
+          "project_identity_parameter_names_present_in_response": [],
+          "steps_in_aws_return_order": [
+            {
+              "StepName": "SmokeGate",
+              "StepStatus": "Succeeded",
+              "StartTime": "2026-09-14T23:02:38.124Z",
+              "EndTime": "2026-09-14T23:02:38.793Z",
+              "Metadata": {
+                "Condition": {
+                  "Outcome": "True"
+                }
+              },
+              "AttemptCount": 1
+            },
+            {
+              "StepName": "SmokeEval",
+              "StepStatus": "Succeeded",
+              "StartTime": "2026-09-14T21:40:56.192Z",
+              "EndTime": "2026-09-14T23:02:37.347Z",
+              "Metadata": {
+                "TrainingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9"
+                }
+              },
+              "AttemptCount": 1
+            },
+            {
+              "StepName": "GR00TFinetune",
+              "StepStatus": "Succeeded",
+              "StartTime": "2026-09-14T21:40:54.150Z",
+              "EndTime": "2026-09-14T21:40:55.470Z",
+              "Metadata": {
+                "TrainingJob": {
+                  "Arn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ"
+                }
+              },
+              "AttemptCount": 1,
+              "SelectiveExecutionResult": {
+                "SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6"
+              }
+            }
+          ],
+          "register_model_step_metadata_observed": false
+        },
+        {
+          "execution_id": "1j7945xinqj2",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/1j7945xinqj2",
+            "StartTime": "2026-09-14T21:39:20.362Z",
+            "PipelineExecutionStatus": "Failed",
+            "PipelineExecutionDisplayName": "execution-1789421960436",
+            "PipelineExecutionFailureReason": "Step failure: One or multiple steps failed."
+          },
+          "detail_inspected": false,
+          "PipelineVersionId": null,
+          "version_verification": "not_inspected",
+          "selective_execution_status": "not_inspected",
+          "SelectiveExecutionConfig": null
+        },
+        {
+          "execution_id": "ml4xq8v9ahl6",
+          "summary": {
+            "PipelineExecutionArn": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871/execution/ml4xq8v9ahl6",
+            "StartTime": "2026-09-14T19:03:52.339Z",
+            "PipelineExecutionStatus": "Stopped",
+            "PipelineExecutionDisplayName": "execution-1789412632463"
+          },
+          "detail_inspected": false,
+          "PipelineVersionId": null,
+          "version_verification": "not_inspected",
+          "selective_execution_status": "not_inspected",
+          "SelectiveExecutionConfig": null
+        }
+      ]
+    },
+    "described_training_jobs": [
+      {
+        "TrainingJobName": "pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ",
+        "TrainingJobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ",
+        "TrainingJobStatus": "Completed",
+        "ResourceConfig": {
+          "InstanceType": "ml.g5.12xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 30
+        },
+        "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "TrainingStartTime": "2026-09-14T19:40:36.038Z",
+        "TrainingEndTime": "2026-09-14T19:57:23.849Z",
+        "TrainingTimeInSeconds": 1007,
+        "BillableTimeInSeconds": 1007,
+        "ModelArtifacts": {
+          "S3ModelArtifacts": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz"
+        },
+        "artifact_existence_checked": false,
+        "hyperparameter_projection": {
+          "max_steps": "100",
+          "global_batch_size": "4",
+          "save_steps": "50",
+          "num_gpus": "0",
+          "embodiment_tag": "NEW_EMBODIMENT",
+          "sagemaker_program": "\"train.py\"",
+          "checkpoint_s3_uri": "s3://groot-sm-artifacts-913524902871-us-east-1/checkpoints/ml4xq8v9ahl6",
+          "export_s3_uri": "s3://groot-sm-artifacts-913524902871-us-east-1/models/groot-sm/ml4xq8v9ahl6"
+        },
+        "FinalMetricDataList": [
+          {
+            "MetricName": "train:grad_norm",
+            "Value": 0.9946997165679932,
+            "Timestamp": "2026-09-14T19:54:31Z"
+          },
+          {
+            "MetricName": "train:loss",
+            "Value": 1.0733000040054321,
+            "Timestamp": "2026-09-14T19:54:31Z"
+          },
+          {
+            "MetricName": "train:learning_rate",
+            "Value": 2.7337133445826112e-08,
+            "Timestamp": "2026-09-14T19:54:31Z"
+          }
+        ],
+        "MLFLOW_EXPERIMENT_NAME_observed": "groot-sm-finetune"
+      },
+      {
+        "TrainingJobName": "pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9",
+        "TrainingJobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9",
+        "TrainingJobStatus": "Completed",
+        "ResourceConfig": {
+          "InstanceType": "ml.g6.4xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 100
+        },
+        "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "TrainingStartTime": "2026-09-14T22:53:51.070Z",
+        "TrainingEndTime": "2026-09-14T23:02:37.014Z",
+        "TrainingTimeInSeconds": 526,
+        "BillableTimeInSeconds": 526,
+        "ModelArtifacts": {
+          "S3ModelArtifacts": "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval/pipelines-olsvzf6o2fuv-SmokeEval-w90MHflcV9/output/model.tar.gz"
+        },
+        "artifact_existence_checked": false,
+        "hyperparameter_projection": {
+          "report_s3_uri": "s3://groot-sm-artifacts-913524902871-us-east-1/smoke-eval/olsvzf6o2fuv/evaluation.json",
+          "sagemaker_program": "\"smoke_eval.py\""
+        },
+        "FinalMetricDataList": null
+      },
+      {
+        "TrainingJobName": "pipelines-n4r1xdb896rc-GR00TFinetune-B2BSpB4jKA",
+        "TrainingJobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-n4r1xdb896rc-GR00TFinetune-B2BSpB4jKA",
+        "TrainingJobStatus": "Failed",
+        "ResourceConfig": {
+          "InstanceType": "ml.g5.4xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 30
+        },
+        "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "TrainingStartTime": "2026-09-16T11:58:54.004Z",
+        "TrainingEndTime": "2026-09-16T12:06:25.054Z",
+        "TrainingTimeInSeconds": 451,
+        "BillableTimeInSeconds": 451,
+        "ModelArtifacts": {
+          "S3ModelArtifacts": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-n4r1xdb896rc-GR00TFinetune-B2BSpB4jKA/output/model.tar.gz"
+        },
+        "artifact_existence_checked": false,
+        "failure_reason_summary": "AlgorithmError: ExecuteUserScriptError; ExitCode 1; ErrorMessage was empty.",
+        "root_cause_verification": "not_established_by_describe_response; OOM was not verified",
+        "FinalMetricDataList": []
+      },
+      {
+        "TrainingJobName": "pipelines-w9r84qbsl8xn-GR00TFinetune-4IpxyB8M49",
+        "TrainingJobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-w9r84qbsl8xn-GR00TFinetune-4IpxyB8M49",
+        "TrainingJobStatus": "Stopped",
+        "ResourceConfig": {
+          "InstanceType": "ml.g5.12xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 30
+        },
+        "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "TrainingStartTime": null,
+        "TrainingEndTime": "2026-09-16T13:13:17.874Z",
+        "TrainingTimeInSeconds": null,
+        "BillableTimeInSeconds": null,
+        "ModelArtifacts": null,
+        "artifact_existence_checked": false,
+        "FinalMetricDataList": null,
+        "stop_or_capacity_root_cause_verification": "not_inspected"
+      },
+      {
+        "TrainingJobName": "pipelines-r4ib9i57o09e-GR00TFinetune-1dR58eQOUn",
+        "TrainingJobArn": "arn:aws:sagemaker:us-east-1:913524902871:training-job/pipelines-r4ib9i57o09e-GR00TFinetune-1dR58eQOUn",
+        "TrainingJobStatus": "Stopped",
+        "ResourceConfig": {
+          "InstanceType": "ml.g6e.2xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 30
+        },
+        "TrainingImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+        "TrainingStartTime": null,
+        "TrainingEndTime": "2026-09-16T14:12:31.096Z",
+        "TrainingTimeInSeconds": null,
+        "BillableTimeInSeconds": null,
+        "ModelArtifacts": null,
+        "artifact_existence_checked": false,
+        "FinalMetricDataList": null,
+        "stop_or_capacity_root_cause_verification": "not_inspected"
+      }
+    ],
+    "model_package_group_list_result": {
+      "ModelPackageGroupName": "groot-sm-models-913524902871",
+      "ModelPackageGroupArn": "arn:aws:sagemaker:us-east-1:913524902871:model-package-group/groot-sm-models-913524902871",
+      "ModelPackageGroupStatus": "Completed",
+      "ModelPackageGroupDescription": "GR00T fine-tuned models (smoke-gated)",
+      "CreationTime": "2026-09-14T19:03:41.219Z"
+    },
+    "model_package_list": {
+      "group": "groot-sm-models-913524902871",
+      "returned_count": 1,
+      "response_had_next_token": false,
+      "packages": [
+        {
+          "ModelPackageArn": "arn:aws:sagemaker:us-east-1:913524902871:model-package/groot-sm-models-913524902871/1",
+          "ModelPackageGroupName": "groot-sm-models-913524902871",
+          "ModelPackageVersion": 1,
+          "CreationTime": "2026-09-15T00:00:27.002Z",
+          "ModelPackageStatus": "Completed",
+          "ModelApprovalStatus": "Approved",
+          "ModelPackageRegistrationType": "Registered",
+          "ModelPackageDescription": "GR00T N1.6 fine-tuned (100-step quick), smoke.passed=1 (action_shape [16,6], all_finite). Registered from pipeline exec olsvzf6o2fuv checkpoint.",
+          "InferenceSpecification": {
+            "Containers": [
+              {
+                "Image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+                "ImageDigest": "sha256:5e485dc23d6c090022020325a62cd69e5e02a63344d20e6b1cb568f7fbe46cb3",
+                "ModelDataUrl": "s3://groot-sm-artifacts-913524902871-us-east-1/output/pipelines-ml4xq8v9ahl6-GR00TFinetune-NAjhza3LoQ/output/model.tar.gz",
+                "ModelDataETag": "b89636b5a351b99bd4ccb50d66d35c2b-1246",
+                "IsCheckpoint": false
+              }
+            ],
+            "SupportedTransformInstanceTypes": [
+              "ml.g6.4xlarge"
+            ],
+            "SupportedRealtimeInferenceInstanceTypes": [
+              "ml.g6.4xlarge"
+            ],
+            "SupportedContentTypes": [
+              "application/x-npy"
+            ],
+            "SupportedResponseMIMETypes": [
+              "application/json"
+            ]
+          },
+          "CustomerMetadataProperties": null,
+          "ModelMetrics": null,
+          "approval_semantics_note": "Approved is an observed AWS Registry state; no application quality approval or closed-loop evaluation was verified.",
+          "registration_method": "not_inspected; do not infer manual creation from the observations"
+        }
+      ]
+    },
+    "backing_resource_references": {
+      "evidence_scope": "References and job configurations observed in the pipeline/job/package API responses; these are not independent IAM/ECR/S3/MLflow existence or permission checks.",
+      "native_execution_service": "Amazon SageMaker Pipelines",
+      "compute_resource_kinds": [
+        "SageMaker Processing Job",
+        "SageMaker Training Job"
+      ],
+      "execution_role_arn": "arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1",
+      "training_and_smoke_image_uri": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+      "artifact_bucket_name": "groot-sm-artifacts-913524902871-us-east-1",
+      "model_package_group_name": "groot-sm-models-913524902871",
+      "mlflow_tracking_server_arn_referenced_in_training_environment": "arn:aws:sagemaker:us-east-1:913524902871:mlflow-tracking-server/groot-mlflow-913524902871",
+      "customer_vpc_configuration_in_job_definition": "absent",
+      "hyperpod_or_eks_cluster_reference_in_native_job_definition": "absent",
+      "fsx_input_channel_in_native_job_definition": "absent; native training uses an S3 File-mode dataset channel",
+      "endpoint_creation_step_in_native_definition": "absent",
+      "actual_instance_ids": "not_inspected"
+    }
+  },
+  "derived_conclusions": [
+    {
+      "statement": "No execution was observed after creation of V2.",
+      "basis": "Complete eight-item ListPipelineExecutions response: latest start 2026-09-16T13:17:21.363Z; V2 created 2026-09-16T21:37:05.218Z. V2 version summary returned no last-execution reference.",
+      "classification": "deterministic_comparison_of_observed_fields"
+    },
+    {
+      "statement": "The described historical success reused the earlier fine-tuning job and selected SmokeEval and SmokeGate.",
+      "basis": "DescribePipelineExecution.SelectiveExecutionConfig and ListPipelineExecutionSteps.SelectiveExecutionResult for olsvzf6o2fuv.",
+      "classification": "directly_supported_by_AWS_execution_metadata"
+    },
+    {
+      "statement": "The historical success returns SmokeEval before GR00TFinetune, so a first-TrainingJob selector chooses the smoke job.",
+      "basis": "Preserved AWS step return order plus PipelineExecutionPage.tsx line 144.",
+      "classification": "AWS_observation_plus_source_code_interpretation; browser_not_tested_here"
+    }
+  ],
+  "source_review_context_not_verified_as_live_runtime_findings": [
+    {
+      "id": "shared_role_dataset_code_import",
+      "classification": "security_architecture_issue_from_source_review",
+      "statement": "Dataset-supplied modality_config.py is preferred by train.py and imported by the pinned GR00T launcher under the shared execution role. CDK source grants broad bucket and Registry permissions.",
+      "source_references": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/e2e-workshop/groot/training/data/upload_dataset.py",
+          "line": 67
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/e2e-workshop/groot/training/container/train.py",
+          "line": 400
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/e2e-workshop/infra/groot/lib/constructs/sagemaker-role.ts",
+          "line": 30
+        }
+      ],
+      "upstream_source_review": {
+        "repository": "NVIDIA/Isaac-GR00T",
+        "commit": "5dc80c4afd726b34faad1d8f7e007a13b34e4c88",
+        "file": "gr00t/experiment/launch_finetune.py",
+        "function": "load_modality_config",
+        "import_line": 23,
+        "observation": "importlib.import_module(path.stem)"
+      },
+      "exploitation_tested": false,
+      "live_effective_role_permissions_verified": false
+    },
+    {
+      "id": "controller_recovery_grant",
+      "classification": "source_review_concern_pending_parent_IAM_simulation",
+      "statement": "Controller StartPipelineExecution grant is conditional on d.groot.PipelineName; the inspected GR00T CDK source does not export PipelineName.",
+      "source_references": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/lib/dashboard-stack.ts",
+          "line": 267
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/lib/env-contract.ts",
+          "line": 38
+        }
+      ],
+      "parent_check_status": "Parent reported running IAM simulator; result not provided to this reviewer.",
+      "live_denial_verified_by_this_reviewer": false
+    },
+    {
+      "id": "quick_preset_reset",
+      "classification": "source_review_finding_pending_parent_browser_payload_check",
+      "statement": "Quick replaces formData with MaxSteps=100, GlobalBatchSize=4, SaveSteps=50 rather than merging existing overrides.",
+      "source_references": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/components/pages/PipelinesPage.tsx",
+          "line": 204
+        }
+      ],
+      "parent_check_status": "Parent reported running intercepted browser payload test; result not incorporated.",
+      "browser_payload_verified_by_this_reviewer": false
+    },
+    {
+      "id": "empty_field_display_submission_mismatch",
+      "classification": "source_review_finding_pending_parent_browser_payload_check",
+      "statement": "Input value uses truthy fallback while submission sends stored formData; numeric NumGpus default 0 is also hidden by truthy fallback.",
+      "source_references": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/components/pages/PipelinesPage.tsx",
+          "line": 220
+        }
+      ],
+      "parent_check_status": "Parent reported running intercepted browser payload test; result not incorporated.",
+      "browser_payload_verified_by_this_reviewer": false
+    },
+    {
+      "id": "project_parameters",
+      "classification": "source_review_of_submission_contract",
+      "statement": "Server injects DashboardProjectId and DashboardOwnerSubject when declared. Native job parameters use these in training environment and MLflow naming; dashboard ownership records are separate from AWS execution metadata.",
+      "source_references": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/services/pipelines.ts",
+          "line": 40
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/e2e-workshop/groot/pipeline/build_pipeline.py",
+          "line": 105
+        }
+      ],
+      "current_V2_project_parameter_submission_observed_in_AWS": false,
+      "source_runtime_interpretation": "NumGpus=0 triggers automatic GPU detection in train.py; this meaning is from source, not from the pipeline parameter type itself."
+    }
+  ],
+  "parent_reported_context_not_independently_verified_here": {
+    "native_pipeline_UI_execution_count": 4,
+    "native_pipeline_UI_status_counts": {
+      "Succeeded": 1,
+      "Failed": 1,
+      "Stopped": 2
+    },
+    "api_me_role": "admin",
+    "GR00T_EKS_DAG_latest_success": "reported by parent; separate execution path, not native V2 evidence",
+    "browser_crawl": "reported completed by parent",
+    "UI_to_AWS_execution_id_mapping_independently_checked": false,
+    "source_explanation_for_scope_difference": "Default /api/pipelines uses projectPipelineList even for admin; account history requires legacy=1. No application database records were inspected here."
+  },
+  "coverage_limits": [
+    "Snapshot assembled from observations already obtained; writing it did not refresh AWS state.",
+    "Exact API request timestamps and raw AWS response files were not retained; written_at_utc is the file assembly time.",
+    "Execution versions/selective configuration were inspected for four executions only. Null version/configuration on the other four means not inspected, not a negative result.",
+    "The definition is a sanitized projection, not the complete raw PipelineDefinition. No full-definition digest is claimed.",
+    "S3 artifact/report contents and object existence were not checked. An artifact URI in a failed training-job description does not prove an object exists.",
+    "Smoke outcome details [16,6] and finite values appear in ModelPackageDescription; the report object itself was not read.",
+    "The ModelPackage ImageDigest is the digest observed in that historical package, not verification of the current latest image tag or every training container.",
+    "Deployed controller IAM, effective execution-role permissions, ECR contents, ECS deployment, and database ownership bindings were not independently checked.",
+    "No exploitation test, live workload submission, workload stop, Registry mutation, browser test, or repository edit was performed by this reviewer."
+  ]
+}

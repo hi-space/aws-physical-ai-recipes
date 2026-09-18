@@ -1,0 +1,23 @@
+{
+  "mode": "Browser interaction on deployed page; POST intercepted locally, no SageMaker execution created",
+  "submissions": [
+    {
+      "parameters": {
+        "MaxSteps": "",
+        "GlobalBatchSize": "4",
+        "SaveSteps": "50"
+      }
+    }
+  ],
+  "initial": {
+    "NumGpus": "",
+    "MaxSteps": "100"
+  },
+  "afterQuick": {
+    "dataset": "LightwheelAI/leisaac-pick-orange",
+    "instance": "ml.g5.12xlarge"
+  },
+  "afterClearingMaxSteps": "100",
+  "displayedDefaultButSubmittedEmpty": true,
+  "result": "REPRODUCED"
+}

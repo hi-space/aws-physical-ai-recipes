@@ -1,0 +1,63 @@
+{
+  "role": "admin",
+  "adminApiStatus": 200,
+  "adminUiDenied": true,
+  "s3": [
+    {
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "emptyToken": {
+        "status": 500,
+        "body": {
+          "error": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          "code": "internal"
+        }
+      },
+      "omittedToken": {
+        "status": 200,
+        "entries": 1
+      }
+    },
+    {
+      "bucket": "hyperpod-eks-data-913524902871-us-east-1",
+      "emptyToken": {
+        "status": 500,
+        "body": {
+          "error": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          "code": "internal"
+        }
+      },
+      "omittedToken": {
+        "status": 200,
+        "entries": 1
+      }
+    },
+    {
+      "bucket": "groot-sm-artifacts-913524902871-us-east-1",
+      "emptyToken": {
+        "status": 500,
+        "body": {
+          "error": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          "code": "internal"
+        }
+      },
+      "omittedToken": {
+        "status": 200,
+        "entries": 8
+      }
+    },
+    {
+      "bucket": "hyperpod-data-913524902871-us-east-1",
+      "emptyToken": {
+        "status": 500,
+        "body": {
+          "error": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          "code": "internal"
+        }
+      },
+      "omittedToken": {
+        "status": 200,
+        "entries": 1
+      }
+    }
+  ]
+}

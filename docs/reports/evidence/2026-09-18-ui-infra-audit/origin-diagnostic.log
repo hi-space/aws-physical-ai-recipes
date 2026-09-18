@@ -1,0 +1,89 @@
+
+ RUN  v3.2.7 /home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web
+
+ ✓ src/app/api/templates/templates.test.ts (7 tests) 108ms
+ ❯ src/app/api/workflows/topology-preview.test.ts (2 tests | 2 failed) 14ms
+   × previews native placement from registered inventory without persisting a workflow or plan 11ms
+     → expected undefined to be true // Object.is equality
+   × does not fabricate a rack hierarchy when only zone/hostname are registered 2ms
+     → expected undefined to be false // Object.is equality
+ ❯ src/server/backends/routing.test.ts (8 tests | 1 failed) 240ms
+   × two EKS backends across real application boundaries > submits through the API and concurrently reconciles each persisted run to its own HTTP client/CA/token/storage 51ms
+     → expected [ 403, 403 ] to deeply equal [ 202, 202 ]
+   ✓ two EKS backends across real application boundaries > retains default cluster routing and rejects namespace/backend spoofing and revoked backend launches 39ms
+   ✓ two EKS backends across real application boundaries > routes grouped JobSet launch and cancellation to each backend without creating substitute independent Jobs 30ms
+   ✓ two EKS backends across real application boundaries > uses the dataset owner project backend even when the browser selected another project, retaining home archive and SageMaker buckets 15ms
+   ✓ two EKS backends across real application boundaries > collects outputs on the source backend FSx and cleans up only that backend collector without claiming unverified success 31ms
+   ✓ two EKS backends across real application boundaries > records failed RBAC probes and prevents any Job submission afterward 20ms
+   ✓ two EKS backends across real application boundaries > routes session discovery and gateway sockets from the persisted backend and invalidates changed grants 28ms
+   ✓ two EKS backends across real application boundaries > hydrates a cross-backend input only from home archive VersionIds and signs runtime claims with its destination backend 24ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/server/backends/routing.test.ts > two EKS backends across real application boundaries > submits through the API and concurrently reconciles each persisted run to its own HTTP client/CA/token/storage
+AssertionError: expected [ 403, 403 ] to deeply equal [ 202, 202 ]
+
+- Expected
++ Received
+
+  [
+-   202,
+-   202,
++   403,
++   403,
+  ]
+
+ ❯ src/server/backends/routing.test.ts:164:40
+    162|   it('submits through the API and concurrently reconciles each persist…
+    163|     const replies = await Promise.all(projects.map(project => submitRo…
+    164|     expect(replies.map(r => r.status)).toEqual([202, 202]);
+       |                                        ^
+    165|     const runs = await Promise.all(replies.map(r => r.json() as Promis…
+    166|     expect(runs.map(w => w.backendId)).toEqual(['alpha', 'beta']);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/app/api/workflows/topology-preview.test.ts > previews native placement from registered inventory without persisting a workflow or plan
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected: 
+true
+
++ Received: 
+undefined
+
+ ❯ src/app/api/workflows/topology-preview.test.ts:42:21
+     40| it('previews native placement from registered inventory without persis…
+     41|   const result = await (await validate(yaml())).json();
+     42|   expect(result.ok).toBe(true);
+       |                     ^
+     43|   expect(result.manifests[0].spec.template.spec.nodeSelector['topology…
+     44|   expect(result.manifests[0].metadata.annotations['pai.aws/topology-pl…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/app/api/workflows/topology-preview.test.ts > does not fabricate a rack hierarchy when only zone/hostname are registered
+AssertionError: expected undefined to be false // Object.is equality
+
+- Expected: 
+false
+
++ Received: 
+undefined
+
+ ❯ src/app/api/workflows/topology-preview.test.ts:50:21
+     48| it('does not fabricate a rack hierarchy when only zone/hostname are re…
+     49|   const result = await (await validate(yaml('rack'))).json();
+     50|   expect(result.ok).toBe(false);
+       |                     ^
+     51|   expect(result.error).toMatch(/unregistered topology key rack/);
+     52| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  3 failed | 14 passed (17)
+   Start at  08:31:11
+   Duration  1.88s (transform 912ms, setup 32ms, collect 3.11s, tests 361ms, environment 0ms, prepare 335ms)
+

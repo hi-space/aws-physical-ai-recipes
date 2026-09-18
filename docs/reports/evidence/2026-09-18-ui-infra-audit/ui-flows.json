@@ -1,0 +1,937 @@
+{
+  "tag": "ui-audit-20260918-mu6pc1vi",
+  "steps": [
+    {
+      "name": "preflight-custom",
+      "submitDisabled": true,
+      "result": "PASS"
+    },
+    {
+      "name": "preflight-mujoco-pipeline",
+      "submitDisabled": true,
+      "result": "PASS"
+    },
+    {
+      "name": "preflight-gr00t-e2e",
+      "submitDisabled": true,
+      "result": "PASS"
+    },
+    {
+      "name": "preflight-isaaclab-train",
+      "submitDisabled": true,
+      "result": "PASS"
+    },
+    {
+      "name": "submit-custom-via-ui",
+      "status": 202,
+      "result": "PASS"
+    },
+    {
+      "name": "dataset-create-upload-finalize-download",
+      "result": "FAIL",
+      "error": "locator.setInputFiles: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('input[type=\"file\"][multiple]')\u001b[22m\n"
+    },
+    {
+      "name": "workflow-completion-and-artifacts",
+      "workflowId": "ef625dfd5600b755",
+      "status": "SUCCEEDED",
+      "fileCount": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "dataset-delete-own-fixture",
+      "status": 404,
+      "result": "PASS"
+    }
+  ],
+  "preflight": [
+    {
+      "template": "preflight-custom",
+      "status": 200,
+      "ok": true,
+      "preflight": {
+        "projectId": "workshop",
+        "checkedAt": "2026-09-18T08:33:54.672Z",
+        "status": "needs-review",
+        "resolvedImageDigests": {
+          "hello": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28"
+        },
+        "tasks": [
+          {
+            "task": "hello",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-00f3cbe8dfee6b675",
+              "hyperpod-i-0e723d11c740c3b1d"
+            ],
+            "driver": "not-applicable",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "hello"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "hello"
+              }
+            ],
+            "profileId": "builtin-mujoco",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:d4da0acde99513fa236d2ff084fd09878fcffeef50626998e197e9337aa0f4d4",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+                  "configDigest": "sha256:e2583ff2e88184fa78984ac2f96d988167019b34e31aec1078a6e4c685d2aba9",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:33:54.584Z",
+              "source": "ecr-manifest-config"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "hello"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "hello"
+          }
+        ],
+        "hardware": {
+          "source": "eks-nodes+ec2-instance-types",
+          "checkedAt": "2026-09-18T08:33:54.652Z",
+          "catalogAvailable": true,
+          "nodes": [
+            {
+              "name": "hyperpod-i-00f3cbe8dfee6b675",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28722.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0e723d11c740c3b1d",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28498.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0f190b8fa232cef49",
+              "instanceType": "g5.8xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 31.85,
+                "memoryMiB": 117724.5,
+                "gpu": 1
+              },
+              "catalog": {
+                "cpu": 32,
+                "memoryMiB": 131072,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 1,
+                "gpuMemoryMiB": 22888,
+                "gpuNames": [
+                  "A10G"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "template": "preflight-mujoco-pipeline",
+      "status": 200,
+      "ok": true,
+      "preflight": {
+        "projectId": "workshop",
+        "checkedAt": "2026-09-18T08:33:59.381Z",
+        "status": "needs-review",
+        "resolvedImageDigests": {
+          "train": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+          "evaluate": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28"
+        },
+        "tasks": [
+          {
+            "task": "train",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-00f3cbe8dfee6b675",
+              "hyperpod-i-0e723d11c740c3b1d"
+            ],
+            "driver": "not-applicable",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "train"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "train"
+              }
+            ],
+            "profileId": "builtin-mujoco",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:d4da0acde99513fa236d2ff084fd09878fcffeef50626998e197e9337aa0f4d4",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+                  "configDigest": "sha256:e2583ff2e88184fa78984ac2f96d988167019b34e31aec1078a6e4c685d2aba9",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:33:59.273Z",
+              "source": "ecr-manifest-config"
+            }
+          },
+          {
+            "task": "evaluate",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-00f3cbe8dfee6b675",
+              "hyperpod-i-0e723d11c740c3b1d"
+            ],
+            "driver": "not-applicable",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "evaluate"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "evaluate"
+              }
+            ],
+            "profileId": "builtin-mujoco",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:d4da0acde99513fa236d2ff084fd09878fcffeef50626998e197e9337aa0f4d4",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+                  "configDigest": "sha256:e2583ff2e88184fa78984ac2f96d988167019b34e31aec1078a6e4c685d2aba9",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:33:59.273Z",
+              "source": "ecr-manifest-config"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "train"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "train"
+          },
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "evaluate"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "evaluate"
+          }
+        ],
+        "hardware": {
+          "source": "eks-nodes+ec2-instance-types",
+          "checkedAt": "2026-09-18T08:33:59.341Z",
+          "catalogAvailable": true,
+          "nodes": [
+            {
+              "name": "hyperpod-i-00f3cbe8dfee6b675",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28722.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0e723d11c740c3b1d",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28498.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0f190b8fa232cef49",
+              "instanceType": "g5.8xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 31.85,
+                "memoryMiB": 117724.5,
+                "gpu": 1
+              },
+              "catalog": {
+                "cpu": 32,
+                "memoryMiB": 131072,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 1,
+                "gpuMemoryMiB": 22888,
+                "gpuNames": [
+                  "A10G"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "template": "preflight-gr00t-e2e",
+      "status": 200,
+      "ok": true,
+      "preflight": {
+        "projectId": "workshop",
+        "checkedAt": "2026-09-18T08:34:04.735Z",
+        "status": "needs-review",
+        "resolvedImageDigests": {
+          "import": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+          "finetune": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+          "evaluate": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9"
+        },
+        "tasks": [
+          {
+            "task": "import",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-00f3cbe8dfee6b675",
+              "hyperpod-i-0e723d11c740c3b1d"
+            ],
+            "driver": "not-applicable",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "import"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "import"
+              }
+            ],
+            "profileId": "builtin-mujoco",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:d4da0acde99513fa236d2ff084fd09878fcffeef50626998e197e9337aa0f4d4",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:7c45dc8b20ab3a340bfaa739938e99fd1e07218511b164cc61185cdf540c3c28",
+                  "configDigest": "sha256:e2583ff2e88184fa78984ac2f96d988167019b34e31aec1078a6e4c685d2aba9",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:34:04.222Z",
+              "source": "ecr-manifest-config"
+            }
+          },
+          {
+            "task": "finetune",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-0f190b8fa232cef49"
+            ],
+            "driver": "unknown",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "finetune"
+              },
+              {
+                "code": "driver_unknown",
+                "severity": "unknown",
+                "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+                "task": "finetune"
+              },
+              {
+                "code": "vram_requirement_unknown",
+                "severity": "unknown",
+                "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+                "task": "finetune"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "finetune"
+              }
+            ],
+            "profileId": "builtin-groot",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:aa5d48e31535dd087fb5a3868cc07250c351dfaf7fdbb46774875d6d4ae90365",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+                  "configDigest": "sha256:06147bd0913e55f57d83e395b3536d4a3db19e9517909d72f7426812bb148542",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:34:04.636Z",
+              "source": "ecr-manifest-config"
+            }
+          },
+          {
+            "task": "evaluate",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-0f190b8fa232cef49"
+            ],
+            "driver": "unknown",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "evaluate"
+              },
+              {
+                "code": "driver_unknown",
+                "severity": "unknown",
+                "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+                "task": "evaluate"
+              },
+              {
+                "code": "vram_requirement_unknown",
+                "severity": "unknown",
+                "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+                "task": "evaluate"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "evaluate"
+              }
+            ],
+            "profileId": "builtin-groot",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:aa5d48e31535dd087fb5a3868cc07250c351dfaf7fdbb46774875d6d4ae90365",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:2cc72e8a169bd46e15bae7f4f0b6480c5864b8e31b1346096f30d7f967c1edd9",
+                  "configDigest": "sha256:06147bd0913e55f57d83e395b3536d4a3db19e9517909d72f7426812bb148542",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:34:04.636Z",
+              "source": "ecr-manifest-config"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "import"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "import"
+          },
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "finetune"
+          },
+          {
+            "code": "driver_unknown",
+            "severity": "unknown",
+            "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+            "task": "finetune"
+          },
+          {
+            "code": "vram_requirement_unknown",
+            "severity": "unknown",
+            "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+            "task": "finetune"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "finetune"
+          },
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "evaluate"
+          },
+          {
+            "code": "driver_unknown",
+            "severity": "unknown",
+            "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+            "task": "evaluate"
+          },
+          {
+            "code": "vram_requirement_unknown",
+            "severity": "unknown",
+            "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+            "task": "evaluate"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "evaluate"
+          }
+        ],
+        "hardware": {
+          "source": "eks-nodes+ec2-instance-types",
+          "checkedAt": "2026-09-18T08:34:04.287Z",
+          "catalogAvailable": true,
+          "nodes": [
+            {
+              "name": "hyperpod-i-00f3cbe8dfee6b675",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28722.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0e723d11c740c3b1d",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28498.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0f190b8fa232cef49",
+              "instanceType": "g5.8xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 31.85,
+                "memoryMiB": 117724.5,
+                "gpu": 1
+              },
+              "catalog": {
+                "cpu": 32,
+                "memoryMiB": 131072,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 1,
+                "gpuMemoryMiB": 22888,
+                "gpuNames": [
+                  "A10G"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "template": "preflight-isaaclab-train",
+      "status": 200,
+      "ok": true,
+      "preflight": {
+        "projectId": "workshop",
+        "checkedAt": "2026-09-18T08:34:10.045Z",
+        "status": "needs-review",
+        "resolvedImageDigests": {
+          "train": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:ff7c0e7da47de856a4d5b5de68c967c59de62b2606397da18a7c4ad4abcd519d"
+        },
+        "tasks": [
+          {
+            "task": "train",
+            "hardwareCompatibility": "compatible",
+            "compatibleNodes": [
+              "hyperpod-i-0f190b8fa232cef49"
+            ],
+            "driver": "unknown",
+            "modelAccess": "unknown",
+            "findings": [
+              {
+                "code": "capacity_not_reserved",
+                "severity": "warning",
+                "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+                "task": "train"
+              },
+              {
+                "code": "driver_unknown",
+                "severity": "unknown",
+                "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+                "task": "train"
+              },
+              {
+                "code": "vram_requirement_unknown",
+                "severity": "unknown",
+                "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+                "task": "train"
+              },
+              {
+                "code": "model_access_unknown",
+                "severity": "unknown",
+                "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+                "task": "train"
+              }
+            ],
+            "profileId": "builtin-isaaclab",
+            "profileVersion": 6,
+            "image": {
+              "accountId": "913524902871",
+              "region": "us-east-1",
+              "requestedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:3d6b71375fd2c74192d5fd022771f9bf29f4823187f3fa4678e742105d34bc96",
+              "resolvedImage": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1@sha256:ff7c0e7da47de856a4d5b5de68c967c59de62b2606397da18a7c4ad4abcd519d",
+              "repository": "cdk-hnb659fds-container-assets-913524902871-us-east-1",
+              "digest": "sha256:ff7c0e7da47de856a4d5b5de68c967c59de62b2606397da18a7c4ad4abcd519d",
+              "architectures": [
+                "amd64"
+              ],
+              "manifests": [
+                {
+                  "digest": "sha256:ff7c0e7da47de856a4d5b5de68c967c59de62b2606397da18a7c4ad4abcd519d",
+                  "configDigest": "sha256:2ed06d595c9589f9830764ba679d18d9e04baea6fa4c665fce9c4d015c48609b",
+                  "architecture": "amd64",
+                  "os": "linux"
+                }
+              ],
+              "inspectedAt": "2026-09-18T08:34:09.964Z",
+              "source": "ecr-manifest-config"
+            }
+          }
+        ],
+        "findings": [
+          {
+            "code": "capacity_not_reserved",
+            "severity": "warning",
+            "message": "현재 allocatable/EC2 사양 비교입니다. 사용 중인 자원, taint, quota 또는 admission을 예약·보증하지 않습니다.",
+            "task": "train"
+          },
+          {
+            "code": "driver_unknown",
+            "severity": "unknown",
+            "message": "GPU 드라이버·CUDA 호환성은 검사하지 않았습니다.",
+            "task": "train"
+          },
+          {
+            "code": "vram_requirement_unknown",
+            "severity": "unknown",
+            "message": "이 프로필의 작업별 최소 VRAM 요구량이 지정되지 않았습니다.",
+            "task": "train"
+          },
+          {
+            "code": "model_access_unknown",
+            "severity": "unknown",
+            "message": "모델·라이선스·데이터 접근과 실제 애플리케이션 실행은 검사하지 않았습니다.",
+            "task": "train"
+          }
+        ],
+        "hardware": {
+          "source": "eks-nodes+ec2-instance-types",
+          "checkedAt": "2026-09-18T08:34:10.026Z",
+          "catalogAvailable": true,
+          "nodes": [
+            {
+              "name": "hyperpod-i-00f3cbe8dfee6b675",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28722.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0e723d11c740c3b1d",
+              "instanceType": "c5.4xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 15.89,
+                "memoryMiB": 28498.7421875
+              },
+              "catalog": {
+                "cpu": 16,
+                "memoryMiB": 32768,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 0,
+                "gpuNames": []
+              }
+            },
+            {
+              "name": "hyperpod-i-0f190b8fa232cef49",
+              "instanceType": "g5.8xlarge",
+              "architecture": "amd64",
+              "ready": true,
+              "schedulable": true,
+              "allocatable": {
+                "cpu": 31.85,
+                "memoryMiB": 117724.5,
+                "gpu": 1
+              },
+              "catalog": {
+                "cpu": 32,
+                "memoryMiB": 131072,
+                "architectures": [
+                  "amd64"
+                ],
+                "gpuCount": 1,
+                "gpuMemoryMiB": 22888,
+                "gpuNames": [
+                  "A10G"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "workflow": {
+    "id": "ef625dfd5600b755",
+    "name": "ui-audit-20260918-mu6pc1vi",
+    "status": "SUCCEEDED",
+    "backendId": "default",
+    "projectId": "workshop",
+    "namespace": "hyperpod-ns-team-a",
+    "createdAt": "2026-09-18T08:34:16.907Z",
+    "updatedAt": "2026-09-18T08:34:48.175Z",
+    "succeededCount": 1,
+    "failedCount": 0
+  },
+  "artifacts": {
+    "status": 200,
+    "body": {
+      "workflowId": "ef625dfd5600b755",
+      "status": "SUCCEEDED",
+      "tasks": [
+        {
+          "task": "hello",
+          "phase": "SUCCEEDED",
+          "attempt": 1,
+          "outputPath": "/fsx/checkpoints/projects/workshop/runs/ef625dfd5600b755/attempts/1/hello",
+          "versions": [
+            {
+              "dataset": "custom-artifacts-ef625dfd5600b755",
+              "version": 1,
+              "uri": "s3://physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or/projects/workshop/runs/ef625dfd5600b755/attempts/1/hello/a5d5582e119c9cae83eedd80300618e6dee694deeb4ace23596c9d86393fa40f/",
+              "state": "ready",
+              "manifestHash": "5eba910831f506ab65b3b8adb9f7e1c7358c9975e2724773d6c77e25984c4736",
+              "fileCount": 1,
+              "sizeBytes": 34,
+              "mediaCount": 0,
+              "files": [
+                {
+                  "path": "done.json",
+                  "bytes": 34,
+                  "kind": "json",
+                  "previewable": true
+                }
+              ],
+              "truncated": false
+            }
+          ]
+        }
+      ],
+      "mediaCount": 0,
+      "fileCount": 1
+    }
+  },
+  "datasetDeleted": true
+}

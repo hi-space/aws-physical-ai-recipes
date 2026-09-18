@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 /home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web
+
+ ✓ src/server/backends/routing.test.ts (8 tests) 223ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  08:31:55
+   Duration  2.08s (transform 856ms, setup 12ms, collect 1.33s, tests 223ms, environment 0ms, prepare 353ms)
+

@@ -1,0 +1,525 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-09-18T08:38:56.452130+00:00",
+  "observedDateUtc": "2026-09-18",
+  "region": "us-east-1",
+  "repository": "/home/ubuntu/workspace/aws-physical-ai-recipes",
+  "provenance": {
+    "basis": "Existing observations from this review conversation, plus whitelisted metadata from the existing deployed-services.json snapshot. No AWS or Kubernetes calls were rerun to write this artifact.",
+    "exactObservationTimestampsRetained": false,
+    "snapshotIsHistoricalNotFreshInventory": true,
+    "existingServiceSnapshot": "/tmp/physical-ai-ui-audit/deployed-services.json",
+    "sanitization": "Selected resource metadata and source evidence only. Credentials, bearer tokens, presigned URLs, secret values, raw environment dumps, user identity attributes, and workload payloads are omitted."
+  },
+  "reviewActions": {
+    "cloudMutationsAttempted": false,
+    "actualScaleAttempted": false,
+    "workloadsStartedByReviewer": false,
+    "workloadsCancelledByReviewer": false,
+    "deploymentsAttempted": false,
+    "repositoryFilesEdited": false,
+    "evidenceFileWriteAuthorized": true,
+    "verification": "Read-only AWS inventory/IAM queries, Kubernetes GETs, source inspection, and one in-memory manifest comparison; no workload execution."
+  },
+  "clusters": [
+    {
+      "name": "hyperpod-eks-913524902871",
+      "hyperpodClusterId": "tqci9uwuwqiz",
+      "orchestrator": "eks",
+      "hyperpodStatus": "InService",
+      "eksStatus": "ACTIVE",
+      "kubernetesVersion": "1.34",
+      "vpcId": "vpc-07b3e827aa8ba7f88",
+      "nodeProvisioningMode": "Continuous",
+      "nodeRecovery": "Automatic",
+      "managedNodegroups": [],
+      "autoScalingConfigurationPresent": false,
+      "endpointPublicAccess": true,
+      "endpointPrivateAccess": true,
+      "totalCurrentNodes": 3,
+      "totalTargetNodes": 3,
+      "groups": [
+        {
+          "name": "cpu-c5-4x",
+          "instanceType": "ml.c5.4xlarge",
+          "currentCount": 2,
+          "targetCount": 2,
+          "status": "InService"
+        },
+        {
+          "name": "gpu-g5-8x",
+          "instanceType": "ml.g5.8xlarge",
+          "currentCount": 1,
+          "targetCount": 1,
+          "status": "InService"
+        }
+      ],
+      "kubernetesNodesReady": 3,
+      "kubernetesGpuCapacity": 1,
+      "kubernetesGpuAllocatable": 1,
+      "fsxFileSystemId": "fs-042f63b1f254c0087",
+      "awsEvidenceOperations": [
+        "sagemaker:DescribeCluster",
+        "sagemaker:ListClusterNodes",
+        "eks:DescribeCluster",
+        "eks:ListNodegroups"
+      ],
+      "kubernetesEvidencePaths": [
+        "/api/v1/nodes"
+      ]
+    },
+    {
+      "name": "hyperpod-913524902871",
+      "hyperpodClusterId": "qxd0644oh2ly",
+      "orchestrator": "slurm",
+      "hyperpodStatus": "InService",
+      "vpcId": "vpc-05858adc239bfbf47",
+      "nodeRecovery": "Automatic",
+      "totalCurrentNodes": 4,
+      "totalTargetNodes": 4,
+      "groups": [
+        {
+          "name": "head",
+          "instanceType": "ml.m5.xlarge",
+          "currentCount": 1,
+          "targetCount": 1,
+          "nodeType": "Controller"
+        },
+        {
+          "name": "gpu-g5-8x",
+          "instanceType": "ml.g5.8xlarge",
+          "currentCount": 1,
+          "targetCount": 1,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g5-12x",
+          "instanceType": "ml.g5.12xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6e-12x",
+          "instanceType": "ml.g6e.12xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6e-24x",
+          "instanceType": "ml.g6e.24xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6e-48x",
+          "instanceType": "ml.g6e.48xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6-12x",
+          "instanceType": "ml.g6.12xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6-24x",
+          "instanceType": "ml.g6.24xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-g6-48x",
+          "instanceType": "ml.g6.48xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-p4d",
+          "instanceType": "ml.p4d.24xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "gpu-p5",
+          "instanceType": "ml.p5.48xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute"
+        },
+        {
+          "name": "cpu-c5-4x",
+          "instanceType": "ml.c5.4xlarge",
+          "currentCount": 1,
+          "targetCount": 1,
+          "nodeType": "Compute",
+          "partitionNames": [
+            "cpu"
+          ]
+        },
+        {
+          "name": "cpu-c5-9x",
+          "instanceType": "ml.c5.9xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute",
+          "partitionNames": [
+            "cpu"
+          ]
+        },
+        {
+          "name": "cpu-m5-4x",
+          "instanceType": "ml.m5.4xlarge",
+          "currentCount": 0,
+          "targetCount": 0,
+          "nodeType": "Compute",
+          "partitionNames": [
+            "cpu"
+          ]
+        },
+        {
+          "name": "debug",
+          "instanceType": "ml.g5.8xlarge",
+          "currentCount": 1,
+          "targetCount": 1,
+          "nodeType": "Compute"
+        }
+      ],
+      "runningNodeGroups": [
+        "head",
+        "gpu-g5-8x",
+        "cpu-c5-4x",
+        "debug"
+      ],
+      "fsxFileSystemId": "fs-0c2e901f6987efc26",
+      "reportedFailureMessage": "We currently do not have sufficient capacity to launch new ml.g6e.12xlarge instances. Please try again.",
+      "failureMessageInterpretation": "DescribeCluster retained this message while ClusterStatus and all group statuses were InService; it is not evidence of an active failed scale operation.",
+      "dashboardWorkflowSubmissionSupported": false,
+      "awsEvidenceOperations": [
+        "sagemaker:DescribeCluster",
+        "sagemaker:ListClusterNodes",
+        "cloudformation:DescribeStacks"
+      ]
+    }
+  ],
+  "storage": {
+    "fileSystems": [
+      {
+        "id": "fs-042f63b1f254c0087",
+        "orchestrator": "eks",
+        "storageCapacityGiB": 1200,
+        "deploymentType": "PERSISTENT_2",
+        "lifecycle": "AVAILABLE",
+        "mountName": "gdva3aev",
+        "dataBucket": "hyperpod-eks-data-913524902871-us-east-1"
+      },
+      {
+        "id": "fs-0c2e901f6987efc26",
+        "orchestrator": "slurm",
+        "storageCapacityGiB": 1200,
+        "deploymentType": "PERSISTENT_2",
+        "lifecycle": "AVAILABLE",
+        "mountName": "emvataev",
+        "dataBucket": "hyperpod-data-913524902871-us-east-1"
+      }
+    ],
+    "draPathsOnEachFileSystem": [
+      {
+        "fileSystemPath": "/datasets",
+        "s3Prefix": "datasets/",
+        "autoImport": [
+          "NEW",
+          "CHANGED",
+          "DELETED"
+        ]
+      },
+      {
+        "fileSystemPath": "/checkpoints",
+        "s3Prefix": "checkpoints/",
+        "autoExport": [
+          "NEW",
+          "CHANGED",
+          "DELETED"
+        ]
+      },
+      {
+        "fileSystemPath": "/enroot",
+        "s3Prefix": "enroot/",
+        "autoImport": [
+          "NEW",
+          "CHANGED",
+          "DELETED"
+        ]
+      }
+    ],
+    "eksBoundClaimNamespaces": [
+      "hyperpod-ns-team-a",
+      "hyperpod-ns-team-b",
+      "rl"
+    ],
+    "exportDefaultCheck": {
+      "isFinding": false,
+      "uiDefault": "/fsx/checkpoints",
+      "normalizedApiPath": "checkpoints",
+      "actualDraFileSystemPath": "/checkpoints",
+      "normalizationSource": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/aws/fsx.ts",
+        "line": 65
+      },
+      "uiSource": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/components/pages/ComputePage.tsx",
+        "line": 52
+      },
+      "exportRequestAttempted": false
+    }
+  },
+  "backendAndSchedulingSnapshot": {
+    "eksBackendsJsonInAllThreeServices": [],
+    "homeVpcId": "vpc-07b3e827aa8ba7f88",
+    "jobsetControllerVersion": "v0.12.0",
+    "jobsetControllerAvailable": true,
+    "kueueVersion": "v0.19.2",
+    "kueueTopologyAwareSchedulingEnabled": true,
+    "localQueueNamespaces": [
+      "hyperpod-ns-team-a",
+      "hyperpod-ns-team-b"
+    ],
+    "rlLocalQueuePresent": false,
+    "projectSnapshot": {
+      "id": "workshop",
+      "namespace": "hyperpod-ns-team-a",
+      "queue": "hyperpod-ns-team-a-localqueue",
+      "backendIdStored": null,
+      "effectiveBackendId": "default"
+    },
+    "scalingPolicyRowsObserved": 0,
+    "activeScalingOperationRowsObserved": 0,
+    "newParentVerificationWorkflow": {
+      "id": "ef625dfd5600b755",
+      "reportedByParentAsNew": true,
+      "excludedFromPreexistingDrift": true,
+      "reviewerMadeNoLifecycleCalls": true
+    }
+  },
+  "servicesFromExistingSnapshot": [
+    {
+      "service": "PhysicalAiDashboard-913524902871-WebServiceD04B5F3E-CB0rRU6ETVDC",
+      "desired": 1,
+      "running": 1,
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebTaskDefD0130F4C:26"
+    },
+    {
+      "service": "PhysicalAiDashboard-913524902871-WebControllerService9BC9A713-2nUkfQMC7miw",
+      "desired": 1,
+      "running": 1,
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebControllerTaskE9024EAA:16"
+    },
+    {
+      "service": "PhysicalAiDashboard-913524902871-WebGatewayServiceBF31E39B-qMBUDOKeRJ2F",
+      "desired": 1,
+      "running": 1,
+      "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebGatewayTask10DBE637:16"
+    }
+  ],
+  "controllerSizing": {
+    "classification": "Observed deployment/source mismatch, not a demonstrated runtime failure",
+    "live": {
+      "taskDefinition": "PhysicalAiDashboardWebControllerTaskE9024EAA:16",
+      "cpuUnits": 512,
+      "vCpu": 0.5,
+      "memoryMiB": 1024
+    },
+    "liveEvidence": "ecs:DescribeTaskDefinition response observed earlier in this conversation; existing deployed-services.json corroborates the task-definition revision but does not contain task-level sizing.",
+    "sourceDefaults": {
+      "cpuUnits": 2048,
+      "vCpu": 2,
+      "memoryMiB": 4096
+    },
+    "sourceReference": {
+      "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/lib/constructs/service.ts",
+      "line": 157,
+      "endLine": 160
+    },
+    "sourceExpression": "cpu: props.controllerCpu ?? 2048, memoryLimitMiB: props.controllerMemoryMiB ?? 4096",
+    "rootCauseOfMismatchEstablished": false,
+    "runtimeFailureDemonstrated": false
+  },
+  "findings": [
+    {
+      "id": "HP-SCALE-001",
+      "severity": "P1",
+      "title": "HyperPod providerID parsing blocks scale-down node matching",
+      "verificationLevel": "Confirmed source predicate mismatch against actual AWS/Kubernetes inventory",
+      "sourceReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/services/scaling-activity.ts",
+        "line": 47,
+        "endLine": 57
+      },
+      "sourcePredicate": "provider ? provider.split('/').pop() === instance.InstanceId : node.metadata.name === `hyperpod-${instance.InstanceId}`",
+      "providerIdExamples": [
+        {
+          "instanceId": "i-00f3cbe8dfee6b675",
+          "nodeName": "hyperpod-i-00f3cbe8dfee6b675",
+          "instanceGroupName": "cpu-c5-4x",
+          "instanceType": "ml.c5.4xlarge",
+          "providerID": "aws:///use1-az4/sagemaker/cluster/hyperpod-tqci9uwuwqiz-i-00f3cbe8dfee6b675",
+          "providerLastSegment": "hyperpod-tqci9uwuwqiz-i-00f3cbe8dfee6b675",
+          "matchesSourcePredicate": false,
+          "ready": true,
+          "hyperpodHealth": "Schedulable"
+        },
+        {
+          "instanceId": "i-0e723d11c740c3b1d",
+          "nodeName": "hyperpod-i-0e723d11c740c3b1d",
+          "instanceGroupName": "cpu-c5-4x",
+          "instanceType": "ml.c5.4xlarge",
+          "providerID": "aws:///use1-az4/sagemaker/cluster/hyperpod-tqci9uwuwqiz-i-0e723d11c740c3b1d",
+          "providerLastSegment": "hyperpod-tqci9uwuwqiz-i-0e723d11c740c3b1d",
+          "matchesSourcePredicate": false,
+          "ready": true,
+          "hyperpodHealth": "Schedulable"
+        },
+        {
+          "instanceId": "i-0f190b8fa232cef49",
+          "nodeName": "hyperpod-i-0f190b8fa232cef49",
+          "instanceGroupName": "gpu-g5-8x",
+          "instanceType": "ml.g5.8xlarge",
+          "providerID": "aws:///use1-az4/sagemaker/cluster/hyperpod-tqci9uwuwqiz-i-0f190b8fa232cef49",
+          "providerLastSegment": "hyperpod-tqci9uwuwqiz-i-0f190b8fa232cef49",
+          "matchesSourcePredicate": false,
+          "ready": true,
+          "hyperpodHealth": "Schedulable"
+        }
+      ],
+      "matchingExamples": 0,
+      "totalExamples": 3,
+      "resultingBlockerCode": "node_mapping_unknown",
+      "consequence": "Manual and idle scale-down plans cannot identify the existing nodes and remain blocked even if all other prerequisites are met.",
+      "actualScaleAttempted": false,
+      "actualScaleApiFailureObserved": false,
+      "liveScaleSnapshotRouteCalledByReviewer": false,
+      "qualification": "This is a source-plus-inventory finding, not an executed scaling experiment. No capacity, cordon, plan, or idle-policy mutation was performed.",
+      "testFixtureReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/services/scaling-plans.test.ts",
+        "line": 20,
+        "endLine": 22
+      },
+      "fixtureObservation": "The main happy-path node fixtures use spec: {} and therefore exercise name fallback, not the live HyperPod providerID format."
+    },
+    {
+      "id": "HP-TOPOLOGY-001",
+      "severity": "P2",
+      "title": "Standalone Job compilation ignores required task-level topology",
+      "verificationLevel": "Confirmed by source inspection and in-memory manifest comparison",
+      "schemaReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/workflow/schema.ts",
+        "line": 105,
+        "endLine": 108
+      },
+      "standaloneCompilerReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/workflow/compile.ts",
+        "line": 600,
+        "endLine": 602
+      },
+      "groupConsumerReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/workflow/groups.ts",
+        "line": 62,
+        "endLine": 70
+      },
+      "comparison": {
+        "taskName": "parallel",
+        "parallelism": 2,
+        "requestedTopology": {
+          "key": "kubernetes.io/hostname",
+          "mode": "required"
+        },
+        "namespace": "hyperpod-ns-team-a",
+        "queue": "hyperpod-ns-team-a-localqueue",
+        "manifestsIdenticalWithAndWithoutTaskTopology": true,
+        "podAnnotations": null,
+        "podAffinity": null,
+        "method": "Bundled compile.ts in memory with esbuild write:false, invoked compileTask twice, compared serialized results; no files or Kubernetes objects created."
+      },
+      "consequence": "The accepted required task-level placement constraint is absent from the resulting standalone Job; replica co-location is not enforced by this field.",
+      "qualification": "Task-level {key, mode} is distinct from resource-level native topology and from JobSet group topology. No live topology workload was submitted.",
+      "liveTopologyWorkloadAttempted": false
+    },
+    {
+      "id": "HP-BACKEND-001",
+      "severity": "P2",
+      "title": "Additional-backend probe requires permissions assigned to a different process role",
+      "verificationLevel": "Source contract compared with installed EKS access entries and Kubernetes RBAC",
+      "probeReferences": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/backends/probe.ts",
+          "line": 22,
+          "endLine": 25
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/backends/probe.ts",
+          "line": 42,
+          "endLine": 51
+        }
+      ],
+      "roleReferences": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/ops/apply_addons.py",
+          "line": 21,
+          "endLine": 32
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/ops/apply_addons.py",
+          "line": 54,
+          "endLine": 81
+        }
+      ],
+      "refreshReference": {
+        "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/worker.ts",
+        "line": 142,
+        "endLine": 146
+      },
+      "observedRoleBoundary": {
+        "webAndController": "physical-ai-workloads role without pods/exec or pods/portforward",
+        "gateway": "physical-ai-gateway role with pods/exec and pods/portforward get/create"
+      },
+      "additionalMismatch": "Probe requires scheduling.k8s.io priorityclasses get/list; installed discovery role grants kueue.x-k8s.io workloadpriorityclasses instead.",
+      "consequence": "Additional backends provisioned with these separated role definitions fail the API/worker readiness probe; the worker repeats the same check every five minutes.",
+      "currentExposure": "No additional backend is configured. Default backend bypasses these readiness checks.",
+      "additionalBackendProbeAttempted": false
+    }
+  ],
+  "unconfirmedConcerns": [
+    {
+      "id": "HP-SCALE-IAM-CANDIDATE",
+      "title": "Scale-up roles lack PassRole for the HyperPod execution role",
+      "confirmedObservation": "Earlier IAM policy inspection found web/controller iam:PassRole grants only for GR00T SageMaker role, not the HyperPod EKS execution role serialized in the scale request.",
+      "sourceReferences": [
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/aws/hyperpod.ts",
+          "line": 69
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web/src/server/aws/hyperpod.ts",
+          "line": 102,
+          "endLine": 109
+        },
+        {
+          "file": "/home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/infra/lib/dashboard-stack.ts",
+          "line": 161,
+          "endLine": 166
+        }
+      ],
+      "actualScaleAttempted": false,
+      "authorizationDenialObserved": false,
+      "countedAsConfirmedDefect": false
+    }
+  ]
+}

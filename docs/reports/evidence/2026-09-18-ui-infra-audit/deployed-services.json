@@ -1,0 +1,80 @@
+[
+  {
+    "service": "PhysicalAiDashboard-913524902871-WebServiceD04B5F3E-CB0rRU6ETVDC",
+    "desired": 1,
+    "running": 1,
+    "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebTaskDefD0130F4C:26",
+    "containers": [
+      {
+        "name": "web",
+        "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:049ed8df4c4ed4295f71f3865c1cc6f4129de24fab5166adcbd0d1608ef392a7",
+        "environment": {
+          "ARTIFACTS_BUCKET": "groot-sm-artifacts-913524902871-us-east-1",
+          "EKS_BACKENDS_JSON": "[]",
+          "EKS_DATA_BUCKET": "hyperpod-eks-data-913524902871-us-east-1",
+          "FSX_FILE_SYSTEM_ID": "fs-042f63b1f254c0087",
+          "AUTH_MODE": "alb",
+          "HYPERPOD_SLURM_CLUSTER_NAME": "hyperpod-913524902871",
+          "EKS_CLUSTER_NAME": "hyperpod-eks-913524902871",
+          "FSX_MOUNT_NAME": "gdva3aev",
+          "SM_TRAINING_IMAGE_URI": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+          "SM_PIPELINE_NAME": "groot-sm-finetuning-913524902871",
+          "WORKFLOW_CONTROLLER": "0",
+          "HYPERPOD_EKS_CLUSTER_NAME": "hyperpod-eks-913524902871"
+        }
+      }
+    ]
+  },
+  {
+    "service": "PhysicalAiDashboard-913524902871-WebControllerService9BC9A713-2nUkfQMC7miw",
+    "desired": 1,
+    "running": 1,
+    "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebControllerTaskE9024EAA:16",
+    "containers": [
+      {
+        "name": "controller",
+        "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:049ed8df4c4ed4295f71f3865c1cc6f4129de24fab5166adcbd0d1608ef392a7",
+        "environment": {
+          "ARTIFACTS_BUCKET": "groot-sm-artifacts-913524902871-us-east-1",
+          "EKS_BACKENDS_JSON": "[]",
+          "EKS_DATA_BUCKET": "hyperpod-eks-data-913524902871-us-east-1",
+          "FSX_FILE_SYSTEM_ID": "fs-042f63b1f254c0087",
+          "AUTH_MODE": "alb",
+          "HYPERPOD_SLURM_CLUSTER_NAME": "hyperpod-913524902871",
+          "EKS_CLUSTER_NAME": "hyperpod-eks-913524902871",
+          "FSX_MOUNT_NAME": "gdva3aev",
+          "SM_TRAINING_IMAGE_URI": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+          "SM_PIPELINE_NAME": "groot-sm-finetuning-913524902871",
+          "WORKFLOW_CONTROLLER": "0",
+          "HYPERPOD_EKS_CLUSTER_NAME": "hyperpod-eks-913524902871"
+        }
+      }
+    ]
+  },
+  {
+    "service": "PhysicalAiDashboard-913524902871-WebGatewayServiceBF31E39B-qMBUDOKeRJ2F",
+    "desired": 1,
+    "running": 1,
+    "taskDefinition": "arn:aws:ecs:us-east-1:913524902871:task-definition/PhysicalAiDashboardWebGatewayTask10DBE637:16",
+    "containers": [
+      {
+        "name": "gateway",
+        "image": "913524902871.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-913524902871-us-east-1:049ed8df4c4ed4295f71f3865c1cc6f4129de24fab5166adcbd0d1608ef392a7",
+        "environment": {
+          "ARTIFACTS_BUCKET": "groot-sm-artifacts-913524902871-us-east-1",
+          "EKS_BACKENDS_JSON": "[]",
+          "EKS_DATA_BUCKET": "hyperpod-eks-data-913524902871-us-east-1",
+          "FSX_FILE_SYSTEM_ID": "fs-042f63b1f254c0087",
+          "AUTH_MODE": "alb",
+          "HYPERPOD_SLURM_CLUSTER_NAME": "hyperpod-913524902871",
+          "EKS_CLUSTER_NAME": "hyperpod-eks-913524902871",
+          "FSX_MOUNT_NAME": "gdva3aev",
+          "SM_TRAINING_IMAGE_URI": "913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest",
+          "SM_PIPELINE_NAME": "groot-sm-finetuning-913524902871",
+          "WORKFLOW_CONTROLLER": "0",
+          "HYPERPOD_EKS_CLUSTER_NAME": "hyperpod-eks-913524902871"
+        }
+      }
+    ]
+  }
+]

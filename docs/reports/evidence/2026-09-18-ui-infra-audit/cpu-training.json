@@ -1,0 +1,592 @@
+{
+  "startedAt": "2026-09-18T08:35:55.464Z",
+  "id": "de2aa487a34e3266",
+  "parameters": {
+    "steps": "512",
+    "environments": "1",
+    "episodes": "2"
+  },
+  "submissionStatus": 202,
+  "observations": [
+    {
+      "at": "2026-09-18T08:36:02.333Z",
+      "status": "PENDING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "WAITING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:36:12.544Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "INITIALIZING",
+          "message": "PodInitializing"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:36:22.757Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "INITIALIZING",
+          "message": "PodInitializing"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:36:32.967Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING",
+          "message": "lease lost or conditional write conflict"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:36:43.191Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:36:53.426Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:03.647Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:13.861Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:24.075Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:34.298Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "RUNNING"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:44.510Z",
+      "status": "FINALIZING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "FINALIZING",
+          "message": "Waiting for trusted output inventory and collector cleanup"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:37:54.722Z",
+      "status": "FINALIZING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "WAITING"
+        },
+        {
+          "name": "train",
+          "phase": "FINALIZING",
+          "message": "Waiting for trusted output inventory and collector cleanup"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:04.931Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "INITIALIZING",
+          "message": "PodInitializing"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:15.142Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "INITIALIZING",
+          "message": "PodInitializing"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:25.362Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:35.573Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:45.800Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:38:56.010Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:06.220Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:16.433Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:26.643Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:36.926Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:47.137Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:39:57.351Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:07.571Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:17.782Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:27.999Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:38.209Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:48.603Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:40:58.813Z",
+      "status": "RUNNING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "RUNNING"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:41:09.026Z",
+      "status": "FINALIZING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "FINALIZING",
+          "message": "Waiting for trusted output inventory and collector cleanup"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:41:19.299Z",
+      "status": "FINALIZING",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "FINALIZING",
+          "message": "Waiting for trusted output inventory and collector cleanup"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-18T08:41:29.511Z",
+      "status": "SUCCEEDED",
+      "tasks": [
+        {
+          "name": "evaluate",
+          "phase": "SUCCEEDED"
+        },
+        {
+          "name": "train",
+          "phase": "SUCCEEDED"
+        }
+      ]
+    }
+  ],
+  "result": "PASS",
+  "mediaRendered": true,
+  "finalStatus": "SUCCEEDED",
+  "artifactSummary": {
+    "fileCount": 19,
+    "mediaCount": 2
+  },
+  "outputs": [
+    {
+      "task": "evaluate",
+      "versions": [
+        {
+          "dataset": "mujoco-evaluation-de2aa487a34e3266",
+          "version": 1,
+          "state": "ready",
+          "files": [
+            {
+              "path": "evaluation.json",
+              "kind": "json"
+            },
+            {
+              "path": "videos/episode-0000.mp4",
+              "kind": "video"
+            },
+            {
+              "path": "videos/episode-0001.mp4",
+              "kind": "video"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "task": "train",
+      "versions": [
+        {
+          "dataset": "mujoco-checkpoints-de2aa487a34e3266",
+          "version": 1,
+          "state": "ready",
+          "files": [
+            {
+              "path": "best_checkpoint.json",
+              "kind": "json"
+            },
+            {
+              "path": "checkpoints/step-000000000512/manifest.json",
+              "kind": "json"
+            },
+            {
+              "path": "checkpoints/step-000000000512/model.zip",
+              "kind": "other"
+            },
+            {
+              "path": "checkpoints/step-000000000512/vecnormalize.pkl",
+              "kind": "other"
+            },
+            {
+              "path": "final/manifest.json",
+              "kind": "json"
+            },
+            {
+              "path": "final/model.zip",
+              "kind": "other"
+            },
+            {
+              "path": "final/vecnormalize.pkl",
+              "kind": "other"
+            },
+            {
+              "path": "initial/manifest.json",
+              "kind": "json"
+            },
+            {
+              "path": "initial/model.zip",
+              "kind": "other"
+            },
+            {
+              "path": "initial/vecnormalize.pkl",
+              "kind": "other"
+            },
+            {
+              "path": "model_best.zip",
+              "kind": "other"
+            },
+            {
+              "path": "model_final.zip",
+              "kind": "other"
+            },
+            {
+              "path": "tb/ppo_0/events.out.tfevents.1789720585.wf-de2aa487a34e3266-train-55x76.15.0",
+              "kind": "other"
+            },
+            {
+              "path": "training.json",
+              "kind": "json"
+            },
+            {
+              "path": "vecnormalize_best.pkl",
+              "kind": "other"
+            },
+            {
+              "path": "vecnormalize_final.pkl",
+              "kind": "other"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

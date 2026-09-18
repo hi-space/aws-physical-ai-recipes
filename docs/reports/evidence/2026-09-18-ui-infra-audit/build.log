@@ -1,0 +1,181 @@
+
+> physical-ai-dashboard@0.1.0 build
+> next build
+
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 23ms
+- Experiments (use with caution):
+  · serverActions
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1881ms
+  Running TypeScript ...
+  Finished TypeScript in 12.1s ...
+  Collecting page data using 31 workers ...
+  Generating static pages using 31 workers (0/24) ...
+  Generating static pages using 31 workers (6/24) 
+  Generating static pages using 31 workers (12/24) 
+  Generating static pages using 31 workers (18/24) 
+✓ Generating static pages using 31 workers (24/24) in 497ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /absproxy/3000/[[...path]]
+├ ○ /access
+├ ○ /admin
+├ ƒ /api/admin/audit
+├ ƒ /api/admin/settings
+├ ƒ /api/admin/users
+├ ƒ /api/admin/users/[username]
+├ ƒ /api/auth/logout
+├ ƒ /api/backends
+├ ƒ /api/backends/[id]
+├ ƒ /api/backends/[id]/check
+├ ƒ /api/builds
+├ ƒ /api/builds/runs
+├ ƒ /api/builds/runs/[id]
+├ ƒ /api/builds/runs/[id]/logs
+├ ƒ /api/builds/runs/[id]/recover
+├ ƒ /api/builds/sources
+├ ƒ /api/clusters
+├ ƒ /api/clusters/[name]
+├ ƒ /api/clusters/[name]/events
+├ ƒ /api/clusters/[name]/nodes/[nodeId]
+├ ƒ /api/clusters/[name]/scale
+├ ƒ /api/clusters/[name]/scale/plan
+├ ƒ /api/clusters/[name]/scale/policy
+├ ƒ /api/clusters/[name]/scale/reconcile
+├ ƒ /api/cost
+├ ƒ /api/credentials
+├ ƒ /api/credentials/[id]
+├ ƒ /api/credentials/[id]/rotate
+├ ƒ /api/credentials/legacy
+├ ƒ /api/datasets
+├ ƒ /api/datasets/[name]
+├ ƒ /api/datasets/[name]/upload-url
+├ ƒ /api/datasets/[name]/versions
+├ ƒ /api/datasets/[name]/versions/[v]
+├ ƒ /api/datasets/[name]/versions/[v]/download
+├ ƒ /api/datasets/[name]/versions/[v]/uploads
+├ ƒ /api/datasets/[name]/versions/[v]/uploads/[id]
+├ ƒ /api/edge
+├ ƒ /api/edge/deployments
+├ ƒ /api/edge/devices
+├ ƒ /api/edge/devices/[id]
+├ ƒ /api/edge/devices/[id]/benchmarks
+├ ƒ /api/edge/devices/[id]/lease
+├ ƒ /api/edge/devices/[id]/lease/[action]
+├ ƒ /api/edge/operations/[id]
+├ ƒ /api/edge/operations/[id]/rollback
+├ ƒ /api/edge/operations/[id]/submit
+├ ƒ /api/evaluations
+├ ƒ /api/evaluations/[id]
+├ ƒ /api/evaluations/[id]/artifact
+├ ƒ /api/execution-profiles
+├ ƒ /api/execution-profiles/[id]
+├ ƒ /api/fsx
+├ ƒ /api/fsx/tasks
+├ ƒ /api/health
+├ ƒ /api/image-profiles
+├ ƒ /api/image-profiles/[id]
+├ ƒ /api/image-profiles/preflight
+├ ƒ /api/image-profiles/seed
+├ ƒ /api/k8s/events
+├ ƒ /api/k8s/jobs
+├ ƒ /api/k8s/jobs/[ns]/[name]
+├ ƒ /api/k8s/namespaces
+├ ƒ /api/k8s/nodes
+├ ƒ /api/k8s/pods/[ns]/[name]/logs
+├ ƒ /api/logout
+├ ƒ /api/me
+├ ƒ /api/metrics/query
+├ ƒ /api/mlflow/experiments
+├ ƒ /api/mlflow/models
+├ ƒ /api/mlflow/runs
+├ ƒ /api/mlflow/runs/[id]
+├ ƒ /api/mlflow/runs/[id]/metrics
+├ ƒ /api/mlflow/ui-url
+├ ƒ /api/models
+├ ƒ /api/models/[id]
+├ ƒ /api/models/[id]/promotion
+├ ƒ /api/models/[id]/registry-approval
+├ ƒ /api/models/legacy
+├ ƒ /api/models/outputs/[dataset]/[version]
+├ ƒ /api/overview
+├ ƒ /api/pipelines
+├ ƒ /api/pipelines/archives/[id]
+├ ƒ /api/pipelines/executions
+├ ƒ /api/pipelines/executions/[arn]
+├ ƒ /api/pipelines/executions/[arn]/archives
+├ ƒ /api/pipelines/training-jobs
+├ ƒ /api/pipelines/training-jobs/[name]
+├ ƒ /api/projects
+├ ƒ /api/projects/[id]
+├ ƒ /api/queues
+├ ƒ /api/quotas
+├ ƒ /api/s3
+├ ƒ /api/s3/presign
+├ ƒ /api/sessions
+├ ƒ /api/sessions/[id]
+├ ƒ /api/sessions/[id]/launch
+├ ƒ /api/sessions/[id]/proxy/[[...path]]
+├ ƒ /api/sessions/connect
+├ ƒ /api/sessions/dcv
+├ ƒ /api/sessions/dcv/[action]
+├ ƒ /api/sessions/dcv/browser
+├ ƒ /api/sessions/dcv/browser/[id]
+├ ƒ /api/templates
+├ ƒ /api/templates/[id]
+├ ƒ /api/templates/[id]/versions
+├ ƒ /api/tokens
+├ ƒ /api/tokens/[id]
+├ ƒ /api/usage
+├ ƒ /api/usage/rates
+├ ƒ /api/webhooks
+├ ƒ /api/webhooks/[id]
+├ ƒ /api/webhooks/[id]/deliveries
+├ ƒ /api/webhooks/[id]/deliveries/[deliveryId]/redrive
+├ ƒ /api/webhooks/[id]/rotate
+├ ƒ /api/workflows
+├ ƒ /api/workflows/[id]
+├ ƒ /api/workflows/[id]/artifacts
+├ ƒ /api/workflows/[id]/cancel
+├ ƒ /api/workflows/[id]/events
+├ ƒ /api/workflows/[id]/export
+├ ƒ /api/workflows/[id]/metrics
+├ ƒ /api/workflows/[id]/retry
+├ ƒ /api/workflows/[id]/tasks/[task]/logs
+├ ƒ /api/workflows/[id]/usage
+├ ƒ /api/workflows/bulk-cancel
+├ ƒ /api/workflows/validate
+├ ○ /backends
+├ ○ /builds
+├ ○ /compute
+├ ○ /datasets
+├ ƒ /datasets/[name]
+├ ○ /edge
+├ ○ /experiments
+├ ○ /image-profiles
+├ ○ /jobs
+├ ○ /metrics
+├ ○ /models
+├ ○ /pipelines
+├ ƒ /pipelines/[arn]
+├ ○ /projects
+├ ○ /queues
+├ ○ /sessions
+├ ○ /storage
+├ ○ /usage
+├ ○ /webhooks
+├ ○ /workflows
+├ ƒ /workflows/[id]
+└ ○ /workflows/new
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

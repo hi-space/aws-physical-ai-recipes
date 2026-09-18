@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 /home/ubuntu/workspace/aws-physical-ai-recipes/dashboard/web
+
+ ✓ src/app/api/workflows/topology-preview.test.ts (2 tests) 40ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  08:31:54
+   Duration  1.59s (transform 607ms, setup 11ms, collect 1.28s, tests 40ms, environment 0ms, prepare 103ms)
+

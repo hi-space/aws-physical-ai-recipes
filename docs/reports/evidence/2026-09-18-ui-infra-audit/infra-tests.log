@@ -1,0 +1,60 @@
+TAP version 13
+# [Warning] Template validation found issues in your templates (reported as warnings).
+# Set feature flag "@aws-cdk/core:validateAgainstDefaultRules" to true to turn these into errors.
+# test/optional-workload-images.test.ts:33:17
+# WARNING Resources section must exist and be non-empty (CloudFormation Validate)
+#    Test aws-cdk-lib.Stack
+#    Acknowledge with 'CloudFormation-Validate::F0001'
+# A copy of this report can be found in: /tmp/pai-optional-out-wkWVaL/validation-report.json
+# [Warning] Template validation found issues in your templates (reported as warnings).
+# Set feature flag "@aws-cdk/core:validateAgainstDefaultRules" to true to turn these into errors.
+# test/optional-workload-images.test.ts:33:17
+# WARNING Resources section must exist and be non-empty (CloudFormation Validate)
+#    Test aws-cdk-lib.Stack
+#    Acknowledge with 'CloudFormation-Validate::F0001'
+# A copy of this report can be found in: /tmp/pai-optional-out-rvclOw/validation-report.json
+# Subtest: optional Cosmos and LeIsaac require explicit pinned inputs without changing default asset hashes
+ok 1 - optional Cosmos and LeIsaac require explicit pinned inputs without changing default asset hashes
+  ---
+  duration_ms: 1159.7769
+  type: 'test'
+  ...
+# Subtest: missing or mutable build args and mismatched scene identity fail before optional assets can be emitted
+ok 2 - missing or mutable build args and mismatched scene identity fail before optional assets can be emitted
+  ---
+  duration_ms: 4.604149
+  type: 'test'
+  ...
+# Subtest: 0390e2b staging permissions and dependency-directory exclusions remain intact
+ok 3 - 0390e2b staging permissions and dependency-directory exclusions remain intact
+  ---
+  duration_ms: 3.722793
+  type: 'test'
+  ...
+# Subtest: workflows use a durable callback, encrypted queues and retained state
+ok 4 - workflows use a durable callback, encrypted queues and retained state
+  ---
+  duration_ms: 1252.62232
+  type: 'test'
+  ...
+# Subtest: default workshop build is a bounded source snapshot job with one immutable output repository
+ok 5 - default workshop build is a bounded source snapshot job with one immutable output repository
+  ---
+  duration_ms: 1226.272156
+  type: 'test'
+  ...
+# Subtest: CodeBuild read and stop grants use the documented project ARN, never build ARNs
+ok 6 - CodeBuild read and stop grants use the documented project ARN, never build ARNs
+  ---
+  duration_ms: 35.878707
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5603.374075

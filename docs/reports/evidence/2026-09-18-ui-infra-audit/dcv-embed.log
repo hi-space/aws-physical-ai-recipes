@@ -1,0 +1,9 @@
+
+Running 1 test using 1 worker
+
+(node:3458295) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+dcv frame title ip-10-0-0-145 - Amazon DCV responses 7
+  ✓  1 e2e/dcv-embed.spec.ts:27:5 › embeds the DCV desktop in the Sessions page with a dashboard-only frame-ancestors policy (17.2s)
+
+  1 passed (17.8s)

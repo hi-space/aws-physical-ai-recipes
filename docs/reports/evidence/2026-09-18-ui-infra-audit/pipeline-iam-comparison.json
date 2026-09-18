@@ -1,0 +1,18 @@
+{
+  "web": [
+    {
+      "EvalActionName": "sagemaker:StartPipelineExecution",
+      "EvalResourceName": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871",
+      "EvalDecision": "allowed",
+      "MissingContextValues": []
+    }
+  ],
+  "controller": [
+    {
+      "EvalActionName": "sagemaker:StartPipelineExecution",
+      "EvalResourceName": "arn:aws:sagemaker:us-east-1:913524902871:pipeline/groot-sm-finetuning-913524902871",
+      "EvalDecision": "implicitDeny",
+      "MissingContextValues": []
+    }
+  ]
+}

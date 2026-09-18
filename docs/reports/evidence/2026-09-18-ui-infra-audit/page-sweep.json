@@ -1,0 +1,626 @@
+[
+  {
+    "path": "/",
+    "status": 200,
+    "heading": [
+      "연구 개요"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/overview",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/projects",
+    "status": 200,
+    "heading": [
+      "연구 프로젝트"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/backends",
+        "status": 200
+      },
+      {
+        "path": "/api/queues",
+        "status": 200
+      },
+      {
+        "path": "/api/admin/users",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/workflows",
+    "status": 200,
+    "heading": [
+      "파이프라인 실행"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/workflows",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/workflows/new",
+    "status": 200,
+    "heading": [
+      "새 워크플로"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/credentials",
+        "status": 200
+      },
+      {
+        "path": "/api/queues",
+        "status": 200
+      },
+      {
+        "path": "/api/execution-profiles",
+        "status": 200
+      },
+      {
+        "path": "/api/templates",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/jobs",
+    "status": 200,
+    "heading": [
+      "Jobs"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/k8s/jobs",
+        "status": 200
+      },
+      {
+        "path": "/api/k8s/namespaces",
+        "status": 200
+      },
+      {
+        "path": "/api/k8s/events",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/queues",
+    "status": 200,
+    "heading": [
+      "Queues"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/queues",
+        "status": 200
+      },
+      {
+        "path": "/api/quotas",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/compute",
+    "status": 200,
+    "heading": [
+      "Compute"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/clusters",
+        "status": 200
+      },
+      {
+        "path": "/api/fsx",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/backends",
+    "status": 200,
+    "heading": [
+      "백엔드 연결"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/backends",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/metrics",
+    "status": 200,
+    "heading": [
+      "지표"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/metrics/query",
+        "status": 200
+      },
+      {
+        "path": "/api/metrics/query",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/experiments",
+    "status": 200,
+    "heading": [
+      "실험"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/mlflow/ui-url",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/mlflow/experiments",
+        "status": 200
+      },
+      {
+        "path": "/api/mlflow/runs",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/usage",
+    "status": 200,
+    "heading": [
+      "사용량·예상 비용"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/usage",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/datasets",
+    "status": 200,
+    "heading": [
+      "Datasets"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/datasets",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/models",
+    "status": 200,
+    "heading": [
+      "모델·평가"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/models",
+        "status": 200
+      },
+      {
+        "path": "/api/models/mdl-f3c1d47d65ccf71c950bfef1",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/sessions",
+    "status": 200,
+    "heading": [
+      "시뮬레이션·개발 세션"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/sessions",
+        "status": 200
+      },
+      {
+        "path": "/api/sessions/dcv/browser",
+        "status": 200
+      },
+      {
+        "path": "/api/workflows",
+        "status": 200
+      },
+      {
+        "path": "/api/sessions/dcv",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/pipelines",
+    "status": 200,
+    "heading": [
+      "파이프라인"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/pipelines",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/edge",
+    "status": 200,
+    "heading": [
+      "디바이스·엣지 실행"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/edge",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/storage",
+    "status": 200,
+    "heading": [
+      "Storage"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/s3",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/fsx",
+        "status": 200
+      },
+      {
+        "path": "/api/fsx/tasks",
+        "status": 200
+      },
+      {
+        "path": "/api/s3",
+        "status": 500
+      },
+      {
+        "path": "/api/s3",
+        "status": 500
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": true
+  },
+  {
+    "path": "/image-profiles",
+    "status": 200,
+    "heading": [
+      "이미지 프로필"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/execution-profiles",
+        "status": 200
+      },
+      {
+        "path": "/api/image-profiles",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/builds",
+    "status": 200,
+    "heading": [
+      "환경 빌드·동기화"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/builds/sources",
+        "status": 200
+      },
+      {
+        "path": "/api/builds/runs",
+        "status": 200
+      },
+      {
+        "path": "/api/builds",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/access",
+    "status": 200,
+    "heading": [
+      "접근 관리"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/credentials",
+        "status": 200
+      },
+      {
+        "path": "/api/tokens",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/webhooks",
+    "status": 200,
+    "heading": [
+      "프로젝트 웹훅"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/me",
+        "status": 200
+      },
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/webhooks",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": false
+  },
+  {
+    "path": "/admin",
+    "status": 200,
+    "heading": [
+      "Admin"
+    ],
+    "apiResponses": [
+      {
+        "path": "/api/projects",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200
+      }
+    ],
+    "jsErrors": [],
+    "error": null,
+    "knownSemanticFailure": true
+  }
+]

@@ -1,0 +1,69 @@
+{
+  "result": "PASS",
+  "workflowId": "de2aa487a34e3266",
+  "registrationStatus": 200,
+  "evaluationStatus": 200,
+  "gateStatus": 200,
+  "videoReady": true,
+  "model": {
+    "id": "mdl-4b30c8271947005451a13393",
+    "name": "UI audit 2026-09-18 CPU",
+    "projectId": "workshop",
+    "checkpoint": {
+      "path": "final/model.zip",
+      "key": "projects/workshop/runs/de2aa487a34e3266/attempts/1/train/57fb3267a38eadcbd91a7994c8acc71f20a630a6d008a7c9029564de0eb232ff/final/model.zip",
+      "versionId": "V8tZn.3fXx8D2feq2EdWpB4jMeeMEvJE",
+      "bytes": 170655,
+      "checksumSHA256": "Goz87uHA9cxrk3lDbBUdkDTO/7k1hL5yvup2v8uKWdI=",
+      "checksumType": "FULL_OBJECT",
+      "fullSHA256": "1a8cfceee1c0f5cc6b9379436c151d9034ceffb93584be72beea76bfcb8a59d2",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "1a8cfceee1c0f5cc6b9379436c151d9034ceffb93584be72beea76bfcb8a59d2"
+    },
+    "normalization": {
+      "path": "final/vecnormalize.pkl",
+      "key": "projects/workshop/runs/de2aa487a34e3266/attempts/1/train/57fb3267a38eadcbd91a7994c8acc71f20a630a6d008a7c9029564de0eb232ff/final/vecnormalize.pkl",
+      "versionId": "zvGkWXm.AEFRNyJtWpR4TDQeHYs.L718",
+      "bytes": 2439,
+      "checksumSHA256": "SkkLKwztRZ+dRzDfVHBQuVhk50g/fTrK5zLF1MaCh08=",
+      "checksumType": "FULL_OBJECT",
+      "fullSHA256": "4a490b2b0ced459f9d4730df547050b95864e7483f7d3acae732c5d4c682874f",
+      "bucket": "physicalaidashboard-91352-orchestrationartifactse0-hr87r4vp74or",
+      "sha256": "4a490b2b0ced459f9d4730df547050b95864e7483f7d3acae732c5d4c682874f"
+    },
+    "qualityApproval": null
+  },
+  "evaluation": {
+    "id": "eval-281de434123007765b52909d",
+    "modelId": "mdl-4b30c8271947005451a13393",
+    "verification": "published_runtime_report",
+    "inputMatch": "same_run_task_output",
+    "metrics": {
+      "kind": "simulation",
+      "episodes": 2,
+      "successes": 0,
+      "latencyP95Ms": 0.6049841525964439
+    },
+    "successRate": 0,
+    "timeoutCount": 2,
+    "checkpointDigest": "1a8cfceee1c0f5cc6b9379436c151d9034ceffb93584be72beea76bfcb8a59d2",
+    "normalizationDigest": "4a490b2b0ced459f9d4730df547050b95864e7483f7d3acae732c5d4c682874f"
+  },
+  "gate": {
+    "id": "gate-21f1d45b-58cc-4f9b-a5ed-35cbd05dc3c7",
+    "evaluationId": "eval-281de434123007765b52909d",
+    "policy": {
+      "minimumEpisodes": 20,
+      "minimumSuccessRate": 0.8,
+      "maximumLatencyP95Ms": 100
+    },
+    "decision": {
+      "status": "review",
+      "reasons": [
+        "최소 20회 평가가 필요합니다."
+      ]
+    },
+    "approved": false,
+    "createdAt": "2026-09-18T08:44:34.635Z"
+  }
+}

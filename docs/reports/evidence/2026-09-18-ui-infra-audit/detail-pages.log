@@ -1,0 +1,11 @@
+{"name":"workflow-DAG","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Tasks","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Logs","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Events","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Metrics","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Spec","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"workflow-Artifacts","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"pipeline-Stopped","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"pipeline-Stopped","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"pipeline-Failed","errors":[],"apiErrors":[],"result":"RENDERED"}
+{"name":"pipeline-Succeeded","errors":[],"apiErrors":[],"result":"RENDERED"}
