@@ -1,21 +1,24 @@
 """Run official OpenPI JAX training with a real LeRobot data config and normalization."""
 import argparse
 import dataclasses
-import importlib.util
+import importlib
 import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
 SOURCE = Path("/opt/openpi")
 
 
 def load_script(name):
-    spec = importlib.util.spec_from_file_location(f"recipe_openpi_{name}", SOURCE / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Import the upstream script as a real module (not spec_from_file_location): DataLoader workers use the
+    # spawn start method and must re-import the module by name to unpickle transforms such as RemoveStrings.
+    scripts = str(SOURCE / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    return importlib.import_module(name)
 
 
 def main():

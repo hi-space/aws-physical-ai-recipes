@@ -12,8 +12,10 @@ def validate(root):
     import pyarrow.parquet as pq
 
     info = json.loads((root / "meta/info.json").read_text())
-    if info["codebase_version"] != "v2.1":
-        raise ValueError("Expected LeRobot v2.1 after conversion")
+    # v2.1 is the target of the v3 conversion; v2.0 (e.g. physical-intelligence/libero, image features instead of
+    # videos) is loadable by the pinned OpenPI/LeRobot stack and is accepted as-is.
+    if info["codebase_version"] not in ("v2.0", "v2.1"):
+        raise ValueError(f"Expected LeRobot v2.0 or v2.1 after conversion, got {info['codebase_version']}")
     episodes = [json.loads(line) for line in (root / "meta/episodes.jsonl").read_text().splitlines() if line]
     if not episodes or len(episodes) != info["total_episodes"]:
         raise ValueError("Episode count does not match metadata")

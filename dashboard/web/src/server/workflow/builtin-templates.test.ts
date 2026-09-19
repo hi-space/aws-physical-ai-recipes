@@ -136,6 +136,21 @@ describe('researcher recipe catalog', () => {
       expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'MLFLOW_TRACKING_URI', value: context.mlflowTrackingUri });
     }
   });
+  it('never points GR00T stats generation at a read-only dataset mount', () => {
+    // GR00T writes <dataset>/meta/stats.json; dataset inputs are mounted read-only, so both GR00T recipes must
+    // train on a local copy (observed failure: OSError Read-only file system .../v1/meta/stats.json).
+    for (const id of ['gr00t-finetune', 'gr00t-e2e']) {
+      const { spec } = configured(id);
+      const task = spec.workflow.tasks.find(t => t.name === 'finetune')!;
+      const args = task.args ?? [];
+      const command = task.command ?? [];
+      expect(args[args.indexOf('--dataset-path') + 1]).toBe('/tmp/dataset');
+      expect(command.join(' ')).toMatch(/cp -r "\$1" \/tmp\/dataset/);
+      expect(args[0]).toMatch(/^\{\{input:0\}\}/);
+      // Default diffusion-head tuning does not fit a 24 GB A10G (observed CUDA OOM at the first optimizer step).
+      expect(args).toContain('--no-tune-diffusion-model');
+    }
+  });
   it('never executes unfinished examples or mutates a shared checkout', () => {
     for (const t of BUILTIN_TEMPLATES) {
       const { spec } = configured(t.id);

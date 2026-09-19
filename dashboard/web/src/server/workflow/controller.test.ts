@@ -318,6 +318,20 @@ describe('deriveTaskPhase', () => {
     expect(d.phase).toBe('PENDING');
     expect(d.message).toMatch(/Insufficient nvidia.com\/gpu/);
   });
+  it('keeps a task RUNNING while a finished pod waits for the Job Complete condition', () => {
+    // Between the pod finishing and the Job controller writing Complete, the pod is Succeeded but the Job
+    // has neither a condition nor .status.succeeded. Reporting PENDING here regresses the task to
+    // INITIALIZING and lets start_timeout fail a long run at the moment it completes.
+    const finishedPod: Pod = {
+      metadata: { name: 'p' },
+      spec: { containers: [] },
+      status: { phase: 'Succeeded', startTime: '2026-09-19T16:29:29Z', containerStatuses: [{ name: 'main', ready: false, restartCount: 0, state: { terminated: { exitCode: 0 } } }] },
+    };
+    const d = deriveTaskPhase(job({ active: 0 }), [finishedPod], 'admitted', 1);
+    expect(d.phase).toBe('RUNNING');
+    expect(d.startedAt).toBe('2026-09-19T16:29:29Z');
+    expect(d.message).toMatch(/Job completion/);
+  });
 });
 
 describe('controller liveness', () => {

@@ -34,6 +34,14 @@ export function deriveTaskPhase(job: Job | null, pods: Pod[], queue: 'admitted' 
     phase: 'RUNNING',
     startedAt: st.startTime ?? pods.find(p => p.status?.startTime)?.status?.startTime
   };
+  // A pod that already finished is not "pending": the Job controller writes Complete/succeeded a few
+  // seconds later. Reporting PENDING here would regress the task to INITIALIZING and let start_timeout
+  // fail a long run at the moment it completes.
+  if (pods.some(p => p.status?.phase === 'Succeeded')) return {
+    phase: 'RUNNING',
+    message: 'pod finished, waiting for Job completion',
+    startedAt: st.startTime ?? pods.find(p => p.status?.startTime)?.status?.startTime
+  };
   if (pods.length) {
     const pend = pods.find(p => p.status?.phase === 'Pending');
     const sched = pend?.status?.conditions?.find(c => c.type === 'PodScheduled' && c.status === 'False');

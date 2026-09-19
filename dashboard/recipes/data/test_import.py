@@ -36,6 +36,32 @@ class DatasetConversion(unittest.TestCase):
             self.assertNotEqual(bad.returncode, 0, "converter warnings must not become successful publication")
             self.assertFalse((root / "bad/dataset-manifest.json").exists())
 
+    def test_accepts_lerobot_v20_datasets_without_conversion(self):
+        """physical-intelligence/libero (OpenPI's LIBERO config) is published as LeRobot v2.0 with embedded images."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "v20"
+            (source / "meta").mkdir(parents=True)
+            (source / "data/chunk-000").mkdir(parents=True)
+            (source / "meta/info.json").write_text(json.dumps({
+                "codebase_version": "v2.0", "total_episodes": 1, "total_frames": 2, "chunks_size": 1000, "fps": 10,
+                "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+                "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+                "features": {"image": {"dtype": "image", "shape": [8, 8, 3]}, "state": {"dtype": "float32", "shape": [1]}},
+            }))
+            (source / "meta/episodes.jsonl").write_text(json.dumps({"episode_index": 0, "tasks": ["reach"], "length": 2}) + "\n")
+            (source / "meta/tasks.jsonl").write_text(json.dumps({"task_index": 0, "task": "reach"}) + "\n")
+            pq.write_table(pa.table({"state": [0.0, 0.1]}), source / "data/chunk-000/episode_000000.parquet")
+            command = [sys.executable, str(Path(__file__).with_name("hf_import.py")), "--source-dir", str(source), "--output-dir", str(root / "out")]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = json.loads((root / "out/dataset-manifest.json").read_text())
+            self.assertEqual(manifest["format"], "v2.0")
+            self.assertEqual(manifest["episodeCount"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
