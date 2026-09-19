@@ -38,7 +38,7 @@ it('serializes deletion against a concurrent new reference and reserves deleted 
 });
 it('rejects known oversized input metadata before a workflow or dispatch record is admitted', async()=>{
   const {repo}=await fixture();const v=(await repo.getVersion('data',1))!;await repo.putVersion({...v,objectCount:1025});
-  await expect(repo.createWorkflow(wf('large'),[],undefined,['dispatch'])).rejects.toThrow(/1024/);
+  await expect(repo.createWorkflow(wf('large'),[])).rejects.toThrow(/1024/);
   expect(await repo.getWorkflow('large')).toBeUndefined();
 });
 it('rejects reuse of an input index with a changed immutable version',async()=>{

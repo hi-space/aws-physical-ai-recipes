@@ -57,7 +57,7 @@
 
 ## 설치·개발
 
-웹 API·worker·gateway는 별도 ECS Fargate 서비스와 IAM 역할을 사용합니다. DynamoDB가 실행/시도/소유권/lease 원장이며 Step Functions·SQS가 수명과 복구를 연결합니다. 작업 데이터는 고정 S3 manifest로 준비하고 FSx 결과는 검증한 S3 버전으로 게시합니다. 일반 연구자 작업은 non-root·제한 경로를 사용하고, host privilege는 [별도 관리자 신뢰 경계](web/src/server/services/EXECUTION_PROFILES.md)입니다.
+웹 API·worker·gateway는 별도 ECS Fargate 서비스와 IAM 역할을 사용합니다. DynamoDB가 실행/시도/소유권/lease/outbox 원장입니다. 컨트롤러는 5초마다 미완료 워크플로우를 lease 아래에서 reconcile하고, 데드라인은 워크플로우 `timeout`(queue/start/exec)과 Kubernetes Job `activeDeadlineSeconds`가 양쪽에서 집행합니다. 작업 데이터는 고정 S3 manifest로 준비하고 FSx 결과는 검증한 S3 버전으로 게시합니다. 일반 연구자 작업은 non-root·제한 경로를 사용하고, host privilege는 [별도 관리자 신뢰 경계](web/src/server/services/EXECUTION_PROFILES.md)입니다.
 
 설치에는 기존 HyperPod EKS, private subnet, 관리 가능한 Route 53 zone, Docker/Node.js 22/CDK bootstrap과 배포 권한이 필요합니다. 예시:
 
@@ -72,8 +72,6 @@ npx cdk deploy \
 ```
 
 기본 이미지는 MuJoCo/Isaac Lab/ROS 2/작업 공간, `extendedImages=true`는 GR00T/OpenPI를 추가합니다. 이미 GR00T/OpenPI 이미지가 배포된 스택은 이후 배포에서도 `extendedImages=true`를 유지해야 이미지가 삭제되지 않습니다. `gr00t-e2e` 템플릿(HF 가져오기 → GR00T N1.6.1 파인튜닝 → open-loop 평가)은 두 이미지(MUJOCO_IMAGE_URI, GROOT_RUNTIME_IMAGE_URI)와 프로젝트 GPU 큐가 필요하며, 모델 등록은 게시된 평가 결과를 모델·평가 화면에서 진행합니다. Cosmos/LeIsaac은 [optionalImages 계약](infra/lib/constructs/optional-workload-images.ts)에 맞는 digest 고정 이미지·scene 입력이 필요하며 옵션을 생략하면 생성하지 않습니다. 이미지 배포는 모델 접근·실행 품질 승인이 아닙니다.
-
-Terraform으로 배포하려면 `dashboard/terraform/`을 사용합니다(`terraform/README.md`). 같은 리소스를 만들고 도메인·Cognito 도메인·세션 호스트 도메인은 모두 변수에서 파생되며, `name_prefix`로 기존 CDK 스택과 나란히 두 번째 환경을 띄울 수 있습니다. 컨테이너가 요구하는 환경 변수 계약은 `terraform output environment_contract`와 README의 표에 있습니다.
 
 기존 웹 내부 controller를 분리하는 **첫 전환에만** `-c controllerSplitMigration=true`를 사용하고 이후 제거합니다. EKS add-on/RBAC는 `infra/ops/apply_addons.py` 또는 등록된 관리자 운영 작업으로 준비합니다. 초기 관리자 secret은 `physical-ai-dashboard/<accountId>/admin`에 저장됩니다. 부모 HyperPod/Isaac Lab 스택과 상태 리소스 보존을 확인하고 대시보드 업데이트 범위를 유지하세요.
 

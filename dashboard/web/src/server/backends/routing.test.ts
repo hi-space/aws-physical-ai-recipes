@@ -37,10 +37,6 @@ vi.mock('../aws/clients', async original => {
   return { ...real, eks: () => ({ send: fake.send }), fsx: () => ({ send: fake.fsxSend }),
     s3: () => { throw new Error('No live S3 calls allowed'); }, ssm: () => { throw new Error('No live credential calls allowed'); } };
 });
-vi.mock('../workflow-adapters/dispatch', () => ({
-  dispatchWorkflow: async (wf: Workflow) => ({ executionArn: `home-sfn:${wf.id}` }),
-  completeWorkflow: async () => undefined,
-}));
 vi.mock('../notify', () => ({ notify: async () => undefined }));
 vi.mock('../k8s/token', () => ({ mintEksToken: async (name: string, region: string) => ({ token: `token:${region}:${name}`, expiresAt: Date.now() + 60000 }) }));
 vi.mock('undici', () => ({ Agent: class { constructor(readonly options: unknown) {} }, fetch: fake.fetch }));

@@ -445,8 +445,12 @@ export class Repo {
   async cancellation(runId: string) {
     return this.kv.get(`WF#${runId}`, 'CANCEL');
   }
+  /** Kinds delivered by this release. Items from removed kinds (`dispatch`, `enqueue`) are ignored, never retried. */
+  private static readonly OUTBOX_KINDS: ReadonlySet<string> = new Set(['complete', 'notify']);
   async listOutbox(runId: string) {
-    return (await this.kv.query(`WF#${runId}`, 'OUT#')).map(i => strip<OutboxEntry>(i));
+    return (await this.kv.query(`WF#${runId}`, 'OUT#'))
+      .map(i => strip<OutboxEntry>(i))
+      .filter(entry => Repo.OUTBOX_KINDS.has(entry.kind));
   }
   async putOutbox(runId: string, entry: OutboxEntry, lease: RunLease) {
     await this.write([{

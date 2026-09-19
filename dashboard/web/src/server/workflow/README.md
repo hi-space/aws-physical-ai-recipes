@@ -6,15 +6,40 @@
 
 `SubmitInput` adds optional `projectId`, `ownerSubject`, `backendId`, `queue`, `idempotencyKey`, and `deferLaunch`. A project submission requires an explicit server-selected namespace and queue; `none` and `auto` are rejected. These values replace client spec namespace/queue. The parent must authorize project/credential/resource access before calling the controller.
 
-An idempotency key is scoped to project (legacy namespace), subject (legacy owner), and submission operation. A changed semantic spec returns HTTP 409. The workflow, tasks, key receipt, and dispatch/queue outbox are saved in one transaction. Dataset inputs record numeric versions, URI, FSx path, and available manifest hashes before work is launched. Retries reuse those snapshots. S3-to-FSx inference is restricted to the configured DRA bucket; other inputs need an explicit FSx mapping.
+An idempotency key is scoped to project (legacy namespace), subject (legacy owner), and submission operation. A changed semantic spec returns HTTP 409. The workflow, tasks and key receipt are saved in one transaction; terminal outbox entries (`complete`, `notify`) are written later by `finishWorkflow`. Dataset inputs record numeric versions, URI, FSx path, and available manifest hashes before work is launched. Retries reuse those snapshots. S3-to-FSx inference is restricted to the configured DRA bucket; other inputs need an explicit FSx mapping.
 
-`deferLaunch: true` makes no Kubernetes calls. `dispatchWorkflow` and `enqueueWorkflow` adapters get a stable idempotency key and AbortSignal. The dispatcher must implement deterministic SFN execution naming/adoption. Workload launch waits for dispatch acknowledgement. Outbox retries use exponential delays capped at five minutes. Terminal callbacks are committed with terminal workflow state and can be redelivered after restart. Adapter operations must tolerate duplicate delivery.
+`deferLaunch: true` makes no Kubernetes calls; otherwise submission reconciles immediately and the 5 s reconcile loop is the recovery path. Outbox retries use exponential delays capped at five minutes. Terminal callbacks (`complete` → webhooks, `notify` → SNS) are committed with terminal workflow state and can be redelivered after restart. Adapter operations must tolerate duplicate delivery.
 
 `retryWorkflow(id, actor, deps?, { ownerSubject }?)` allows routes to snapshot the retrying Cognito subject. When no explicit subject is supplied, an old subject is reused only for the same owner.
 
+## Orchestration
+
+There is no external workflow engine. The DynamoDB store is the only ledger:
+
+- Submission writes the workflow, its tasks and the outbox in one transaction, then reconciles immediately unless `deferLaunch` is set. The controller's 5 s `reconcileAll` loop is the recovery path for anything not yet started or not yet finished.
+- Every reconcile of a workflow runs under a 30 s run lease (`lease.ts`); durable writes are conditioned on the lease. A replica that dies mid-run is superseded when its lease expires.
+- Side effects that must happen after a terminal status (`complete` → webhooks, `notify` → SNS) are outbox entries retried with bounded exponential backoff; terminal workflows with undelivered entries are still visited.
+- Deadlines are enforced twice: the controller applies `queue_timeout` / `start_timeout` / `exec_timeout` (defaults 6h / 10m / 12h), and the compiler sets Kubernetes `activeDeadlineSeconds = exec + start` on every Job so the cluster ends the pod even if no controller is running.
+- Controller health (`/health` on :3001) is "a reconcile tick completed within 30 s"; each tick also logs EMF metrics `ReconcileLagSeconds`, `ReconcileDurationSeconds`, `ActiveWorkflows` (namespace `PhysicalAI/Dashboard`).
+
+Outbox items of the removed kinds `dispatch` and `enqueue` may still exist for runs created before this release; `Repo.listOutbox` ignores them.
+
+### Post-deploy cleanup (one time)
+
+The former `callbacks` DynamoDB table had `RemovalPolicy.RETAIN`, so the first deploy of this release orphans it. After the controller is healthy:
+
+```bash
+# The stack name carries the account id (bin/app.ts sets stackName: PhysicalAiDashboard-<accountId>).
+aws cloudformation list-stack-resources --stack-name PhysicalAiDashboard-<accountId> \
+  --query "StackResourceSummaries[?starts_with(LogicalResourceId,'OrchestrationCallbacks')].PhysicalResourceId"
+# The command prints nothing once the resource has left the stack; use the table name printed *before* the deploy, or list tables:
+aws dynamodb list-tables --query "TableNames[?contains(@,'OrchestrationCallbacks')]"
+aws dynamodb delete-table --table-name <that name>
+```
+
 ## Reconciliation and cancellation
 
-Each invocation takes a unique renewable run lease. Durable controller writes condition-check the live lease; the same holder is never used for two invocations. Primary-key reads are strongly consistent. The timer loop does not overlap itself, and direct/SQS reconciles use the same per-run lease.
+Each invocation takes a unique renewable run lease. Durable controller writes condition-check the live lease; the same holder is never used for two invocations. Primary-key reads are strongly consistent. The timer loop does not overlap itself, and every reconcile path (API-triggered or timer) uses the same per-run lease.
 
 Launch intent includes deterministic workload name, attempt, epoch (groups), and output path before external creation. Ambiguous create responses are followed by adoption. Ownership labels, attempts and stored Kubernetes UID prevent adopting another workload or a replacement object. A crash between creation and ledger acknowledgement leaves a recoverable `LAUNCHING` task.
 
@@ -141,4 +166,4 @@ MuJoCo declaration. A nonzero retry budget is still required for RESCHEDULE.
 
 `Repo.listWorkflows` retains its array return and adds optional `projectId`/`cursor`. `Repo.listWorkflowsPage` returns `{ items, cursor? }`. Project queries use a separate projection on the existing GSI, maintained atomically with the workflow; they never filter a globally truncated page. `reconcileAll` follows every cursor, including terminal runs with undelivered outbox entries.
 
-Run scoped unit tests with `npx vitest run src/server/workflow src/server/store` from `dashboard/web`. Tests use MemoryKV and external adapter fakes, plus a DynamoDB SDK request contract test. They do not contact AWS. Real JobSet admission, runtime barriers, FSx exports and SFN callbacks still require the parent's integration tests.
+Run scoped unit tests with `npx vitest run src/server/workflow src/server/store` from `dashboard/web`. Tests use MemoryKV and external adapter fakes, plus a DynamoDB SDK request contract test. They do not contact AWS. Real JobSet admission, runtime barriers and FSx exports still require the parent's integration tests.

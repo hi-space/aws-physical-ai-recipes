@@ -39,7 +39,7 @@ export async function resolveCredentialFromSsm(ref: string): Promise<string> {
   return out.Parameter.Value;
 }
 let configured: Partial<Omit<ControllerDeps, 'repo' | 'now'>> = {};
-/** Process bootstrap hook for parent's SFN/SQS/artifact/runtime adapters. */
+/** Process bootstrap hook for parent's artifact/runtime adapters. */
 export function configureController(overrides: Partial<Omit<ControllerDeps, 'repo' | 'now'>>): void {
   configured = {
     ...configured,
@@ -69,6 +69,7 @@ export interface ControllerStatus {
   running: boolean;
   holder: string;
   lastTick?: string;
+  inFlightSince?: string;
   lastError?: string;
   ticks: number;
   leased: boolean;
@@ -85,6 +86,28 @@ const status: ControllerStatus = g.__paiController ??= {
   leased: false
 };
 export const controllerStatus = () => status;
+/** ECS health: a tick completed recently, or one is in flight and not hung; lenient for the first minute after boot. */
+export function reconcileFresh(now = Date.now(), maxAgeMs = 30_000, uptimeSeconds = process.uptime(), maxInFlightMs = 600_000): boolean {
+  if (!status.running) return false;
+  if (status.inFlightSince && now - Date.parse(status.inFlightSince) <= maxInFlightMs) return true;
+  if (!status.lastTick) return uptimeSeconds < 60;
+  return now - Date.parse(status.lastTick) <= maxAgeMs;
+}
+/** CloudWatch Embedded Metric Format line; the awslogs driver ships it and CloudWatch extracts the metrics. */
+export function emfMetrics(values: Record<string, number>, timestamp = Date.now()): string {
+  return JSON.stringify({
+    _aws: {
+      Timestamp: timestamp,
+      CloudWatchMetrics: [{
+        Namespace: 'PhysicalAI/Dashboard',
+        Dimensions: [['Service']],
+        Metrics: Object.keys(values).map(name => ({ Name: name, Unit: name.endsWith('Seconds') ? 'Seconds' : 'Count' })),
+      }],
+    },
+    Service: 'controller',
+    ...values,
+  });
+}
 export async function reconcileAll(deps: ControllerDeps = realDeps()): Promise<number> {
   let cursor: string | undefined,
     count = 0;
@@ -111,15 +134,24 @@ export function startController(intervalMs = 10_000): void {
   const tick = async () => {
     if (g.__paiControllerTick) return;
     g.__paiControllerTick = true;
+    const started = Date.now();
+    status.inFlightSince = new Date(started).toISOString();
+    const previous = status.lastTick ? Date.parse(status.lastTick) : undefined;
     try {
-      await reconcileAll(realDeps());
+      const active = await reconcileAll(realDeps());
       status.ticks++;
       status.lastTick = new Date().toISOString();
       status.lastError = undefined;
+      console.log(emfMetrics({
+        ...(previous !== undefined ? { ReconcileLagSeconds: (started - previous) / 1000 } : {}),
+        ReconcileDurationSeconds: (Date.now() - started) / 1000,
+        ActiveWorkflows: active,
+      }));
     } catch (e) {
       status.lastError = e instanceof Error ? e.message : String(e);
     } finally {
       g.__paiControllerTick = false;
+      status.inFlightSince = undefined;
     }
   };
   g.__paiControllerTimer = setInterval(() => void tick(), intervalMs);

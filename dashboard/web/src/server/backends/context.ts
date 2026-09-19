@@ -7,7 +7,7 @@ import { HttpError } from '../errors';
 export interface BackendContext { id: string; configurationHash?: string; profile?: BackendProfile; ready: boolean }
 const context = new AsyncLocalStorage<BackendContext>();
 export const currentBackend = () => context.getStore();
-/** Separate EKS-only view. DDB, Cognito, S3 archive, SFN and native SageMaker always use config(). */
+/** Separate EKS-only view. DDB, Cognito, S3 archive and native SageMaker always use config(). */
 export function backendConfig(): DashboardConfig {
   const home = config(), profile = currentBackend()?.profile;
   return profile ? { ...home, eks: profile.eks } : home;

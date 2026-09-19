@@ -1,6 +1,5 @@
 import { realDeps, type ControllerDeps } from '../workflow/controller';
 import { artifactPublisher, cancelArtifactCollectors } from './artifacts';
-import { dispatchWorkflow, completeWorkflow } from './dispatch';
 import { runtimeEnvironment, groupRuntime, mintMetricsCapability, cleanupRuntimeUploads } from '../runtime';
 import { getJobSet, createJobSet, deleteJobSet } from '../k8s/resources';
 import { validateTaskImagePolicy } from '../services/profile-binding';
@@ -13,10 +12,9 @@ import { workflowLogHooks } from './logs';
 export function productionControllerDeps(): ControllerDeps {
   const base = realDeps();
   return {
-    ...base, artifactPublisher, dispatchWorkflow,
+    ...base, artifactPublisher,
     ...(process.env.LOG_ARCHIVE_ENABLED === '1' ? { logs: workflowLogHooks(base.repo) } : {}),
     completeWorkflow: async (workflow, context) => {
-      await completeWorkflow(workflow, context);
       context.signal.throwIfAborted();
       await enqueueWorkflowWebhook(await getRepo().getWorkflow(workflow.id) ?? workflow);
     },

@@ -11,11 +11,12 @@ import * as s3Assets from 'aws-cdk-lib/aws-s3-assets';
 import * as path from 'node:path';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
+import { AlarmsConstruct } from './constructs/alarms';
 import { AuthConstruct } from './constructs/auth';
 import { ServiceConstruct } from './constructs/service';
 import { TableConstruct } from './constructs/table';
 import { buildEnv, type DiscoveredOutputs } from './env-contract';
-import { OrchestrationConstruct } from './constructs/orchestration';
+import { ArtifactsConstruct } from './constructs/artifacts';
 import { WorkloadImages } from './constructs/workload-images';
 import { OperationsConstruct } from './constructs/operations';
 import { SourceBuildProject } from './constructs/source-build-project';
@@ -61,7 +62,7 @@ export class DashboardStack extends cdk.Stack {
     const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.hostedZoneName });
 
     const table = new TableConstruct(this, 'Store', { tableName: `${prefix}-${props.region}` });
-    const orchestration = new OrchestrationConstruct(this, 'Orchestration');
+    const artifacts = new ArtifactsConstruct(this, 'Orchestration');
     const workloadImages = new WorkloadImages(this, 'WorkloadImages', {
       repositoryRoot: path.resolve(props.webAppPath, '..', '..'),
       extended: props.extendedImages,
@@ -95,7 +96,7 @@ export class DashboardStack extends cdk.Stack {
       dcvSsoSecret.grantRead(hostRole);
       dcvAgent.grantRead(hostRole);
     }
-    orchestration.artifacts.addCorsRule({
+    artifacts.bucket.addCorsRule({
       allowedOrigins: [`https://${props.domainName}`],
       allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.HEAD],
       allowedHeaders: ['*'], exposedHeaders: ['ETag', 'x-amz-version-id', 'x-amz-checksum-sha256'], maxAge: 3600,
@@ -117,10 +118,7 @@ export class DashboardStack extends cdk.Stack {
       BACKEND_HOME_VPC_ID: vpc.vpcId,
       EKS_BACKENDS_JSON: JSON.stringify(typeof this.node.tryGetContext('eksBackends') === 'string'
         ? JSON.parse(this.node.tryGetContext('eksBackends')) : this.node.tryGetContext('eksBackends') ?? []),
-      WORKFLOW_STATE_MACHINE_ARN: orchestration.stateMachine.stateMachineArn,
-      WORKFLOW_QUEUE_URL: orchestration.queue.queueUrl,
-      WORKFLOW_CALLBACKS_TABLE: orchestration.callbacks.tableName,
-      DASHBOARD_ARTIFACT_BUCKET: orchestration.artifacts.bucketName,
+      DASHBOARD_ARTIFACT_BUCKET: artifacts.bucket.bucketName,
       TASK_RUNTIME_IMAGE: runtimeImage.imageUri,
       RUNTIME_API_URL: `http://controller.${prefix}.internal:3001`,
       GATEWAY_BASE_DOMAIN: `apps.${props.domainName}`,
@@ -141,6 +139,14 @@ export class DashboardStack extends cdk.Stack {
       runtimeSigningSecret,
     });
     if (props.network.vpcCidr) svc.serviceSecurityGroup.addIngressRule(ec2.Peer.ipv4(props.network.vpcCidr), ec2.Port.tcp(3001), 'Scoped workload runtime protocol from private VPC');
+    new AlarmsConstruct(this, 'Alarms', {
+      namePrefix: prefix,
+      loadBalancer: svc.loadBalancer,
+      controllerService: svc.controllerService,
+      clusterName: prefix,
+      webAclName: `${prefix}-web`,
+      topic,
+    });
     if (d.hyperPodEks?.EksClusterName) {
       const operations = new OperationsConstruct(this, 'Operations', {
         name: prefix, clusterName: d.hyperPodEks.EksClusterName,
@@ -176,41 +182,32 @@ export class DashboardStack extends cdk.Stack {
     table.table.grantReadWriteData(role);
     dcvSsoSecret?.grantRead(role);
     topic.grantPublish(role);
-    orchestration.stateMachine.grantStartExecution(role);
-    orchestration.artifacts.grantReadWrite(role);
+    artifacts.bucket.grantReadWrite(role);
     table.table.grantReadWriteData(svc.controllerRole);
     table.table.grantReadWriteData(svc.gatewayRole);
     svc.gatewayRole.addToPolicy(new iam.PolicyStatement({ actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity'], resources: ['*'] }));
     topic.grantPublish(svc.controllerRole);
-    orchestration.queue.grantConsumeMessages(svc.controllerRole);
-    orchestration.callbacks.grantReadWriteData(svc.controllerRole);
-    orchestration.artifacts.grantReadWrite(svc.controllerRole);
+    artifacts.bucket.grantReadWrite(svc.controllerRole);
     svc.controllerRole.addToPolicy(new iam.PolicyStatement({
       sid: 'CheckpointMultipartDiscovery', actions: ['s3:ListBucketMultipartUploads'],
-      resources: [orchestration.artifacts.bucketArn],
+      resources: [artifacts.bucket.bucketArn],
     }));
     svc.controllerRole.addToPolicy(new iam.PolicyStatement({
       sid: 'CheckpointMultipartLifecycle',
       actions: ['s3:ListMultipartUploadParts', 's3:AbortMultipartUpload', 's3:GetObjectVersion', 's3:DeleteObjectVersion'],
-      resources: [orchestration.artifacts.arnForObjects('projects/*')],
-    }));
-    orchestration.stateMachine.grantStartExecution(svc.controllerRole);
-    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['states:SendTaskSuccess', 'states:SendTaskFailure', 'states:SendTaskHeartbeat'], resources: ['*'],
-    }));
-    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['states:DescribeExecution'],
-      resources: [cdk.Stack.of(this).formatArn({ service: 'states', resource: 'execution', resourceName: `${orchestration.stateMachine.stateMachineName}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })],
+      resources: [artifacts.bucket.arnForObjects('projects/*')],
     }));
     svc.controllerRole.addToPolicy(new iam.PolicyStatement({
       actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity', 'fsx:CreateDataRepositoryTask', 'fsx:DescribeDataRepositoryTasks', 'fsx:DescribeDataRepositoryAssociations'], resources: ['*'],
     }));
-    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['s3:ListBucket', 's3:GetBucketLocation'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}`),
-    }));
-    svc.controllerRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['s3:GetObject', 's3:GetObjectVersion'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}/*`),
-    }));
+    if (props.buckets.length) {
+      svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:ListBucket', 's3:GetBucketLocation'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}`),
+      }));
+      svc.controllerRole.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:GetObjectVersion'], resources: props.buckets.map((b) => `arn:aws:s3:::${b}/*`),
+      }));
+    }
     if (d.groot?.MlflowTrackingServerArn) {
       svc.controllerRole.addToPolicy(new iam.PolicyStatement({ actions: ['sagemaker:DescribeMlflowTrackingServer', 'sagemaker-mlflow:*'], resources: [d.groot.MlflowTrackingServerArn] }));
       svc.controllerRole.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [`arn:aws:s3:::${d.groot.BucketName}/mlflow-artifacts/*`] }));
@@ -494,8 +491,7 @@ export class DashboardStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'ControllerRoleArn', { value: svc.controllerRole.roleArn });
     new cdk.CfnOutput(this, 'ControllerServiceName', { value: svc.controllerService.serviceName });
-    new cdk.CfnOutput(this, 'WorkflowStateMachineArn', { value: orchestration.stateMachine.stateMachineArn });
-    new cdk.CfnOutput(this, 'ArtifactBucketName', { value: orchestration.artifacts.bucketName });
+    new cdk.CfnOutput(this, 'ArtifactBucketName', { value: artifacts.bucket.bucketName });
     new cdk.CfnOutput(this, 'GatewayServiceName', { value: svc.gatewayService.serviceName });
   }
 }

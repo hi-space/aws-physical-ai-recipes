@@ -451,36 +451,29 @@ describe('recovery under concurrency and external failures', () => {
     expect((await reconcileWorkflow(w, deps)).status).toBe('FINALIZING');
     expect(await repo.getDataset('result')).toBeUndefined();
   });
-  it('retries outbox start and terminal callbacks without launching duplicate jobs', async () => {
-    let attempts = 0;
-    const keys: string[] = [];
-    deps.dispatchWorkflow = async (_w, c) => {
-      keys.push(c.idempotencyKey);
-      if (++attempts === 1) throw new Error('lost reply');
-      return {
-        executionArn: 'arn:execution:one'
-      };
-    };
-    const w = await submitWorkflow({
-      yaml,
-      owner: 'a',
-      idempotencyKey: 'dispatch',
-      deferLaunch: true
-    }, deps);
-    expect(k8s.creates).toBe(0);
-    await vi.advanceTimersByTimeAsync(1000);
-    await reconcileWorkflow(w, deps);
-    expect(attempts).toBe(2);
-    expect(new Set(keys).size).toBe(1);
+  it('creates the workload on submission without any external dispatch step', async () => {
+    const w = await submitWorkflow({ yaml, owner: 'a' }, deps);
+    expect(k8s.creates).toBe(1);
+    expect((await repo.getWorkflow(w.id))?.status).not.toBe('PENDING');
+    expect((await repo.listOutbox(w.id)).map(e => e.kind)).toEqual([]);
+  });
+  it('retries the terminal completion callback without launching duplicate jobs', async () => {
     let callbacks = 0;
     deps.completeWorkflow = async () => {
       if (++callbacks === 1) throw new Error('callback unavailable');
     };
+    const w = await submitWorkflow({ yaml, owner: 'a' }, deps);
     k8s.succeed((await repo.listTasks(w.id))[0].jobName!);
     expect((await reconcileWorkflow(w, deps)).status).toBe('SUCCEEDED');
     await vi.advanceTimersByTimeAsync(1000);
     await reconcileAll(deps);
     expect(callbacks).toBe(2);
+    expect(k8s.creates).toBe(1);
+  });
+  it('deferLaunch still makes no Kubernetes calls until the first reconcile', async () => {
+    const w = await submitWorkflow({ yaml, owner: 'a', deferLaunch: true }, deps);
+    expect(k8s.creates).toBe(0);
+    await reconcileWorkflow(w, deps);
     expect(k8s.creates).toBe(1);
   });
   it('uses each branch execution start for deadline and keeps an independent sibling running', async () => {
@@ -773,19 +766,6 @@ describe('native group lifecycle', () => {
     expect((await reconcileWorkflow(w, deps)).status).toBe('CANCELLED');
     expect(g.roots.size).toBe(0);
   });
-});
-it('does not start workloads while external orchestration dispatch is still unconfirmed', async () => {
-  deps.dispatchWorkflow = async () => {
-    throw new Error('SFN start unavailable');
-  };
-  const w = await submitWorkflow({
-    yaml,
-    owner: 'a',
-    deferLaunch: true
-  }, deps);
-  await reconcileWorkflow(w, deps);
-  expect(k8s.creates).toBe(0);
-  expect((await repo.getWorkflow(w.id))?.status).toBe('PENDING');
 });
 it.each([{
   code: 16,

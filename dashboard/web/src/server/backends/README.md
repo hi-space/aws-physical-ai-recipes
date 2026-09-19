@@ -44,7 +44,7 @@ Probe receipts expire after 15 minutes. The worker refreshes existing enabled re
 
 ## Execution isolation
 
-`config()` remains the home environment. `backendConfig()` is a separate EKS-only view backed by per-operation AsyncLocalStorage; no process environment mutation occurs. Home DDB, Cognito/SSM, SFN/SQS, archive bucket and native SageMaker pipeline/MLflow configuration remain home.
+`config()` remains the home environment. `backendConfig()` is a separate EKS-only view backed by per-operation AsyncLocalStorage; no process environment mutation occurs. Home DDB, Cognito/SSM, archive bucket and native SageMaker pipeline/MLflow configuration remain home.
 
 - Generic K8s/queue/FSx/metrics routes select the authorized project backend. Admins without a selected project may explicitly query `backendId`; a researcher cannot override the project binding.
 - Workflow and session routes select the persisted resource backend even if the browser currently selected another project. Generic namespace authorization checks backend + namespace.

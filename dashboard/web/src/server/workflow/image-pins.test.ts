@@ -110,7 +110,6 @@ it('copies trusted metadata and leaves unpinned tasks unchanged without inherite
 
 it('manual retry preserves the immutable task image and profile/review metadata', async () => {
   const f = fixture();
-  f.deps.enqueueWorkflow = async () => {};
   const first = await submitWorkflow({ ...f.input, imagePins: { train: pin() },
     preflightReviewedBy: 'alice-id', preflightReviewedAt: checkedAt }, f.deps);
   await f.repo.putWorkflow({ ...first, status: 'FAILED' });

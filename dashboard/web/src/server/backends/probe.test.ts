@@ -22,7 +22,7 @@ type Resource = {
 };
 type Attributes = { group: string; resource: string; subresource?: string; verb: string; namespace?: string };
 
-// Exercise the installer output used by CDK and Terraform, rather than a second
+// Exercise the installer output used by CDK, rather than a second
 // handwritten copy of the roles that could drift from production.
 const manifest = JSON.parse(execFileSync('python3', [
   fileURLToPath(new URL('../../../../infra/ops/apply_addons.py', import.meta.url)), '--render-only',

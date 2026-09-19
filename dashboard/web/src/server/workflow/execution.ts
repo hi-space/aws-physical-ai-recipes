@@ -477,7 +477,6 @@ async function reconcileBoundWorkflow(wfIn: Workflow, deps: ControllerDeps): Pro
     if (!wf) throw notFound(`workflow ${wfIn.id}`);
     wf = await deliverOutbox(wf, deps, guard);
     if (TERMINAL_WF.has(wf.status)) return wf;
-    if (!(await deps.repo.cancellation(wf.id)) && (await deps.repo.listOutbox(wf.id)).some(e => e.kind === 'dispatch' && !e.deliveredAt)) return wf;
     let tasks = await deps.repo.listTasks(wf.id);
     const replace = (updated: Task[]) => {
       const map = new Map(updated.map(t => [t.name, t]));

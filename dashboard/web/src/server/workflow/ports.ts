@@ -108,10 +108,6 @@ export interface ControllerDeps {
       message?: string;
     }>;
   };
-  dispatchWorkflow?: (workflow: Workflow, context: DeliveryContext) => Promise<{
-    executionArn?: string;
-  } | void>;
-  enqueueWorkflow?: (workflow: Workflow, context: DeliveryContext) => Promise<void>;
   completeWorkflow?: (workflow: Workflow, context: DeliveryContext) => Promise<void>;
   cancelSessions?: (workflow: Workflow, context: {
     signal: AbortSignal;

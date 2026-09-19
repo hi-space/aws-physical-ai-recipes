@@ -14,20 +14,7 @@ export async function deliverOutbox(wf: Workflow, deps: ControllerDeps, guard: L
     };
     try {
       await guard.check();
-      if (entry.kind === 'dispatch') {
-        if (!deps.dispatchWorkflow) continue;
-        const result = await deps.dispatchWorkflow(wf, context);
-        if (result?.executionArn) {
-          wf = {
-            ...wf,
-            executionArn: result.executionArn
-          };
-          await deps.repo.putWorkflow(wf, guard.lease);
-        }
-      } else if (entry.kind === 'enqueue') {
-        if (!deps.enqueueWorkflow) continue;
-        await deps.enqueueWorkflow(wf, context);
-      } else if (entry.kind === 'complete') {
+      if (entry.kind === 'complete') {
         if (!deps.completeWorkflow || !TERMINAL_WF.has(wf.status)) continue;
         await deps.completeWorkflow(wf, context);
         wf = (await deps.repo.getWorkflow(wf.id)) ?? wf;

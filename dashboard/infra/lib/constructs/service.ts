@@ -11,6 +11,8 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
 
 export interface ServiceConstructProps {
@@ -46,6 +48,8 @@ export class ServiceConstruct extends Construct {
   readonly controllerService: ecs.FargateService;
   readonly gatewayRole: iam.Role;
   readonly gatewayService: ecs.FargateService;
+  readonly webAcl: wafv2.CfnWebACL;
+  readonly accessLogs: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: ServiceConstructProps) {
     super(scope, id);
@@ -250,5 +254,37 @@ export class ServiceConstruct extends Construct {
     this.loadBalancer.addListener('Http', { port: 80, defaultAction: elbv2.ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }) });
 
     // The ALB must be able to reach Cognito (token endpoint) — allowAllOutbound covers it.
+
+    // ---- Edge protection
+    this.accessLogs = new s3.Bucket(this, 'AccessLogs', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      lifecycleRules: [{ expiration: cdk.Duration.days(90) }],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    this.loadBalancer.logAccessLogs(this.accessLogs, 'alb');
+
+    const visibility = (metricName: string) => ({ cloudWatchMetricsEnabled: true, sampledRequestsEnabled: true, metricName });
+    const managed = (name: string, priority: number, overrides?: wafv2.CfnWebACL.RuleActionOverrideProperty[]): wafv2.CfnWebACL.RuleProperty => ({
+      name, priority, overrideAction: { none: {} }, visibilityConfig: visibility(name),
+      statement: { managedRuleGroupStatement: { vendorName: 'AWS', name, ...(overrides ? { ruleActionOverrides: overrides } : {}) } },
+    });
+    this.webAcl = new wafv2.CfnWebACL(this, 'WebAcl', {
+      name: `${props.namePrefix}-web`,
+      scope: 'REGIONAL',
+      defaultAction: { allow: {} },
+      visibilityConfig: visibility(`${props.namePrefix}-web`),
+      rules: [
+        // Workflow YAML submissions and session transports legitimately exceed the 8 KB body rule; browser uploads go to S3 directly.
+        managed('AWSManagedRulesCommonRuleSet', 10, [{ name: 'SizeRestrictions_BODY', actionToUse: { count: {} } }]),
+        managed('AWSManagedRulesKnownBadInputsRuleSet', 20),
+        {
+          name: 'RateLimitPerIp', priority: 30, action: { block: {} }, visibilityConfig: visibility('RateLimitPerIp'),
+          statement: { rateBasedStatement: { limit: 2000, aggregateKeyType: 'IP' } },
+        },
+      ],
+    });
+    new wafv2.CfnWebACLAssociation(this, 'WebAclAssociation', { resourceArn: this.loadBalancer.loadBalancerArn, webAclArn: this.webAcl.attrArn });
   }
 }

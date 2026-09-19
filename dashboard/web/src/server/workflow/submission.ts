@@ -7,8 +7,6 @@ import type { ControllerDeps } from './ports';
 import { parseWorkflowYaml } from './template';
 import { assertSafePath } from './validation';
 import { reconcileWorkflowInternal } from './execution';
-import { withRunLease } from './lease';
-import { deliverOutbox } from './outbox';
 import { checkpointSources, checkpointURL, type RecoveryTask, type RecoveryWorkflow, type RetryCheckpointContext } from './checkpoints';
 import { applyTrustedImagePins, imagePinBindings, validatePreflightReview } from './image-pins';
 import { backendId, DEFAULT_BACKEND } from '../backends/registry';
@@ -206,7 +204,7 @@ async function submitBoundWorkflow(input: SubmitInput, deps: ControllerDeps, ret
   })), scope ? {
     scope,
     hash
-  } : undefined, [...(deps.dispatchWorkflow ? ['dispatch' as const] : []), ...(deps.enqueueWorkflow ? ['enqueue' as const] : [])]);
+  } : undefined);
   if (saved.id === id) await deps.repo.appendEvent({
     workflowId: id,
     ts: now,
@@ -218,11 +216,7 @@ async function submitBoundWorkflow(input: SubmitInput, deps: ControllerDeps, ret
   return resumeSubmission(saved, input, deps);
 }
 async function resumeSubmission(wf: Workflow, input: SubmitInput, deps: ControllerDeps): Promise<Workflow> {
-  if (input.deferLaunch || deps.dispatchWorkflow || deps.enqueueWorkflow) {
-    await withRunLease(wf.id, deps, guard => deliverOutbox(wf, deps, guard));
-  } else {
-    await reconcileWorkflowInternal(wf, deps);
-  }
+  if (!input.deferLaunch) await reconcileWorkflowInternal(wf, deps);
   return (await deps.repo.getWorkflow(wf.id))!;
 }
 export async function retryWorkflowInternal(id: string, actor: string, deps: ControllerDeps, identity?: {

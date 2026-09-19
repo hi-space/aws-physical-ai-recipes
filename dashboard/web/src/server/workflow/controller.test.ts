@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryKV } from '../store/dynamo';
 import { Repo } from '../store/repo';
 import type { Job, Pod } from '../k8s/resources';
-import { cancelWorkflow, deriveTaskPhase, reconcileWorkflow, submitWorkflow, type ControllerDeps, type K8sPort } from './controller';
+import { cancelWorkflow, controllerStatus, deriveTaskPhase, emfMetrics, reconcileFresh, reconcileWorkflow, submitWorkflow, type ControllerDeps, type K8sPort } from './controller';
 class FakeK8s implements K8sPort {
   jobs = new Map<string, Job>();
   pods = new Map<string, Pod[]>();
@@ -317,5 +317,56 @@ describe('deriveTaskPhase', () => {
     }), [pendingPod], 'unknown', 1);
     expect(d.phase).toBe('PENDING');
     expect(d.message).toMatch(/Insufficient nvidia.com\/gpu/);
+  });
+});
+
+describe('controller liveness', () => {
+  afterEach(() => {
+    const status = controllerStatus();
+    status.running = false;
+    status.lastTick = undefined;
+    status.inFlightSince = undefined;
+  });
+
+  it('is healthy only while reconcile ticks are fresh', () => {
+    const status = controllerStatus();
+    const now = Date.parse('2026-09-18T12:00:00Z');
+    status.running = true;
+    status.lastTick = new Date(now - 10_000).toISOString();
+    expect(reconcileFresh(now, 30_000, 500)).toBe(true);
+    status.lastTick = new Date(now - 31_000).toISOString();
+    expect(reconcileFresh(now, 30_000, 500)).toBe(false);
+    status.lastTick = undefined;
+    expect(reconcileFresh(now, 30_000, 20)).toBe(true);
+    expect(reconcileFresh(now, 30_000, 61)).toBe(false);
+    status.running = false;
+    status.lastTick = new Date(now - 1000).toISOString();
+    expect(reconcileFresh(now, 30_000, 500)).toBe(false);
+  });
+
+  it('stays healthy while a long reconcile pass is in flight, until the in-flight bound', () => {
+    const status = controllerStatus();
+    const now = Date.parse('2026-09-18T12:00:00Z');
+    status.running = true;
+    status.lastTick = new Date(now - 120_000).toISOString();
+    status.inFlightSince = new Date(now - 300_000).toISOString();
+    expect(reconcileFresh(now, 30_000, 500)).toBe(true);
+    status.inFlightSince = new Date(now - 601_000).toISOString();
+    expect(reconcileFresh(now, 30_000, 500)).toBe(false);
+    status.inFlightSince = undefined;
+    expect(reconcileFresh(now, 30_000, 500)).toBe(false);
+  });
+
+  it('formats one embedded-metric-format line per tick', () => {
+    const line = JSON.parse(emfMetrics({ ReconcileLagSeconds: 5.5, ActiveWorkflows: 3 }, 1_700_000_000_000));
+    expect(line.Service).toBe('controller');
+    expect(line.ReconcileLagSeconds).toBe(5.5);
+    expect(line.ActiveWorkflows).toBe(3);
+    expect(line._aws.Timestamp).toBe(1_700_000_000_000);
+    expect(line._aws.CloudWatchMetrics).toEqual([{
+      Namespace: 'PhysicalAI/Dashboard',
+      Dimensions: [['Service']],
+      Metrics: [{ Name: 'ReconcileLagSeconds', Unit: 'Seconds' }, { Name: 'ActiveWorkflows', Unit: 'Count' }],
+    }]);
   });
 });

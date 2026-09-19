@@ -76,7 +76,6 @@ it('automatic RESCHEDULE persists the old attempt source and compiles restore us
 
 it('manual retry copies only server-owned checkpoint lineage in the same project', async () => {
   const f = fixture();
-  f.deps.enqueueWorkflow = async () => {};
   const old = await submitWorkflow({ ...input, deferLaunch: true }, f.deps);
   await f.repo.putWorkflow({ ...old, status: 'FAILED' });
   await f.repo.putTask({ workflowId: old.id, name: 'train', phase: 'FAILED', attempts: 2, attemptEpoch: 'prior-epoch',
@@ -85,8 +84,9 @@ it('manual retry copies only server-owned checkpoint lineage in the same project
   expect(retried.id).not.toBe(old.id);
   expect(retried.retryOf).toBe(old.id);
   expect(retried.projectId).toBe('p');
+  // Retry reconciles inline (no deferLaunch on the retry path), so the first attempt has already launched.
   expect((await f.repo.listTasks(retried.id))[0]).toMatchObject({
-    attempts: 0, checkpointRestoreSources: [{ workflowId: old.id, task: 'train', attempt: 2, epoch: 'prior-epoch' }],
+    attempts: 1, checkpointRestoreSources: [{ workflowId: old.id, task: 'train', attempt: 2, epoch: 'prior-epoch' }],
   });
   const ordinary = await submitWorkflow({ ...input, deferLaunch: true, retryOf: old.id, checkpointRestoreSources: [] } as any, f.deps) as RecoveryWorkflow;
   expect(ordinary.retryOf).toBeUndefined();

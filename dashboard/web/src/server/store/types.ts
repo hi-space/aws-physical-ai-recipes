@@ -15,9 +15,6 @@ export interface TaskImagePin {
 }
 export type TaskImagePins = Record<string, TaskImagePin>;
 export interface Workflow {
-  orchestrationStatus?: string;
-  orchestrationError?: string;
-  computeResultBeforeOrchestrationFailure?: WorkflowStatus;
   projectId?: string;
   ownerSubject?: string;
   id: string;
@@ -35,7 +32,6 @@ export interface Workflow {
   preflightReviewedBy?: string;
   preflightReviewedAt?: string;
   datasetSnapshots?: Record<string, Record<number, DatasetSnapshot>>;
-  executionArn?: string;
   vars: Record<string, string>;
   templateId?: string;
   templateVersion?: number;
@@ -254,7 +250,7 @@ export interface RunLease {
   holder: string;
 }
 export interface OutboxEntry {
-  kind: 'dispatch' | 'enqueue' | 'complete' | 'notify';
+  kind: 'complete' | 'notify';
   idempotencyKey: string;
   deliveredAt?: string;
   attempts: number;

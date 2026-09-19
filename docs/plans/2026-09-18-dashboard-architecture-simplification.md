@@ -711,7 +711,7 @@ Outbox items of the removed kinds `dispatch` and `enqueue` may still exist for r
 The former `callbacks` DynamoDB table had `RemovalPolicy.RETAIN`, so the first deploy of this release orphans it. After the controller is healthy:
 
 ```bash
-aws cloudformation list-stack-resources --stack-name PhysicalAiDashboard \
+aws cloudformation list-stack-resources --stack-name PhysicalAiDashboard-<accountId> \
   --query "StackResourceSummaries[?starts_with(LogicalResourceId,'OrchestrationCallbacks')].PhysicalResourceId"
 # The command prints nothing once the resource has left the stack; use the table name printed *before* the deploy, or list tables:
 aws dynamodb list-tables --query "TableNames[?contains(@,'OrchestrationCallbacks')]"
