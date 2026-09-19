@@ -245,3 +245,5 @@ logs/
 
 # Source slide archives for training material
 osmo-on-aws.zip
+.worktrees/
+.superpowers/
