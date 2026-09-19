@@ -50,7 +50,7 @@ export interface ImageProfileDeps {
 }
 const builtins: Record<string, string> = {
   mujoco: 'MUJOCO_IMAGE_URI', isaaclab: 'ISAACLAB_IMAGE_URI', ros2: 'ROS2_IMAGE_URI',
-  groot: 'GROOT_RUNTIME_IMAGE_URI', openpi: 'OPENPI_IMAGE_URI', cosmos: 'COSMOS_IMAGE_URI',
+  groot: 'GROOT_RUNTIME_IMAGE_URI', openpi: 'OPENPI_IMAGE_URI', cosmos: 'COSMOS_IMAGE_URI', cosmos3: 'COSMOS3_IMAGE_URI',
   leisaac: 'LEISAAC_IMAGE_URI', workspace: 'WORKSPACE_IMAGE_URI', runtime: 'TASK_RUNTIME_IMAGE',
 };
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');

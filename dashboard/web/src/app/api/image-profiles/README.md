@@ -125,7 +125,7 @@ there; current code adds no controller hook.
 
 `ACCOUNT_ID`, `AWS_REGION=us-east-1`, the existing EKS/table configuration, and
 optional builtin image environment URIs are used. Seed recognizes MuJoCo,
-Isaac Lab, ROS2, GR00T, OpenPI, Cosmos, LeIsaac, workspace and task-runtime image
+Isaac Lab, ROS2, GR00T, OpenPI, Cosmos, Cosmos 3, LeIsaac, workspace and task-runtime image
 URIs. Environment presence alone produces no candidate or validation claim.
 
 ## Explicit limits

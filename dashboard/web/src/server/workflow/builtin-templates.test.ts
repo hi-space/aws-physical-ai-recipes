@@ -42,7 +42,7 @@ describe('researcher recipe catalog', () => {
     }
   });
   it('includes the approved workload families', () => {
-    for (const id of ['mujoco-pipeline', 'isaaclab-train', 'isaaclab-h1', 'gr00t-finetune', 'replicator-sdg', 'ros2-transfer', 'openpi-train', 'mimic-pipeline', 'cosmos-pipeline', 'leisaac-evaluate']) {
+    for (const id of ['mujoco-pipeline', 'isaaclab-train', 'isaaclab-h1', 'gr00t-finetune', 'replicator-sdg', 'ros2-transfer', 'openpi-train', 'mimic-pipeline', 'cosmos-pipeline', 'cosmos3-edge-pipeline', 'cosmos3-nano-pipeline', 'leisaac-evaluate']) {
       expect(BUILTIN_TEMPLATES.map(t => t.id)).toContain(id);
     }
   });
@@ -152,6 +152,48 @@ describe('researcher recipe catalog', () => {
       // Default diffusion-head tuning does not fit a 24 GB A10G (observed CUDA OOM at the first optimizer step).
       expect(args).toContain('--no-tune-diffusion-model');
     }
+  });
+  it('runs Cosmos 3 Edge as image-to-video and Cosmos 3 Nano as depth transfer on one framework image', () => {
+    // Cosmos3-Edge rejects transfer hints upstream, so the Edge recipe must only animate the first SDG frame;
+    // Nano keeps the frame-aligned depth-control path the Transfer2.5 recipe pioneered. Both share COSMOS3_IMAGE_URI.
+    const cases = [
+      { id: 'cosmos3-edge-pipeline', task: 'image2video', mode: 'image2video', model: 'Cosmos3-Edge' },
+      { id: 'cosmos3-nano-pipeline', task: 'transfer', mode: 'transfer', model: 'Cosmos3-Nano' },
+    ];
+    for (const c of cases) {
+      const template = BUILTIN_TEMPLATES.find(t => t.id === c.id)!;
+      expect(template.params.find(p => p.name === 'cosmos_image')?.label).toContain('COSMOS3_IMAGE_URI');
+      expect(getRecipeMetadata(template).prerequisites.some(p => p.kind === 'image' && p.environment === 'COSMOS3_IMAGE_URI')).toBe(true);
+      const { spec } = configured(c.id);
+      expect(spec.workflow.tasks.map(t => t.name)).toEqual(['generate', c.task]);
+      const task = spec.workflow.tasks.find(t => t.name === c.task)!;
+      const args = task.args ?? [];
+      expect(task.command).toEqual(['python', '/opt/recipes/cosmos3/generate.py']);
+      expect(args[args.indexOf('--mode') + 1]).toBe(c.mode);
+      expect(args[args.indexOf('--model') + 1]).toBe(c.model);
+      expect(args[args.indexOf('--input-dir') + 1]).toMatch(/^\{\{input:0\}\}|\/fsx\//);
+      expect(task.inputs).toEqual([{ task: 'generate' }]);
+      expect(task.environment).toMatchObject({ HF_HOME: '/tmp/hf' });
+      if (c.mode === 'transfer') expect(args).toContain('--control-guidance');
+      else expect(args).not.toContain('--control-guidance');
+    }
+    // Neither recipe pins an instance type by default: the queue may place the task on any GPU node (g5, g6, g6e...).
+    // A non-empty cosmos_platform override becomes the instance-type node selector.
+    for (const id of ['cosmos3-edge-pipeline', 'cosmos3-nano-pipeline']) {
+      const template = BUILTIN_TEMPLATES.find(t => t.id === id)!;
+      expect(template.params.find(p => p.name === 'cosmos_platform')?.default).toBe('');
+      const images = Object.fromEntries(template.params.filter(p => p.name.endsWith('image')).map(p => [p.name, 'localhost:5000/verified-recipe@sha256:' + 'a'.repeat(64)]));
+      const free = parseWorkflowYaml(materializeBuiltinTemplate(template, 'test-run-a'), images).spec;
+      const cosmosTask = free.workflow.tasks[1];
+      expect(cosmosTask.resource).toBe('cosmos3');
+      expect(free.workflow.resources.cosmos3.platform).toBeUndefined();
+      expect((compileTask(free, cosmosTask, context).job as any).spec.template.spec.nodeSelector?.['node.kubernetes.io/instance-type']).toBeUndefined();
+      const pinned = parseWorkflowYaml(materializeBuiltinTemplate(template, 'test-run-a'), { ...images, cosmos_platform: 'ml.g6e.2xlarge' }).spec;
+      expect((compileTask(pinned, pinned.workflow.tasks[1], context).job as any).spec.template.spec.nodeSelector?.['node.kubernetes.io/instance-type']).toBe('ml.g6e.2xlarge');
+    }
+    const nano = BUILTIN_TEMPLATES.find(t => t.id === 'cosmos3-nano-pipeline')!;
+    expect(nano.params.find(p => p.name === 'resolution')?.default).toBe('480');
+    expect(getRecipeMetadata(nano).prerequisites.filter(p => p.kind === 'hardware').map(p => p.reason).join(' ')).toMatch(/46 GiB/);
   });
   it('never executes unfinished examples or mutates a shared checkout', () => {
     for (const t of BUILTIN_TEMPLATES) {

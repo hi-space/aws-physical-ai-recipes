@@ -35,6 +35,7 @@ const source = {
   openpi: 'https://github.com/Physical-Intelligence/openpi/tree/215abfb217dbac7d5f1273282331b9b1866c0479',
   leisaac: 'https://github.com/LightwheelAI/leisaac/tree/24d3bcd3f1e4585740fc79921782c41617237812',
   cosmos: 'https://github.com/nvidia-cosmos/cosmos-transfer2.5/tree/0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b',
+  cosmos3: 'https://github.com/NVIDIA/cosmos-framework/tree/c23e51f2f157ae3e51cfcd86ebfb5464850894f2',
   replicator: 'https://docs.isaacsim.omniverse.nvidia.com/5.1.0/replicator_tutorials/tutorial_replicator_getting_started.html',
   ros: 'https://docs.ros.org/en/humble/Tutorials/Advanced/Discovery-Server/Discovery-Server.html',
 };
@@ -102,6 +103,16 @@ const sdgTask = (imageParam = 'image'): TaskDefinition => ({ name: 'generate', r
   command: ['/isaac-sim/python.sh', '/opt/recipes/sdg/generate.py'],
   args: ['--scene', '{{ scene }}', '--output-dir', '{{output}}', '--frames', '{{ frames }}', '--seed', '{{ seed }}'],
   environment: isaacEnv, outputs: published('replicator-sdg') });
+/** Cosmos 3 adapter task; the runner (cosmos-framework inference CLI) is fixed inside the image, every knob is argv. */
+const cosmos3Platform = () => P('cosmos_platform', "GPU 인스턴스 타입 고정 (선택)", '', 'string',
+  "비워 두면 프로젝트 큐가 제공하는 아무 GPU 노드에서 실행됩니다. 특정 타입(예: ml.g6e.2xlarge)이 필요할 때만 입력하세요.");
+const cosmos3Resource = { cpu: 8, memory: '64Gi', gpu: 1, shm_size: '16Gi' };
+const cosmos3Task = (mode: 'image2video' | 'transfer', model: string, extra: string[], outputPrefix: string): TaskDefinition => ({
+  // Task-level platform accepts '' (resource-level does not): empty = any GPU node the queue offers, non-empty = pin.
+  name: mode, resource: 'cosmos3', platform: '{{ cosmos_platform }}', image: '{{ cosmos_image }}', command: ['python', '/opt/recipes/cosmos3/generate.py'],
+  args: ['--mode', mode, '--model', model, '--input-dir', '{{input:0}}', '--output-dir', '{{output}}', '--seed', '{{ seed }}',
+    '--prompt', '{{ prompt }}', '--resolution', '{{ resolution }}', ...extra],
+  inputs: [{ task: 'generate' }], credentials, environment: { HF_HOME: '/tmp/hf' }, outputs: published(outputPrefix) });
 const sceneParams = () => [P('scene', "이미지 안의 USD 장면 경로", '/opt/workshop/src/workshop/robots/usd/so_arm101.usd'),
   P('frames', "모달리티별 프레임 수", '32', 'number'), seed()];
 /** SO-101 key mapping the pinned so101_modality.py expects at <dataset>/meta/modality.json (from e2e-workshop/groot/training/data/configs). */
@@ -392,6 +403,33 @@ export const BUILTIN_TEMPLATES: Template[] = [
     metadata: { ...gpuMetadata('cosmos', [source.cosmos, source.replicator], ['generated/*.mp4', 'controls/', 'dataset-manifest.json'],
       [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
         { kind: 'hardware', reason: "Transfer2-2B 추론에는 문서상 VRAM 65.4 GB가 필요합니다. 호환되는 80 GB GPU를 준비하세요. 기존 A10G 용량으로는 부족합니다." }]), ports: ports([], [{ name: 'cosmos-videos', kind: 'video', label: 'Enhanced videos' }]) } }),
+  // Cosmos 3 (cosmos-framework): one image, two recipes. Cosmos3-Edge rejects transfer hints upstream, so it only
+  // animates the first SDG frame; Cosmos3-Nano keeps the frame-aligned depth-control path of the Transfer2.5 recipe.
+  recipe({ id: 'cosmos3-edge-pipeline', title: "Replicator → Cosmos 3 Edge image-to-video", category: 'data',
+    description: "RGB 프레임 한 장을 렌더링한 뒤 Cosmos3-Edge(4B)로 프롬프트에 맞는 영상을 생성합니다. 결과는 첫 프레임에서 시작하는 생성 영상이며 SDG 프레임과 정렬되지 않습니다.",
+    params: [image('ISAACLAB_IMAGE_URI', 'sim_image'), image('COSMOS3_IMAGE_URI', 'cosmos_image'),
+      ...sceneParams().map(p => p.name === 'frames' ? { ...p, default: '1' } : p), token(),
+      P('prompt', "영상 생성 프롬프트", 'A robot arm reaching on a well-lit table.'),
+      cosmos3Platform(), P('resolution', "출력 해상도 단계 (256/480/720)", '480'), P('num_frames', "생성 프레임 수 (Edge 최대 150)", '93', 'number')],
+    resources: { gpu, cosmos3: cosmos3Resource },
+    tasks: [sdgTask('sim_image'), cosmos3Task('image2video', 'Cosmos3-Edge', ['--num-frames', '{{ num_frames }}'], 'cosmos3-edge-videos')],
+    metadata: { ...gpuMetadata('cosmos3', [source.cosmos3, source.replicator], ['generated/*/vision.mp4', 'controls/', 'dataset-manifest.json'],
+      [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS3_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
+        { kind: 'hardware', reason: "Cosmos3-Edge(4B)는 업스트림이 Jetson·H100에서 검증했고 24 GB GPU(ml.g5 A10G, ml.g6 L4)에서의 실행은 미검증입니다. 가중치 약 10 GB를 /tmp/hf에 내려받을 노드 디스크가 필요합니다." }]),
+      ports: ports([], [{ name: 'cosmos3-edge-videos', kind: 'video', label: 'Generated videos' }]) } }),
+  recipe({ id: 'cosmos3-nano-pipeline', title: "Replicator → Cosmos 3 Nano depth transfer", category: 'data',
+    description: "RGB·depth·segmentation을 렌더링하고 제어 영상을 만든 뒤 Cosmos3-Nano(16B)로 depth 제어 transfer를 실행합니다. 결과는 SDG 프레임과 1:1로 정렬된 증강 영상입니다.",
+    params: [image('ISAACLAB_IMAGE_URI', 'sim_image'), image('COSMOS3_IMAGE_URI', 'cosmos_image'),
+      ...sceneParams().map(p => p.name === 'frames' ? { ...p, default: '93' } : p), token(),
+      cosmos3Platform(), P('prompt', "영상 생성 프롬프트", 'A robot arm reaching on a well-lit table.'),
+      P('resolution', "출력 해상도 단계 (480/720)", '480', 'string', "480p는 48 GB GPU(L40S 등)를 목표로 한 기본값입니다. 720p는 업스트림 기준 피크 약 46 GiB라 80 GB급 GPU가 필요합니다."),
+      P('control_guidance', "depth 제어 강도", '1.5', 'number', "업스트림 depth cookbook 기본값 1.5. 높이면 기하를 더 엄격히 따르고 낮추면 프롬프트 자유도가 커집니다.")],
+    resources: { gpu, cosmos3: cosmos3Resource },
+    tasks: [sdgTask('sim_image'), cosmos3Task('transfer', 'Cosmos3-Nano', ['--control-guidance', '{{ control_guidance }}'], 'cosmos3-nano-videos')],
+    metadata: { ...gpuMetadata('cosmos3', [source.cosmos3, source.replicator], ['generated/*/vision.mp4', 'controls/', 'dataset-manifest.json'],
+      [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS3_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
+        { kind: 'hardware', reason: "Cosmos3-Nano(16B) transfer는 720p 기준 GPU 메모리 피크 약 46 GiB(업스트림 vLLM-Omni 레시피)입니다. 48 GB GPU(ml.g6e L40S)는 480p 기준으로도 미검증이고, 720p는 80 GB급이 필요합니다. 기존 A10G 24 GB로는 부족하며 가중치 약 33 GB를 내려받을 노드 디스크도 필요합니다." }]),
+      ports: ports([], [{ name: 'cosmos3-nano-videos', kind: 'video', label: 'Enhanced videos' }]) } }),
   recipe({ id: 'ros2-transfer', title: "ROS 2 discovery·publisher·subscriber 통신 검증", category: 'simulation',
     description: "세 작업을 동시에 실행합니다. subscriber가 실행 식별자가 붙은 서로 다른 메시지를 받아야 완료되며 discovery와 데이터 전송을 함께 확인합니다.",
     params: [image('ROS2_IMAGE_URI'), P('messages', "수신해야 할 서로 다른 메시지 수", '20', 'number')],

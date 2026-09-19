@@ -1,4 +1,5 @@
 dashboard/images/cosmos/Dockerfile
+dashboard/images/cosmos3/Dockerfile
 dashboard/images/groot/Dockerfile
 dashboard/images/isaaclab/Dockerfile
 dashboard/images/leisaac/Dockerfile
@@ -9,6 +10,9 @@ dashboard/images/ros2/Dockerfile
 dashboard/recipes/FILES.txt
 dashboard/recipes/README.md
 dashboard/recipes/cosmos/transfer.py
+dashboard/recipes/cosmos3/generate.py
+dashboard/recipes/cosmos3/test_generate.py
+dashboard/recipes/cosmos3/test_image_contract.py
 dashboard/recipes/data/hf_import.py
 dashboard/recipes/data/test_import.py
 dashboard/recipes/groot/train.py

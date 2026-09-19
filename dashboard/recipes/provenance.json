@@ -99,6 +99,44 @@
           "url": "https://github.com/nvidia-cosmos/cosmos-transfer2.5/blob/0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b/docs/inference.md"
         }
       ]
+    },
+    {
+      "repository": "https://github.com/NVIDIA/cosmos-framework",
+      "commit": "c23e51f2f157ae3e51cfcd86ebfb5464850894f2",
+      "note": "Cosmos 3 (Edge/Nano) inference; cosmos-transfer2.5 is retained separately and is no longer actively developed upstream",
+      "entrypoints": [
+        {
+          "path": "cosmos_framework/scripts/inference.py",
+          "url": "https://github.com/NVIDIA/cosmos-framework/blob/c23e51f2f157ae3e51cfcd86ebfb5464850894f2/cosmos_framework/scripts/inference.py"
+        },
+        {
+          "path": "docs/inference.md",
+          "url": "https://github.com/NVIDIA/cosmos-framework/blob/c23e51f2f157ae3e51cfcd86ebfb5464850894f2/docs/inference.md"
+        },
+        {
+          "path": "inputs/omni/i2v.json",
+          "url": "https://github.com/NVIDIA/cosmos-framework/blob/c23e51f2f157ae3e51cfcd86ebfb5464850894f2/inputs/omni/i2v.json"
+        },
+        {
+          "path": "inputs/omni/v2v.json",
+          "url": "https://github.com/NVIDIA/cosmos-framework/blob/c23e51f2f157ae3e51cfcd86ebfb5464850894f2/inputs/omni/v2v.json"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/NVIDIA/Cosmos",
+      "commit": "main (read 2026-09-19)",
+      "note": "Depth-transfer spec fields (video2video, depth.control_path, control_guidance, num_video_frames_per_chunk) and Edge/Nano transfer support statements",
+      "entrypoints": [
+        {
+          "path": "cookbooks/cosmos3/generator/transfer/specs/depth.json",
+          "url": "https://github.com/NVIDIA/Cosmos/blob/main/cookbooks/cosmos3/generator/transfer/specs/depth.json"
+        },
+        {
+          "path": "README.md",
+          "url": "https://github.com/NVIDIA/Cosmos/blob/main/README.md"
+        }
+      ]
     }
   ],
   "localSources": [

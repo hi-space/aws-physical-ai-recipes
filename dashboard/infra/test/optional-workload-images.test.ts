@@ -10,6 +10,7 @@ const digest = `sha256:${'a'.repeat(64)}`;
 const recipe = `123456789012.dkr.ecr.us-east-1.amazonaws.com/isaac@${digest}`;
 const assetsImage = `123456789012.dkr.ecr.us-east-1.amazonaws.com/assets@${digest}`;
 const cosmos = { baseImage: `nvcr.io/nvidia/cosmos/cosmos-predict2-container@${digest}`, uvImage: `ghcr.io/astral-sh/uv@${digest}` };
+const cosmos3 = { baseImage: `nvcr.io/nvidia/pytorch@${digest}`, uvImage: `ghcr.io/astral-sh/uv@${digest}` };
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pai-optional-test-'));
   for (const dir of ['dashboard/images', 'dashboard/recipes', 'dashboard/session-image',
@@ -20,7 +21,7 @@ function fixture() {
   for (const file of ['hyperpod-training/examples/rl/play_isaaclab.py', 'hyperpod-training/configs/so101_modality.py',
     'e2e-workshop/groot/training/data/convert_v3_to_v2.py', 'dashboard/session-image/Dockerfile',
     'dashboard/recipes/script.py']) fs.writeFileSync(path.join(root, file), 'fixture', { mode: 0o600 });
-  for (const name of ['mujoco', 'isaaclab', 'ros2', 'groot', 'openpi', 'cosmos', 'leisaac']) {
+  for (const name of ['mujoco', 'isaaclab', 'ros2', 'groot', 'openpi', 'cosmos', 'cosmos3', 'leisaac']) {
     fs.mkdirSync(path.join(root, 'dashboard/images', name), { recursive: true });
     fs.writeFileSync(path.join(root, 'dashboard/images', name, 'Dockerfile'), 'FROM scratch\n');
   }
@@ -60,4 +61,18 @@ test('0390e2b staging permissions and dependency-directory exclusions remain int
   assert.equal(fs.statSync(path.join(context, 'dashboard/recipes/script.py')).mode & 0o777, 0o644);
   assert.equal(fs.statSync(path.join(context, 'dashboard/recipes')).mode & 0o777, 0o755);
   assert.equal(fs.existsSync(path.join(context, 'dashboard/recipes/.venv')), false);
+});
+test('optional Cosmos 3 image is independent of the Transfer2.5 image and only accepts pinned NGC bases', () => {
+  const root = fixture();
+  const baseline = synth(root);
+  assert.equal(baseline.environment.COSMOS3_IMAGE_URI, undefined);
+  const enabled = synth(root, { cosmos3 });
+  assert.ok(enabled.environment.COSMOS3_IMAGE_URI);
+  assert.equal(enabled.environment.COSMOS_IMAGE_URI, undefined);
+  for (const hash of Object.keys(baseline.assets)) assert.ok(enabled.assets[hash], `Default asset changed: ${hash}`);
+  const added = Object.entries(enabled.assets).filter(([hash]) => !baseline.assets[hash]).map(([, value]) => value.source.dockerBuildArgs);
+  assert.ok(added.some(args => args?.COSMOS3_BASE_IMAGE === cosmos3.baseImage && args.UV_IMAGE === cosmos3.uvImage));
+  assert.throws(() => synth(root, { cosmos3: { baseImage: cosmos3.baseImage } }), /UV_IMAGE|uvImage/);
+  assert.throws(() => synth(root, { cosmos3: { ...cosmos3, baseImage: 'nvcr.io/nvidia/pytorch:26.06-py3' } }), /digest/);
+  assert.throws(() => synth(root, { cosmos3: { ...cosmos3, baseImage: `docker.io/library/python@${digest}` } }), /digest|approved/);
 });

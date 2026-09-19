@@ -2,10 +2,11 @@ import * as path from 'node:path';
 
 export interface OptionalWorkloadImages {
   cosmos?: { baseImage: string; uvImage: string };
+  cosmos3?: { baseImage: string; uvImage: string };
   leisaac?: { isaaclabRecipeImage: string; assetsImage: string; sceneRevision: string };
 }
 export interface OptionalImageDefinition {
-  name: 'cosmos' | 'leisaac';
+  name: 'cosmos' | 'cosmos3' | 'leisaac';
   environment: string;
   dockerFile: string;
   buildArgs: Record<string, string>;
@@ -15,7 +16,7 @@ const sha = /^sha256:[a-f0-9]{64}$/;
 export function optionalImageDefinitions(options: OptionalWorkloadImages | undefined, account: string, region: string): OptionalImageDefinition[] {
   if (!options || !Object.keys(options).length) return [];
   if (!/^\d{12}$/.test(account) || region !== 'us-east-1') throw new Error('Optional images require an explicit current account and us-east-1 stack environment');
-  if (Object.keys(options).some(key => !['cosmos', 'leisaac'].includes(key))) throw new Error('Unknown optional image');
+  if (Object.keys(options).some(key => !['cosmos', 'cosmos3', 'leisaac'].includes(key))) throw new Error('Unknown optional image');
   const ecr = `${account}.dkr.ecr.us-east-1.amazonaws.com/`;
   const pinned = (value: string, label: string, publicPrefix?: string) => {
     if (typeof value !== 'string' || !/^[a-z0-9.-]+\/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$/.test(value) ||
@@ -31,6 +32,15 @@ export function optionalImageDefinitions(options: OptionalWorkloadImages | undef
     buildArgs: {
       COSMOS_BASE_IMAGE: pinned(options.cosmos.baseImage, 'COSMOS_BASE_IMAGE', 'nvcr.io/nvidia/cosmos/'),
       UV_IMAGE: pinned(options.cosmos.uvImage, 'UV_IMAGE', 'ghcr.io/astral-sh/uv@'),
+    },
+  });
+  // Cosmos 3 rides on cosmos-framework (NGC PyTorch/CUDA base), independent of the Transfer2.5 image above.
+  if (options.cosmos3) definitions.push({
+    name: 'cosmos3', environment: 'COSMOS3_IMAGE_URI', dockerFile: 'optional/cosmos3.Dockerfile',
+    stagedDockerFile: path.resolve(__dirname, '../../optional-images/cosmos3.Dockerfile'),
+    buildArgs: {
+      COSMOS3_BASE_IMAGE: pinned(options.cosmos3.baseImage, 'COSMOS3_BASE_IMAGE', 'nvcr.io/nvidia/'),
+      UV_IMAGE: pinned(options.cosmos3.uvImage, 'UV_IMAGE', 'ghcr.io/astral-sh/uv@'),
     },
   });
   if (options.leisaac) {

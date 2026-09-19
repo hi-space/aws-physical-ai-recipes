@@ -24,6 +24,7 @@ The catalog is in `dashboard/web/src/server/workflow/builtin-templates.ts`. Ever
 | `groot/Dockerfile` | `GROOT_RUNTIME_IMAGE_URI` | Official N1.6.1 release commit and frozen upstream lock; full training interpreter includes MLflow plugin. **Image built; EKS training not live-accepted.** The separate SageMaker attempts failed OOM or were stopped after capacity waits. Model/data access, sufficient VRAM and tracking role remain prerequisites. |
 | `openpi/Dockerfile` | `OPENPI_IMAGE_URI` | Pinned official OpenPI and frozen lock. **Image built; actual learning unverified.** JAX CUDA, LIBERO LeRobot input, base weights at `gs://openpi-assets/checkpoints/pi0_base`, and tested LoRA memory profile required. No SO-101 compatibility claim. |
 | `cosmos/Dockerfile` | `COSMOS_IMAGE_URI` | Pinned Cosmos-Transfer2.5 and frozen lock. **GPU build/run unverified.** Authorized weights and a compatible 80 GB GPU; upstream documents 65.4 GB for Transfer2-2B inference. Existing A10G resources do not satisfy that profile. |
+| `cosmos3/Dockerfile` | `COSMOS3_IMAGE_URI` | Pinned NVIDIA cosmos-framework (release 2026-09-18, commit `c23e51f`) on the NGC CUDA 12.8 cudnn-devel base, uv-managed Python 3.13, `uv sync --locked --all-extras --group=cu128`; serves both Cosmos3-Edge (4B) and Cosmos3-Nano (16B) via `--checkpoint-path`. **Image built locally (25.9 GB, torch 2.10.0+cu128, cosmos-framework 1.2.2) and the adapter specs validated against the upstream sample schema on CPU; GPU execution unverified.** Weights download from Hugging Face at run time into `/tmp/hf` (Edge ≈ 10 GB, Nano ≈ 33 GB). Neither recipe pins an instance type by default (`cosmos_platform` empty = any GPU node the project queue offers; set e.g. `ml.g6e.2xlarge` to pin). Nano transfer defaults to 480p aiming at 48 GB GPUs (L40S); upstream reports ≈ 46 GiB peak at 720p, which needs an 80 GB-class GPU. Edge on a 24 GB GPU (A10G/L4) is untested. |
 | `leisaac/Dockerfile` | `LEISAAC_IMAGE_URI` | Build args `ISAACLAB_RECIPE_IMAGE`, `LEISAAC_ASSETS_IMAGE`, `LEISAAC_SCENE_REVISION`. Asset image must contain `/assets/scenes/kitchen_with_orange/scene.usd` plus matching SO-101 robot/material files. **GPU build/run unverified.** Two concurrent GPU allocations, compatible GR00T model, and port 5555 between pods required. |
 | `ros2/Dockerfile` | `ROS2_IMAGE_URI` | ROS Humble and Fast DDS tools baked in. **Actual Kubernetes discovery and 20 unique run-scoped messages passed.** This verifies communication, not physical robot motion or HIL. |
 
@@ -54,6 +55,8 @@ docker build -f dashboard/images/mujoco/Dockerfile \
 | `replicator-sdg` | Real USD scene, seeded camera randomization, RGB / metric-depth / semantic frames, strict frame manifest. |
 | `mimic-pipeline` | Official auto-annotation → Mimic generation → HDF5 action validation, requiring real Franka stack input demonstrations. Upstream task config fixes the generation seed; no unsupported `--seed` flag is passed. |
 | `cosmos-pipeline` | SDG → control-video encoding → official Cosmos inference. Manifest declares fixed 0–5 m depth visualization; generated videos are not labeled as robot trajectories or successful actions. |
+| `cosmos3-edge-pipeline` | SDG (one frame) → Cosmos3-Edge image-to-video via cosmos-framework. Edge rejects transfer hints upstream, so output is generated motion from the first frame and is **not** frame-aligned with SDG. |
+| `cosmos3-nano-pipeline` | SDG → depth control video → Cosmos3-Nano `video2video` transfer (`depth.control_path`, `control_guidance`). One output frame per SDG frame; same fixed 0–5 m depth visualization and non-trajectory disclaimer as `cosmos-pipeline`. |
 | `ros2-transfer` | Discovery server, publisher, subscriber lead in one group. Output contains distinct payloads with the actual run ID. |
 | `leisaac-evaluate` | Real GR00T policy server + LeIsaac simulator group; explicit `success` termination, bounded rounds, per-round durable JSON, videos, latency quantiles and actual checkpoint digest. |
 
@@ -96,12 +99,16 @@ docker run --rm --network none --user 1000:1000 physical-ai-mujoco:recipe-test \
   python /opt/recipes/mujoco/test_integration.py
 docker run --rm --network none --user 1000:1000 physical-ai-mujoco:recipe-test \
   python /opt/recipes/data/test_import.py
+python3 -m pytest dashboard/recipes/cosmos3/test_generate.py   # host: needs imageio, imageio-ffmpeg, numpy; stubs the GPU runner
+docker build -f dashboard/images/cosmos3/Dockerfile -t physical-ai-cosmos3:recipe-test .
+docker run --rm -v "$PWD/dashboard/recipes:/opt/recipes:ro" physical-ai-cosmos3:recipe-test \
+  bash -c 'cd /opt/recipes/cosmos3 && python -m unittest test_image_contract'   # adapter specs vs. real cosmos-framework schema (CPU)
 docker build -f dashboard/images/ros2/Dockerfile -t physical-ai-ros2:recipe-test .
 python dashboard/recipes/ros2/test_integration.py
 ```
 
 The CPU test executes genuine SO-101 physics and PPO updates (512 steps), resumes for 256 additional steps, verifies every checkpoint hash/statistics pair and changed weights, renders/decode-checks MP4, repeats deterministic evaluation, and rejects mismatched statistics. The import test invokes the actual workshop converter on Parquet data and rejects a missing episode file despite the converter's warning-only behavior. The ROS test creates an internal Docker network and three distinct containers, validates ten distinct run-scoped messages, then removes only its own resources.
 
-GPU training, H1, Replicator/Mimic/Cosmos, LeIsaac closed loop, managed MLflow, Kubernetes networking/admission, and S3 durable publication still need provisioned integration tests. No AWS mutation, deployment, push, physical-device operation, agent delegation, or commit was performed.
+GPU training, H1, Replicator/Mimic/Cosmos (2.5 and 3), LeIsaac closed loop, managed MLflow, Kubernetes networking/admission, and S3 durable publication still need provisioned integration tests. No AWS mutation, deployment, push, physical-device operation, agent delegation, or commit was performed.
 
 Exact files: `dashboard/recipes/FILES.txt`. Pinned source evidence: `dashboard/recipes/provenance.json`.

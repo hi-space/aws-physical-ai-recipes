@@ -54,7 +54,7 @@
 - READY 데이터는 불변입니다. 참조된 데이터 삭제는 거부하고 삭제 자체도 tombstone이며 원격 bytes purge가 아닙니다. 이미 없어진 과거 metadata를 재구성하지는 못합니다.
 - 로그는 저장하지 않습니다. 워크플로·작업 화면의 로그는 Kubernetes API로 Pod에서 직접 읽으며(요청당 최대 5,000줄, SSE 55초 연결 후 타임스탬프로 재접속) Pod가 삭제되면 더 볼 수 없습니다. 주입된 자격증명은 시도별 불변 Secret을 근거로 서버에서 redaction합니다.
 - CLI sync는 파일 단위 전송이며 rsync/block-delta·ranged resume·remote delete가 아닙니다. 일반 private registry, EFS connector, Slurm DAG, 임의 cross-account/region backend, MCP는 지원하지 않습니다.
-- Cosmos/LeIsaac 선택 이미지 배선은 있으나 해당 이미지 build·GPU closed-loop는 미검증입니다. OpenPI/Mimic/SDG/Jetson/HIL의 모델·자산·장비 조건은 별도로 충족해야 합니다.
+- Cosmos(Transfer2.5·Cosmos 3 Edge/Nano)/LeIsaac 선택 이미지 배선은 있으나 해당 이미지 build·GPU closed-loop는 미검증입니다. Cosmos 3 템플릿은 인스턴스 타입을 고정하지 않으며(`cosmos_platform` 비움 = 큐가 주는 GPU 노드), Nano transfer는 48 GB(480p) 또는 80 GB(720p)급 GPU가, Edge는 24 GB에서의 검증이 아직 없습니다. OpenPI/Mimic/SDG/Jetson/HIL의 모델·자산·장비 조건은 별도로 충족해야 합니다.
 
 ## 설치·개발
 
@@ -95,7 +95,7 @@ cd dashboard/infra && npm ci && npx cdk deploy -c gateway=false
 
 같은 태그가 GrootFinetune·IsaacLab·HyperPodEks 스택에도 붙습니다(각 스택을 다시 배포하면 적용).
 
-기본 이미지는 MuJoCo/Isaac Lab/ROS 2/작업 공간, `extendedImages=true`는 GR00T/OpenPI를 추가합니다. 이미 GR00T/OpenPI 이미지가 배포된 스택은 이후 배포에서도 `extendedImages=true`를 유지해야 이미지가 삭제되지 않습니다. `gr00t-e2e` 템플릿(HF 가져오기 → GR00T N1.6.1 파인튜닝 → open-loop 평가)은 두 이미지(MUJOCO_IMAGE_URI, GROOT_RUNTIME_IMAGE_URI)와 프로젝트 GPU 큐가 필요하며, 모델 등록은 게시된 평가 결과를 모델·평가 화면에서 진행합니다. Cosmos/LeIsaac은 [optionalImages 계약](infra/lib/constructs/optional-workload-images.ts)에 맞는 digest 고정 이미지·scene 입력이 필요하며 옵션을 생략하면 생성하지 않습니다. 이미지 배포는 모델 접근·실행 품질 승인이 아닙니다.
+기본 이미지는 MuJoCo/Isaac Lab/ROS 2/작업 공간, `extendedImages=true`는 GR00T/OpenPI를 추가합니다. 이미 GR00T/OpenPI 이미지가 배포된 스택은 이후 배포에서도 `extendedImages=true`를 유지해야 이미지가 삭제되지 않습니다. `gr00t-e2e` 템플릿(HF 가져오기 → GR00T N1.6.1 파인튜닝 → open-loop 평가)은 두 이미지(MUJOCO_IMAGE_URI, GROOT_RUNTIME_IMAGE_URI)와 프로젝트 GPU 큐가 필요하며, 모델 등록은 게시된 평가 결과를 모델·평가 화면에서 진행합니다. Cosmos(`cosmos`: Transfer2.5, `cosmos3`: cosmos-framework Edge/Nano)/LeIsaac은 [optionalImages 계약](infra/lib/constructs/optional-workload-images.ts)에 맞는 digest 고정 이미지·scene 입력이 필요하며 옵션을 생략하면 생성하지 않습니다. 이미지 배포는 모델 접근·실행 품질 승인이 아닙니다.
 
 기존 웹 내부 controller를 분리하는 **첫 전환에만** `-c controllerSplitMigration=true`를 사용하고 이후 제거합니다. EKS add-on/RBAC는 `infra/ops/apply_addons.py` 또는 등록된 관리자 운영 작업으로 준비합니다. 초기 관리자 secret은 `physical-ai-dashboard/<accountId>/admin`에 저장됩니다. 부모 HyperPod/Isaac Lab 스택과 상태 리소스 보존을 확인하고 대시보드 업데이트 범위를 유지하세요.
 
