@@ -84,6 +84,6 @@ npm run build
 npm run build:services
 ```
 
-`AUTH_MODE=dev npm run dev`는 로컬 전용입니다. 실제 AWS 테스트에는 Cognito 자격증명을 테스트 프로세스에만 주입하며 로그에 남기지 않습니다. 테스트는 실제 작업/세션을 만들 수 있으므로 [연구자 E2E 조건](web/e2e/README.researcher.md)과 해당 fixture 범위를 먼저 확인하세요.
+로컬에서 띄워 보려면 `npm run dev:local`(= `web/scripts/dev-local.sh`)을 사용합니다. 기본 **aws 모드**는 배포된 ECS web 태스크 정의에서 환경 변수를 읽어 `web/.env.aws.local`(gitignore)에 캐시하고, 로컬 AWS 자격증명으로 실제 DynamoDB·S3·SageMaker 데이터를 보여 줍니다. `AUTH_MODE=dev`로 모든 요청이 admin(`--role`/`--user`로 변경)이 되고 `WORKFLOW_CONTROLLER=0`·`LOG_ARCHIVE_ENABLED=0`을 강제해 ECS 컨트롤러와 경쟁하지 않습니다. 단 실행·데이터셋 생성은 실제 테이블에 기록됩니다. `--offline`은 AWS 호출 없이 인메모리 저장소로 UI만 확인하고, `--refresh`는 env 캐시를 다시 받으며, `--port`로 포트를 바꿉니다. `AUTH_MODE=dev npm run dev`는 로컬 전용입니다. 실제 AWS 테스트에는 Cognito 자격증명을 테스트 프로세스에만 주입하며 로그에 남기지 않습니다. 테스트는 실제 작업/세션을 만들 수 있으므로 [연구자 E2E 조건](web/e2e/README.researcher.md)과 해당 fixture 범위를 먼저 확인하세요.
 
 개발 자료: [workflow](web/src/server/workflow/README.md), [runtime](runtime/README.md), [multipart](runtime/MULTIPART.md), [복원](runtime/RESTORE.md), [레시피](recipes/README.md), [gateway](web/src/server/gateway/README.md), [CLI](cli/README.md), [edge](edge/README.md).

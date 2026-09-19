@@ -167,7 +167,7 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
       <div>
         <Tabs value={tab} onChange={setTab} items={tabItems} />
         <div className="bg-gray-900/50 rounded-b p-4 min-h-96">
-          {tab === 'dag' && <DagView spec={workflow.spec} tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask} />}
+          {tab === 'dag' && <DagView spec={workflow.spec} tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask} onOpenTab={setTab} />}
           {tab === 'tasks' && <div className="overflow-x-auto"><TaskTable tasks={tasks} resources={workflow.spec.workflow.resources} selectedTask={selectedTask} onSelectTask={setSelectedTask} taskSpecs={taskSpecs} /></div>}
           {tab === 'logs' && <LogViewer workflowId={id} tasks={tasks} selectedTask={selectedTask} />}
           {tab === 'events' && (

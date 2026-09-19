@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { classNames as cx } from '@/lib/format';
 import { AlertCircle, Check, ChevronDown, Copy, Info, Loader2, X } from 'lucide-react';
-import { useT, type MessageKey } from '@/lib/i18n';
+import { useT, type MessageKey, type Translator } from '@/lib/i18n';
 
 // ---------------------------------------------------------------- Button
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -102,12 +102,17 @@ const STATUS_LABEL: Record<string, MessageKey<'common'>> = {
   Deleting: 'stDeleting', DEGRADED: 'stDegraded', CANCELLED: 'stCancelled', Cancelled: 'stCancelled', CANCELLING: 'stCancelling', FINALIZING: 'stFinalizing',
   SKIPPED: 'stSkipped', Suspended: 'stSuspended', finished: 'stFinished', missing: 'stMissing', UNREADY: 'stUnready', unknown: 'stUnknown',
 };
+/** Localised label for a known state; English keeps the raw API value, unknown states fall back to the value itself. */
+export function statusLabel(tc: Translator<'common'>, status?: string): string {
+  const s = status ?? 'unknown';
+  const key = STATUS_LABEL[s];
+  return tc.locale === 'en' || !key ? s : tc(key);
+}
 export function StatusPill({ status, className }: { status?: string; className?: string }) {
   const tc = useT('common');
   const s = status ?? 'unknown';
   const m = STATUS_TONE[s] ?? { tone: 'neutral' as const };
-  const key = STATUS_LABEL[s];
-  const label = tc.locale === 'en' || !key ? s : tc(key);
+  const label = statusLabel(tc, s);
   return (
     <Badge tone={m.tone} className={className}>
       <span className={cx('inline-block h-1.5 w-1.5 rounded-full bg-current', m.pulse && 'pulse')} />

@@ -121,3 +121,10 @@ a {
 .pulse {
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
+
+/* Workflow DAG: moving dash on edges whose downstream step is running. */
+@keyframes dag-edge-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}

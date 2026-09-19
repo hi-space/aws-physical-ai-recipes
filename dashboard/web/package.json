@@ -5,6 +5,7 @@
   "description": "Physical AI Dashboard — OSMO-style control plane for HyperPod EKS / SageMaker / DCV / Greengrass on AWS",
   "scripts": {
     "dev": "next dev",
+    "dev:local": "bash scripts/dev-local.sh",
     "build": "next build",
     "build:services": "node scripts/build-services.mjs",
     "start": "next start",
