@@ -56,7 +56,10 @@ export function WorkflowsPage() {
   }
   const res = me.data?.resources;
   return <div className="space-y-5">
-    <PageHeader title={t('title')} actions={canWrite && <LinkButton href="/workflows/new" variant="primary">{t('newRun')}</LinkButton>} />
+    <PageHeader title={t('title')} actions={canWrite && <div className="flex gap-2">
+      <LinkButton href="/workflows/compose" variant="secondary">{t('directAssembly')}</LinkButton>
+      <LinkButton href="/workflows/new" variant="primary">{t('newRun')}</LinkButton>
+    </div>} />
     <ResourceStrip
       source={t('resourceSource')}
       items={[

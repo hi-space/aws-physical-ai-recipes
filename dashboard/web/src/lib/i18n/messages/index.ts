@@ -37,6 +37,7 @@ import { sessions } from './sessions';
 import { resources } from './resources';
 import { resourcesPage } from './resourcesPage';
 import { login } from './login';
+import { compose } from './compose';
 
 export const catalog = {
   common,
@@ -74,6 +75,7 @@ export const catalog = {
   resources,
   resourcesPage,
   login,
+  compose,
 } as const;
 
 export type Catalog = typeof catalog;

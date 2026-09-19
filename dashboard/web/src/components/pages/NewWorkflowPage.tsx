@@ -10,6 +10,7 @@ import type { Template, TemplateParam } from '@/server/store/types';
 import type { ExecutionProfile } from '@/server/services/execution-profiles';
 import type { TemplateDto } from '@/lib/workflow/template-dto';
 import { TemplateParamField } from '@/components/workflows/TemplateParamField';
+import { Boxes } from 'lucide-react';
 
 type Mapping = Record<string, unknown>;
 type YamlPath = (string | number)[];
@@ -31,7 +32,11 @@ interface CredentialBinding { key: string; path: YamlPath; label: string; ref: s
 type WorkflowPreset = 'cpu-quick';
 const cpuQuickDefaults = { total_steps: '512', num_envs: '1', episodes: '20' } as const;
 interface Selection { id: string; version?: number; preset?: WorkflowPreset }
-interface Draft { yaml: string; template?: Template; selectionKey?: string }
+// `composed` marks a draft handed over from the pipeline composer (?draft=1): its `template` is a
+// synthetic, non-persisted recipe used only to render inputs in step 2, so submission sends the
+// self-contained YAML with no templateId/version (there is no server recipe to pin).
+interface Draft { yaml: string; template?: Template; selectionKey?: string; composed?: boolean }
+const COMPOSE_DRAFT_KEY = 'pai-compose-draft';
 interface ImagePreflight { status: 'blocked' | 'needs-review'; findings: Array<{ code: string; severity: 'error' | 'warning' | 'unknown'; message: string; task?: string }> }
 interface ValidationResult { ok: boolean; preflight?: ImagePreflight; order?: string[]; error?: string; details?: { issues?: string[] }; tasks?: Array<{ name: string; image: string; resource: { cpu?: string | number; gpu?: number; memory?: string }; parallelism: number }> }
 
@@ -208,8 +213,8 @@ export function NewWorkflowPage() {
   const searchParams = useSearchParams();
   const search = searchParams.toString();
   const query = useMemo(() => {
-    try { const params = new URLSearchParams(search); return { selection: selectionFromQuery(params), evaluation: readEvaluationQuery(params), error: undefined }; }
-    catch (error) { return { selection: null, evaluation: undefined, error }; }
+    try { const params = new URLSearchParams(search); return { selection: selectionFromQuery(params), evaluation: readEvaluationQuery(params), draft: params.get('draft') === '1', error: undefined }; }
+    catch (error) { return { selection: null, evaluation: undefined, draft: false, error }; }
   }, [search]);
   const me = useMe();
   const executionProfiles = useApi<{ profiles: ExecutionProfile[] }>(me.data?.role === 'admin' ? '/api/execution-profiles' : null);
@@ -249,8 +254,24 @@ export function NewWorkflowPage() {
     if (!cloneChecked.current) {
       cloneChecked.current = true;
       if (!query.selection && !query.error) {
-        const clone = sessionStorage.getItem('pai.cloneYaml');
-        if (clone) { setDraft({ yaml: clone }); setSelection(null); setStep(3); sessionStorage.removeItem('pai.cloneYaml'); }
+        if (query.draft) {
+          // Hand-off from the composer: load the composed workflow from session storage as a synthetic
+          // recipe and open on step 2 so unbound (e.g. dataset) inputs can still be filled in.
+          try {
+            const raw = sessionStorage.getItem(COMPOSE_DRAFT_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw) as { yaml: string; params?: TemplateParam[]; title?: string };
+              let recipe: TemplateDto['recipe'] = null;
+              try { const root = parseDocument(parsed.yaml).toJS({ maxAliasCount: 50 }) as { ui?: { recipe?: TemplateDto['recipe'] } } | null; recipe = root?.ui?.recipe ?? null; } catch { recipe = null; }
+              const template: TemplateDto = { id: 'composed', title: parsed.title || t('title'), description: '', builtin: false, category: 'custom', yaml: parsed.yaml, params: parsed.params ?? [], recipe, createdAt: new Date().toISOString() };
+              setSelection(null); setStep(2); setDraft({ yaml: parsed.yaml, template, composed: true });
+            }
+          } catch (error) { setActionError(error); }
+          finally { sessionStorage.removeItem(COMPOSE_DRAFT_KEY); }
+        } else {
+          const clone = sessionStorage.getItem('pai.cloneYaml');
+          if (clone) { setDraft({ yaml: clone }); setSelection(null); setStep(3); sessionStorage.removeItem('pai.cloneYaml'); }
+        }
       }
     }
   }, [search, query]);
@@ -347,7 +368,7 @@ export function NewWorkflowPage() {
     if (!validated || !preflightAllowed || !canWrite || busy) return;
     setActionError(undefined); setNotice('');
     try {
-      const payload = workflowSubmissionPayload(derived.rendered, draft.template, me.data?.defaultNamespace, !!imagePreflight && acknowledgedPreflight);
+      const payload = workflowSubmissionPayload(derived.rendered, draft.composed ? undefined : draft.template, me.data?.defaultNamespace, !!imagePreflight && acknowledgedPreflight);
       const snapshot = JSON.stringify(payload);
       if (idempotency.current?.yaml !== snapshot) idempotency.current = { yaml: snapshot, key: crypto.randomUUID() };
       const result = await submit.mutateAsync({ payload, key: idempotency.current.key });
@@ -390,6 +411,10 @@ export function NewWorkflowPage() {
     </Card>}
     <nav aria-label={t('workflowSteps')} className="grid grid-cols-3 gap-3">{[t('stepRecipe'), t('stepInputs'), t('stepYaml')].map((label, index) => <button key={label} type="button" aria-current={step === index + 1 ? 'step' : undefined} onClick={() => setStep(index + 1)} className={`rounded border p-3 text-left ${step === index + 1 ? 'border-accent bg-accent/10' : 'border-border'}`}><span className="text-xs">{index + 1}{t('stepLabel')}</span><span className="block text-sm">{label}</span></button>)}</nav>
     {step === 1 && <div className="space-y-4">
+      <LinkButton href="/workflows/compose" variant="ghost" className="flex! h-auto! w-full items-start! gap-3! rounded! border-dashed! border-accent/60! p-4! text-left focus-visible:outline focus-visible:outline-accent">
+        <Boxes size={20} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+        <span><span className="block text-sm font-semibold">{t('directAssembly')}</span><span className="mt-1 block text-xs text-fg-muted">{t('directAssemblyDesc')}</span></span>
+      </LinkButton>
       {templates.error && <ErrorBox error={templates.error} />}{templates.isLoading && <Spinner label={t('loadingRecipes')} />}
       {!templates.isLoading && !templates.error && !templates.data?.length && <EmptyState title={t('noRecipes')} />}
       {templateGroups.map((group) => group.templates.length > 0 && <section key={group.id} aria-label={group.label}>

@@ -110,6 +110,8 @@ export const newWorkflow = defineMessages({
     datasetVersion: 'Version',
     datasetsLoadError: 'Failed to load datasets.',
     datasetVersionsLoadError: 'Failed to load dataset versions.',
+    directAssembly: 'Build a pipeline',
+    directAssemblyDesc: 'Chain existing recipes into a custom pipeline on a canvas.',
   },
   ko: {
     title: '새 실행',
@@ -220,5 +222,7 @@ export const newWorkflow = defineMessages({
     datasetVersion: '버전',
     datasetsLoadError: '데이터셋을 불러오지 못했습니다.',
     datasetVersionsLoadError: '데이터셋 버전을 불러오지 못했습니다.',
+    directAssembly: '직접 조립',
+    directAssemblyDesc: '기존 레시피를 캔버스에서 조합하여 커스텀 파이프라인을 구성합니다.',
   },
 });

@@ -343,4 +343,69 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
     await expect.poll(() => stepsField.isDisabled()).toBe(true);
     await page.waitForFunction(() => (window as unknown as { fixtureDestination: string }).fixtureDestination === '/workflows/submitted');
   }, 15000);
+
+  it('loads a composed draft from session storage, opens on step 2, and submits raw YAML with no templateId', async () => {
+    const draftYaml = stringify({
+      workflow: { name: 'composed-demo', resources: { cpu: { cpu: 1 } }, tasks: [{ name: 't', resource: 'cpu', image: 'test-image', args: ['--composed'] }] },
+      'default-values': { note: 'hi' },
+      ui: { recipe: { revision: 'composed', readiness: 'cpu-validated', verification: 'local-docker', prerequisites: [], sources: [], artifacts: [], imageContract: '', ports: { inputs: [], outputs: [] } } },
+    });
+    // sessionStorage is origin-scoped: seed it after loading the origin once, then navigate with ?draft=1.
+    await page.goto(origin + '/workflows/new');
+    await page.evaluate((d) => sessionStorage.setItem('pai-compose-draft', d), JSON.stringify({ yaml: draftYaml, params: [{ name: 'note', label: 'Composed note', type: 'string', default: 'hi' }], title: 'Composed demo' }));
+    await page.goto(origin + '/workflows/new?draft=1');
+
+    // Opens on step 2 (inputs) with the composed template's own param rendered.
+    const stepButtons = page.getByRole('navigation', { name: '워크플로 작성 단계' }).getByRole('button');
+    await expect.poll(() => stepButtons.nth(1).getAttribute('aria-current')).toBe('step');
+    const noteField = page.getByLabel('Composed note');
+    await noteField.waitFor();
+    expect(await noteField.inputValue()).toBe('hi');
+    // The hand-off is consumed exactly once.
+    expect(await page.evaluate(() => sessionStorage.getItem('pai-compose-draft'))).toBeNull();
+
+    // A composed run submits the self-contained YAML with no templateId (there is no server recipe).
+    await step(2);
+    await page.getByText('구성 검증 통과', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '워크플로 실행', exact: true }).click();
+    await page.waitForFunction(() => (window as unknown as { fixtureDestination: string }).fixtureDestination === '/workflows/submitted');
+    const payload = calls.find((call) => call.path === '/api/workflows' && call.method === 'POST')!.body;
+    expect(payload.templateId).toBeUndefined();
+    expect(payload.templateVersion).toBeUndefined();
+    expect(parse(String(payload.yaml)).workflow.tasks[0].args).toContain('--composed');
+  }, 15000);
+
+  it('renders the DatasetPicker for an unbound dataset param carried by a composed draft', async () => {
+    // A composed pipeline whose only recipe still has an unbound `dataset` input surfaces it as a
+    // `type:'dataset'` composite param; the wizard must render the DatasetPicker (not a raw text field).
+    const draftYaml = stringify({
+      workflow: { name: 'composed-ds', resources: { cpu: { cpu: 1 } }, tasks: [{ name: 't', resource: 'cpu', image: 'test-image', args: ['{{ dataset_name }}', '{{ dataset_version }}'] }] },
+      'default-values': { dataset_name: '', dataset_version: '1' },
+      ui: { recipe: { revision: 'composed', readiness: 'cpu-validated', verification: 'local-docker', prerequisites: [], sources: [], artifacts: [], imageContract: '', ports: { inputs: [{ param: 'dataset_name', kind: 'lerobot-dataset', label: 'Dataset', versionParam: 'dataset_version' }], outputs: [] } } },
+    });
+    await page.goto(origin + '/workflows/new');
+    await page.evaluate((d) => sessionStorage.setItem('pai-compose-draft', d), JSON.stringify({
+      yaml: draftYaml,
+      params: [
+        { name: 'dataset_name', label: 'Composed dataset', type: 'dataset', default: '', versionParam: 'dataset_version' },
+        { name: 'dataset_version', label: 'Dataset version', type: 'number', default: '1' },
+      ],
+      title: 'Composed dataset draft',
+    }));
+    await page.goto(origin + '/workflows/new?draft=1');
+
+    // The DatasetPicker renders for the dataset param; its versionParam companion is not a separate raw field.
+    const picker = page.getByLabel('입력 데이터셋'); await picker.waitFor();
+    expect(await page.getByLabel('Dataset version').count()).toBe(0);
+    await picker.selectOption('demo-set');
+    const pickerContainer = page.locator('div.space-y-3', { has: page.getByLabel('입력 데이터셋') });
+    const versionSelect = pickerContainer.getByLabel('버전');
+    await versionSelect.waitFor();
+    await versionSelect.selectOption('3');
+    // The picked dataset name and version flow into the composed YAML defaults.
+    await step(2);
+    const source = parse(await page.getByLabel('워크플로 YAML').inputValue());
+    expect(source['default-values'].dataset_name).toBe('demo-set');
+    expect(String(source['default-values'].dataset_version)).toBe('3');
+  }, 15000);
 });
