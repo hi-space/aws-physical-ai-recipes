@@ -85,6 +85,8 @@ export interface Task {
     version: number;
   }[];
   updatedAt: string;
+  /** Computed from the workflow's ui.recipe.views (see server/workflow/views.ts); not persisted. */
+  views?: ('tensorboard' | 'mlflow')[];
 }
 export interface WorkflowEvent {
   workflowId: string;

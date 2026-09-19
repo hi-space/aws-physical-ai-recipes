@@ -162,6 +162,38 @@ describe('researcher recipe catalog', () => {
   });
 });
 
+describe('isaaclab live view', () => {
+  it('isaaclab-train template carries live: true and --live-view {{ live_view }}', () => {
+    const template = BUILTIN_TEMPLATES.find(t => t.id === 'isaaclab-train');
+    expect(template).toBeDefined();
+    const spec = YAML.parse(template!.yaml);
+    expect(spec.workflow.tasks[0].live).toBe(true);
+    expect(spec.workflow.tasks[0].args).toContain('--live-view');
+    expect(spec.workflow.tasks[0].args).toContain('{{ live_view }}');
+  });
+  it('isaaclab-train params include a live_view select param defaulting to on', () => {
+    const template = BUILTIN_TEMPLATES.find(t => t.id === 'isaaclab-train');
+    const param = template?.params.find(p => p.name === 'live_view');
+    expect(param).toMatchObject({ default: 'on', type: 'select' });
+  });
+  it('isaaclab-h1 template also carries live: true', () => {
+    const template = BUILTIN_TEMPLATES.find(t => t.id === 'isaaclab-h1');
+    expect(template).toBeDefined();
+    const spec = YAML.parse(template!.yaml);
+    expect(spec.workflow.tasks[0].live).toBe(true);
+  });
+  it('compiles isaaclab-train and isaaclab-h1 with the live sidecar when liveImage is configured', () => {
+    for (const id of ['isaaclab-train', 'isaaclab-h1']) {
+      const { spec } = configured(id);
+      const task = spec.workflow.tasks.find(t => t.name === 'train')!;
+      const ctx = { ...context, liveImage: 'localhost:5000/verified-live@sha256:' + 'c'.repeat(64) };
+      const pod = (compileTask(spec, task, ctx).job as any).spec.template.spec;
+      expect(pod.initContainers.some((c: any) => c.name === 'pai-live')).toBe(true);
+      expect(pod.containers[0].env).toContainEqual({ name: 'PAI_LIVE_DIR', value: '/pai/live' });
+    }
+  });
+});
+
 describe('two-rank CPU Torch/Gloo recipe', () => {
   it('compiles one barrier-protected Indexed Job with two eight-core replicas and rank-0 DNS', () => {
     const template = BUILTIN_TEMPLATES.find(t => t.id === 'torch-gloo-2rank');

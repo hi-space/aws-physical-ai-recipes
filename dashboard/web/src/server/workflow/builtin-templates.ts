@@ -90,11 +90,13 @@ const mujocoEval = (pipeline = false): TaskDefinition => ({ name: 'evaluate', re
   environment: { MUJOCO_GL: 'osmesa' }, outputs: published('mujoco-evaluation') });
 const evalParams = () => [P('episodes', "평가 에피소드 수", '5', 'number'), P('eval_seed', "독립 평가 seed", '2042', 'number')];
 const isaacParams = () => [image('ISAACLAB_IMAGE_URI'), seed(), P('num_envs', "병렬 환경 수", '2048', 'number'),
-  P('iterations', "추가 PPO 학습 반복 횟수", '300', 'number'), P('checkpoint_every', "체크포인트 저장 주기 (반복 횟수)", '50', 'number'), resume()];
-const isaacTrain = (task: string): TaskDefinition => ({ name: 'train', resource: 'gpu', image: '{{ image }}',
+  P('iterations', "추가 PPO 학습 반복 횟수", '300', 'number'), P('checkpoint_every', "체크포인트 저장 주기 (반복 횟수)", '50', 'number'), resume(),
+  { ...P('live_view', "실시간 보기 프레임 게시", 'on', 'select', "훈련 중 실시간 MJPEG 스트림을 활성화합니다. 배포 시 PAI_LIVE_DIR이 필요합니다."), options: ['on', 'off'] }];
+const isaacTrain = (task: string): TaskDefinition => ({ name: 'train', resource: 'gpu', image: '{{ image }}', live: true,
   command: ['/isaac-sim/python.sh', '/opt/recipes/isaaclab/train.py'],
   args: ['--task', task, '--output-dir', '{{output}}', '--seed', '{{ seed }}', '--num-envs', '{{ num_envs }}',
-    '--iterations', '{{ iterations }}', '--checkpoint-every', '{{ checkpoint_every }}', '--resume', '{{ resume }}', '--headless'],
+    '--iterations', '{{ iterations }}', '--checkpoint-every', '{{ checkpoint_every }}', '--resume', '{{ resume }}',
+    '--live-view', '{{ live_view }}', '--headless'],
   environment: isaacEnv, outputs: published('isaaclab-checkpoints') });
 const sdgTask = (imageParam = 'image'): TaskDefinition => ({ name: 'generate', resource: 'gpu', image: `{{ ${imageParam} }}`,
   command: ['/isaac-sim/python.sh', '/opt/recipes/sdg/generate.py'],

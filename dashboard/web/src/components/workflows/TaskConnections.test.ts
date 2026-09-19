@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import YAML from 'yaml';
 import { apiQueryOptions } from '@/lib/api-client';
+import { taskViews } from '@/server/workflow/views';
 import { TaskConnections, createTaskConnection, taskConnectionPayload, type ConnectionTask, type ConnectionWorkflow } from './TaskConnections';
 
 const workflow: ConnectionWorkflow = { id: 'run-a', projectId: 'team-a', ownerSubject: 'owner-sub', status: 'RUNNING' };
@@ -114,5 +116,48 @@ describe('researcher task connections rendering', () => {
     const html = render({ ...workflow, projectId: undefined });
     expect(disabled(html, 'TensorBoard 준비')).toBe(true);
     expect(disabled(html, '터미널 준비')).toBe(true);
+  });
+});
+
+describe('views gating', () => {
+  const mlflowSpec = { workflow: { mlflow: true } } as unknown as ConnectionWorkflow['spec'];
+
+  it('shows TensorBoard for a legacy task with no views field', () => {
+    const html = render(workflow, { ...task, views: undefined });
+    expect(disabled(html, 'TensorBoard 준비')).toBe(false);
+  });
+  it('shows TensorBoard when views explicitly includes it', () => {
+    const html = render(workflow, { ...task, views: ['tensorboard'] });
+    expect(disabled(html, 'TensorBoard 준비')).toBe(false);
+  });
+  it('hides the TensorBoard button entirely when views excludes it', () => {
+    const html = render(workflow, { ...task, views: ['mlflow'] });
+    expect(html).not.toContain('TensorBoard 준비');
+  });
+  it('hides the TensorBoard button entirely when views is an empty list', () => {
+    const html = render(workflow, { ...task, views: [] });
+    expect(html).not.toContain('TensorBoard 준비');
+  });
+  it('hides TensorBoard for a task the spec never mentions when the recipe declares views for another task', () => {
+    // Multi-task recipe (e.g. mujoco-pipeline, gr00t-e2e): ui.recipe.views gates only `train`,
+    // so `evaluate` must not inherit TensorBoard just because the map exists.
+    const spec = YAML.stringify({ workflow: { name: 'w', tasks: [] }, ui: { recipe: { views: { train: ['tensorboard'] } } } });
+    const html = render(workflow, { ...task, name: 'evaluate', views: taskViews(spec, 'evaluate') });
+    expect(html).not.toContain('TensorBoard 준비');
+  });
+  it('shows the MLflow link only for an admin when both the workflow enables mlflow and views includes it', () => {
+    const withBoth = render({ ...workflow, spec: mlflowSpec }, { ...task, views: ['tensorboard', 'mlflow'] }, { role: 'admin' });
+    expect(withBoth).toContain('MLflow 열기');
+    const noSpecFlag = render(workflow, { ...task, views: ['tensorboard', 'mlflow'] }, { role: 'admin' });
+    expect(noSpecFlag).not.toContain('MLflow 열기');
+    const noViewsEntry = render({ ...workflow, spec: mlflowSpec }, { ...task, views: ['tensorboard'] }, { role: 'admin' });
+    expect(noViewsEntry).not.toContain('MLflow 열기');
+  });
+  it('hides the MLflow link from a non-admin even when the workflow enables mlflow and views includes it', () => {
+    // /api/mlflow/ui-url is admin-only; a researcher/viewer must never see a control that would 403.
+    const researcher = render({ ...workflow, spec: mlflowSpec }, { ...task, views: ['tensorboard', 'mlflow'] }, { role: 'researcher' });
+    expect(researcher).not.toContain('MLflow 열기');
+    const viewer = render({ ...workflow, spec: mlflowSpec }, { ...task, views: ['tensorboard', 'mlflow'] }, { role: 'viewer' });
+    expect(viewer).not.toContain('MLflow 열기');
   });
 });

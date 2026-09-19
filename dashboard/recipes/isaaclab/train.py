@@ -20,10 +20,21 @@ def main():
     parser.add_argument("--iterations", type=int, default=300)
     parser.add_argument("--checkpoint-every", type=int, default=50)
     parser.add_argument("--resume", default="")
+    parser.add_argument("--live-view", choices=["on", "off"], default="off",
+                        help="Publish frames to PAI_LIVE_DIR at ~10 fps during training")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    # PAI_LIVE_DIR is a plain env var (no isaaclab import needed), so it is safe to read
+    # before AppLauncher. Without it, --live-view on must be a true no-op per spec: skip
+    # enabling cameras and rgb_array rendering, not just skip the frame publisher.
+    from pai_live import LiveFrames
+    frames = LiveFrames() if args.live_view == "on" else None
+    live = frames is not None and frames.enabled
+    # Cameras must be enabled before the app launches for rgb_array rendering to work.
+    if live:
+        args.enable_cameras = True
     app = AppLauncher(args).app
     env = None
     try:
@@ -49,7 +60,11 @@ def main():
         algorithm["algorithm"] = {k: v for k, v in algorithm["algorithm"].items() if k in valid or k == "class_name"}
         dump_yaml(str(output / "environment.yaml"), environment)
         dump_yaml(str(output / "agent.yaml"), agent)
-        env = RslRlVecEnvWrapper(gym.make(args.task, cfg=environment))
+        render_mode = "rgb_array" if live else None
+        env = RslRlVecEnvWrapper(gym.make(args.task, cfg=environment, render_mode=render_mode))
+        if live:
+            from live import LiveStepPublisher
+            env = LiveStepPublisher(env, frames)
         with tracked(output, {"task": args.task, "seed": args.seed, "num_envs": args.num_envs,
                               "iterations": args.iterations, "resume": args.resume}):
             runner = OnPolicyRunner(env, algorithm, log_dir=str(output / "checkpoints"), device=agent.device)

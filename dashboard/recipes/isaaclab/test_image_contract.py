@@ -14,9 +14,11 @@ class ImageContractTests(unittest.TestCase):
         asset = Path("/opt/workshop/src/workshop/robots/usd/so_arm101_flat.usd")
         with asset.open("rb") as stream:
             self.assertTrue(stream.read(1), "baked robot asset must be readable")
-        for recipe, required in (
-            ("train", ["--task", "Workshop-SO101-Reach-v0", "--output-dir", "/tmp/image-contract"]),
-            ("play", ["--checkpoint", "/tmp/image-contract/model.pt"]),
+        for recipe, required, expected in (
+            ("train", ["--task", "Workshop-SO101-Reach-v0", "--output-dir", "/tmp/image-contract"],
+             ["--headless", "--enable_cameras", "--live-view"]),
+            ("play", ["--checkpoint", "/tmp/image-contract/model.pt"],
+             ["--headless", "--enable_cameras"]),
         ):
             # Required arguments precede --help because AppLauncher probes the
             # parser while registering flags. Help does not start SimulationApp.
@@ -25,8 +27,8 @@ class ImageContractTests(unittest.TestCase):
                     [str(python), f"/opt/recipes/isaaclab/{recipe}.py", *required, "--help"],
                     capture_output=True, text=True, timeout=45)
                 self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-                self.assertIn("--headless", result.stdout)
-                self.assertIn("--enable_cameras", result.stdout)
+                for flag in expected:
+                    self.assertIn(flag, result.stdout)
 
 
 if __name__ == "__main__":

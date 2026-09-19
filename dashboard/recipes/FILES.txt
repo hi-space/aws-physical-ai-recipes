@@ -12,6 +12,8 @@ dashboard/recipes/cosmos/transfer.py
 dashboard/recipes/data/hf_import.py
 dashboard/recipes/data/test_import.py
 dashboard/recipes/groot/train.py
+dashboard/recipes/isaaclab/live.py
+dashboard/recipes/isaaclab/test_live_publisher.py
 dashboard/recipes/isaaclab/train.py
 dashboard/recipes/leisaac/evaluate.py
 dashboard/recipes/mimic/generate.py
@@ -20,10 +22,12 @@ dashboard/recipes/mujoco/evaluate.py
 dashboard/recipes/mujoco/test_integration.py
 dashboard/recipes/mujoco/train.py
 dashboard/recipes/openpi/train.py
+dashboard/recipes/pai_live.py
 dashboard/recipes/provenance.json
 dashboard/recipes/ros2/test_integration.py
 dashboard/recipes/ros2/transfer.py
 dashboard/recipes/sdg/generate.py
+dashboard/recipes/test_pai_live.py
 dashboard/recipes/tracking.py
 dashboard/web/src/server/workflow/builtin-templates.test.ts
 dashboard/web/src/server/workflow/builtin-templates.ts

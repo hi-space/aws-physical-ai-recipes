@@ -7,8 +7,8 @@ import { translate, useT, type Locale, type Translator } from '@/lib/i18n';
 import { isSafeLaunchUrl } from '@/lib/session-url';
 import type { Task, Workflow } from '@/server/store/types';
 
-export type ConnectionWorkflow = Pick<Workflow, 'id' | 'projectId' | 'ownerSubject' | 'status'>;
-export type ConnectionTask = Pick<Task, 'workflowId' | 'name' | 'phase' | 'attempts' | 'outputPath'>;
+export type ConnectionWorkflow = Pick<Workflow, 'id' | 'projectId' | 'ownerSubject' | 'status'> & Partial<Pick<Workflow, 'spec'>>;
+export type ConnectionTask = Pick<Task, 'workflowId' | 'name' | 'phase' | 'attempts' | 'outputPath' | 'views'>;
 type Action = 'tensorboard' | 'terminal' | 'files' | 'live';
 interface ConnectionSession {
   id: string;
@@ -90,6 +90,13 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
   const filesAvailable = terminalAvailable && !!replica?.ports.includes(PORT_NAMES.files);
   const liveAvailable = terminalAvailable && !!replica?.ports.includes(PORT_NAMES.live);
   const resultsAvailable = research && hostsConfigured && task?.workflowId === workflow.id && resultPath(workflow.projectId, task?.outputPath);
+  // Legacy specs (no ui.recipe.views) show every view; recipes that declare views gate per task.
+  const showTensorboard = task?.views === undefined || task.views.includes('tensorboard');
+  const tensorboardVisible = resultsAvailable && showTensorboard;
+  // /api/mlflow/ui-url is admin-only; hide the control (not just disable it) for anyone who cannot
+  // call it, per the factual-data rule — widening this to researchers is a policy follow-up.
+  const mlflowVisible = can(me.data, 'admin') && !!workflow.spec?.workflow.mlflow && !!task?.views?.includes('mlflow');
+  const { data: mlflowUrl } = useApi<{ url: string }>(mlflowVisible ? '/api/mlflow/ui-url' : null, { refetch: 240000 });
   const [connection, setConnection] = React.useState<PendingConnection>();
   const [busy, setBusy] = React.useState<'create' | 'launch'>();
   const [error, setError] = React.useState<unknown>();
@@ -194,7 +201,11 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
       <section aria-label={t('resultsSectionTitle')} className="rounded-lg border border-border p-4">
         <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold">{t('resultsSectionTitle')}</h3><Badge tone="info">{t('resultsBadge')}</Badge></div>
         <p className="mb-3 text-xs leading-relaxed text-fg-muted">{t('resultsDesc')}</p>
-        <Button variant="primary" onClick={() => prepare('tensorboard')} disabled={!resultsAvailable || !!busy || samePending('tensorboard')}>{t('tensorboardPrepare')}</Button>
+        <div className="flex flex-wrap gap-2">
+          {showTensorboard &&
+            <Button variant="primary" onClick={() => prepare('tensorboard')} disabled={!tensorboardVisible || !!busy || samePending('tensorboard')}>{t('tensorboardPrepare')}</Button>}
+          {mlflowVisible && <Button variant="secondary" disabled={!mlflowUrl?.url} onClick={() => mlflowUrl?.url && window.open(mlflowUrl.url, '_blank')}>{t('mlflowOpen')}</Button>}
+        </div>
         {task && !resultPath(workflow.projectId, task.outputPath) && <p className="mt-2 text-xs text-fg-muted">{t('errorNoPath')}</p>}
       </section>
       <section aria-label={t('runningTaskTitle')} className="rounded-lg border border-border p-4">
