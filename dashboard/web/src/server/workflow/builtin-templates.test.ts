@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 import { BUILTIN_TEMPLATES, getRecipeMetadata, materializeBuiltinTemplate, recipeConfigurationErrors, seedBuiltinTemplates, validateBuiltins } from './builtin-templates';
+import { PORT_KINDS } from '@/lib/workflow/ports';
 import { parseWorkflowYaml, readDefaults } from './template';
 import { compileTask, outputPathFor } from './compile';
 import { compileGroup } from './groups';
@@ -238,4 +240,67 @@ it('archives the incompatible legacy GR00T pipeline without removing its immutab
   await seedBuiltinTemplates();
   expect(await repo.listTemplateVersions('gr00t-pipeline')).toHaveLength(1);
   expect(BUILTIN_TEMPLATES.some(template => template.id === 'gr00t-pipeline')).toBe(false);
+});
+
+// All tasks a recipe runs, whether declared flat or inside a concurrent group.
+const allTasks = (yaml: string): { name: string; inputs?: unknown[]; outputs?: unknown[] }[] => {
+  const doc = YAML.parse(yaml) as { workflow: { tasks?: unknown[]; groups?: { tasks?: unknown[] }[] } };
+  return [...(doc.workflow.tasks ?? []), ...(doc.workflow.groups ?? []).flatMap(g => g.tasks ?? [])] as never;
+};
+const datasetInputs = (task: { inputs?: unknown[] }): string[] =>
+  (task.inputs ?? []).flatMap(i => (i as { dataset?: { name: string } }).dataset?.name ? [(i as { dataset: { name: string } }).dataset.name] : []);
+const datasetOutputs = (task: { outputs?: unknown[] }): string[] =>
+  (task.outputs ?? []).flatMap(o => (o as { dataset?: { name: string } }).dataset?.name ? [(o as { dataset: { name: string } }).dataset.name] : []);
+
+describe('recipe ports and views metadata integrity', () => {
+  it('declares ports on every builtin recipe', () => {
+    for (const template of BUILTIN_TEMPLATES) {
+      const ports = getRecipeMetadata(template).ports;
+      expect(ports, `${template.id} is missing ports`).toBeDefined();
+      expect(ports!.outputs.length, `${template.id} has no output ports`).toBeGreaterThan(0);
+    }
+  });
+
+  it('resolves every input port to a dataset-typed param consumed by a task', () => {
+    for (const template of BUILTIN_TEMPLATES) {
+      const ports = getRecipeMetadata(template).ports;
+      if (!ports?.inputs.length) continue;
+      const tasks = allTasks(template.yaml);
+      const consumed = new Set(tasks.flatMap(datasetInputs));
+      for (const input of ports.inputs) {
+        const param = template.params.find(p => p.name === input.param);
+        expect(param, `${template.id}: input port param ${input.param} not found`).toBeDefined();
+        expect(param?.type, `${template.id}.${input.param} must be a dataset param`).toBe('dataset');
+        expect(PORT_KINDS, `${template.id}.${input.param} kind`).toContain(input.kind);
+        if (input.versionParam) {
+          expect(template.params.some(p => p.name === input.versionParam), `${template.id}: versionParam ${input.versionParam} not found`).toBe(true);
+        }
+        expect(consumed, `${template.id}: input ${input.param} not consumed by any task`).toContain(`{{ ${input.param} }}`);
+      }
+    }
+  });
+
+  it('matches every output port to a published dataset prefix with a known kind', () => {
+    for (const template of BUILTIN_TEMPLATES) {
+      const ports = getRecipeMetadata(template).ports;
+      if (!ports?.outputs.length) continue;
+      const published = new Set(allTasks(template.yaml).flatMap(datasetOutputs));
+      for (const output of ports.outputs) {
+        expect(PORT_KINDS, `${template.id}.${output.name} kind`).toContain(output.kind);
+        expect(published, `${template.id}: output ${output.name} does not match a published prefix`).toContain(`${output.name}-{{workflow_id}}`);
+      }
+    }
+  });
+
+  it('keys every view by a real task name', () => {
+    for (const template of BUILTIN_TEMPLATES) {
+      const views = getRecipeMetadata(template).views;
+      if (!views) continue;
+      const taskNames = allTasks(template.yaml).map(t => t.name);
+      for (const [taskName, targets] of Object.entries(views)) {
+        expect(taskNames, `${template.id}: view task ${taskName} not found in tasks`).toContain(taskName);
+        for (const target of targets) expect(['tensorboard', 'mlflow']).toContain(target);
+      }
+    }
+  });
 });

@@ -4,23 +4,22 @@ import { getRepo } from '../store/repo';
 import type { Template, TemplateParam } from '../store/types';
 import { parseWorkflowYaml } from './template';
 import { GR00T_EVAL_PY } from './gr00t-scripts';
-
-export interface RecipeMetadata {
-  revision: string;
-  readiness: 'image-required' | 'cpu-validated' | 'prerequisites-required';
-  verification: 'local-docker' | 'source-verified-gpu-unverified' | 'source-verified-network-unverified';
-  prerequisites: { kind: string; reason: string; parameter?: string; environment?: string }[];
-  sources: string[];
-  artifacts: string[];
-  imageContract: string;
-  evaluationType?: 'closed_loop' | 'training_only' | 'communication';
-}
+import type { RecipeMetadata } from '@/lib/workflow/recipe-metadata';
+import type { PortKind, RecipePorts } from '@/lib/workflow/ports';
 type TaskDefinition = Record<string, unknown> & { name: string };
 const P = (name: string, label: string, value: string, type: TemplateParam['type'] = 'string', help?: string): TemplateParam =>
   ({ name, label, type, default: value, ...(help ? { help } : {}) });
 const image = (env: string, name = 'image'): TemplateParam => P(name, `${env} 실행 이미지 URI`, process.env[env] || `required://${env}`, 'string', "레시피 실행 코드가 포함된 고정 이미지 URI를 입력하세요. 준비되지 않았다면 관리자에게 확인하세요.");
 const seed = () => P('seed', "난수 seed", '42', 'number');
-const dataset = (name = 'dataset_name', value = 'leisaac-pick-orange') => P(name, "등록된 입력 데이터셋", value);
+// A dataset input contributes two params: the registered dataset and its version. The task input consumes
+// the version param via a template placeholder; the same param name feeds the ports metadata (versionParam)
+// and a later dataset-picker task.
+const dataset = (name = 'dataset_name', value = 'leisaac-pick-orange', versionParam = 'dataset_version'): TemplateParam[] => [
+  P(name, "등록된 입력 데이터셋", value, 'dataset'),
+  P(versionParam, "데이터셋 버전", '1', 'number'),
+];
+const ports = (inputs: { param: string; kind: PortKind; label: string; versionParam?: string }[], outputs: { name: string; kind: PortKind; label: string }[]): RecipePorts => ({ inputs, outputs });
+const views = (record: Record<string, ('tensorboard' | 'mlflow')[]>): Record<string, ('tensorboard' | 'mlflow')[]> => record;
 const resume = () => P('resume', "재개할 체크포인트 (선택)", '', 'string', "이전 실행의 검증된 체크포인트를 사용합니다. 결과는 새 실행·시도 경로에 저장됩니다.");
 const token = () => P('hf_token_param', "HF 토큰의 등록된 자격증명 참조", '/groot/hf-token');
 const cpu = { cpu: 4, memory: '8Gi', gpu: 0, platform: 'ml.c5.4xlarge' };
@@ -87,7 +86,7 @@ const mujocoEval = (pipeline = false): TaskDefinition => ({ name: 'evaluate', re
   command: ['python', '/opt/recipes/mujoco/evaluate.py'],
   args: ['--checkpoint', pipeline ? '{{input:0}}/final' : '{{input:0}}/{{ checkpoint_bundle }}', '--output-dir', '{{output}}',
     '--seed', '{{ eval_seed }}', '--episodes', '{{ episodes }}'],
-  inputs: pipeline ? [{ task: 'train' }] : [{ dataset: { name: '{{ dataset_name }}', version: 1 } }],
+  inputs: pipeline ? [{ task: 'train' }] : [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }],
   environment: { MUJOCO_GL: 'osmesa' }, outputs: published('mujoco-evaluation') });
 const evalParams = () => [P('episodes', "평가 에피소드 수", '5', 'number'), P('eval_seed', "독립 평가 seed", '2042', 'number')];
 const isaacParams = () => [image('ISAACLAB_IMAGE_URI'), seed(), P('num_envs', "병렬 환경 수", '2048', 'number'),
@@ -296,6 +295,7 @@ function distributedCpuRecipe(): Template {
         { kind: 'network', parameter: 'gloo_interface', reason: "JobSet DNS와 rank 0의 호스트 참조가 해석되어야 합니다. Pod 사이의 TCP 29500 및 Gloo 피어 통신을 허용하고 네트워크 인터페이스(기본 eth0)를 확인하세요." },
         { kind: 'storage', reason: "공유 FSx의 실행·시도별 출력 경로에서 각 rank가 별도 하위 폴더에 저장합니다. 최종 결과 검증이 끝나야 READY 데이터셋으로 게시됩니다." },
       ],
+      ports: ports([], [{ name: 'torch-gloo', kind: 'artifacts', label: 'Distributed training proof' }]),
     },
   });
 }
@@ -306,44 +306,44 @@ export const BUILTIN_TEMPLATES: Template[] = [
     params: [image('MUJOCO_IMAGE_URI'), P('who', "실행 라벨", 'physical-ai-dashboard')],
     tasks: [{ name: 'hello', resource: 'cpu', image: '{{ image }}', command: ['python', '-c'],
       args: ['import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); p.mkdir(parents=True,exist_ok=True); (p/"done.json").write_text(json.dumps({"label":sys.argv[2]}))', '{{output}}', '{{ who }}'],
-      outputs: published('custom-artifacts') }], metadata: cpuMetadata(['done.json']) }),
+      outputs: published('custom-artifacts') }], metadata: { ...cpuMetadata(['done.json']), ports: ports([], [{ name: 'custom-artifacts', kind: 'artifacts', label: 'Run artifacts' }]) } }),
   recipe({ id: 'mujoco-train', title: "MuJoCo SO-101 PPO 학습 (CPU)", category: 'training',
     description: "SO-101 도달 과제를 SB3 PPO로 학습합니다. seed 고정, 정규화 통계와 짝이 맞는 체크포인트, 학습 재개를 지원합니다.",
-    params: mujocoParams(), tasks: [mujocoTrain()], metadata: cpuMetadata(['checkpoints/*/{model.zip,vecnormalize.pkl,manifest.json}', 'final/', 'model_best.zip', 'model_final.zip', 'best_checkpoint.json', 'tb/'], 'training_only') }),
+    params: mujocoParams(), tasks: [mujocoTrain()], metadata: { ...cpuMetadata(['checkpoints/*/{model.zip,vecnormalize.pkl,manifest.json}', 'final/', 'model_best.zip', 'model_final.zip', 'best_checkpoint.json', 'tb/'], 'training_only'), ports: ports([], [{ name: 'mujoco-checkpoints', kind: 'checkpoint', label: 'Training checkpoint' }]), views: views({ train: ['tensorboard'] }) } }),
   recipe({ id: 'mujoco-render', title: "MuJoCo 폐루프 평가 (CPU)", category: 'evaluation',
     description: "고정 seed로 체크포인트를 평가하고 성공률·지연시간·JSON 보고서·MP4를 저장합니다. 모델과 정규화 통계가 짝을 이루는 묶음이 필요합니다.",
-    params: [image('MUJOCO_IMAGE_URI'), dataset('dataset_name', 'mujoco-checkpoints-run-id'), P('checkpoint_bundle', "데이터셋 안의 체크포인트 묶음 경로", 'final'), ...evalParams()],
-    tasks: [mujocoEval()], metadata: cpuMetadata(['evaluation.json', 'videos/*.mp4'], 'closed_loop') }),
+    params: [image('MUJOCO_IMAGE_URI'), ...dataset('dataset_name', 'mujoco-checkpoints-run-id'), P('checkpoint_bundle', "데이터셋 안의 체크포인트 묶음 경로", 'final'), ...evalParams()],
+    tasks: [mujocoEval()], metadata: { ...cpuMetadata(['evaluation.json', 'videos/*.mp4'], 'closed_loop'), ports: ports([{ param: 'dataset_name', kind: 'checkpoint', label: 'Checkpoint dataset', versionParam: 'dataset_version' }], [{ name: 'mujoco-evaluation', kind: 'artifacts', label: 'Evaluation results' }]) } }),
   recipe({ id: 'mujoco-pipeline', title: "MuJoCo 학습 → 평가 (CPU)", category: 'training',
     description: "한 실행에서 SO-101 정책을 CPU로 학습하고, 그 실행에서 만든 체크포인트로 평가까지 진행합니다.",
     params: [...mujocoParams(), ...evalParams()], tasks: [mujocoTrain(), mujocoEval(true)],
-    metadata: cpuMetadata(['train/checkpoints/', 'evaluate/evaluation.json', 'evaluate/videos/'], 'closed_loop') }),
+    metadata: { ...cpuMetadata(['train/checkpoints/', 'evaluate/evaluation.json', 'evaluate/videos/'], 'closed_loop'), ports: ports([], [{ name: 'mujoco-checkpoints', kind: 'checkpoint', label: 'Training checkpoint' }, { name: 'mujoco-evaluation', kind: 'artifacts', label: 'Evaluation results' }]), views: views({ train: ['tensorboard'] }) } }),
   recipe({ id: 'isaaclab-train', title: "Isaac Lab SO-101 Reach/Lift PPO 학습", category: 'training',
     description: "SO-101 Reach/Lift를 RSL-RL PPO로 학습합니다. seed, 주기적 체크포인트, 재개 및 TensorBoard 지표의 MLflow 기록을 지원합니다.", mlflow: true,
     params: [...isaacParams(), { ...P('task', "워크숍 task 선택", 'Workshop-SO101-Reach-v0', 'select'), options: ['Workshop-SO101-Reach-v0', 'Workshop-SO101-Lift-v0'] }],
-    tasks: [isaacTrain('{{ task }}')], metadata: { ...gpuMetadata('isaaclab', [source.workshop, source.isaac], ['model_final.pt', 'checkpoints/', 'environment.yaml', 'agent.yaml']), evaluationType: 'training_only' } }),
+    tasks: [isaacTrain('{{ task }}')], metadata: { ...gpuMetadata('isaaclab', [source.workshop, source.isaac], ['model_final.pt', 'checkpoints/', 'environment.yaml', 'agent.yaml']), evaluationType: 'training_only', ports: ports([], [{ name: 'isaaclab-checkpoints', kind: 'checkpoint', label: 'Training checkpoint' }]), views: views({ train: ['tensorboard', 'mlflow'] }) } }),
   recipe({ id: 'isaaclab-h1', title: "Isaac Lab Unitree H1 보행 PPO 학습", category: 'training',
     description: "공식 H1 평지·험지 속도 과제를 RSL-RL PPO로 학습합니다. Unitree USD 자산 접근 권한과 검증된 GPU 환경이 필요합니다.", mlflow: true,
     params: [...isaacParams(), { ...P('task', "H1 task 선택", 'Isaac-Velocity-Flat-H1-v0', 'select'), options: ['Isaac-Velocity-Flat-H1-v0', 'Isaac-Velocity-Rough-H1-v0'] }],
-    tasks: [isaacTrain('{{ task }}')], metadata: gpuMetadata('isaaclab', [source.isaac], ['model_final.pt', 'checkpoints/', 'training.json']) }),
+    tasks: [isaacTrain('{{ task }}')], metadata: { ...gpuMetadata('isaaclab', [source.isaac], ['model_final.pt', 'checkpoints/', 'training.json']), ports: ports([], [{ name: 'isaaclab-checkpoints', kind: 'checkpoint', label: 'Training checkpoint' }]), views: views({ train: ['tensorboard', 'mlflow'] }) } }),
   recipe({ id: 'isaaclab-video', title: "Isaac Lab 체크포인트 재생 영상", category: 'evaluation',
     description: "저장된 정책을 재생해 영상을 만듭니다. 영상 확인용이며 성공률을 측정하는 평가는 아닙니다.",
-    params: [image('ISAACLAB_IMAGE_URI'), P('task', "task 선택", 'Workshop-SO101-Reach-v0'), dataset('dataset_name', 'isaaclab-checkpoints-run-id'),
+    params: [image('ISAACLAB_IMAGE_URI'), P('task', "task 선택", 'Workshop-SO101-Reach-v0'), ...dataset('dataset_name', 'isaaclab-checkpoints-run-id'),
       P('checkpoint_file', "데이터셋 안의 체크포인트 파일", 'model_final.pt'), P('video_length', "영상 길이 (steps)", '300', 'number')],
     tasks: [{ name: 'video', resource: 'gpu', image: '{{ image }}', command: ['/isaac-sim/python.sh', '/opt/recipes/isaaclab/play.py'],
       args: ['--task', '{{ task }}', '--checkpoint', '{{input:0}}/{{ checkpoint_file }}', '--num_envs', '1', '--video', '--video_length', '{{ video_length }}', '--video_dir', '{{output}}/videos', '--headless', '--enable_cameras'],
-      inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], environment: isaacEnv, outputs: published('isaaclab-video') }],
-    metadata: gpuMetadata('isaaclab', [source.workshop], ['videos/*.mp4']) }),
+      inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], environment: isaacEnv, outputs: published('isaaclab-video') }],
+    metadata: { ...gpuMetadata('isaaclab', [source.workshop], ['videos/*.mp4']), ports: ports([{ param: 'dataset_name', kind: 'checkpoint', label: 'Checkpoint dataset', versionParam: 'dataset_version' }], [{ name: 'isaaclab-video', kind: 'video', label: 'Video playback' }]) } }),
   recipe({ id: 'hf-dataset-import', title: "Hugging Face 데이터셋 가져오기·검증", category: 'data',
     description: "지정한 HF revision의 데이터를 내려받아 LeRobot v3→v2.1로 변환하고 에피소드·영상 누락을 확인합니다.",
     params: [image('MUJOCO_IMAGE_URI'), P('hf_dataset_id', "HF 데이터셋 ID", 'LightwheelAI/leisaac-pick-orange'), P('revision', "HF 데이터 revision", 'main'), token()],
     tasks: [{ name: 'import', resource: 'cpu', image: '{{ image }}', command: ['python', '/opt/recipes/data/hf_import.py'],
       args: ['--repo-id', '{{ hf_dataset_id }}', '--revision', '{{ revision }}', '--output-dir', '{{output}}'], credentials,
       outputs: [...published('hf-import', '{{output}}/dataset'), { logs: '{{output}}/dataset-manifest.json' }] }],
-    metadata: { ...cpuMetadata(['dataset/', 'dataset-manifest.json']), prerequisites: [imagePrereq('MUJOCO_IMAGE_URI'), { kind: 'dataset-access', reason: "Hugging Face 데이터 revision의 읽기 권한과 등록된 HF 토큰 참조가 필요합니다." }] } }),
+    metadata: { ...cpuMetadata(['dataset/', 'dataset-manifest.json']), prerequisites: [imagePrereq('MUJOCO_IMAGE_URI'), { kind: 'dataset-access', reason: "Hugging Face 데이터 revision의 읽기 권한과 등록된 HF 토큰 참조가 필요합니다." }], ports: ports([], [{ name: 'hf-import', kind: 'lerobot-dataset', label: 'Imported dataset' }]) } }),
   recipe({ id: 'gr00t-finetune', title: "GR00T N1.6 파인튜닝", category: 'training', mlflow: true,
     description: "고정된 N1.6.1 코드로 파인튜닝하며 Trainer 재개와 MLflow loss 기록을 지원합니다. 기본 빠른 설정은 100 steps, 배치 4, 50 steps마다 저장입니다.",
-    params: [image('GROOT_RUNTIME_IMAGE_URI'), dataset(), token(), seed(), resume(),
+    params: [image('GROOT_RUNTIME_IMAGE_URI'), ...dataset(), token(), seed(), resume(),
       P('base_model', "사용 권한이 있는 기본 모델", 'nvidia/GR00T-N1.6-3B'), P('max_steps', "목표 학습 step 수", '100', 'number'),
       P('save_steps', "체크포인트 저장 주기 (steps)", '50', 'number'), P('batch_size', "전체 배치 크기", '4', 'number'),
       P('diffusion_flag', "diffusion head 학습 플래그", '--no-tune-diffusion-model', 'string', "24 GB GPU(A10G/L4)는 --no-tune-diffusion-model, 48 GB 이상은 --tune-diffusion-model. 기본값(diffusion head 학습)은 ml.g5에서 CUDA OOM이 납니다.")],
@@ -354,30 +354,30 @@ export const BUILTIN_TEMPLATES: Template[] = [
       args: ['{{input:0}}', '--output-dir', '{{output}}', '--seed', '{{ seed }}', '--resume', '{{ resume }}', '--base-model-path', '{{ base_model }}',
         '--dataset-path', '/tmp/dataset', '--embodiment-tag', 'NEW_EMBODIMENT', '--modality-config-path', '/opt/recipes/groot/so101_modality.py',
         '--max-steps', '{{ max_steps }}', '--save-steps', '{{ save_steps }}', '--save-total-limit', '1', '--global-batch-size', '{{ batch_size }}', '--num-gpus', '1', '{{ diffusion_flag }}'],
-      inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], credentials,
+      inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], credentials,
       environment: { HF_HOME: '/tmp/hf' }, outputs: published('groot-checkpoints') }],
-    metadata: gpuMetadata('groot', [source.groot, source.workshop], ['checkpoint-*/', 'training.json'], grootPrereqs) }),
+    metadata: { ...gpuMetadata('groot', [source.groot, source.workshop], ['checkpoint-*/', 'training.json'], grootPrereqs), ports: ports([{ param: 'dataset_name', kind: 'lerobot-dataset', label: 'Training dataset', versionParam: 'dataset_version' }], [{ name: 'groot-checkpoints', kind: 'checkpoint', label: 'Fine-tuned checkpoint' }]), views: views({ finetune: ['tensorboard', 'mlflow'] }) } }),
   recipe({ id: 'openpi-train', title: "OpenPI π0 LIBERO 파인튜닝", category: 'training',
     description: "공식 OpenPI JAX 학습기로 LIBERO LeRobot 데이터를 학습합니다. 정규화 계산·seed·재개를 지원하는 LoRA 설정이며 SO-101 호환성은 별도 확인이 필요합니다.",
-    params: [image('OPENPI_IMAGE_URI'), dataset('dataset_name', 'libero'), seed(), resume(), token(),
+    params: [image('OPENPI_IMAGE_URI'), ...dataset('dataset_name', 'libero'), seed(), resume(), token(),
       P('repo_id', "LeRobot 저장소 ID", 'physical-intelligence/libero'), P('steps', "목표 학습 step 수", '1000', 'number'), P('batch_size', "배치 크기", '4', 'number'), P('save_interval', "체크포인트 저장 간격", '100', 'number')],
     tasks: [{ name: 'train', resource: 'gpu', image: '{{ image }}', command: ['python', '/opt/recipes/openpi/train.py'],
       args: ['--dataset-root', '{{input:0}}', '--repo-id', '{{ repo_id }}', '--output-dir', '{{output}}', '--seed', '{{ seed }}', '--steps', '{{ steps }}',
         '--batch-size', '{{ batch_size }}', '--save-interval', '{{ save_interval }}', '--resume', '{{ resume }}'],
-      credentials, inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], outputs: published('openpi-checkpoints') }],
-    metadata: gpuMetadata('openpi', [source.openpi], ['checkpoints/', 'assets/', 'training.json'], [imagePrereq('OPENPI_IMAGE_URI'), gpuPrereq, modelPrereq,
-      { kind: 'model-access', reason: "gs://openpi-assets/checkpoints/pi0_base 읽기 권한이 필요합니다. 선택한 GPU에서 LoRA 메모리 요구량을 확인하세요." }]) }),
+      credentials, inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], outputs: published('openpi-checkpoints') }],
+    metadata: { ...gpuMetadata('openpi', [source.openpi], ['checkpoints/', 'assets/', 'training.json'], [imagePrereq('OPENPI_IMAGE_URI'), gpuPrereq, modelPrereq,
+      { kind: 'model-access', reason: "gs://openpi-assets/checkpoints/pi0_base 읽기 권한이 필요합니다. 선택한 GPU에서 LoRA 메모리 요구량을 확인하세요." }]), ports: ports([{ param: 'dataset_name', kind: 'lerobot-dataset', label: 'Training dataset', versionParam: 'dataset_version' }], [{ name: 'openpi-checkpoints', kind: 'checkpoint', label: 'Fine-tuned checkpoint' }]), views: views({ train: ['tensorboard'] }) } }),
   recipe({ id: 'replicator-sdg', title: "Replicator RGB·depth·segmentation 생성", category: 'data',
     description: "USD 장면을 화면 없이 렌더링하고 seed 기반 카메라 무작위화와 모달리티별 프레임 manifest를 저장합니다.",
-    params: [image('ISAACLAB_IMAGE_URI'), ...sceneParams()], tasks: [sdgTask()], metadata: gpuMetadata('isaaclab', [source.replicator, source.workshop], ['frames/', 'dataset-manifest.json']) }),
+    params: [image('ISAACLAB_IMAGE_URI'), ...sceneParams()], tasks: [sdgTask()], metadata: { ...gpuMetadata('isaaclab', [source.replicator, source.workshop], ['frames/', 'dataset-manifest.json']), ports: ports([], [{ name: 'replicator-sdg', kind: 'sdg-frames', label: 'Synthetic frames' }]) } }),
   recipe({ id: 'mimic-pipeline', title: "Isaac Lab Mimic 시연 데이터 생성", category: 'data',
     description: "공식 annotation → Mimic 생성 → HDF5 action 검증을 진행합니다. Franka 블록 쌓기 시연 데이터가 필요하며 생성 횟수가 성공 횟수를 뜻하지는 않습니다.",
-    params: [image('ISAACLAB_IMAGE_URI'), dataset('dataset_name', 'franka-stack-demonstrations'), P('input_file', "입력 데이터 안의 HDF5 파일 경로", 'dataset.hdf5'), P('trials', "데이터 생성 시도 횟수", '10', 'number'), P('num_envs', "환경 수", '1', 'number')],
+    params: [image('ISAACLAB_IMAGE_URI'), ...dataset('dataset_name', 'franka-stack-demonstrations'), P('input_file', "입력 데이터 안의 HDF5 파일 경로", 'dataset.hdf5'), P('trials', "데이터 생성 시도 횟수", '10', 'number'), P('num_envs', "환경 수", '1', 'number')],
     tasks: [{ name: 'mimic', resource: 'gpu', image: '{{ image }}', command: ['/isaac-sim/python.sh', '/opt/recipes/mimic/generate.py'],
       args: ['--input-file', '{{input:0}}/{{ input_file }}', '--output-dir', '{{output}}', '--trials', '{{ trials }}', '--num-envs', '{{ num_envs }}'],
-      inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], environment: isaacEnv, outputs: published('mimic-demonstrations') }],
-    metadata: gpuMetadata('isaaclab', [source.isaac], ['annotated.hdf5', 'generated.hdf5', 'dataset-manifest.json'], [...isaacPrereqs,
-      { kind: 'input-schema', reason: "Isaac-Stack-Cube-Franka-IK-Rel-Mimic-v0의 HDF5 시연 기록이 필요합니다. 일반 LeRobot 데이터로 대체할 수 없습니다." }]) }),
+      inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], environment: isaacEnv, outputs: published('mimic-demonstrations') }],
+    metadata: { ...gpuMetadata('isaaclab', [source.isaac], ['annotated.hdf5', 'generated.hdf5', 'dataset-manifest.json'], [...isaacPrereqs,
+      { kind: 'input-schema', reason: "Isaac-Stack-Cube-Franka-IK-Rel-Mimic-v0의 HDF5 시연 기록이 필요합니다. 일반 LeRobot 데이터로 대체할 수 없습니다." }]), ports: ports([{ param: 'dataset_name', kind: 'hdf5-demos', label: 'HDF5 demonstrations', versionParam: 'dataset_version' }], [{ name: 'mimic-demonstrations', kind: 'hdf5-demos', label: 'Generated demonstrations' }]) } }),
   recipe({ id: 'cosmos-pipeline', title: "Replicator → Cosmos 영상 증강", category: 'data',
     description: "RGB·depth·segmentation을 렌더링하고 제어 영상을 만든 뒤 공식 Cosmos-Transfer2.5를 실행합니다. 결과는 증강 영상입니다.",
     params: [image('ISAACLAB_IMAGE_URI', 'sim_image'), image('COSMOS_IMAGE_URI', 'cosmos_image'),
@@ -387,9 +387,9 @@ export const BUILTIN_TEMPLATES: Template[] = [
     tasks: [sdgTask('sim_image'), { name: 'transfer', resource: 'cosmos', image: '{{ cosmos_image }}', command: ['python', '/opt/recipes/cosmos/transfer.py'],
       args: ['--input-dir', '{{input:0}}', '--output-dir', '{{output}}', '--seed', '{{ seed }}', '--prompt', '{{ prompt }}'],
       inputs: [{ task: 'generate' }], credentials, outputs: published('cosmos-videos') }],
-    metadata: gpuMetadata('cosmos', [source.cosmos, source.replicator], ['generated/*.mp4', 'controls/', 'dataset-manifest.json'],
+    metadata: { ...gpuMetadata('cosmos', [source.cosmos, source.replicator], ['generated/*.mp4', 'controls/', 'dataset-manifest.json'],
       [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
-        { kind: 'hardware', reason: "Transfer2-2B 추론에는 문서상 VRAM 65.4 GB가 필요합니다. 호환되는 80 GB GPU를 준비하세요. 기존 A10G 용량으로는 부족합니다." }]) }),
+        { kind: 'hardware', reason: "Transfer2-2B 추론에는 문서상 VRAM 65.4 GB가 필요합니다. 호환되는 80 GB GPU를 준비하세요. 기존 A10G 용량으로는 부족합니다." }]), ports: ports([], [{ name: 'cosmos-videos', kind: 'video', label: 'Enhanced videos' }]) } }),
   recipe({ id: 'ros2-transfer', title: "ROS 2 discovery·publisher·subscriber 통신 검증", category: 'simulation',
     description: "세 작업을 동시에 실행합니다. subscriber가 실행 식별자가 붙은 서로 다른 메시지를 받아야 완료되며 discovery와 데이터 전송을 함께 확인합니다.",
     params: [image('ROS2_IMAGE_URI'), P('messages', "수신해야 할 서로 다른 메시지 수", '20', 'number')],
@@ -402,27 +402,28 @@ export const BUILTIN_TEMPLATES: Template[] = [
         ...(role === 'subscriber' ? { outputs: published('ros2-transfer') } : {}), exitActions: { COMPLETE: 0 } })),
     ] }], metadata: { readiness: 'prerequisites-required', verification: 'source-verified-network-unverified', sources: [source.ros], artifacts: ['ros2-transfer.json'],
       imageContract: 'dashboard/images/ros2/Dockerfile', evaluationType: 'communication', prerequisites: [imagePrereq('ROS2_IMAGE_URI'),
-        { kind: 'network', reason: "같은 그룹·시도의 discovery 호스트를 사용합니다. Pod 사이의 DDS discovery와 직접 UDP 데이터 전송을 모두 허용하세요." }] } }),
+        { kind: 'network', reason: "같은 그룹·시도의 discovery 호스트를 사용합니다. Pod 사이의 DDS discovery와 직접 UDP 데이터 전송을 모두 허용하세요." }],
+      ports: ports([], [{ name: 'ros2-transfer', kind: 'artifacts', label: 'Communication proof' }]) } }),
   recipe({ id: 'leisaac-evaluate', title: "LeIsaac + GR00T 폐루프 평가", category: 'evaluation',
     description: "GR00T policy server와 LeIsaac 시뮬레이터를 함께 실행합니다. 회차별 성공·시간 초과, 측정 지연시간, 체크포인트 digest와 영상을 저장합니다.",
-    params: [image('GROOT_RUNTIME_IMAGE_URI', 'policy_image'), image('LEISAAC_IMAGE_URI', 'sim_image'), dataset('dataset_name', 'groot-checkpoints-run-id'),
+    params: [image('GROOT_RUNTIME_IMAGE_URI', 'policy_image'), image('LEISAAC_IMAGE_URI', 'sim_image'), ...dataset('dataset_name', 'groot-checkpoints-run-id'),
       P('checkpoint_bundle', "데이터셋 안의 체크포인트 폴더 또는 tar.gz", 'model/model.tar.gz'),
       ...evalParams(), token()],
     groups: [{ name: 'evaluation', barrier: true, ignoreNonleadStatus: false, tasks: [
       { name: 'policy', resource: 'gpu', image: '{{ policy_image }}', command: ['python', '/opt/recipes/groot/serve.py'],
         args: ['--model-path', '{{input:0}}/{{ checkpoint_bundle }}', '--embodiment-tag', 'NEW_EMBODIMENT', '--host', '0.0.0.0', '--port', '5555'],
-        credentials, inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], exitActions: { COMPLETE: 0 } },
+        credentials, inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], exitActions: { COMPLETE: 0 } },
       { name: 'evaluate', lead: true, resource: 'gpu', image: '{{ sim_image }}', command: ['/isaac-sim/python.sh', '/opt/recipes/leisaac/evaluate.py'],
         args: ['--checkpoint', '{{input:0}}/{{ checkpoint_bundle }}', '--policy-host', '{{host:policy}}', '--output-dir', '{{output}}',
           '--seed', '{{ eval_seed }}', '--episodes', '{{ episodes }}', '--headless', '--enable_cameras'], environment: isaacEnv,
-        inputs: [{ dataset: { name: '{{ dataset_name }}', version: 1 } }], outputs: published('leisaac-evaluation'), exitActions: { COMPLETE: 0 } },
+        inputs: [{ dataset: { name: '{{ dataset_name }}', version: '{{ dataset_version }}' } }], outputs: published('leisaac-evaluation'), exitActions: { COMPLETE: 0 } },
     ] }], metadata: { ...gpuMetadata('leisaac', [source.leisaac, source.groot], ['evaluation.json', 'videos/*.mp4'], [
       imagePrereq('GROOT_RUNTIME_IMAGE_URI', 'policy_image'), imagePrereq('LEISAAC_IMAGE_URI', 'sim_image'), gpuPrereq, modelPrereq,
       { kind: 'hardware', reason: "policy server와 RTX 지원 시뮬레이터에 각각 GPU를 동시에 할당할 수 있어야 합니다." },
       { kind: 'scene-assets', reason: "버전이 고정된 LeIsaac 주방·SO-101 자산을 준비하고 이미지에 LEISAAC_SCENE_REVISION을 기록하세요. 체크포인트 모달리티 호환성도 확인해야 합니다." },
       { kind: 'network', reason: "같은 그룹·시도의 policy task DNS를 사용합니다. TCP 5555로 연결할 수 있어야 합니다." },
       { kind: 'hardware', reason: "tar.gz 모델을 사용할 때 policy 컨테이너의 로컬 임시 디스크에 압축 해제된 모델 전체가 들어갈 공간이 필요합니다." },
-    ]), evaluationType: 'closed_loop' } }),
+    ]), evaluationType: 'closed_loop', ports: ports([{ param: 'dataset_name', kind: 'checkpoint', label: 'Checkpoint dataset', versionParam: 'dataset_version' }], [{ name: 'leisaac-evaluation', kind: 'artifacts', label: 'Evaluation results' }]) } }),
   recipe({ id: 'gr00t-e2e', title: "GR00T VLA 파이프라인: 데이터 → 파인튜닝 → 평가 (GPU DAG)", category: 'training', mlflow: true,
     description: "워크숍 가이드 순서를 EKS DAG로 실행합니다. HF 데이터 가져오기·v2.1 변환·SO-101 modality 배치(CPU) → GR00T N1.6.1 파인튜닝(1 GPU, MLflow loss) → 스모크·open-loop MSE 평가와 플롯(GPU). 각 단계 결과는 데이터셋으로 게시되어 Artifacts 탭에서 바로 볼 수 있고, 모델 등록은 모델·평가 화면에서 진행합니다.",
     params: [image('MUJOCO_IMAGE_URI', 'data_image'), image('GROOT_RUNTIME_IMAGE_URI'),
@@ -463,7 +464,8 @@ export const BUILTIN_TEMPLATES: Template[] = [
     ],
     metadata: { ...gpuMetadata('groot', [source.groot, source.workshop], ['dataset/', 'checkpoint-*/', 'training.json', 'evaluation.json', 'plots/*.jpeg'],
       [imagePrereq('MUJOCO_IMAGE_URI', 'data_image'), ...grootPrereqs,
-        { kind: 'dataset-access', reason: "공개 HF 데이터셋과 공개 기본 모델을 기본값으로 사용합니다. 비공개 자원은 자격증명 참조를 추가하세요." }]) } }),
+        { kind: 'dataset-access', reason: "공개 HF 데이터셋과 공개 기본 모델을 기본값으로 사용합니다. 비공개 자원은 자격증명 참조를 추가하세요." }]),
+      ports: ports([], [{ name: 'gr00t-e2e-dataset', kind: 'lerobot-dataset', label: 'Imported dataset' }, { name: 'gr00t-e2e-checkpoints', kind: 'checkpoint', label: 'Fine-tuned checkpoint' }, { name: 'gr00t-e2e-evaluation', kind: 'artifacts', label: 'Evaluation results' }]), views: views({ finetune: ['tensorboard', 'mlflow'] }) } }),
   distributedCpuRecipe(),
 ];
 

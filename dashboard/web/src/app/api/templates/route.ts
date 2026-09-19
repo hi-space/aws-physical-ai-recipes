@@ -1,3 +1,4 @@
+import YAML from 'yaml';
 import { z } from 'zod';
 import { body, route } from '@/server/api';
 import { getRepo } from '@/server/store/repo';
@@ -5,6 +6,8 @@ import { BUILTIN_TEMPLATES } from '@/server/workflow/builtin-templates';
 import { requestProject } from '@/server/auth/projects';
 import { forbidden } from '@/server/errors';
 import { assertTemplateWrite, canReadTemplate, templateDefaults, validateTemplateContent } from './_shared';
+import type { RecipeMetadata } from '@/lib/workflow/recipe-metadata';
+import type { TemplateDto } from '@/lib/workflow/template-dto';
 export const dynamic = 'force-dynamic';
 
 export const GET = route('viewer', async ({ session, req }) => {
@@ -14,7 +17,19 @@ export const GET = route('viewer', async ({ session, req }) => {
   for (const template of BUILTIN_TEMPLATES) await repo.putTemplate(template);
   const templates = await repo.listTemplates();
   const visible = await Promise.all(templates.map(template => canReadTemplate(session, template, repo, project?.id)));
-  return templates.filter((_, index) => visible[index]);
+  const dto: TemplateDto[] = templates
+    .filter((_, index) => visible[index])
+    .map(template => {
+      let recipe: RecipeMetadata | null = null;
+      try {
+        const parsed = YAML.parse(template.yaml) as { ui?: { recipe?: RecipeMetadata } };
+        recipe = parsed.ui?.recipe ?? null;
+      } catch {
+        // Custom templates may have malformed or recipe-less YAML; treat as no metadata.
+      }
+      return { ...template, recipe };
+    });
+  return dto;
 });
 const schema = z.object({
   id: z.string().regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/).max(40),
@@ -22,7 +37,7 @@ const schema = z.object({
   description: z.string().max(400).default(''),
   category: z.enum(['simulation', 'training', 'evaluation', 'data', 'setup', 'custom']).default('custom'),
   yaml: z.string().min(1).max(240_000),
-  params: z.array(z.object({ name: z.string().min(1).max(100), label: z.string().max(100), type: z.enum(['string', 'number', 'select', 'boolean', 'text']), default: z.string().max(4096).optional(), options: z.array(z.string().max(4096)).max(100).optional(), help: z.string().max(2000).optional() }).strict()).max(100).optional(),
+  params: z.array(z.object({ name: z.string().min(1).max(100), label: z.string().max(100), type: z.enum(['string', 'number', 'select', 'boolean', 'text', 'dataset']), default: z.string().max(4096).optional(), options: z.array(z.string().max(4096)).max(100).optional(), help: z.string().max(2000).optional(), versionParam: z.string().min(1).max(100).optional() }).strict()).max(100).optional(),
   requires: z.array(z.enum(['gpu', 'fsx', 'mlflow'])).optional(),
   baseVersion: z.number().int().min(0).max(999_999_999_999).optional(),
 }).strict();

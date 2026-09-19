@@ -77,6 +77,23 @@ it('archives only authorized custom templates and preserves readable history',as
   expect((await get(request(alice,'/api/templates/personal?version=1'),ctx())).status).toBe(200);
 });
 
+it('attaches recipe metadata for builtins and null for custom recipes without ui.recipe',async()=>{
+  await save(request(alice,'/api/templates','POST',input));
+  const visible=await (await list(request(alice))).json();
+  const custom=visible.find((t:{id:string})=>t.id==='personal');
+  expect(custom.recipe).toBeNull();
+  const builtin=visible.find((t:{id:string})=>t.id===BUILTIN_TEMPLATES[0].id);
+  expect(builtin.recipe).toMatchObject({revision:expect.any(String),readiness:expect.any(String)});
+});
+
+it('accepts dataset-typed params with a versionParam reference',async()=>{
+  const withDatasetParam={...input,id:'dataset-param',params:[{name:'dataset_name',label:'Dataset',type:'dataset',default:'x',versionParam:'dataset_version'},{name:'dataset_version',label:'Version',type:'number',default:'1'}]};
+  const response=await save(request(alice,'/api/templates','POST',withDatasetParam));
+  expect(response.status).toBe(200);
+  const saved=await repo.getTemplate('dataset-param');
+  expect(saved?.params).toEqual([{name:'dataset_name',label:'Dataset',type:'dataset',default:'x',versionParam:'dataset_version'},{name:'dataset_version',label:'Version',type:'number',default:'1'}]);
+});
+
 it('sanitizes malformed YAML errors rather than logging source lines with possible secret values',async()=>{
   const log=vi.spyOn(console,'error').mockImplementation(()=>{});
   try{

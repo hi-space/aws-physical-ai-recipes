@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import YAML from 'yaml';
 import type { Task, Workflow, ArtifactReceipt } from '../store/types';
 import type { TaskSpec } from './schema';
 import type { ControllerDeps } from './ports';
@@ -6,6 +7,25 @@ import type { LeaseGuard } from './lease';
 import { assertPathWithin } from './validation';
 export function validateReceipt(result: ArtifactReceipt): void {
   if (!/^s3:\/\/[^/]+\/.+/.test(result.uri) || !/^s3:\/\/[^/]+\/.+/.test(result.manifestUri) || !/^[a-f0-9]{64}$/i.test(result.manifestHash) || !Number.isFinite(Date.parse(result.verifiedAt)) || !Number.isSafeInteger(result.objectCount) || result.objectCount < 1 || !Number.isSafeInteger(result.sizeBytes) || result.sizeBytes < 0) throw new Error('publisher did not return a verified durable S3 manifest');
+}
+/**
+ * A recorded fact, not a guess: if the published dataset's name is `<outputName>-<workflowId>` and
+ * `<outputName>` matches one of the workflow's own recipe metadata `ports.outputs[].name` entries
+ * (embedded under `ui.recipe` in the stored spec YAML, same shape as `getRecipeMetadata` in
+ * builtin-templates.ts), tag the dataset with that output's declared port kind. Custom recipes or
+ * recipes without a matching port simply get no tag.
+ */
+export function outputKindTag(wf: Workflow, datasetName: string): string[] {
+  const suffix = `-${wf.id}`;
+  if (!datasetName.endsWith(suffix)) return [];
+  const outputName = datasetName.slice(0, -suffix.length);
+  try {
+    const doc = YAML.parse(wf.specYaml) as { ui?: { recipe?: { ports?: { outputs?: { name: string; kind: string }[] } } } } | null;
+    const match = doc?.ui?.recipe?.ports?.outputs?.find(o => o.name === outputName);
+    return match ? [`kind:${match.kind}`] : [];
+  } catch {
+    return [];
+  }
 }
 export async function finalizeTask(wf: Workflow, ts: TaskSpec, task: Task, deps: ControllerDeps, guard: LeaseGuard): Promise<Task> {
   if (!ts.outputs.length) return {
@@ -58,7 +78,7 @@ export async function finalizeTask(wf: Workflow, ts: TaskSpec, task: Task, deps:
         owner: wf.owner,
         ownerSubject: wf.ownerSubject,
         projectId: wf.projectId,
-        tags: [],
+        tags: outputKindTag(wf, output.dataset.name),
         latestVersion: 0,
         createdAt: now,
         updatedAt: now

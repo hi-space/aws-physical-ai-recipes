@@ -6,9 +6,18 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
 import { parse, stringify } from 'yaml';
-import type { Template } from '@/server/store/types';
+import type { Dataset, DatasetVersion, Template } from '@/server/store/types';
 
 const baseTemplate = (id: string, version?: number): Template => ({ id, templateVersion: version, title: id, description: 'Fixture recipe', category: 'evaluation', builtin: true, createdAt: '', params: [], yaml: '' });
+const datasets: Dataset[] = [
+  { name: 'demo-set', owner: 'u', tags: [], latestVersion: 3, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+];
+const versionsByDataset: Record<string, DatasetVersion[]> = {
+  'demo-set': [
+    { dataset: 'demo-set', version: 2, uri: 's3://b/2', tags: [], createdAt: '', createdBy: 'u', state: 'READY' },
+    { dataset: 'demo-set', version: 3, uri: 's3://b/3', tags: [], createdAt: '', createdBy: 'u', state: 'READY' },
+  ],
+};
 function fixtures() {
   const evaluation = { ...baseTemplate('mujoco-render', 7), params: [
     { name: 'dataset_name', label: 'Dataset', type: 'string' as const, default: 'old' },
@@ -34,7 +43,21 @@ function fixtures() {
     { name: 'train', args: ['--total-steps', '{{ total_steps }}', '--num-envs', '{{ num_envs }}'] },
     { name: 'evaluate', inputs: [{ task: 'train' }], args: ['--episodes', '{{ episodes }}'] },
   ] }, 'default-values': { total_steps: '200000', num_envs: '4', episodes: '5' } }) };
-  return { evaluation, training, custom, pipeline, unpublished: { ...custom, id: 'unpublished', templateVersion: undefined } };
+  const withDataset = { ...baseTemplate('with-dataset', 1), category: 'training' as const, params: [
+    { name: 'dataset_name', label: 'Dataset', type: 'dataset' as const, default: '', versionParam: 'dataset_version' },
+    { name: 'dataset_version', label: 'Dataset version', type: 'number' as const, default: '1' },
+  ], yaml: stringify({ workflow: { name: 'with-dataset', resources: { cpu: { cpu: 1 } }, tasks: [{
+    name: 'train', resource: 'cpu', image: 'test-image', args: ['{{ dataset_name }}', '{{ dataset_version }}'],
+  }] }, 'default-values': { dataset_name: '', dataset_version: '1' } }) };
+  // A `dataset` param with no `versionParam` slot: there is nowhere to persist an auto-selected
+  // version, so DatasetPicker's auto-select effect must still settle after firing once instead of
+  // looping forever chasing a `version` that can never become truthy (regression test target).
+  const withDatasetNoVersion = { ...baseTemplate('with-dataset-no-version', 1), category: 'training' as const, params: [
+    { name: 'dataset_name', label: 'Dataset', type: 'dataset' as const, default: '' },
+  ], yaml: stringify({ workflow: { name: 'with-dataset-no-version', resources: { cpu: { cpu: 1 } }, tasks: [{
+    name: 'train', resource: 'cpu', image: 'test-image', args: ['{{ dataset_name }}'],
+  }] }, 'default-values': { dataset_name: '' } }) };
+  return { evaluation, training, custom, pipeline, withDataset, withDatasetNoVersion, unpublished: { ...custom, id: 'unpublished', templateVersion: undefined } };
 }
 
 describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser contracts', () => {
@@ -45,9 +68,10 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
   let preflight: { status: 'blocked' | 'needs-review'; findings: Array<{ code: string; severity: 'error' | 'warning' | 'unknown'; message: string; task?: string }> } | undefined;
   let validationOk = true;
   let submitStatus = 202;
+  let submitDelayMs = 0;
   const known = fixtures();
   beforeAll(async () => {
-    const result = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {QueryClient,QueryClientProvider} from '@tanstack/react-query'; import {NewWorkflowPage} from './src/components/pages/NewWorkflowPage'; const client=new QueryClient({defaultOptions:{queries:{retry:false}}}); window.fixtureClient=client; createRoot(document.getElementById('root')).render(React.createElement(QueryClientProvider,{client},React.createElement(NewWorkflowPage)));`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, platform: 'browser', format: 'iife', define: { 'process.env.NODE_ENV': '"test"' }, plugins: [{ name: 'fixture-next', setup(builder) {
+    const result = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {QueryClient,QueryClientProvider} from '@tanstack/react-query'; import {NewWorkflowPage} from './src/components/pages/NewWorkflowPage'; const client=new QueryClient({defaultOptions:{queries:{retry:false}}}); window.fixtureClient=client; createRoot(document.getElementById('root')).render(React.createElement(QueryClientProvider,{client},React.createElement(NewWorkflowPage)));`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, platform: 'browser', format: 'iife', define: { 'process.env.NODE_ENV': '"test"' }, banner: { js: 'var process = { env: { NODE_ENV: "test" } };' }, plugins: [{ name: 'fixture-next', setup(builder) {
       builder.onResolve({ filter: /^next\/(navigation|link)$/ }, (args) => ({ path: args.path, namespace: 'fixture-next' }));
       builder.onLoad({ filter: /.*/, namespace: 'fixture-next' }, (args) => ({ loader: 'jsx', resolveDir: process.cwd(), contents: args.path.endsWith('navigation')
         ? `export function useRouter(){return {push:(url)=>{window.fixtureDestination=url}}}; export function useSearchParams(){return new URLSearchParams(window.location.search)}`
@@ -66,7 +90,13 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
       if (url.pathname === '/api/credentials') return json({ projectId: 'p', credentials: [{ name: 'My HF', kind: 'hf', scope: 'private', ref: '/physical-ai/projects/p/users/hash/hf', status: 'READY', value: 'MUST_NOT_RENDER_SECRET' }, { name: 'Unavailable', ref: '/groot/broken', status: 'ERROR' }] });
       if (url.pathname === '/api/queues') return json({ priorityClasses: [{ name: 'high' }] });
       if (url.pathname === '/api/models/mdl-one') return json({ canWrite: true, model: { id: 'mdl-one', source: { dataset: { name: 'trained', version: 12 } }, bundle: { path: 'final' }, evaluationLaunch: { template: 'mujoco-render' } } });
-      if (url.pathname === '/api/templates') return json([{ ...known.evaluation, templateVersion: latestVersion }, known.training, known.custom, known.pipeline, known.unpublished]);
+      if (url.pathname === '/api/templates') return json([
+        { ...known.evaluation, templateVersion: latestVersion, recipe: null }, { ...known.training, recipe: null }, { ...known.custom, recipe: null },
+        { ...known.pipeline, recipe: null }, { ...known.unpublished, recipe: null },
+        { ...known.withDataset, recipe: { revision: 'r1', readiness: 'cpu-validated', verification: 'local-docker', prerequisites: [], sources: [], artifacts: [], imageContract: 'test',
+          ports: { inputs: [{ param: 'dataset_name', kind: 'lerobot-dataset', label: 'Training dataset', versionParam: 'dataset_version' }], outputs: [] } } },
+        { ...known.withDatasetNoVersion, recipe: null },
+      ]);
       const match = /^\/api\/templates\/([^/]+)(\/versions)?$/.exec(url.pathname);
       if (match) {
         const template = Object.values(known).find((item) => item.id === match[1]);
@@ -74,22 +104,33 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
         if (match[2]) return json([template]);
         return json(template);
       }
+      if (url.pathname === '/api/datasets') return json(datasets);
+      const datasetMatch = /^\/api\/datasets\/([^/]+)$/.exec(url.pathname);
+      if (datasetMatch) {
+        const dataset = datasets.find((item) => item.name === datasetMatch[1]);
+        if (!dataset) return json({ error: 'missing' }, 404);
+        return json({ dataset, versions: versionsByDataset[datasetMatch[1]] ?? [] });
+      }
       if (url.pathname === '/api/workflows/validate') {
         const invalid = String(body.yaml).includes('--invalid');
         const result = invalid ? { ok: false, error: 'fixture invalid' } : { ok: validationOk, tasks: [], order: ['task'], preflight };
         setTimeout(() => json(result), invalid ? 650 : 15);
         return;
       }
-      if (url.pathname === '/api/workflows' && request.method === 'POST') return submitStatus === 428
-        ? json({ error: '사전 점검을 다시 확인하세요.', code: 'image_preflight_review' }, 428)
-        : json({ runId: 'submitted' }, submitStatus);
+      if (url.pathname === '/api/workflows' && request.method === 'POST') {
+        const respond = () => submitStatus === 428
+          ? json({ error: '사전 점검을 다시 확인하세요.', code: 'image_preflight_review' }, 428)
+          : json({ runId: 'submitted' }, submitStatus);
+        if (submitDelayMs > 0) { setTimeout(respond, submitDelayMs); return; }
+        return respond();
+      }
       return json({ error: 'missing fixture API' }, 404);
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   }, 30000);
-  beforeEach(async () => { calls = []; pageErrors = []; latestVersion = 7; preflight = undefined; validationOk = true; submitStatus = 202; page = await browser.newPage(); page.on('pageerror', (error) => pageErrors.push(error.message)); });
+  beforeEach(async () => { calls = []; pageErrors = []; latestVersion = 7; preflight = undefined; validationOk = true; submitStatus = 202; submitDelayMs = 0; page = await browser.newPage(); page.on('pageerror', (error) => pageErrors.push(error.message)); });
   afterEach(async () => { await page.close(); expect(pageErrors).toEqual([]); });
   afterAll(async () => { await browser?.close(); if (server) await new Promise<void>((resolve) => server.close(() => resolve())); });
   const step = async (index: number) => page.getByRole('navigation', { name: '워크플로 작성 단계' }).getByRole('button').nth(index).click();
@@ -247,4 +288,59 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
     expect(await page.getByRole('button', { name: '워크플로 실행', exact: true }).isDisabled()).toBe(true);
     expect(calls.filter((call) => call.path === '/api/workflows').length).toBe(0);
   }, 10000);
+
+  it('shows the dataset picker for a dataset-typed param, hides its raw version field, and writes both name and version into the YAML defaults', async () => {
+    await page.goto(origin + '/workflows/new?template=with-dataset');
+    // A selected template already opens on step 2 (inputs); no nav click needed to see the param fields.
+    const picker = page.getByLabel('입력 데이터셋'); await picker.waitFor();
+    await picker.selectOption('demo-set');
+    // The picker's own version select is scoped to avoid an accessible-name clash with "레시피 버전".
+    const pickerContainer = page.locator('div.space-y-3', { has: page.getByLabel('입력 데이터셋') });
+    const versionSelect = pickerContainer.getByLabel('버전');
+    await versionSelect.waitFor();
+    expect(await versionSelect.locator('option').allTextContents()).toEqual(['선택', 'v3', 'v2']);
+    // The versionParam companion is edited only through the picker, not as a separate raw field.
+    expect(await page.getByLabel('Dataset version').count()).toBe(0);
+    await versionSelect.selectOption('3');
+    await step(2);
+    const editor = page.getByLabel('워크플로 YAML');
+    const source = parse(await editor.inputValue());
+    expect(source['default-values'].dataset_name).toBe('demo-set');
+    expect(String(source['default-values'].dataset_version)).toBe('3');
+    expect(calls.some((call) => call.path === '/api/datasets/demo-set')).toBe(true);
+  }, 15000);
+
+  it('settles without looping when a dataset param has no versionParam to persist the auto-picked version', async () => {
+    // Regression for DatasetPicker's auto-select effect looping ("Maximum update depth exceeded")
+    // when there is nowhere to write the version back to, so `version` can never become truthy.
+    await page.goto(origin + '/workflows/new?template=with-dataset-no-version');
+    const picker = page.getByLabel('입력 데이터셋'); await picker.waitFor();
+    await picker.selectOption('demo-set');
+    await page.waitForTimeout(300);
+    // afterEach also asserts pageErrors is empty; a looping effect throws before we get here.
+    expect(pageErrors).toEqual([]);
+    expect(await picker.inputValue()).toBe('demo-set');
+    await step(2);
+    const editor = page.getByLabel('워크플로 YAML');
+    const source = parse(await editor.inputValue());
+    expect(source['default-values'].dataset_name).toBe('demo-set');
+  }, 15000);
+
+  it('disables param fields while a submit is pending', async () => {
+    submitDelayMs = 600;
+    await page.goto(origin + '/workflows/new?template=mujoco-pipeline&preset=cpu-quick');
+    // Params (step 2/"inputs") and the submit button (step 3/"yaml") are mutually exclusive panels
+    // driven by the same `busy` flag, so we click submit on step 3, then flip back to step 2 while
+    // the request is still pending to observe the param control's disabled state.
+    const stepsField = page.getByLabel('학습 step 수');
+    await stepsField.waitFor();
+    expect(await stepsField.isDisabled()).toBe(false);
+    await step(2);
+    const submit = page.getByRole('button', { name: '워크플로 실행', exact: true });
+    await expect.poll(() => submit.isEnabled()).toBe(true);
+    await submit.click();
+    await step(1);
+    await expect.poll(() => stepsField.isDisabled()).toBe(true);
+    await page.waitForFunction(() => (window as unknown as { fixtureDestination: string }).fixtureDestination === '/workflows/submitted');
+  }, 15000);
 });

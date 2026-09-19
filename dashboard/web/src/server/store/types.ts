@@ -144,10 +144,11 @@ export interface DatasetVersion {
 export interface TemplateParam {
   name: string;
   label: string;
-  type: 'string' | 'number' | 'select' | 'boolean' | 'text';
+  type: 'string' | 'number' | 'select' | 'boolean' | 'text' | 'dataset';
   default?: string;
   options?: string[];
   help?: string;
+  versionParam?: string;
 }
 export interface Template {
   templateVersion?: number;

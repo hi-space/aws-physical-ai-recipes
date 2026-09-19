@@ -8,6 +8,8 @@ import { api, ApiError, can, useApi, useApiMutation, useMe } from '@/lib/api-cli
 import { useT, type Translator } from '@/lib/i18n';
 import type { Template, TemplateParam } from '@/server/store/types';
 import type { ExecutionProfile } from '@/server/services/execution-profiles';
+import type { TemplateDto } from '@/lib/workflow/template-dto';
+import { TemplateParamField } from '@/components/workflows/TemplateParamField';
 
 type Mapping = Record<string, unknown>;
 type YamlPath = (string | number)[];
@@ -211,7 +213,7 @@ export function NewWorkflowPage() {
   }, [search]);
   const me = useMe();
   const executionProfiles = useApi<{ profiles: ExecutionProfile[] }>(me.data?.role === 'admin' ? '/api/execution-profiles' : null);
-  const templates = useApi<Template[]>('/api/templates', { refetch: 15000 });
+  const templates = useApi<TemplateDto[]>('/api/templates', { refetch: 15000 });
   const credentials = useApi<{ projectId: string; credentials: CredentialOption[] }>('/api/credentials', { refetch: 15000 });
   const queues = useApi<{ priorityClasses: Array<{ name: string }> }>('/api/queues');
   const [selection, setSelection] = useState<Selection | null>(() => query.selection);
@@ -228,6 +230,9 @@ export function NewWorkflowPage() {
   const previousSearch = useRef(search);
   const cloneChecked = useRef(false);
   const idempotency = useRef<{ yaml: string; key: string } | undefined>(undefined);
+  // Some param edits (dataset picker) call editDefault twice in one event; keep a ref in sync with
+  // the latest yaml so the second call sees the first call's change instead of a stale snapshot.
+  const draftYamlRef = useRef('');
   const evaluation = detached ? undefined : query.evaluation;
   const detailPath = selection ? `/api/templates/${encodeURIComponent(selection.id)}${selection.version ? `?version=${selection.version}` : ''}` : null;
   const templateDetail = useApi<Template>(detailPath, { refetch: selection && !selection.version ? 5000 : 0 });
@@ -235,6 +240,7 @@ export function NewWorkflowPage() {
   const model = useApi<{ model: EvaluationModel; canWrite: boolean }>(evaluation ? `/api/models/${encodeURIComponent(evaluation.modelId)}` : null);
   const selectionKey = selection ? `${selection.id}@${selection.version ?? 'latest'}:${selection.preset ?? 'custom'}` : undefined;
   const templateReady = !selection || draft.selectionKey === selectionKey && validVersion(draft.template?.templateVersion);
+  draftYamlRef.current = draft.yaml;
 
   useEffect(() => {
     if (previousSearch.current !== search) {
@@ -313,12 +319,22 @@ export function NewWorkflowPage() {
   const busy = submit.isPending || save.isPending;
   const readyCredentials = credentials.data?.credentials.filter((credential) => ['READY', 'REGISTERED'].includes(credential.status)) ?? [];
   const credentialParams = new Set(derived.bindings.flatMap((binding) => binding.parameter ? [binding.parameter] : []));
+  // A dataset param's own versionParam is edited through its DatasetPicker, not as a separate field.
+  const datasetVersionParams = new Set((draft.template?.params ?? []).flatMap((param) => param.type === 'dataset' && param.versionParam ? [param.versionParam] : []));
   const templateGroups = Object.entries(categoryLabels).map(([id, label]) => ({ id, label, templates: (templates.data ?? []).filter((template) => template.category === id && template.id !== 'gr00t-pipeline') }));
   const versions = [...new Map([...(history.data ?? []), ...(draft.template ? [draft.template] : [])].filter((template) => validVersion(template.templateVersion)).map((template) => [template.templateVersion, template])).values()].sort((a, b) => b.templateVersion! - a.templateVersion!);
+  const recipePorts = templates.data?.find((item) => item.id === draft.template?.id)?.recipe?.ports;
+  const portKind = (name: string) => recipePorts?.inputs.find((input) => input.param === name)?.kind;
 
   function editDefault(name: string, value: string) {
-    try { const { document } = documentOf(draft.yaml); document.setIn(['default-values', name], value); setDraft((previous) => ({ ...previous, yaml: document.toString({ lineWidth: 0 }) })); setActionError(undefined); }
-    catch (error) { setActionError(error); }
+    try {
+      const { document } = documentOf(draftYamlRef.current);
+      document.setIn(['default-values', name], value);
+      const yaml = document.toString({ lineWidth: 0 });
+      draftYamlRef.current = yaml;
+      setDraft((previous) => ({ ...previous, yaml }));
+      setActionError(undefined);
+    } catch (error) { setActionError(error); }
   }
   function disconnectModel() {
     setDetached(true);
@@ -404,15 +420,11 @@ export function NewWorkflowPage() {
     </Card>}
     {step === 2 && <div className="space-y-4">
       {!selection && !draft.yaml && <EmptyState title={t('selectOrYaml')} />}
-      {templateReady && draft.template?.params.filter((param) => !credentialParams.has(param.name)).map((param) => {
+      {templateReady && draft.template?.params.filter((param) => !credentialParams.has(param.name) && !datasetVersionParams.has(param.name)).map((param) => {
         const value = derived.defaults[param.name] ?? ''; const locked = !!evaluation && ['dataset_name', 'checkpoint_bundle'].includes(param.name);
         const paramKey = param.name as keyof typeof paramLabels;
-        return <Field key={param.name} label={paramLabels[paramKey] ?? param.label} help={locked ? t('locked') : param.help}>
-          {param.type === 'boolean' ? <input id={`param-${param.name}`} type="checkbox" checked={value === 'true'} disabled={busy || locked} onChange={(event) => editDefault(param.name, String(event.target.checked))} />
-            : param.type === 'select' ? <Select id={`param-${param.name}`} value={value} disabled={busy || locked} onChange={(event) => editDefault(param.name, event.target.value)}>{param.options?.map((option) => <option key={option} value={option}>{option}</option>)}</Select>
-            : param.type === 'text' ? <Textarea id={`param-${param.name}`} value={value} readOnly={locked} disabled={busy} onChange={(event) => editDefault(param.name, event.target.value)} />
-            : <Input id={`param-${param.name}`} type={param.type === 'number' ? 'number' : 'text'} step={param.type === 'number' ? 'any' : undefined} value={value} readOnly={locked} disabled={busy} onChange={(event) => editDefault(param.name, event.target.value)} />}
-        </Field>;
+        const labeled = { ...param, label: paramLabels[paramKey] ?? param.label };
+        return <TemplateParamField key={param.name} param={labeled} value={value} values={derived.defaults} locked={locked} kind={portKind(param.name)} disabled={busy} onChange={editDefault} />;
       })}
       {derived.bindings.length > 0 && <Card title={t('credentials')} description={t('credentialsDesc')}>
         {credentials.error && <ErrorBox error={credentials.error} />}{credentials.isLoading && <Spinner label={t('loadingCredentials')} />}
