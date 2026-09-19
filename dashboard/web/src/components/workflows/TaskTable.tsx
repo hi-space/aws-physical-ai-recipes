@@ -24,7 +24,6 @@ export function TaskTable({ tasks, resources, selectedTask, onSelectTask, taskSp
         <td>
           <StatusPill status={task.phase as TaskPhase} />
         </td>
-        <td className="mono text-xs">{task.jobName}</td>
         <td className="num">{task.attempts}</td>
         <td className="num">{task.replicas}</td>
         <td className="num">{task.queuedAt ? ago(new Date(task.queuedAt)) : '-'}</td>
@@ -43,12 +42,11 @@ export function TaskTable({ tasks, resources, selectedTask, onSelectTask, taskSp
             </div>
           )}
         </td>
-        <td className="mono text-xs max-w-xs truncate">{spec?.image}</td>
       </tr>
     );
   });
 
-  const headers = ['Name', 'Phase', 'Job', 'Attempts', 'Replicas', 'Queued', 'Started', 'Duration', 'Message', 'Resources', 'Image'];
+  const headers = ['Name', 'Phase', 'Attempts', 'Replicas', 'Queued', 'Started', 'Duration', 'Message', 'Resources'];
 
   return (
     <table className="tbl w-full">

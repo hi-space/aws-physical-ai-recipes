@@ -50,7 +50,8 @@ export const pipelines = defineMessages({
     // execution header
     executionPageTitle: '{name}', executionPageDescription: '{projectName} ({projectId}) · SageMaker managed execution',
     executionNote: 'SageMaker managed Processing / Training Job execution path. HyperPod workflow has separate execution path.',
-    executionPipelineArn: '{arn}', executionExecutionArn: '{arn}', executionVersionId: 'Execution definition version: {version}',
+    executionVersionId: 'Execution definition version: {version}',
+    executionArnLabel: 'Execution ARN',
     executionStatus: 'Status', executionCreatedTime: 'Created', executionLastModified: 'Last modified', executionFailureReason: 'Failure reason',
     // execution parameters
     executionParameters: 'Parameters',
@@ -128,7 +129,8 @@ export const pipelines = defineMessages({
     // execution header
     executionPageTitle: '{name}', executionPageDescription: '{projectName} ({projectId}) · SageMaker 관리형 실행',
     executionNote: 'SageMaker 관리형 Processing / Training Job 실행 경로입니다. HyperPod 워크플로는 별도 실행 경로입니다.',
-    executionPipelineArn: '{arn}', executionExecutionArn: '{arn}', executionVersionId: '실행 정의 버전: {version}',
+    executionVersionId: '실행 정의 버전: {version}',
+    executionArnLabel: '실행 ARN',
     executionStatus: '상태', executionCreatedTime: '생성 시각', executionLastModified: '최근 변경', executionFailureReason: '실패 사유',
     // execution parameters
     executionParameters: '파라미터',

@@ -11,6 +11,7 @@ interface LogViewerProps { workflowId: string; tasks: Task[]; selectedTask?: str
 const key = (t: LogTarget) => `${t.attempt}/${t.member}`;
 export function LogViewer({ workflowId, tasks, selectedTask }: LogViewerProps) {
   const t = useT('logs');
+  const tc = useT('common');
   const [task, setTask] = useState(selectedTask || tasks[0]?.name || '');
   const [targetKey, setTargetKey] = useState('');
   const [container, setContainer] = useState('');
@@ -101,9 +102,9 @@ export function LogViewer({ workflowId, tasks, selectedTask }: LogViewerProps) {
       <label className="flex-1 min-w-40 text-xs">{t('task')}<Select value={task} onChange={e => setTask(e.target.value)}>
         {tasks.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}
       </Select></label>
-      <label className="flex-1 min-w-40 text-xs">{t('target')}<Select value={targetKey} onChange={e => setTargetKey(e.target.value)}>
+      <label className="flex-1 min-w-40 text-xs">{t('target')}<Select value={targetKey} onChange={e => setTargetKey(e.target.value)} title={targets.find(x => key(x) === targetKey)?.podName}>
         <option value="">{t('targetLatest')}</option>
-        {targets.map(x => <option key={key(x)} value={key(x)}>{t('attempt')} {x.attempt} · {t('member')} {x.member} · {x.podName} · {x.phase ?? ''}</option>)}
+        {targets.map(x => <option key={key(x)} value={key(x)} title={x.podName}>{t('attempt')} {x.attempt} · {t('member')} {x.member} · {tc('replica', { number: String(Number(x.member) + 1) })} · {x.phase ?? ''}</option>)}
       </Select></label>
       <label className="text-xs">{t('container')}<Select value={container} onChange={e => setContainer(e.target.value)}>
         <option value="">main</option>

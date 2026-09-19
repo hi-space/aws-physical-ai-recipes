@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Badge, Button, Card, CodeBlock, EmptyState, ErrorBox, Field, Input, Select, Spinner, StatusPill, Table } from '@/components/ui';
+import { Badge, Button, Card, CodeBlock, EmptyState, ErrorBox, Field, Input, Select, Spinner, StatusPill, Table, TechnicalDetails } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
 import { api, can, useApi, useMe, type Me } from '@/lib/api-client';
 import type { PipelineArchiveRecord } from '@/server/evaluations/pipeline-types';
@@ -203,9 +203,14 @@ export function PipelineExecutionPage({ arn }: { arn: string }) {
           <Card>
             <div className="mb-4 space-y-2 break-all text-xs">
               <p>{t('executionNote')}</p>
-              {data.execution.PipelineArn && <p className="font-mono">{t('executionPipelineArn', { arn: data.execution.PipelineArn })}</p>}
-              <p className="font-mono">{t('executionExecutionArn', { arn: data.execution.PipelineExecutionArn ?? arn })}</p>
               {data.execution.PipelineVersionId != null && <p>{t('executionVersionId', { version: data.execution.PipelineVersionId.toString() })}</p>}
+              <TechnicalDetails
+                rows={[
+                  { label: t('pipelineArn'), value: data.execution.PipelineArn, copy: true, mono: true },
+                  { label: t('executionArnLabel'), value: data.execution.PipelineExecutionArn ?? arn, copy: true, mono: true },
+                ]}
+                defaultOpen={false}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <div>

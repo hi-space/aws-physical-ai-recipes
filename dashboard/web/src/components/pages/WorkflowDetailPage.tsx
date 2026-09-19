@@ -1,12 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Dialog, Disclosure, Toast, Tabs, Stat, StatusPill, CopyButton, CodeBlock, KeyValue, EmptyState, ErrorBox, Spinner } from '@/components/ui';
+import { Button, Dialog, Disclosure, Toast, Tabs, Stat, StatusPill, CodeBlock, KeyValue, EmptyState, ErrorBox, Spinner, TechnicalDetails } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { api, useApi, useApiMutation, can, useMe } from '@/lib/api-client';
-import { shortId } from '@/lib/format';
 import { useT, useFormat } from '@/lib/i18n';
-import type { Workflow, Task } from '@/server/store/types';
+import type { Workflow, Task, Template } from '@/server/store/types';
 import { TaskTable } from '@/components/workflows/TaskTable';
 import { DagView } from '@/components/workflows/DagView';
 import { LogViewer } from '@/components/workflows/LogViewer';
@@ -48,6 +47,13 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
   const { data: detail, isLoading, error: detailError } = useApi<WorkflowDetail>(`/api/workflows/${id}`, {
     refetch: 4000,
   });
+
+  const { data: templates } = useApi<Template[]>('/api/templates', { refetch: 60000 });
+  const getTemplateTitle = (templateId?: string) => {
+    if (!templateId) return templateId;
+    const found = templates?.find((template) => template.id === templateId);
+    return found?.title || templateId;
+  };
 
   const { data: events, error: eventsError } = useApi(`/api/workflows/${id}/events`, { refetch: 30_000 });
   const { data: metrics, error: metricsError } = useApi<WorkflowMetrics>(`/api/workflows/${id}/metrics`, {
@@ -134,10 +140,16 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-3">{workflow.name}<StatusPill status={workflow.status} /></span>}
         description={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>{workflow.owner} · {workflow.namespace}</span>
-            <span>{t('durationCard')} {duration}{workflow.startedAt ? ` · ${fmtTime(new Date(workflow.startedAt))}` : ''}</span>
-            <span className="inline-flex items-center gap-1"><code className="mono text-xs">{shortId(workflow.id)}</code><CopyButton text={workflow.id} /></span>
+          <span className="flex flex-col gap-2">
+            <span className="flex flex-wrap items-center gap-x-6 gap-y-1">
+              <span className="text-sm">{workflow.owner} · {workflow.namespace}</span>
+              <span className="text-sm">{t('durationCard')} {duration}{workflow.startedAt ? ` · ${fmtTime(new Date(workflow.startedAt))}` : ''}</span>
+            </span>
+            {getTemplateTitle(workflow.templateId) && (
+              <span className="text-sm text-fg-muted">
+                {t('template')}: <span className="text-fg font-medium">{getTemplateTitle(workflow.templateId)}</span>
+              </span>
+            )}
           </span>
         }
         actions={
@@ -149,6 +161,16 @@ export function WorkflowDetailPage({ id }: WorkflowDetailPageProps) {
             {isTerminal && can(me.data, 'researcher') && <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMut.isPending}>{tc('delete')}</Button>}
           </>
         }
+      />
+      <TechnicalDetails
+        rows={[
+          { label: t('workflowId'), value: workflow.id, copy: true, mono: true },
+          { label: tc('owner'), value: workflow.owner },
+          { label: tc('namespace'), value: workflow.namespace },
+          { label: tc('queue'), value: workflow.spec.workflow.queue },
+          { label: t('templateId'), value: workflow.templateId, copy: true, mono: true },
+        ]}
+        defaultOpen={false}
       />
       {detailError && <ErrorBox error={detailError} />}
       {tab === 'events' && eventsError && <ErrorBox error={eventsError} />}

@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { ArrowRight, FileText, Package } from 'lucide-react';
-import { Badge, Button, EmptyState, StatusPill } from '@/components/ui';
+import { ArrowRight, Package } from 'lucide-react';
+import { Badge, Button, EmptyState, StatusPill, TechnicalDetails } from '@/components/ui';
 import { useFormat, useT } from '@/lib/i18n';
 import type { Task } from '@/server/store/types';
 import type { ResourceSpec, TaskSpec } from '@/server/workflow/schema';
@@ -85,8 +85,6 @@ export function TaskDetailPanel({ taskSpec, task, resource, stepIndex, stepCount
         <Row k={t('attempts')} v={String(task?.attempts ?? 0)} />
         <Row k={t('replicas')} v={String(task?.replicas ?? taskSpec.parallelism)} />
         {task?.exitCode === 0 && <Row k={t('exitCode')} v="0" mono />}
-        <Row k={t('jobName')} v={task?.jobName ?? dash} mono />
-        <Row k={t('image')} v={taskSpec.image} mono />
       </Section>
 
       <Section title={t('sectionResource')}>
@@ -128,7 +126,7 @@ export function TaskDetailPanel({ taskSpec, task, resource, stepIndex, stepCount
       </Section>
 
       <Section title={t('sectionOutputs')}>
-        {published.length === 0 && plannedDatasets.length === 0 && logOutputs.length === 0 ? (
+        {published.length === 0 && plannedDatasets.length === 0 ? (
           <p className="text-xs text-fg-faint">{t('noOutputs')}</p>
         ) : (
           <ul className="space-y-1">
@@ -146,16 +144,19 @@ export function TaskDetailPanel({ taskSpec, task, resource, stepIndex, stepCount
                 <span className="ml-auto shrink-0 text-fg-faint">{t('plannedOutput')}</span>
               </li>
             ))}
-            {logOutputs.map((path) => (
-              <li key={path} className="flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1 text-xs">
-                <FileText size={12} className="shrink-0 text-fg-faint" aria-hidden />
-                <span className="mono truncate text-fg-muted" title={path}>{path}</span>
-                <span className="ml-auto shrink-0 text-fg-faint">{t('logsOutput')}</span>
-              </li>
-            ))}
           </ul>
         )}
       </Section>
+
+      <TechnicalDetails
+        rows={[
+          { label: t('jobName'), value: task?.jobName, copy: true, mono: true },
+          { label: t('image'), value: taskSpec.image, copy: true, mono: true },
+          ...logOutputs.map((path) => ({ label: t('logsOutput'), value: path, mono: true })),
+          { label: t('outputPath'), value: task?.outputPath, copy: true, mono: true },
+        ]}
+        defaultOpen={false}
+      />
 
       {onOpenTab && (
         <div className="mt-auto flex gap-2 pt-1">

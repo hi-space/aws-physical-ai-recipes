@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { AlertCircle, ChevronDown, Download, Trash2, Zap } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, Select, Skeleton, Spinner, Stat, StatusPill } from '@/components/ui';
+import { Badge, Bar, Button, Card, CodeBlock, Dialog, EmptyState, ErrorBox, Input, Select, Skeleton, Spinner, Stat, StatusPill, TechnicalDetails } from '@/components/ui';
 import { fmtNum, fmtDuration, shortId } from '@/lib/format';
 import { useApi, useApiMutation, useMe, can } from '@/lib/api-client';
 import { useT, useFormat } from '@/lib/i18n';
@@ -262,7 +262,19 @@ export function JobsPage() {
           title={`${t('logs')}: ${selectedJob.name}`}
           width="xl"
         >
-          <LogViewer job={selectedJob} podIdx={selectedPodIdx} setPodIdx={setSelectedPodIdx} follow={logsFollow} setFollow={setLogsFollow} />
+          <div className="space-y-3">
+            <TechnicalDetails
+              rows={[
+                { label: tc('name'), value: selectedJob.name, copy: true, mono: true },
+                { label: tc('namespace'), value: selectedJob.namespace, copy: true, mono: true },
+                { label: t('workflowId'), value: selectedJob.workflowId, copy: true, mono: true },
+                { label: tc('task'), value: selectedJob.task, copy: true, mono: true },
+                { label: t('podNames'), value: (selectedJob.pods ?? []).map((p) => p.name).join(', '), copy: true, mono: true },
+              ]}
+              defaultOpen={false}
+            />
+            <LogViewer job={selectedJob} podIdx={selectedPodIdx} setPodIdx={setSelectedPodIdx} follow={logsFollow} setFollow={setLogsFollow} />
+          </div>
         </Dialog>
       )}
 
@@ -356,10 +368,10 @@ function LogViewer({
       {/* Pod Selector */}
       <div className="flex gap-2 items-center">
         <span className="text-xs font-medium">{t('pods')}:</span>
-        <select value={podIdx} onChange={(e) => setPodIdx(Number(e.target.value))} className="rounded border border-border bg-bg-elev px-2 py-1 text-xs">
+        <select value={podIdx} onChange={(e) => setPodIdx(Number(e.target.value))} className="rounded border border-border bg-bg-elev px-2 py-1 text-xs" title={pod?.name}>
           {pods.map((p, i) => (
-            <option key={i} value={i}>
-              {p.name} ({p.phase})
+            <option key={i} value={i} title={p.name}>
+              {tc('replica', { number: String(i + 1) })} ({p.phase})
             </option>
           ))}
         </select>

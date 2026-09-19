@@ -69,6 +69,7 @@ export const sessions = defineMessages({
     dcvBrowserClient: 'DCV web client · runs from session host origin and disconnects when expired.',
     dcvBrowserClose: 'Close',
     colSession: 'Session', colProjectQueue: 'Project / queue', colReadiness: 'Readiness', colExpires: 'Expires', colActions: 'Actions',
+    sessionIdLabel: 'Session ID', sessionWorkflowIdLabel: 'Workflow ID',
   },
   ko: {
     // page header & description
@@ -138,5 +139,6 @@ export const sessions = defineMessages({
     dcvBrowserClient: 'DCV 웹 클라이언트 · 세션 호스트 origin에서 실행되며 만료 시 끊깁니다.',
     dcvBrowserClose: '닫기',
     colSession: '세션', colProjectQueue: '프로젝트 / 대기열', colReadiness: '준비 상태', colExpires: '만료', colActions: '작업',
+    sessionIdLabel: '세션 ID', sessionWorkflowIdLabel: '워크플로 ID',
   },
 });

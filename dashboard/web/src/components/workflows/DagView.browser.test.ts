@@ -97,8 +97,10 @@ describe.skipIf(!existsSync(chromium.executablePath()))('workflow DAG browser', 
       await tab.locator('.react-flow__node[data-id="finetune"]').click();
       await tab.getByRole('heading', { name: 'finetune' }).waitFor();
       await tab.getByText('3단계 중 2번째').waitFor();
-      await tab.getByText('w-finetune-2').waitFor();
       await tab.getByText('step 1200/2000').waitFor();
+      // jobName now lives inside the collapsed TechnicalDetails disclosure.
+      await tab.getByRole('button', { name: '기술 정보' }).click();
+      await tab.getByText('w-finetune-2').waitFor();
       await tab.getByRole('button', { name: 'import 선택' }).waitFor();
       expect(await tab.getByRole('button', { name: /2\. finetune/ }).getAttribute('aria-pressed')).toBe('true');
 

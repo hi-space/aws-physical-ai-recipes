@@ -348,6 +348,9 @@ export function Disclosure({ title, summary, defaultOpen = false, children, clas
   );
 }
 
+export { TechnicalDetails } from './TechnicalDetails';
+export type { TechnicalDetailsProps, TechnicalDetailsRow } from './TechnicalDetails';
+
 /** Small exclusive choice (view mode, language). Prefer this over a row of look-alike buttons. */
 export function Segmented<T extends string>({ value, onChange, options, className, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: React.ReactNode; disabled?: boolean }[]; className?: string; label?: string }) {
   return (

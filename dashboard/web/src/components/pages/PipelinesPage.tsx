@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceStrip } from '@/components/layout/ResourceStrip';
-import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, Toast } from '@/components/ui';
+import { Badge, Button, Card, Dialog, EmptyState, ErrorBox, Input, Spinner, StatusPill, Table, TechnicalDetails, Toast } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
 import { api, ApiError, useApi, useMe, can, type Me } from '@/lib/api-client';
 import {
@@ -177,12 +177,17 @@ export function PipelinesPage() {
             <div className="space-y-3">
               <p className="text-sm text-fg-muted">{t('pipelineDesc')}</p>
               <dl className="space-y-1 break-all text-xs">
-                <dt className="text-fg-muted">{t('pipelineArn')}</dt><dd className="font-mono">{data.pipeline.PipelineArn}</dd>
-                {data.pipeline.RoleArn && <><dt className="text-fg-muted">{t('executionRole')}</dt><dd className="font-mono">{data.pipeline.RoleArn}</dd></>}
                 {data.pipeline.PipelineVersionDisplayName && <><dt className="text-fg-muted">{t('versionName')}</dt><dd>{data.pipeline.PipelineVersionDisplayName}</dd></>}
                 {data.pipeline.PipelineVersionDescription && <><dt className="text-fg-muted">{t('versionDesc')}</dt><dd>{data.pipeline.PipelineVersionDescription}</dd></>}
                 <dt className="text-fg-muted">{t('lastModified')}</dt><dd>{fmtTime(data.pipeline.LastModifiedTime)}</dd>
               </dl>
+              <TechnicalDetails
+                rows={[
+                  { label: t('pipelineArn'), value: data.pipeline.PipelineArn, copy: true, mono: true },
+                  { label: t('executionRole'), value: data.pipeline.RoleArn, copy: true, mono: true },
+                ]}
+                defaultOpen={false}
+              />
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-fg-muted">{t('status')}</span>

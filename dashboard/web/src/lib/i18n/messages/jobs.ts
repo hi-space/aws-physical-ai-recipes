@@ -15,6 +15,7 @@ export const jobs = defineMessages({
     allNamespaces: 'All namespaces', allStates: 'All states', searchPlaceholder: 'Search job, namespace, or image…',
     noJobsFound: 'No jobs found', jobDetailsHint: 'Try adjusting filters',
     clusterEvents: 'Cluster events', clusterEventsDesc: 'Last 100 from namespace {ns}', noEvents: 'No events',
+    workflowId: 'Workflow ID', podNames: 'Pod names',
   },
   ko: {
     title: '작업', description: 'Kubernetes 작업 실행, Pod, 워크로드 로그를 확인합니다.',
@@ -30,5 +31,6 @@ export const jobs = defineMessages({
     allNamespaces: '모든 네임스페이스', allStates: '모든 상태', searchPlaceholder: '작업, 네임스페이스 또는 이미지 검색…',
     noJobsFound: '작업을 찾을 수 없습니다', jobDetailsHint: '필터를 조정해 보세요',
     clusterEvents: '클러스터 이벤트', clusterEventsDesc: '네임스페이스 {ns}에서 최근 100개', noEvents: '이벤트가 없습니다',
+    workflowId: '워크플로 ID', podNames: 'Pod 이름',
   },
 });

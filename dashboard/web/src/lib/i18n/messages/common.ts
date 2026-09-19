@@ -17,6 +17,7 @@ export const common = defineMessages({
     node: 'Node', queue: 'Queue', priority: 'Priority', progress: 'Progress', message: 'Message', reason: 'Reason', region: 'Region',
     account: 'Account', role: 'Role', user: 'User', email: 'Email', count: 'Count', total: 'Total', value: 'Value', key: 'Key',
     template: 'Template', task: 'Task', tasks: 'Tasks', workflow: 'Workflow', dataset: 'Dataset', model: 'Model', cluster: 'Cluster',
+    technicalDetails: 'Technical details', replica: 'Replica {number}',
     // generic feedback
     loading: 'Loading…', loadingData: 'Loading data…', saving: 'Saving…', working: 'Working…', none: 'None', unknown: 'Unknown',
     notAvailable: 'N/A', empty: 'Nothing to show yet.', noResults: 'No results match the current filter.', yes: 'Yes', no: 'No',
@@ -53,6 +54,7 @@ export const common = defineMessages({
     node: '노드', queue: '대기열', priority: '우선순위', progress: '진행', message: '메시지', reason: '사유', region: '리전',
     account: '계정', role: '역할', user: '사용자', email: '이메일', count: '개수', total: '전체', value: '값', key: '키',
     template: '레시피', task: '작업', tasks: '작업', workflow: '워크플로', dataset: '데이터셋', model: '모델', cluster: '클러스터',
+    technicalDetails: '기술 정보', replica: '복제본 {number}',
     loading: '불러오는 중…', loadingData: '데이터를 불러오는 중…', saving: '저장 중…', working: '처리 중…', none: '없음', unknown: '알 수 없음',
     notAvailable: '해당 없음', empty: '아직 표시할 항목이 없습니다.', noResults: '조건에 맞는 항목이 없습니다.', yes: '예', no: '아니요',
     all: '전체', on: '켬', off: '끔', enabled: '사용', disabled: '사용 안 함', readOnly: '읽기 전용', optional: '선택',

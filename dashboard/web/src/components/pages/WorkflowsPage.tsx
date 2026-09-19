@@ -93,7 +93,11 @@ export function WorkflowsPage() {
         <thead><tr><th aria-label={tc('select')} /><th>{t('colExperiment')}</th><th>{tc('status')}</th><th>{t('colProgress')}</th><th>{t('colOwner')}</th><th>{t('colStarted')}</th><th>{t('colDuration')}</th><th>{t('colActions')}</th></tr></thead>
         <tbody>{workflows.map((workflow) => <tr key={workflow.id}>
           <td>{canWrite && owns(workflow) && active(workflow) && <input type="checkbox" aria-label={`${workflow.name} ${tc('select')}`} checked={selected.includes(workflow.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, workflow.id] : current.filter((id) => id !== workflow.id))} />}</td>
-          <td><Link className="font-medium text-accent hover:underline" href={`/workflows/${workflow.id}`}>{workflow.name}</Link><div className="mt-1 font-mono text-[11px] text-fg-faint">{workflow.id}</div></td>
+          <td>
+            <Link className="font-medium text-accent hover:underline" href={`/workflows/${workflow.id}`}>
+              {workflow.name}
+            </Link>
+          </td>
           <td><StatusPill status={workflow.status} /></td>
           <td><div className="flex min-w-24 items-center gap-2"><Bar value={workflow.succeededCount} max={workflow.taskCount || 1} tone={workflow.failedCount ? 'err' : 'ok'} /><span className="text-xs">{workflow.succeededCount}/{workflow.taskCount}</span></div></td>
           <td className="text-xs">{workflow.owner}</td><td className="text-xs">{ago(workflow.createdAt)}</td>

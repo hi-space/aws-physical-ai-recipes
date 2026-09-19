@@ -3,7 +3,7 @@ import * as React from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceStrip } from '@/components/layout/ResourceStrip';
 import { DcvBrowserCard } from '@/components/sessions/DcvBrowserCard';
-import { Badge, Button, Card, CodeBlock, CopyButton, Dialog, EmptyState, ErrorBox, Input, Select, Spinner, StatusPill, Table, Toast } from '@/components/ui';
+import { Badge, Button, Card, CodeBlock, CopyButton, Dialog, EmptyState, ErrorBox, Input, Select, Spinner, StatusPill, Table, TechnicalDetails, Toast } from '@/components/ui';
 import { useT, useFormat } from '@/lib/i18n';
 import { api, can, useApi, useMe, type Me } from '@/lib/api-client';
 
@@ -133,8 +133,15 @@ export function SessionsPage() {
           {sessions.data.map((s) => {
             const expired = !!s.expiresAt && Date.parse(s.expiresAt) <= clock;
             return <tr key={s.id}>
-              <td><div className="font-medium">{names[s.kind] ?? s.kind}</div><div className="mt-1 font-mono text-[11px] text-fg-muted">{s.id}</div>
-                <div className="mt-1 text-xs text-fg-muted">{s.taskName ? t('sessionTaskInfo', { taskName: s.taskName, attempt: s.attempt ?? 0, replicaIndex: s.replicaIndex ?? 0 }) : s.owner}</div></td>
+              <td><div className="font-medium">{names[s.kind] ?? s.kind}</div>
+                <div className="mt-1 text-xs text-fg-muted">{s.taskName ? t('sessionTaskInfo', { taskName: s.taskName, attempt: s.attempt ?? 0, replicaIndex: s.replicaIndex ?? 0 }) : s.owner}</div>
+                <TechnicalDetails
+                  rows={[
+                    { label: t('sessionIdLabel'), value: s.id, copy: true, mono: true },
+                    { label: t('sessionWorkflowIdLabel'), value: s.workflowId, copy: true, mono: true },
+                  ]}
+                  defaultOpen={false}
+                /></td>
               <td><div className="text-sm">{projects.data?.find((p) => p.id === s.projectId)?.name ?? s.projectId ?? t('sessionLegacy')}</div>
                 <div className="mt-1 max-w-56 truncate text-xs text-fg-muted" title={s.queue}>{s.queue ?? s.namespace}</div></td>
               <td><StatusPill status={s.status} />{s.message && <p className="mt-1 max-w-64 text-xs text-fg-muted">{s.message}</p>}</td>
@@ -167,7 +174,7 @@ export function SessionsPage() {
         {attached && <>
           {workflows.error && <ErrorBox error={workflows.error} />}
           <label className="block text-sm">{t('dialogWorkflowLabel')}<Select className="mt-1" value={workflowId} onChange={(e) => { setWorkflowId(e.target.value); setTaskName(''); setPortName(''); }}>
-            <option value="">{t('dialogWorkflowEmpty')}</option>{ownWorkflows.map((wf) => <option key={wf.id} value={wf.id}>{wf.name} · {wf.id}</option>)}
+            <option value="">{t('dialogWorkflowEmpty')}</option>{ownWorkflows.map((wf) => <option key={wf.id} value={wf.id} title={wf.id}>{wf.name}</option>)}
           </Select></label>
           {!ownWorkflows.length && <p className="text-xs text-fg-muted">{t('dialogWorkflowHint')}</p>}
           {tasks.error && <ErrorBox error={tasks.error} />}

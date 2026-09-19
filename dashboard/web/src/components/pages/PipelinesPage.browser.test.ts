@@ -504,9 +504,11 @@ describe('pipeline browser contracts', () => {
 
   it('shows returned managed identity and version without substituting the current definition for the execution', async () => {
     await page.goto(origin + '/pipelines');
+    await page.getByRole('button', { name: '기술 정보' }).click();
     await page.getByText('arn:aws:iam::123456789012:role/pipeline-role', { exact: true }).waitFor();
     expect(await page.getByText('definition-v7', { exact: true }).count()).toBe(1);
     await page.goto(origin + '/detail?project=a');
+    await page.getByRole('button', { name: '기술 정보' }).click();
     await page.getByText(executionArn, { exact: true }).waitFor();
     expect(await page.getByText(/SageMaker.*관리형/).count()).toBeGreaterThan(0);
     expect(await page.getByText('실행 정의 버전: 7', { exact: true }).count()).toBe(1);
