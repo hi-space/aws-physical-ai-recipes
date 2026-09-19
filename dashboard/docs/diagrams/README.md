@@ -11,7 +11,7 @@
 | 04 모델·SageMaker 학습·MLflow | `04-모델-SageMaker-학습-MLflow.drawio.png` | 모델·평가, SageMaker 학습(파이프라인 + 아카이브), 실험 비교 |
 | 05 시뮬레이션·개발 세션 | `05-시뮬레이션-개발-세션.drawio.png` | 워크스페이스 세션(gateway), 실시간 보기, Isaac Sim DCV 임베드 |
 | 06 컴퓨트·대기열·K8s 작업·메트릭 | `06-컴퓨트-대기열-K8s-작업-메트릭.drawio.png` | HyperPod API, Kubernetes/Kueue, 노드 수 변경·복구, AMP |
-| 07 파일·사용량·비용 | `07-파일-사용량-비용.drawio.png` | S3 브라우저, FSx DRA 작업, 사용량 추정, Cost Explorer |
+| 07 파일·사용량·비용 | `07-파일-사용량-비용.drawio.png` | S3 브라우저, FSx DRA 작업, CPU/GPU-hour 사용량 통계, Cost Explorer |
 | 08 설정 | `08-설정-프로젝트-이미지-빌드-웹훅-엣지-백엔드.drawio.png` | 프로젝트·구성원, 이미지·실행 환경, 환경 빌드, 웹훅, 엣지, 백엔드 연결 |
 
 ## 범례

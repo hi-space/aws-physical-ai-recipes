@@ -167,7 +167,7 @@
 | **산출물** | 태스크가 게시한 READY 버전의 고정 manifest를 읽어 이미지·영상은 갤러리(예: `plots/traj_*.jpeg`, LeRobot 영상), JSON·텍스트는 인라인, 가중치는 다운로드(presigned GET 300초, VersionId 고정). manifest 없는 구버전 출력은 사유만 표시 | `GET /api/workflows/:id/artifacts` → S3 아티팩트 버킷 `projects/<p>/datasets/<name>/versions/vN/manifest.json` |
 | **스펙** | 제출 YAML·해시·템플릿 버전 | DynamoDB |
 
-상단 동작: 재시도 / 복제 / YAML 내보내기(`GET /:id/export`) / 삭제. 하단 **작업 결과와 접속** 패널은 태스크를 골라 TensorBoard(완료된 학습도 가능), 터미널, 작업 파일, **실시간 보기**를 세션으로 여는 진입점이며(§9), **실행 사용량·예상 비용**은 요청 CPU/GPU 시간 × HyperPod 단가 추정치입니다(§15).
+상단 동작: 재시도 / 복제 / YAML 내보내기(`GET /:id/export`) / 삭제. 하단 **작업 결과와 접속** 패널은 태스크를 골라 TensorBoard(완료된 학습도 가능), 터미널, 작업 파일, **실시간 보기**를 세션으로 여는 진입점이며(§9), **실행 사용량**은 요청 CPU/GPU 시간 기반 CPU-hour / GPU-hour 통계입니다(§15).
 
 ### 4.4 제출부터 게시까지의 백엔드 흐름
 
@@ -386,14 +386,13 @@
 
 ---
 
-## 15. 사용량·비용
+## 15. 사용량
 
-![사용량·비용](screenshots/15-usage-cost.png)
+![사용량](screenshots/15-usage-cost.png)
 
-- 프로젝트 선택, **사용량 새로 고침**, 관리자 **단가 새로 고침**. 통계 CPU-hour / GPU-hour / 추정 USD, 실행별 표(완료/불완전 배지, 실행 상세 링크), 단가 근거(`PricingBasis`: 출처 URL·수집 시각·SKU)와 면책 문구.
-- `GET /api/usage?projectId`: 워크플로 ≤1000건에 대해 DynamoDB 태스크 원장과 `WF#<id>/RUNTIME#<epoch>#MEMBER` 영수증으로 **replica 시간 × HyperPod 노드 $/h × max(cpu/vCPU, gpu/GPU)** 계산. 단가·타이밍·리소스 정보가 없으면 `null`(사유 `no_rates`, `stale_rates`, `missing_ledger`, `incomplete_timing`, `unknown_resources`, `unpriced_platform`)로 남기고 추정하지 않습니다.
-- 단가: `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonSageMaker/current/us-east-1/index.json`(공개 JSON, ≤16 MiB)에서 `*-Cluster` SKU의 OnDemand `Hrs`만 파싱해 DynamoDB `USAGE_PRICING#<region>/CURRENT`에 30일 스냅샷(1시간 실패 백오프). Pricing API SDK는 사용하지 않습니다.
-- 금액은 **추정**이며 실제 청구서·GPU 활용률이 아니고 idle 인프라·스토리지·네트워크는 제외합니다. 홈·관리 패널의 "AWS 계정 전체 비용"은 Cost Explorer 값으로 대시보드 외 서비스(EC2, Bedrock 등)를 포함합니다.
+- 프로젝트 선택, **사용량 새로 고침**. 통계 CPU-hour / GPU-hour, 실행별 표(완료/불완전 배지, 실행 상세 링크).
+- `GET /api/usage?projectId`: 워크플로 ≤1000건에 대해 DynamoDB 태스크 원장과 `WF#<id>/RUNTIME#<epoch>#MEMBER` 영수증(없으면 태스크 관찰)으로 태스크별 replica 실행 시간을 구하고, **그 시간 × 태스크 스펙의 요청 CPU 수**와 **그 시간 × 요청 GPU 수**를 각각 독립적으로 합산합니다(노드 vCPU/GPU 용량으로 정규화하지 않음). 태스크 원장이 없거나(`missing_ledger`) 타이밍이 불완전하거나(`incomplete_timing`) 요청 CPU/GPU 값을 알 수 없으면(`unknown_resources`) 해당 통계는 `null`로 남기고 추정하지 않습니다.
+- 금액은 **추정하지 않으며** 실제 CPU/GPU 활용률이 아니고 idle 인프라·스토리지·네트워크는 제외합니다. 홈·관리 패널의 "AWS 계정 전체 비용"은 Cost Explorer 값으로 대시보드 외 서비스(EC2, Bedrock 등)를 포함합니다.
 
 ---
 
@@ -525,7 +524,6 @@
 | Amazon CloudWatch Logs | `DescribeLogGroups`, `DescribeLogStreams`, `FilterLogEvents`, `GetLogEvents` | 파이프라인 실행 상세, 환경 빌드 |
 | Amazon SNS | `Publish` | 실행 종료 알림 |
 | AWS Cost Explorer | `GetCostAndUsage` | 홈, 플랫폼 설정 |
-| AWS Price List(공개 JSON) | HTTPS fetch | 사용량 |
 | AWS IoT Core / Greengrass v2 | `DescribeThingGroup`, `ListThingsInThingGroup`, `DescribeThing`; `GetCoreDevice`, `ListInstalledComponents`, `GetComponent`, `ListDeployments`, `GetDeployment`, `ListEffectiveDeployments`, `CreateDeployment` | 디바이스·배포, 홈 아키텍처 카드 |
 | AWS Cloud Map | 서비스 디스커버리(`controller.<prefix>.internal`) | Pod → controller runtime/tracking API |
 

@@ -1,11 +1,10 @@
-/** Local browser/fake HTTP only. No real scale, pricing refresh or cloud requests. */
+/** Local browser/fake HTTP only. No real scale or cloud requests. */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
-import { createTestSnapshot } from '@/server/aws/hyperpod-rates.fixture';
 import { estimateRunUsage } from '@/server/services/usage';
 import { parseWorkflowYaml } from '@/server/workflow/template';
 import type { Task, Workflow } from '@/server/store/types';
@@ -15,12 +14,11 @@ const startedAt = '2026-09-16T17:00:00Z', finishedAt = '2026-09-16T18:00:00Z';
 const spec = parseWorkflowYaml('workflow:\n  name: trained\n  resources: { gpu: { cpu: 8, gpu: 1, platform: ml.g5.8xlarge } }\n  tasks: [{name: train, resource: gpu, image: example:v1, command: [python, train.py]}]').spec;
 const workflow = { id: 'known', name: 'Known run', projectId: 'p', backendId: 'default', status: 'SUCCEEDED', spec, createdAt: startedAt, finishedAt } as Workflow;
 const task = { workflowId: 'known', name: 'train', phase: 'SUCCEEDED', attempts: 1, replicas: 1, startedAt, finishedAt, updatedAt: finishedAt } as Task;
-const testRates = createTestSnapshot('us-east-1', new Date(finishedAt));
-const known = estimateRunUsage(workflow, [task], [], testRates, new Date(finishedAt), 'us-east-1');
-const unknown = estimateRunUsage({ ...workflow, id: 'unknown', name: 'Missing history' }, [{ ...task, attempts: 2 }], [], testRates, new Date(finishedAt), 'us-east-1');
+const known = estimateRunUsage(workflow, [task], [], new Date(finishedAt));
+const unknown = estimateRunUsage({ ...workflow, id: 'unknown', name: 'Missing history' }, [{ ...task, attempts: 2 }], [], new Date(finishedAt));
 describe.skipIf(!existsSync(chromium.executablePath()))('F41 usage and scaling browser contracts', () => {
   let browser: Browser, server: Server, page: Page, origin: string;
-  let admin: boolean, blocked: boolean, completed: boolean, rateFailure: boolean, policy: Record<string, unknown> | undefined, operation: Record<string, unknown> | undefined, plannedTo: number;
+  let admin: boolean, blocked: boolean, completed: boolean, policy: Record<string, unknown> | undefined, operation: Record<string, unknown> | undefined, plannedTo: number;
   let calls: Array<{ method: string; path: string; body: Record<string, unknown> }>, errors: string[];
   const snapshot = () => ({ backendId: 'default', cluster: 'hp', group: 'gpu', observedAt: finishedAt, specHash: hash, currentCount: completed ? plannedTo : 3, targetCount: completed ? plannedTo : 3,
     instanceType: 'ml.g5.8xlarge', policy, floor: Math.max(Number(policy?.minCount ?? 0), Number(policy?.baselineCount ?? 0)), idleEligible: false, targets: [], historyHash: 'history', structuralBlockers: [],
@@ -43,8 +41,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('F41 usage and scaling b
       const json = (value: unknown, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
       if (url.pathname === '/api/me') return json({ user: 'user', role: admin ? 'admin' : 'researcher', region: 'us-east-1', clusters: { eksName: 'eks', eks: 'hp' }, features: { eks: true }, project: { id: 'p', name: 'Project', role: 'researcher' } });
       if (url.pathname === '/api/projects') return json([{ id: 'p', name: 'Project' }]);
-      if (url.pathname === '/api/usage') return json({ project: { id: 'p', name: 'Project' }, runs: [known, unknown], cpuHours: null, gpuHours: null, estimatedUsd: null, complete: false, completeDiscovery: true, pricing: known.pricing, discoveryBasis: '조회 기록 기준' });
-      if (url.pathname === '/api/usage/rates') return rateFailure ? json({ error: '공식 단가 조회 실패' }, 503) : json(testRates);
+      if (url.pathname === '/api/usage') return json({ project: { id: 'p', name: 'Project' }, runs: [known, unknown], cpuHours: null, gpuHours: null, complete: false, completeDiscovery: true, discoveryBasis: '조회 기록 기준' });
       if (url.pathname === '/api/fsx') return json([]);
       if (url.pathname === '/api/clusters') return json({ clusters: [{ name: 'hp', orchestrator: 'eks', status: 'InService',
         groups: [{ name: 'gpu', instanceType: 'ml.g5.8xlarge', current: completed ? plannedTo : 3, target: completed ? plannedTo : 3, isGpu: true, isSystem: false }], nodes: [] }], k8sNodes: [], addons: [] });
@@ -71,32 +68,23 @@ describe.skipIf(!existsSync(chromium.executablePath()))('F41 usage and scaling b
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   }, 30000);
   beforeEach(async () => {
-    admin = true; blocked = true; completed = false; rateFailure = false; operation = undefined; plannedTo = 1; calls = []; errors = [];
+    admin = true; blocked = true; completed = false; operation = undefined; plannedTo = 1; calls = []; errors = [];
     policy = { group: 'gpu', version: 1, minCount: 1, baselineCount: 1, idleEnabled: false, idleMinutes: 30, protectedInstanceIds: ['i-00000000000000003'] };
     page = await browser.newPage(); page.setDefaultTimeout(5000); page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
   });
   afterEach(async () => { await page.close(); expect(errors).toEqual([]); });
   afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
-  it('shows project/run estimates, unknown totals, and timestamped official rate basis without claiming account billing', async () => {
+  it('shows project/run CPU/GPU-hour estimates and unknown totals without claiming account billing', async () => {
     admin = false; await page.goto(origin + '/usage');
     await page.getByRole('link', { name: 'Known run', exact: true }).waitFor();
-    expect(await page.getByText(/\$3\.06/, { exact: false }).count()).toBe(1);
+    expect(await page.getByText(/CPU-hours/, { exact: false }).count()).toBeGreaterThan(0);
+    expect(await page.getByText(/GPU-hours/, { exact: false }).count()).toBeGreaterThan(0);
+    expect(await page.getByText(/\$/, { exact: false }).count()).toBe(0);
     expect(await page.getByText('알 수 없음', { exact: true }).count()).toBeGreaterThan(0);
-    expect(await page.getByText(/가격표 게시/).count()).toBe(1);
-    expect(await page.getByRole('link', { name: '공식 AWS 가격표 원문' }).getAttribute('href')).toBe(testRates.sourceUrl);
     expect(await page.getByRole('button', { name: '공식 단가 새로 조회' }).count()).toBe(0);
     expect(calls.some(c => c.path === '/api/cost')).toBe(false);
-  });
-  it('retains visible source timestamps when an admin price refresh fails', async () => {
-    rateFailure = false; // Start with success so pricing is loaded
-    admin = true; await page.goto(origin + '/usage');
-    await page.getByRole('link', { name: 'Known run', exact: true }).waitFor();
-    rateFailure = true; // Now fail the refresh
-    await page.getByRole('button', { name: '공식 단가 새로 조회' }).click();
-    await page.getByText('공식 단가 조회 실패', { exact: true }).waitFor();
-    // Verify that previous pricing basis is still visible
-    expect(await page.getByText(/가격표 게시/).count()).toBeGreaterThan(0);
+    expect(calls.some(c => c.path === '/api/usage/rates')).toBe(false);
   });
   it('shows blockers, resets review on edits, and treats unknown capacity responses as unknown until separately observed', async () => {
     await page.goto(origin + '/compute');

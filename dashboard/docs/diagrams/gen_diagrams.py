@@ -439,7 +439,7 @@ def page_workflows() -> Page:
     p.n("gw", "fargate", "gateway\n<session>.apps.<domain>\nport-forward → MJPEG iframe", 400, 1120, parent="cloud")
     p.box("logs", "로그 탭: web 이 Kubernetes API pods/<name>/log 를 직접 읽어 SSE 로 전달(55초 연결 · 타임스탬프 재접속). 저장하지 않음 · Pod 삭제 후 pod-gone 안내 · 시도별 Secret 기준 redaction",
           1500, 1120, 620, 90, parent="cloud")
-    p.box("artifacts", "산출물 탭: 게시된 READY 버전의 고정 manifest 를 읽어 이미지·영상 갤러리 / JSON 인라인 / 가중치 다운로드\n(VersionId 고정 presigned GET 300초). 사용량 패널: 요청 CPU/GPU 시간 × HyperPod 단가 추정",
+    p.box("artifacts", "산출물 탭: 게시된 READY 버전의 고정 manifest 를 읽어 이미지·영상 갤러리 / JSON 인라인 / 가중치 다운로드\n(VersionId 고정 presigned GET 300초). 사용량 패널: task ledger 기반 요청 CPU/GPU 시간(실제 이용률·청구액 아님)",
           1500, 1240, 620, 80, parent="cloud")
     p.e("browser", "web", "YAML + 파라미터")
     p.e("web", "ecr", "이미지 프로필 preflight\n(digest 고정, 미승인 시 422)", exit=(0.5, 0), entry=(0.5, 1))
@@ -630,22 +630,21 @@ def page_cluster() -> Page:
 
 def page_storage_usage() -> Page:
     p = Page("p07", "07 파일·사용량·비용", "파일(S3 · FSx) · 사용량·비용 · 홈 비용 카드",
-             "S3 브라우저(presigned GET/PUT · DeleteObjects) · FSx DRA 작업 · 공개 Price List JSON 기반 추정 · Cost Explorer(관리자)")
+             "S3 브라우저(presigned GET/PUT · DeleteObjects) · FSx DRA 작업 · task ledger 기반 CPU/GPU 시간 · Cost Explorer(관리자)")
     p.n("browser", "client", "브라우저\n파일 / 사용량·비용 / 홈", 60, 520)
     p.g("cloud", "cloud", "AWS", 300, 110, 2160, 1200)
-    p.n("web", "fargate", "web API\n/api/s3 · /api/s3/presign · /api/fsx · /api/fsx/tasks\n/api/usage · /api/usage/rates · /api/cost", 120, 520, parent="cloud")
+    p.n("web", "fargate", "web API\n/api/s3 · /api/s3/presign · /api/fsx · /api/fsx/tasks\n/api/usage · /api/cost", 120, 520, parent="cloud")
     p.g("s3g", "generic", "허용 목록 버킷 (bucket allow-list · 비관리자는 projects/<p>/ 접두사 강제)", 500, 60, 960, 360, parent="cloud")
     p.n("s3a", "s3", "dashboard artifacts\n(스냅샷 · 업로드 · scratch)", 60, 100, parent="s3g")
     p.n("s3b", "s3", "hyperpod-eks-data\n(FSx DRA · datasets/ · checkpoints/)", 340, 100, parent="s3g")
     p.n("s3c", "s3", "groot-sm-artifacts\n(SageMaker 산출물)", 620, 100, parent="s3g")
     p.n("s3d", "s3", "hyperpod-data (Slurm)", 840, 100, parent="s3g")
     p.n("fsx", "fsx_for_lustre", "FSx for Lustre (EKS · Slurm 2개)\nDescribeFileSystems · DescribeDataRepositoryAssociations\nDescribeDataRepositoryTasks · CreateDataRepositoryTask\nEXPORT_TO_REPOSITORY / IMPORT_METADATA_FROM_REPOSITORY", 1600, 160, parent="cloud")
-    p.n("ddb", "dynamodb", "DynamoDB\nWF# task ledger · RUNTIME# receipts\nUSAGE_PRICING#<region>/CURRENT (단가 스냅샷, 30일)", 640, 620, parent="cloud")
-    p.n("price", "internet", "AWS Price List (공개 JSON)\npricing.us-east-1.amazonaws.com/offers/v1.0/\naws/AmazonSageMaker/current/<region>/index.json\n*-Cluster SKU · OnDemand Hrs 만 파싱", 1100, 620, parent="cloud")
+    p.n("ddb", "dynamodb", "DynamoDB\nWF# task ledger · RUNTIME# receipts", 640, 620, parent="cloud")
     p.n("ce", "cost_explorer", "Cost Explorer (us-east-1 엔드포인트)\nGetCostAndUsage DAILY · UnblendedCost\nGROUP BY SERVICE · 최근 30일 (1h 캐시)", 1600, 620, parent="cloud")
     p.box("s3ops", "S3 브라우저 동작: ListObjectsV2(Delimiter '/', MaxKeys 200) · 다운로드 presigned GET 900초 · 업로드 presigned PUT 3600초(연구자, projects/<p>/scratch/)\n삭제 DeleteObjects ≤1000 (관리자) · 각 접두사는 FSx 미러 경로 /fsx/<prefix> 를 함께 표시",
           500, 440, 960, 80, parent="cloud")
-    p.box("usage", "사용량 계산: 실행별 replica 시간 × HyperPod 노드 $/h × max(cpu/vCPU, gpu/GPU). 단가·타이밍·리소스가 없으면 null(추정하지 않음).\n'추정' 라벨 · 실제 청구액 아님 · idle 인프라/스토리지/네트워크 제외. 관리자 '단가 새로 고침' 은 Price List 재요청(1h 실패 백오프).\n홈/관리 패널의 '계정 전체 비용' 은 Cost Explorer 값으로, 대시보드 외 서비스(EC2 · Bedrock 등) 포함.",
+    p.box("usage", "사용량 계산: task ledger·runtime 기록 기반 실행별 요청 CPU/GPU 시간(replica 시간 × 요청 자원). 타이밍·리소스 기록이 없으면 null(추정하지 않음).\n실제 이용률·청구액 아님 · 단가/비용 산출 없음. 홈/관리 패널의 '계정 전체 비용' 은 Cost Explorer 값(관리자 전용)으로, 대시보드 외 서비스(EC2 · Bedrock 등) 포함.",
           500, 860, 1560, 110, parent="cloud")
     p.e("browser", "web", "")
     p.e("browser", "s3a", "presigned GET/PUT 직접 전송", exit=(0.5, 0), entry=(0, 0.25), color="#7AA116")
@@ -653,8 +652,7 @@ def page_storage_usage() -> Page:
     p.e("web", "s3b", "", exit=(0.75, 0), entry=(0.5, 1), dashed=True)
     p.e("s3b", "fsx", "DRA", dashed=True, exit=(1, 0.5), entry=(0, 0.25))
     p.e("web", "fsx", "FSx 상태 · DRA 작업 생성(연구자)", exit=(1, 0.5), entry=(0, 0.75))
-    p.e("web", "ddb", "task ledger · 단가 캐시", exit=(1, 0.75), entry=(0, 0.5))
-    p.e("ddb", "price", "ensureRates (필요 시 fetch)", dashed=True)
+    p.e("web", "ddb", "task ledger 조회", exit=(1, 0.75), entry=(0, 0.5))
     p.e("web", "ce", "관리자만", dashed=True, exit=(0.5, 1), entry=(0, 0.5))
     return p
 

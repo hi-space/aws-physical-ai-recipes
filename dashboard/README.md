@@ -26,7 +26,7 @@
 | 워크플로 | DAG·JobSet/barrier·재시도·checkpoint, 검색·복제·취소, 불변 실행 구성과 템플릿 버전. **Artifacts** 탭은 태스크가 게시한 READY 버전의 파일을 고정 manifest에서 읽어 이미지·영상은 갤러리로 재생하고 JSON·텍스트는 인라인으로, 가중치는 다운로드로 제공합니다(5분 presigned, VersionId 고정). manifest 없는 구버전 출력은 사유만 표시 |
 | 데이터셋 | PENDING→검증→READY, manifest/파일 VersionId 고정 탐색·다운로드, 필터·태그·전체 역사적 참조 검사 |
 | 모델·파이프라인 | EKS/등록 SageMaker 산출물 계보, 비동기 archive·평가·품질 gate. 기존 GR00T native artifact의 READY 게시·모델 등록 실제 PASS |
-| 지표·실험·사용량 | AMP/MLflow, step 축 비교, 프로젝트/run CPU·GPU-hour 및 출처·시각이 있는 비용 추정. 누락은 unknown |
+| 지표·실험·사용량 | AMP/MLflow, step 축 비교, 프로젝트/run CPU·GPU-hour 통계(비용 추정 없음). 누락은 unknown |
 | 세션 | 별도 HTTPS origin의 앱/터미널/파일. 공유 DCV console은 관리자용이며 workload별 노드 전용 DCV는 아님. Isaac Sim DCV 데스크톱은 "여기서 보기"로 대시보드 안 iframe에 표시(gateway가 dcv 세션 응답의 X-Frame-Options를 대시보드 origin만 허용하는 frame-ancestors로 교체) 또는 새 창으로 연다 |
 | 실시간 보기 | 태스크 YAML에 `live: true`를 주면 컴파일러가 신뢰 이미지(MUJOCO_IMAGE_URI)의 MJPEG 사이드카(native sidecar, 포트 `pai-live`/8090)를 붙이고 `PAI_LIVE_DIR`을 주입합니다. 레시피가 `$PAI_LIVE_DIR/frame.jpg`를 원자적으로 갱신하면(MuJoCo train/evaluate 기본 적용) 워크플로 상세 "실행 중인 작업 → 실시간 보기 준비"에서 port-forward 세션으로 화면 안에 iframe 재생합니다. 실행 소유자·연구자 권한·RUNNING 태스크에서만 열리고, 세션 만료 시 끊깁니다 |
 | 컴퓨트·backend | 기본/allowlist EKS와 준비 상태·차단 사유, 관리자 정책과 검토한 노드 변경 계획. 추가 backend 실제 검증은 없음 |
@@ -41,7 +41,7 @@
 
 ## 비용과 노드 수 변경
 
-**사용량**의 금액은 기록된 요청 CPU/GPU 시간에 공식 단가를 배분한 추정입니다. 실제 청구서나 GPU 활용률이 아니며 idle 인프라·스토리지·네트워크 등은 제외합니다. 단가 출처·시각·알 수 없는 항목을 확인하세요. **AWS 계정 전체 비용 (최근 30일)**은 관리자에게만 표시하며 대시보드 프로젝트 비용으로 해석하지 않습니다.
+**사용량**은 기록된 요청 CPU/GPU 시간을 집계한 CPU-hour / GPU-hour 통계이며 금액을 추정하지 않습니다. 실제 청구서나 GPU 활용률이 아니며 idle 인프라·스토리지·네트워크 등은 제외합니다. **AWS 계정 전체 비용 (최근 30일)**은 관리자에게만 표시하는 Cost Explorer 실제 값이며 대시보드 프로젝트 비용으로 해석하지 않습니다.
 
 **컴퓨트 → 계획·차단 사유**에서 관리자가 정책과 노드 변경 계획을 검토합니다. 정책은 자동 생성되지 않고 새 입력값은 현재 관측 노드 수이며, **유휴 자동 축소는 기본 비활성**입니다. 명시적 `minCount=0`, `baselineCount=0` 저장 후 검토한 계획을 실행하면 모든 검사와 provider 최소값이 허용하는 경우 GPU도 0까지 줄일 수 있습니다. 별도의 추가 승인 단계는 없습니다. 자동 축소를 원할 때만 별도 체크박스로 허용합니다.
 
