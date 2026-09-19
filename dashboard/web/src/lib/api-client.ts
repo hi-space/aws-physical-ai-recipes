@@ -26,6 +26,13 @@ export async function api<T = unknown>(path: string, init: ApiRequestInit = {}):
     data = text;
   }
   if (!res.ok) {
+    // AUTH_MODE=cognito: the middleware answers an unauthenticated API call with
+    // 401 + x-pai-login. The header is only a SIGNAL to re-authenticate, never a
+    // destination — the target is the hardcoded /login so a forged header (e.g. a
+    // MITM over plain HTTP setting x-pai-login: https://evil) cannot open-redirect.
+    if (res.status === 401 && res.headers.has('x-pai-login') && typeof window !== 'undefined') {
+      window.location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    }
     const e = data as { error?: string; code?: string; details?: unknown } | undefined;
     throw new ApiError(res.status, e?.error ?? `${res.status} ${res.statusText}`, e?.code, e?.details);
   }
@@ -104,6 +111,8 @@ export interface Me {
   features: Record<'eks' | 'slurm' | 'amp' | 'mlflow' | 'pipeline' | 'dcv' | 'fsx' | 'edge' | 'cognito' | 'sessions', boolean>;
   clusters: { eks?: string; slurm?: string; eksName?: string };
   buckets: { data?: string; artifacts?: string };
+  /** Session gateway isolation mode; absent in older fixtures behaves like host mode. */
+  gateway?: { mode: 'host' | 'path'; origin?: string };
   /** AWS resource identifiers behind the pages (from the deployment contract); absent in older fixtures. */
   resources?: MeResources;
   defaultNamespace: string;

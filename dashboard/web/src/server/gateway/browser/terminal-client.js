@@ -9,7 +9,8 @@ const terminal = new Terminal({ cursorBlink: true, disableStdin: true, scrollbac
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(mount);
-const endpoint = new URL('/__gateway/terminal', location.href);
+// Relative to the current page so the session prefix (path mode) is preserved; host mode resolves to root.
+const endpoint = new URL('__gateway/terminal', location.href);
 endpoint.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(endpoint);
 let exited = false;

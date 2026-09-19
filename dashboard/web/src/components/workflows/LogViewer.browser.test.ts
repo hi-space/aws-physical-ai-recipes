@@ -5,16 +5,14 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
 
-describe.skipIf(!existsSync(chromium.executablePath()))('local log replay browser', () => {
+describe.skipIf(!existsSync(chromium.executablePath()))('local log viewer browser', () => {
   let browser: Browser, server: Server, origin: string;
+  let bundle: Awaited<ReturnType<typeof build>>;
   const requests: URL[] = [], errors: string[] = [];
-  const head = (id: string) => ({ id, state: 'open', sequence: 3, scope: { attempt: 1, member: 0, container: 'main', podName: 'pod', podUid: id.slice(0, 8), restartCount: 0 } });
-  const streams = [head('a'.repeat(64)), head('b'.repeat(64))];
-  const record = (sequence: number, text: string) => ({ sequence, kind: 'data', data: Buffer.from(text).toString('base64') });
-  const page = (records: unknown[], cursor: string, closed = false, stream = streams[0]) => ({ source: 'archive', streams,
-    stream: { ...stream, state: closed ? 'closed' : 'open' }, records, cursor: cursor.repeat(43), hasMore: false, coverage: 'captured-only' });
+  const target = { namespace: 'team', podName: 'pod', podUid: 'u1', attempt: 1, member: 0, containers: ['main'], phase: 'Running' };
+  const snap = (lines: { ts: string; text: string }[]) => ({ source: 'kubernetes', phase: 'Running', target, container: 'main', targets: [target], lines, truncated: false, redaction: 'applied' });
   beforeAll(async () => {
-    const bundle = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
+    bundle = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
       import {LogViewer} from './src/components/workflows/LogViewer';
       createRoot(document.getElementById('root')).render(<LogViewer workflowId="w" tasks={[{name:'train',attempts:1,phase:'RUNNING'}]}/>);`,
       loader: 'tsx', resolveDir: process.cwd() }, write: false, bundle: true, platform: 'browser', format: 'iife', define: { 'process.env.NODE_ENV': '"test"' },
@@ -25,27 +23,27 @@ describe.skipIf(!existsSync(chromium.executablePath()))('local log replay browse
       } }] });
     server = createServer((req, res) => {
       const url = new URL(req.url!, 'http://fixture');
-      if (url.pathname === '/bundle.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles[0].text); return; }
+      if (url.pathname === '/bundle.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles![0].text); return; }
       if (!url.pathname.startsWith('/api/')) { res.setHeader('content-type', 'text/html'); res.end('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
       requests.push(url);
       if (url.searchParams.get('follow') === '1') {
         res.setHeader('content-type', 'text/event-stream');
-        res.end(`id: ${'d'.repeat(43)}\nevent: page\ndata: ${JSON.stringify(page([record(2, 'last\n')], 'd'))}\n\n`);
+        const since = url.searchParams.get('since');
+        if (!since) res.end(`id: 2026-09-19T00:00:02Z\nevent: line\ndata: ${JSON.stringify({ ts: '2026-09-19T00:00:02Z', text: 'live' })}\n\nevent: end\ndata: {"reason":"timeout"}\n\n`);
+        else res.end(`id: 2026-09-19T00:00:03Z\nevent: line\ndata: ${JSON.stringify({ ts: '2026-09-19T00:00:03Z', text: 'after reconnect' })}\n\nevent: end\ndata: {"reason":"pod-ended"}\n\n`);
         return;
       }
-      let data;
-      if (url.searchParams.get('stream') === streams[1].id) data = page([record(5, 'other source')], 'f', true, streams[1]);
-      else if (url.searchParams.get('cursor') === 'd'.repeat(43)) data = page([record(3, 'after reconnect')], 'e', true);
-      else if (url.searchParams.has('cursor')) data = page([], 'c');
-      else data = page([record(1, 'repeat\nrepeat\n\nhttps://example.test\n')], 'c');
-      res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(data));
+      res.setHeader('content-type', 'application/json');
+      // The empty-ts line is last on purpose: lastTs (read from the tail's last line) must stay
+      // empty so the very first SSE connect has no `since`, matching a fresh live-follow request.
+      res.end(JSON.stringify(snap([{ ts: '2026-09-19T00:00:00Z', text: 'repeat' }, { ts: '2026-09-19T00:00:01Z', text: 'repeat' }, { ts: '2026-09-19T00:00:01Z', text: 'https://example.test' }, { ts: '', text: '' }])));
     });
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   }, 30_000);
   afterAll(async () => { await browser?.close(); server?.closeAllConnections(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
-  it('keeps existing lines across a real SSE disconnect and sends the applied cursor on reconnect', async () => {
+  it('follows via SSE, reconnects with since=<last id> after a timeout end, and keeps earlier lines', async () => {
     const context = await browser.newContext();
     await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const tab = await context.newPage(); tab.setDefaultTimeout(4000); tab.on('pageerror', e => errors.push(e.message));
@@ -57,15 +55,41 @@ describe.skipIf(!existsSync(chromium.executablePath()))('local log replay browse
         const copy = el.cloneNode(true) as HTMLElement; copy.querySelectorAll('.ln').forEach(n => n.remove()); return copy.textContent;
       });
       expect(content?.match(/repeat/g)).toHaveLength(2);
-      expect(content).toContain('https://example.test'); expect(content).toContain('last');
-      expect(requests.some(r => r.searchParams.get('cursor') === 'd'.repeat(43) && !r.searchParams.has('follow'))).toBe(true);
-      await tab.getByLabel('저장된 로그 소스').selectOption(streams[1].id);
-      await tab.getByText('other source', { exact: false }).waitFor();
-      expect(requests.find(r => r.searchParams.get('stream') === streams[1].id)?.searchParams.has('cursor')).toBe(false);
-      expect(await tab.locator('[aria-label="작업 로그"]').textContent()).not.toContain('repeat');
+      expect(content).toContain('live');
+      expect(requests.some(r => r.searchParams.get('since') === '2026-09-19T00:00:02Z' && r.searchParams.get('follow') === '1')).toBe(true);
       expect(errors).toEqual([]);
     } catch (error) {
-      throw new Error(`${String(error)}; browser=${JSON.stringify(errors)}; requests=${requests.map(r => r.pathname).join(',')}; body=${(await tab.locator('body').innerText()).slice(0, 600)}`);
+      throw new Error(`${String(error)}; browser=${JSON.stringify(errors)}; requests=${requests.map(r => r.pathname + r.search).join(",")}; body=${(await tab.locator('body').innerText()).slice(0, 600)}`);
     } finally { await context.close(); }
+  }, 15_000);
+
+  it('never opens SSE for a not-started pod even while follow is on', async () => {
+    const localRequests: URL[] = [], localErrors: string[] = [];
+    const notStartedServer = createServer((req, res) => {
+      const url = new URL(req.url!, 'http://fixture');
+      if (url.pathname === '/bundle.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles![0].text); return; }
+      if (!url.pathname.startsWith('/api/')) { res.setHeader('content-type', 'text/html'); res.end('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
+      localRequests.push(url);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ source: 'none', reason: 'not-started', targets: [], lines: [], truncated: false, redaction: 'none' }));
+    });
+    await new Promise<void>(resolve => notStartedServer.listen(0, '127.0.0.1', resolve));
+    const localOrigin = `http://127.0.0.1:${(notStartedServer.address() as AddressInfo).port}`;
+    const context = await browser.newContext();
+    await context.route('**/*', route => new URL(route.request().url()).origin === localOrigin ? route.continue() : route.abort());
+    const tab = await context.newPage(); tab.setDefaultTimeout(4000); tab.on('pageerror', e => localErrors.push(e.message));
+    try {
+      await tab.goto(localOrigin);
+      await tab.getByText('시작 전', { exact: false }).waitFor();
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      expect(localRequests.some(r => r.searchParams.get('follow') === '1')).toBe(false);
+      expect(localErrors).toEqual([]);
+    } catch (error) {
+      throw new Error(`${String(error)}; browser=${JSON.stringify(localErrors)}; requests=${localRequests.map(r => r.pathname + r.search).join(",")}; body=${(await tab.locator('body').innerText()).slice(0, 600)}`);
+    } finally {
+      await context.close();
+      notStartedServer.closeAllConnections();
+      await new Promise<void>(resolve => notStartedServer.close(() => resolve()));
+    }
   }, 15_000);
 });

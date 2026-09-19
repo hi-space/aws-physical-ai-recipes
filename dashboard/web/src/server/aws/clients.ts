@@ -13,6 +13,7 @@ import { SNSClient } from '@aws-sdk/client-sns';
 import { CostExplorerClient } from '@aws-sdk/client-cost-explorer';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { STSClient } from '@aws-sdk/client-sts';
+import { ResourceGroupsTaggingAPIClient } from '@aws-sdk/client-resource-groups-tagging-api';
 import { config } from '../config';
 
 function memo<T>(f: () => T): () => T {
@@ -37,3 +38,4 @@ export const sns = memo(() => new SNSClient(region()));
 export const costExplorer = memo(() => new CostExplorerClient({ region: 'us-east-1' }));
 export const ssm = memo(() => new SSMClient(region()));
 export const sts = memo(() => new STSClient(region()));
+export const tagging = memo(() => new ResourceGroupsTaggingAPIClient(region()));

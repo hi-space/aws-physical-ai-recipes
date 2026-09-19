@@ -49,7 +49,7 @@ export function configureController(overrides: Partial<Omit<ControllerDeps, 'rep
 export function realDeps(): ControllerDeps {
   return {
     repo: getRepo(),
-    k8s: { ...realK8s, ...(process.env.LOG_ARCHIVE_ENABLED === '1' ? { ensureAttemptSecret } : {}) },
+    k8s: { ...realK8s, ensureAttemptSecret },
     now: () => new Date(),
     notify,
     resolveCredential: resolveCredentialFromSsm,

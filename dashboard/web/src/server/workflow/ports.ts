@@ -132,10 +132,6 @@ export interface ControllerDeps {
   runtimeEnvironment?: (workflow: Workflow, task: TaskSpec, epoch: string, attempt: number) => Record<string, string>;
   /** Final pre-create approval-head check; throw to veto. No image rewriting. */
   validateTaskPolicy?: (workflow: Workflow, task: TaskSpec) => Promise<void>;
-  logs?: {
-    reconcile(workflow: Workflow): Promise<void>;
-    drain(workflow: Workflow, taskNames: string[], attempt: number): Promise<void>;
-  };
   /** Server-selected vetted recipe mounts only; never populated from user YAML. */
   sharedReadOnlyPaths?: (workflow: Workflow, task: TaskSpec) => SharedReadOnlyPath[];
   workloadServiceAccount?: string;

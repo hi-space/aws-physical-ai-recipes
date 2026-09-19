@@ -11,7 +11,8 @@ export interface AlarmsConstructProps {
   loadBalancer: elbv2.ApplicationLoadBalancer;
   controllerService: ecs.FargateService;
   clusterName: string;
-  webAclName: string;
+  /** Omit to skip the WAF blocked-request alarm (WAF module disabled). */
+  webAclName?: string;
   topic: sns.ITopic;
 }
 
@@ -62,9 +63,11 @@ export class AlarmsConstruct extends Construct {
       dimensionsMap: { ClusterName: props.clusterName, ServiceName: props.controllerService.serviceName }, statistic: 'Minimum', period: minute,
     }), { threshold: 1, evaluationPeriods: 3, comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD, treatMissingData: cloudwatch.TreatMissingData.BREACHING });
 
-    alarm('WafBlockedSpike', new cloudwatch.Metric({
-      namespace: 'AWS/WAFV2', metricName: 'BlockedRequests',
-      dimensionsMap: { WebACL: props.webAclName, Region: cdk.Stack.of(this).region, Rule: 'ALL' }, statistic: 'Sum', period: cdk.Duration.minutes(5),
-    }), { threshold: WAF_BLOCKED_PER_5MIN, evaluationPeriods: 1, comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD });
+    if (props.webAclName) {
+      alarm('WafBlockedSpike', new cloudwatch.Metric({
+        namespace: 'AWS/WAFV2', metricName: 'BlockedRequests',
+        dimensionsMap: { WebACL: props.webAclName, Region: cdk.Stack.of(this).region, Rule: 'ALL' }, statistic: 'Sum', period: cdk.Duration.minutes(5),
+      }), { threshold: WAF_BLOCKED_PER_5MIN, evaluationPeriods: 1, comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD });
+    }
   }
 }

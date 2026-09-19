@@ -1,5 +1,5 @@
-import { beforeEach, expect, it, vi } from 'vitest';
-import { last30DaysByService } from './cost';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cachedAccountCost, last30DaysByService, resetAccountCostCache } from './cost';
 const send = vi.hoisted(() => vi.fn());
 vi.mock('./clients', () => ({ costExplorer: () => ({ send }) }));
 beforeEach(() => send.mockReset());
@@ -23,4 +23,30 @@ it('aggregates all cost pages and exposes account scope, estimated basis, and al
 it('rejects repeated pagination tokens rather than returning partial cost as a complete total', async () => {
   send.mockResolvedValue({ NextPageToken: 'same', ResultsByTime: [] });
   await expect(last30DaysByService()).rejects.toThrow(/incomplete/);
+});
+
+describe('cachedAccountCost', () => {
+  beforeEach(() => resetAccountCostCache());
+  const page = { ResultsByTime: [{ TimePeriod: { Start: '2026-09-15' }, Groups: [{ Keys: ['EC2'], Metrics: { UnblendedCost: { Amount: '1', Unit: 'USD' } } }] }] };
+  it('calls Cost Explorer once within the hour and again after it', async () => {
+    let now = 1_000_000;
+    send.mockResolvedValue(page);
+    await cachedAccountCost(() => now);
+    await cachedAccountCost(() => now + 3_599_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    await cachedAccountCost(() => now + 3_600_001);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+  it('returns the previous value marked stale when a refresh fails', async () => {
+    send.mockResolvedValueOnce(page);
+    const first = await cachedAccountCost(() => 0);
+    send.mockRejectedValueOnce(new Error('throttled'));
+    const second = await cachedAccountCost(() => 3_600_001);
+    expect(second.total).toBe(first.total);
+    expect(second.stale).toBe(true);
+  });
+  it('rethrows when there is no cached value to fall back to', async () => {
+    send.mockRejectedValueOnce(new Error('throttled'));
+    await expect(cachedAccountCost(() => 0)).rejects.toThrow('throttled');
+  });
 });

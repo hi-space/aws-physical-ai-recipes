@@ -207,7 +207,7 @@ export interface Session {
   ssmTarget?: string;
   dcvSessionId?: string;
   /** Source authority for a session derived from an API token; never contains a bearer. */
-  authMethod?: 'alb' | 'token';
+  authMethod?: 'alb' | 'cognito' | 'token';
   tokenId?: string;
   tokenProjectId?: string;
   tokenRole?: 'viewer' | 'researcher';

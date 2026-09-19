@@ -231,7 +231,6 @@ async function cleanup(wf: Workflow, unit: Unit, tasks: Task[], deps: Controller
     groupId: unit.group?.name,
     attempt: first.attempts
   }))) return false;
-  await deps.logs?.drain(wf, tasks.map(task => task.name), first.attempts);
   await guard.check();
   if (!first.jobName) return true;
   const get = () => unit.group ? deps.k8s.getJobSet!(wf.namespace, first.jobName!) : deps.k8s.getJob(wf.namespace, first.jobName!);
@@ -465,9 +464,7 @@ export async function reconcileWorkflowInternal(wfIn: Workflow, deps: Controller
   if (!current) throw notFound(`workflow ${wfIn.id}`);
   await assertWorkflowBackend(current, deps.repo);
   return runOnBackend(current, async () => {
-    await deps.logs?.reconcile(current);
     const result = await reconcileBoundWorkflow(current, { ...deps, dataBucket: backendConfig().eks?.dataBucket ?? deps.dataBucket });
-    await deps.logs?.reconcile(result);
     return result;
   }, deps.repo, deps.now, 'observe');
 }

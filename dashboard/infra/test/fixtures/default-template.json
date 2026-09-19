@@ -1,0 +1,5108 @@
+{
+  "Outputs": {
+    "AdminCredentialsCommand": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "aws secretsmanager get-secret-value --secret-id ",
+            {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Fn::Select": [
+                      0,
+                      {
+                        "Fn::Split": [
+                          "-",
+                          {
+                            "Fn::Select": [
+                              6,
+                              {
+                                "Fn::Split": [
+                                  ":",
+                                  {
+                                    "Ref": "AuthAdminSecret7ECE68A3"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Fn::Select": [
+                      1,
+                      {
+                        "Fn::Split": [
+                          "-",
+                          {
+                            "Fn::Select": [
+                              6,
+                              {
+                                "Fn::Split": [
+                                  ":",
+                                  {
+                                    "Ref": "AuthAdminSecret7ECE68A3"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Fn::Select": [
+                      2,
+                      {
+                        "Fn::Split": [
+                          "-",
+                          {
+                            "Fn::Select": [
+                              6,
+                              {
+                                "Fn::Split": [
+                                  ":",
+                                  {
+                                    "Ref": "AuthAdminSecret7ECE68A3"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            },
+            " --region us-east-1 --query SecretString --output text"
+          ]
+        ]
+      }
+    },
+    "AdminCredentialsSecret": {
+      "Description": "Secrets Manager secret with the bootstrap admin username/password",
+      "Value": {
+        "Fn::Join": [
+          "-",
+          [
+            {
+              "Fn::Select": [
+                0,
+                {
+                  "Fn::Split": [
+                    "-",
+                    {
+                      "Fn::Select": [
+                        6,
+                        {
+                          "Fn::Split": [
+                            ":",
+                            {
+                              "Ref": "AuthAdminSecret7ECE68A3"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Fn::Select": [
+                1,
+                {
+                  "Fn::Split": [
+                    "-",
+                    {
+                      "Fn::Select": [
+                        6,
+                        {
+                          "Fn::Split": [
+                            ":",
+                            {
+                              "Ref": "AuthAdminSecret7ECE68A3"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Fn::Select": [
+                2,
+                {
+                  "Fn::Split": [
+                    "-",
+                    {
+                      "Fn::Select": [
+                        6,
+                        {
+                          "Fn::Split": [
+                            ":",
+                            {
+                              "Ref": "AuthAdminSecret7ECE68A3"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    "AlbDnsName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebAlbEB696D17",
+          "DNSName"
+        ]
+      }
+    },
+    "ArtifactBucketName": {
+      "Value": {
+        "Ref": "OrchestrationArtifactsE0D303B0"
+      }
+    },
+    "ControllerRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebControllerRoleE828D939",
+          "Arn"
+        ]
+      }
+    },
+    "ControllerServiceName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebControllerService9BC9A713",
+          "Name"
+        ]
+      }
+    },
+    "DashboardUrl": {
+      "Description": "Dashboard (Cognito login)",
+      "Value": "https://dashboard.example.com/"
+    },
+    "DiscoveredStacks": {
+      "Value": "none"
+    },
+    "EcsClusterName": {
+      "Value": {
+        "Ref": "WebCluster20B6B362"
+      }
+    },
+    "EcsServiceName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebServiceD04B5F3E",
+          "Name"
+        ]
+      }
+    },
+    "GatewayServiceName": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebGatewayServiceBF31E39B",
+          "Name"
+        ]
+      }
+    },
+    "LogGroupName": {
+      "Value": {
+        "Ref": "WebLogsD9759FC4"
+      }
+    },
+    "NotificationsTopicArn": {
+      "Value": {
+        "Ref": "Notifications87298708"
+      }
+    },
+    "TableName": {
+      "Value": {
+        "Ref": "StoreTable0CCFA19B"
+      }
+    },
+    "TaskRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "WebTaskRoleA0C52095",
+          "Arn"
+        ]
+      }
+    },
+    "UserPoolClientId": {
+      "Value": {
+        "Ref": "AuthUserPoolAlbClientA2F916F2"
+      }
+    },
+    "UserPoolId": {
+      "Value": {
+        "Ref": "AuthUserPool8115E87F"
+      }
+    },
+    "WorkloadImagesisaaclabImageC5CC142C": {
+      "Value": {
+        "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+      }
+    },
+    "WorkloadImagesmujocoImage3FCD67DF": {
+      "Value": {
+        "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+      }
+    },
+    "WorkloadImagesros2ImageF01E966E": {
+      "Value": {
+        "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+      }
+    }
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>"
+    }
+  },
+  "Resources": {
+    "AWS679f53fac002430cb0da5b7982bd22872D164C4C": {
+      "DependsOn": [
+        "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-913524902871-us-east-1",
+          "S3Key": "<HASH>.zip"
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs24.x",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Timeout": 120
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "AlarmsAlbTarget5xx4535ED3F": {
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "Notifications87298708"
+          }
+        ],
+        "AlarmName": "physical-ai-dashboard-913524902871-AlbTarget5xx",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "DatapointsToAlarm": 3,
+        "EvaluationPeriods": 5,
+        "Metrics": [
+          {
+            "Expression": "IF(requests > 0, 100 * errors / requests, 0)",
+            "Id": "expr_1",
+            "Label": "target 5xx %",
+            "ReturnData": true
+          },
+          {
+            "Id": "requests",
+            "MetricStat": {
+              "Metric": {
+                "Dimensions": [
+                  {
+                    "Name": "LoadBalancer",
+                    "Value": {
+                      "Fn::GetAtt": [
+                        "WebAlbEB696D17",
+                        "LoadBalancerFullName"
+                      ]
+                    }
+                  }
+                ],
+                "MetricName": "RequestCount",
+                "Namespace": "AWS/ApplicationELB"
+              },
+              "Period": 60,
+              "Stat": "Sum"
+            },
+            "ReturnData": false
+          },
+          {
+            "Id": "errors",
+            "MetricStat": {
+              "Metric": {
+                "Dimensions": [
+                  {
+                    "Name": "LoadBalancer",
+                    "Value": {
+                      "Fn::GetAtt": [
+                        "WebAlbEB696D17",
+                        "LoadBalancerFullName"
+                      ]
+                    }
+                  }
+                ],
+                "MetricName": "HTTPCode_Target_5XX_Count",
+                "Namespace": "AWS/ApplicationELB"
+              },
+              "Period": 60,
+              "Stat": "Sum"
+            },
+            "ReturnData": false
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Threshold": 5,
+        "TreatMissingData": "notBreaching"
+      },
+      "Type": "AWS::CloudWatch::Alarm"
+    },
+    "AlarmsAlbTargetLatency0C824F6F": {
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "Notifications87298708"
+          }
+        ],
+        "AlarmName": "physical-ai-dashboard-913524902871-AlbTargetLatency",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "LoadBalancer",
+            "Value": {
+              "Fn::GetAtt": [
+                "WebAlbEB696D17",
+                "LoadBalancerFullName"
+              ]
+            }
+          }
+        ],
+        "EvaluationPeriods": 5,
+        "ExtendedStatistic": "p99",
+        "MetricName": "TargetResponseTime",
+        "Namespace": "AWS/ApplicationELB",
+        "Period": 60,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Threshold": 5,
+        "TreatMissingData": "notBreaching"
+      },
+      "Type": "AWS::CloudWatch::Alarm"
+    },
+    "AlarmsControllerReconcileLag11AB1B3A": {
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "Notifications87298708"
+          }
+        ],
+        "AlarmName": "physical-ai-dashboard-913524902871-ControllerReconcileLag",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Service",
+            "Value": "controller"
+          }
+        ],
+        "EvaluationPeriods": 2,
+        "MetricName": "ReconcileLagSeconds",
+        "Namespace": "PhysicalAI/Dashboard",
+        "Period": 60,
+        "Statistic": "Maximum",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Threshold": 60,
+        "TreatMissingData": "breaching"
+      },
+      "Type": "AWS::CloudWatch::Alarm"
+    },
+    "AlarmsControllerRunningTasksB0BEFEDD": {
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "Notifications87298708"
+          }
+        ],
+        "AlarmName": "physical-ai-dashboard-913524902871-ControllerRunningTasks",
+        "ComparisonOperator": "LessThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "ClusterName",
+            "Value": "physical-ai-dashboard-913524902871"
+          },
+          {
+            "Name": "ServiceName",
+            "Value": {
+              "Fn::GetAtt": [
+                "WebControllerService9BC9A713",
+                "Name"
+              ]
+            }
+          }
+        ],
+        "EvaluationPeriods": 3,
+        "MetricName": "RunningTaskCount",
+        "Namespace": "ECS/ContainerInsights",
+        "Period": 60,
+        "Statistic": "Minimum",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Threshold": 1,
+        "TreatMissingData": "breaching"
+      },
+      "Type": "AWS::CloudWatch::Alarm"
+    },
+    "AlarmsWafBlockedSpikeE723114A": {
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "Notifications87298708"
+          }
+        ],
+        "AlarmName": "physical-ai-dashboard-913524902871-WafBlockedSpike",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Region",
+            "Value": "us-east-1"
+          },
+          {
+            "Name": "Rule",
+            "Value": "ALL"
+          },
+          {
+            "Name": "WebACL",
+            "Value": "physical-ai-dashboard-913524902871-web"
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "BlockedRequests",
+        "Namespace": "AWS/WAFV2",
+        "Period": 300,
+        "Statistic": "Sum",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Threshold": 500,
+        "TreatMissingData": "notBreaching"
+      },
+      "Type": "AWS::CloudWatch::Alarm"
+    },
+    "AuthAdminGroupCustomResourcePolicyCFC8DF19": {
+      "DependsOn": [
+        "AuthAdminUserCustomResourcePolicy302415AA",
+        "AuthAdminUserDB2A2E01",
+        "AuthGroupadminsAEC0E04D"
+      ],
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "cognito-idp:AdminAddUserToGroup",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "AuthAdminGroupCustomResourcePolicyCFC8DF19",
+        "Roles": [
+          {
+            "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "AuthAdminGroupE034CF06": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "AuthAdminGroupCustomResourcePolicyCFC8DF19",
+        "AuthAdminUserCustomResourcePolicy302415AA",
+        "AuthAdminUserDB2A2E01",
+        "AuthGroupadminsAEC0E04D"
+      ],
+      "Properties": {
+        "Create": {
+          "Fn::Join": [
+            "",
+            [
+              "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminAddUserToGroup\",\"parameters\":{\"UserPoolId\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "\",\"Username\":\"admin\",\"GroupName\":\"admins\"},\"physicalResourceId\":{\"id\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "/admin/admins\"}}"
+            ]
+          ]
+        },
+        "InstallLatestAwsSdk": true,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "Custom::CognitoBootstrapAdminGroup",
+      "UpdateReplacePolicy": "Delete"
+    },
+    "AuthAdminPassword0E96A98E": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "AuthAdminPasswordCustomResourcePolicy0DEC48DE",
+        "AuthAdminUserCustomResourcePolicy302415AA",
+        "AuthAdminUserDB2A2E01"
+      ],
+      "Properties": {
+        "Create": {
+          "Fn::Join": [
+            "",
+            [
+              "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminSetUserPassword\",\"parameters\":{\"UserPoolId\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "\",\"Username\":\"admin\",\"Password\":\"{{resolve:secretsmanager:",
+              {
+                "Ref": "AuthAdminSecret7ECE68A3"
+              },
+              ":SecretString:password::}}\",\"Permanent\":true},\"physicalResourceId\":{\"id\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "/admin/password\"}}"
+            ]
+          ]
+        },
+        "InstallLatestAwsSdk": true,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "Custom::CognitoBootstrapAdminPassword",
+      "UpdateReplacePolicy": "Delete"
+    },
+    "AuthAdminPasswordCustomResourcePolicy0DEC48DE": {
+      "DependsOn": [
+        "AuthAdminUserCustomResourcePolicy302415AA",
+        "AuthAdminUserDB2A2E01"
+      ],
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "cognito-idp:AdminSetUserPassword",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "AuthAdminPasswordCustomResourcePolicy0DEC48DE",
+        "Roles": [
+          {
+            "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "AuthAdminSecret7ECE68A3": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Description": "Bootstrap admin login for the Physical AI Dashboard (Cognito)",
+        "GenerateSecretString": {
+          "ExcludePunctuation": true,
+          "GenerateStringKey": "password",
+          "PasswordLength": 20,
+          "RequireEachIncludedType": true,
+          "SecretStringTemplate": "{\"username\":\"admin\",\"email\":\"admin@example.com\",\"loginUrl\":\"https://dashboard.example.com/\"}"
+        },
+        "Name": "physical-ai-dashboard/913524902871/admin",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "AuthAdminUserCustomResourcePolicy302415AA": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "cognito-idp:AdminCreateUser",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "AuthAdminUserCustomResourcePolicy302415AA",
+        "Roles": [
+          {
+            "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "AuthAdminUserDB2A2E01": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "AuthAdminUserCustomResourcePolicy302415AA"
+      ],
+      "Properties": {
+        "Create": {
+          "Fn::Join": [
+            "",
+            [
+              "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminCreateUser\",\"parameters\":{\"UserPoolId\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "\",\"Username\":\"admin\",\"MessageAction\":\"SUPPRESS\",\"TemporaryPassword\":\"{{resolve:secretsmanager:",
+              {
+                "Ref": "AuthAdminSecret7ECE68A3"
+              },
+              ":SecretString:password::}}\",\"UserAttributes\":[{\"Name\":\"email\",\"Value\":\"admin@example.com\"},{\"Name\":\"email_verified\",\"Value\":\"true\"}]},\"physicalResourceId\":{\"id\":\"",
+              {
+                "Ref": "AuthUserPool8115E87F"
+              },
+              "/admin\"},\"ignoreErrorCodesMatching\":\"UsernameExistsException\"}"
+            ]
+          ]
+        },
+        "InstallLatestAwsSdk": true,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "Custom::CognitoBootstrapAdmin",
+      "UpdateReplacePolicy": "Delete"
+    },
+    "AuthAlbBrandingF92DC5D9": {
+      "Properties": {
+        "ClientId": {
+          "Ref": "AuthUserPoolAlbClientA2F916F2"
+        },
+        "Settings": {
+          "categories": {
+            "form": {
+              "displayGraphics": true,
+              "location": {
+                "horizontal": "CENTER",
+                "vertical": "CENTER"
+              }
+            },
+            "global": {
+              "colorSchemeMode": "DARK",
+              "pageFooter": {
+                "enabled": false
+              },
+              "pageHeader": {
+                "enabled": false
+              },
+              "spacingDensity": "REGULAR"
+            }
+          },
+          "componentClasses": {
+            "buttons": {
+              "borderRadius": 8
+            },
+            "divider": {
+              "darkMode": {
+                "borderColor": "232b3bff"
+              },
+              "lightMode": {
+                "borderColor": "ebebf0ff"
+              }
+            },
+            "focusState": {
+              "darkMode": {
+                "borderColor": "6ea8feff"
+              },
+              "lightMode": {
+                "borderColor": "0972d3ff"
+              }
+            },
+            "input": {
+              "borderRadius": 8,
+              "darkMode": {
+                "defaults": {
+                  "backgroundColor": "0b0e14ff",
+                  "borderColor": "33405aff"
+                },
+                "placeholderColor": "66718aff"
+              },
+              "lightMode": {
+                "defaults": {
+                  "backgroundColor": "ffffffff",
+                  "borderColor": "7d8998ff"
+                },
+                "placeholderColor": "5f6b7aff"
+              }
+            },
+            "inputDescription": {
+              "darkMode": {
+                "textColor": "98a2b8ff"
+              },
+              "lightMode": {
+                "textColor": "5f6b7aff"
+              }
+            },
+            "inputLabel": {
+              "darkMode": {
+                "textColor": "e6e9f0ff"
+              },
+              "lightMode": {
+                "textColor": "000716ff"
+              }
+            },
+            "link": {
+              "darkMode": {
+                "defaults": {
+                  "textColor": "6ea8feff"
+                },
+                "hover": {
+                  "textColor": "3b82f6ff"
+                }
+              },
+              "lightMode": {
+                "defaults": {
+                  "textColor": "0972d3ff"
+                },
+                "hover": {
+                  "textColor": "033160ff"
+                }
+              }
+            }
+          },
+          "components": {
+            "form": {
+              "backgroundImage": {
+                "enabled": false
+              },
+              "borderRadius": 12,
+              "darkMode": {
+                "backgroundColor": "111622ff",
+                "borderColor": "232b3bff"
+              },
+              "lightMode": {
+                "backgroundColor": "ffffffff",
+                "borderColor": "c6c6cdff"
+              },
+              "logo": {
+                "enabled": false,
+                "formInclusion": "IN",
+                "location": "CENTER",
+                "position": "TOP"
+              }
+            },
+            "pageBackground": {
+              "darkMode": {
+                "color": "0b0e14ff"
+              },
+              "image": {
+                "enabled": false
+              },
+              "lightMode": {
+                "color": "ffffffff"
+              }
+            },
+            "pageText": {
+              "darkMode": {
+                "bodyColor": "98a2b8ff",
+                "descriptionColor": "98a2b8ff",
+                "headingColor": "e6e9f0ff"
+              },
+              "lightMode": {
+                "bodyColor": "414d5cff",
+                "descriptionColor": "414d5cff",
+                "headingColor": "000716ff"
+              }
+            },
+            "primaryButton": {
+              "darkMode": {
+                "active": {
+                  "backgroundColor": "6ea8feff",
+                  "textColor": "0b0e14ff"
+                },
+                "defaults": {
+                  "backgroundColor": "3b82f6ff",
+                  "textColor": "ffffffff"
+                },
+                "disabled": {
+                  "backgroundColor": "171d2bff",
+                  "borderColor": "232b3bff"
+                },
+                "hover": {
+                  "backgroundColor": "6ea8feff",
+                  "textColor": "0b0e14ff"
+                }
+              },
+              "lightMode": {
+                "active": {
+                  "backgroundColor": "033160ff",
+                  "textColor": "ffffffff"
+                },
+                "defaults": {
+                  "backgroundColor": "0972d3ff",
+                  "textColor": "ffffffff"
+                },
+                "disabled": {
+                  "backgroundColor": "ffffffff",
+                  "borderColor": "ffffffff"
+                },
+                "hover": {
+                  "backgroundColor": "033160ff",
+                  "textColor": "ffffffff"
+                }
+              }
+            },
+            "secondaryButton": {
+              "darkMode": {
+                "active": {
+                  "backgroundColor": "232b3bff",
+                  "borderColor": "6ea8feff",
+                  "textColor": "6ea8feff"
+                },
+                "defaults": {
+                  "backgroundColor": "111622ff",
+                  "borderColor": "33405aff",
+                  "textColor": "6ea8feff"
+                },
+                "hover": {
+                  "backgroundColor": "171d2bff",
+                  "borderColor": "6ea8feff",
+                  "textColor": "6ea8feff"
+                }
+              },
+              "lightMode": {
+                "active": {
+                  "backgroundColor": "d3e7f9ff",
+                  "borderColor": "033160ff",
+                  "textColor": "033160ff"
+                },
+                "defaults": {
+                  "backgroundColor": "ffffffff",
+                  "borderColor": "0972d3ff",
+                  "textColor": "0972d3ff"
+                },
+                "hover": {
+                  "backgroundColor": "f2f8fdff",
+                  "borderColor": "033160ff",
+                  "textColor": "033160ff"
+                }
+              }
+            }
+          }
+        },
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::ManagedLoginBranding"
+    },
+    "AuthGroupadminsAEC0E04D": {
+      "Properties": {
+        "Description": "Full access: clusters, quotas, users, edge deployments",
+        "GroupName": "admins",
+        "Precedence": 1,
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolGroup"
+    },
+    "AuthGroupresearchers3C213C06": {
+      "Properties": {
+        "Description": "Submit/cancel workflows, datasets, sessions, uploads",
+        "GroupName": "researchers",
+        "Precedence": 5,
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolGroup"
+    },
+    "AuthGroupviewers768F9BEB": {
+      "Properties": {
+        "Description": "Read-only",
+        "GroupName": "viewers",
+        "Precedence": 10,
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolGroup"
+    },
+    "AuthUserPool8115E87F": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AccountRecoverySetting": {
+          "RecoveryMechanisms": [
+            {
+              "Name": "verified_email",
+              "Priority": 1
+            }
+          ]
+        },
+        "AdminCreateUserConfig": {
+          "AllowAdminCreateUserOnly": true
+        },
+        "AliasAttributes": [
+          "email"
+        ],
+        "AutoVerifiedAttributes": [
+          "email"
+        ],
+        "DeletionProtection": "ACTIVE",
+        "EmailVerificationMessage": "The verification code to your new account is {####}",
+        "EmailVerificationSubject": "Verify your new account",
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 8,
+            "RequireLowercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": false,
+            "RequireUppercase": true,
+            "TemporaryPasswordValidityDays": 7
+          }
+        },
+        "Schema": [
+          {
+            "Mutable": true,
+            "Name": "email",
+            "Required": true
+          }
+        ],
+        "SmsVerificationMessage": "The verification code to your new account is {####}",
+        "UserPoolName": "physical-ai-dashboard-913524902871",
+        "UserPoolTags": {
+          "ManagedBy": "CDK",
+          "PhysicalAI": "true",
+          "Project": "PhysicalAiDashboard",
+          "UserId": "913524902871"
+        },
+        "UserPoolTier": "ESSENTIALS",
+        "VerificationMessageTemplate": {
+          "DefaultEmailOption": "CONFIRM_WITH_CODE",
+          "EmailMessage": "The verification code to your new account is {####}",
+          "EmailSubject": "Verify your new account",
+          "SmsMessage": "The verification code to your new account is {####}"
+        }
+      },
+      "Type": "AWS::Cognito::UserPool",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "AuthUserPoolAlbClientA2F916F2": {
+      "Properties": {
+        "AccessTokenValidity": 60,
+        "AllowedOAuthFlows": [
+          "code"
+        ],
+        "AllowedOAuthFlowsUserPoolClient": true,
+        "AllowedOAuthScopes": [
+          "openid",
+          "email",
+          "profile"
+        ],
+        "CallbackURLs": [
+          "https://dashboard.example.com/oauth2/idpresponse"
+        ],
+        "ClientName": "alb",
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_SRP_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
+        "GenerateSecret": true,
+        "IdTokenValidity": 60,
+        "LogoutURLs": [
+          "https://dashboard.example.com/"
+        ],
+        "PreventUserExistenceErrors": "ENABLED",
+        "RefreshTokenValidity": 43200,
+        "SupportedIdentityProviders": [
+          "COGNITO"
+        ],
+        "TokenValidityUnits": {
+          "AccessToken": "minutes",
+          "IdToken": "minutes",
+          "RefreshToken": "minutes"
+        },
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolClient"
+    },
+    "AuthUserPoolAppClient1D18298A": {
+      "Properties": {
+        "AccessTokenValidity": 60,
+        "AllowedOAuthFlowsUserPoolClient": false,
+        "ClientName": "app",
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_PASSWORD_AUTH",
+          "ALLOW_USER_SRP_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
+        "GenerateSecret": false,
+        "IdTokenValidity": 60,
+        "PreventUserExistenceErrors": "ENABLED",
+        "RefreshTokenValidity": 43200,
+        "SupportedIdentityProviders": [
+          "COGNITO"
+        ],
+        "TokenValidityUnits": {
+          "AccessToken": "minutes",
+          "IdToken": "minutes",
+          "RefreshToken": "minutes"
+        },
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolClient"
+    },
+    "AuthUserPoolDomain31C6792A": {
+      "Properties": {
+        "Domain": "physical-ai-913524902871",
+        "ManagedLoginVersion": 2,
+        "UserPoolId": {
+          "Ref": "AuthUserPool8115E87F"
+        }
+      },
+      "Type": "AWS::Cognito::UserPoolDomain"
+    },
+    "Notifications87298708": {
+      "Properties": {
+        "DisplayName": "Physical AI Dashboard",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TopicName": "physical-ai-dashboard-913524902871-notifications"
+      },
+      "Type": "AWS::SNS::Topic"
+    },
+    "OrchestrationArtifactsE0D303B0": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedHeaders": [
+                "*"
+              ],
+              "AllowedMethods": [
+                "GET",
+                "PUT",
+                "POST",
+                "HEAD"
+              ],
+              "AllowedOrigins": [
+                "https://dashboard.example.com"
+              ],
+              "ExposedHeaders": [
+                "ETag",
+                "x-amz-version-id",
+                "x-amz-checksum-sha256"
+              ],
+              "MaxAge": 3600
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 90
+              },
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "INTELLIGENT_TIERING",
+                  "TransitionInDays": 30
+                }
+              ]
+            },
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 2
+              },
+              "Status": "Enabled"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "OrchestrationArtifactsPolicyFC7E74FA": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "OrchestrationArtifactsE0D303B0"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*"
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OrchestrationArtifactsE0D303B0",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OrchestrationArtifactsE0D303B0",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Type": "AWS::S3::BucketPolicy"
+    },
+    "ResearcherSourceBuildBuilderRole9D4FFFC4": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                      ]
+                    ]
+                  }
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": "913524902871"
+                }
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "ResearcherSourceBuildBuilderRoleDefaultPolicy49DE125E": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":s3:::cdk-hnb659fds-assets-913524902871-us-east-1/<HASH>.zip"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "s3:GetBucketLocation",
+                "s3:GetBucketAcl"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":s3:::cdk-hnb659fds-assets-913524902871-us-east-1"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:CompleteLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildOutputFF368C17",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildLogsF8F093C2",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "ResearcherSourceBuildBuilderRoleDefaultPolicy49DE125E",
+        "Roles": [
+          {
+            "Ref": "ResearcherSourceBuildBuilderRole9D4FFFC4"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "ResearcherSourceBuildLogsF8F093C2": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "LogGroupName": "/aws/codebuild/physical-ai-source-workshop-913524902871",
+        "RetentionInDays": 30,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ResearcherSourceBuildOutputFF368C17": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ImageTagMutability": "IMMUTABLE",
+        "RepositoryName": "physical-ai/projects/workshop/source-images",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ECR::Repository",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ResearcherSourceBuildProjectF2BF3ADB": {
+      "Properties": {
+        "Artifacts": {
+          "Type": "NO_ARTIFACTS"
+        },
+        "AutoRetryLimit": 0,
+        "Cache": {
+          "Type": "NO_CACHE"
+        },
+        "ConcurrentBuildLimit": 1,
+        "Description": "Project-scoped source image builder for workshop",
+        "Environment": {
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "EnvironmentVariables": [],
+          "Image": "aws/codebuild/standard:7.0",
+          "ImagePullCredentialsType": "CODEBUILD",
+          "PrivilegedMode": true,
+          "Type": "LINUX_CONTAINER"
+        },
+        "LogsConfig": {
+          "CloudWatchLogs": {
+            "GroupName": {
+              "Ref": "ResearcherSourceBuildLogsF8F093C2"
+            },
+            "Status": "ENABLED"
+          },
+          "S3Logs": {
+            "Status": "DISABLED"
+          }
+        },
+        "Name": "physical-ai-source-workshop-913524902871",
+        "QueuedTimeoutInMinutes": 5,
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "ResearcherSourceBuildBuilderRole9D4FFFC4",
+            "Arn"
+          ]
+        },
+        "Source": {
+          "BuildSpec": "version: 0.2\nenv:\n  shell: bash\n  exported-variables:\n    - PAI_SOURCE_TREE_SHA256\n    - PAI_DOCKERFILE_SHA256\n    - PAI_OUTPUT_TAG\nphases:\n  build:\n    commands:\n      - |\n          set -euo pipefail\n          PAI_BUILD_ROOT=$(mktemp -d /tmp/pai-source-XXXXXXXX)\n          trap 'rm -rf \"$PAI_BUILD_ROOT\"' EXIT\n          mkdir \"$PAI_BUILD_ROOT/tree\"\n          if [ \"$PAI_SOURCE_TYPE\" = S3 ]; then\n            aws s3api get-object --bucket \"$PAI_SOURCE_BUCKET\" --key \"$PAI_SOURCE_KEY\" --version-id \"$PAI_SOURCE_VERSION\" \"$PAI_BUILD_ROOT/source.zip\" >/dev/null\n            export PAI_SOURCE_TREE_SHA256=$(sha256sum \"$PAI_BUILD_ROOT/source.zip\" | cut -d' ' -f1)\n            test \"$PAI_SOURCE_TREE_SHA256\" = \"$PAI_SOURCE_SHA256\"\n            python3 - \"$PAI_BUILD_ROOT/source.zip\" \"$PAI_BUILD_ROOT/tree\" <<'PYSOURCE'\n          import pathlib,stat,sys,zipfile\n          root=pathlib.Path(sys.argv[2]); total=0\n          with zipfile.ZipFile(sys.argv[1]) as archive:\n              entries=archive.infolist()\n              if len(entries)>4096 or sum(entry.file_size for entry in entries)>128*1024*1024:\n                  raise SystemExit('Source snapshot exceeds extraction limits')\n              for entry in entries:\n                  relative=pathlib.PurePosixPath(entry.filename)\n                  mode=entry.external_attr>>16\n                  if relative.is_absolute() or '..' in relative.parts or '\\\\' in entry.filename or stat.S_ISLNK(mode):\n                      raise SystemExit('Unsafe source snapshot path')\n                  target=root.joinpath(*relative.parts)\n                  if entry.is_dir(): target.mkdir(parents=True,exist_ok=True); continue\n                  target.parent.mkdir(parents=True,exist_ok=True)\n                  with archive.open(entry) as source,target.open('wb') as output:\n                      while chunk:=source.read(1024*1024):\n                          total+=len(chunk)\n                          if total>128*1024*1024: raise SystemExit('Source snapshot exceeds extraction limits')\n                          output.write(chunk)\n                  target.chmod(0o755 if mode&0o111 else 0o644)\n          PYSOURCE\n          else\n            cd \"$CODEBUILD_SRC_DIR\"\n            test \"$(git rev-parse HEAD)\" = \"$PAI_SOURCE_COMMIT\"\n            test \"$CODEBUILD_RESOLVED_SOURCE_VERSION\" = \"$PAI_SOURCE_COMMIT\"\n            git archive --format=tar \"$PAI_SOURCE_COMMIT\" -o \"$PAI_BUILD_ROOT/source.tar\"\n            export PAI_SOURCE_TREE_SHA256=$(sha256sum \"$PAI_BUILD_ROOT/source.tar\" | cut -d' ' -f1)\n            tar -xf \"$PAI_BUILD_ROOT/source.tar\" -C \"$PAI_BUILD_ROOT/tree\"\n          fi\n          PAI_CONTEXT_PATH=$(realpath -e \"$PAI_BUILD_ROOT/tree/$PAI_BUILD_CONTEXT\")\n          PAI_DOCKERFILE_PATH=$(realpath -e \"$PAI_BUILD_ROOT/tree/$PAI_DOCKERFILE\")\n          case \"$PAI_CONTEXT_PATH/\" in \"$PAI_BUILD_ROOT/tree/\"*) ;; *) exit 41;; esac\n          case \"$PAI_DOCKERFILE_PATH\" in \"$PAI_BUILD_ROOT/tree/\"*) ;; *) exit 42;; esac\n          test -d \"$PAI_CONTEXT_PATH\"\n          test -f \"$PAI_DOCKERFILE_PATH\"\n          export PAI_DOCKERFILE_SHA256=$(sha256sum \"$PAI_DOCKERFILE_PATH\" | cut -d' ' -f1)\n          if ! docker info >/dev/null 2>&1; then\n            dockerd --host=unix:///var/run/docker.sock >/tmp/pai-source-dockerd.log 2>&1 &\n            for attempt in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done\n            docker info >/dev/null\n          fi\n          export PAI_OUTPUT_TAG=\"pai-source-${CODEBUILD_BUILD_ID##*:}\"\n          aws ecr get-login-password --region \"$AWS_DEFAULT_REGION\" | docker login --username AWS --password-stdin \"${PAI_OUTPUT_REPOSITORY_URI%%/*}\"\n          docker build --platform linux/amd64 --label \"org.opencontainers.image.revision=$PAI_SOURCE_VERSION\" --label \"org.opencontainers.image.source=$PAI_SOURCE_REPOSITORY\" -f \"$PAI_DOCKERFILE_PATH\" -t \"$PAI_OUTPUT_REPOSITORY_URI:$PAI_OUTPUT_TAG\" \"$PAI_CONTEXT_PATH\"\n          docker push \"$PAI_OUTPUT_REPOSITORY_URI:$PAI_OUTPUT_TAG\"\n",
+          "Location": "cdk-hnb659fds-assets-913524902871-us-east-1/<HASH>.zip",
+          "Type": "S3"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "pai:project",
+            "Value": "workshop"
+          },
+          {
+            "Key": "pai:purpose",
+            "Value": "source-image-build"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TimeoutInMinutes": 20
+      },
+      "Type": "AWS::CodeBuild::Project"
+    },
+    "RuntimeSigningSecretEE1C6871": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "GenerateSecretString": {
+          "ExcludePunctuation": true,
+          "GenerateStringKey": "key",
+          "PasswordLength": 64,
+          "SecretStringTemplate": "{}"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "StoreTable0CCFA19B": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "pk",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "sk",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "gsi1pk",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "gsi1sk",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "gsi1",
+            "KeySchema": [
+              {
+                "AttributeName": "gsi1pk",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "gsi1sk",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "pk",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "sk",
+            "KeyType": "RANGE"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        },
+        "TableName": "physical-ai-dashboard-913524902871-us-east-1",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        }
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WebAccessLogs024BC47D": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "ExpirationInDays": 90,
+              "Status": "Enabled"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WebAccessLogsPolicy3D72FBC3": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "WebAccessLogs024BC47D"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*"
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "WebAccessLogs024BC47D",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "WebAccessLogs024BC47D",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "s3:PutObject",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":iam::127311923021:root"
+                    ]
+                  ]
+                }
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "WebAccessLogs024BC47D",
+                        "Arn"
+                      ]
+                    },
+                    "/alb/AWSLogs/913524902871/*"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "s3:PutObject",
+              "Condition": {
+                "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control"
+                }
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "delivery.logs.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "WebAccessLogs024BC47D",
+                        "Arn"
+                      ]
+                    },
+                    "/alb/AWSLogs/913524902871/*"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "s3:GetBucketAcl",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "delivery.logs.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WebAccessLogs024BC47D",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Type": "AWS::S3::BucketPolicy"
+    },
+    "WebAlbEB696D17": {
+      "DependsOn": [
+        "WebAccessLogsPolicy3D72FBC3"
+      ],
+      "Properties": {
+        "LoadBalancerAttributes": [
+          {
+            "Key": "deletion_protection.enabled",
+            "Value": "false"
+          },
+          {
+            "Key": "idle_timeout.timeout_seconds",
+            "Value": "300"
+          },
+          {
+            "Key": "routing.http.drop_invalid_header_fields.enabled",
+            "Value": "true"
+          },
+          {
+            "Key": "access_logs.s3.enabled",
+            "Value": "true"
+          },
+          {
+            "Key": "access_logs.s3.bucket",
+            "Value": {
+              "Ref": "WebAccessLogs024BC47D"
+            }
+          },
+          {
+            "Key": "access_logs.s3.prefix",
+            "Value": "alb"
+          }
+        ],
+        "Scheme": "internet-facing",
+        "SecurityGroups": [
+          {
+            "Fn::GetAtt": [
+              "WebAlbSgE5DDD885",
+              "GroupId"
+            ]
+          }
+        ],
+        "Subnets": [
+          "subnet-00000000000000001",
+          "subnet-00000000000000002"
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Type": "application"
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    },
+    "WebAlbHttp761A835B": {
+      "Properties": {
+        "DefaultActions": [
+          {
+            "RedirectConfig": {
+              "Port": "443",
+              "Protocol": "HTTPS",
+              "StatusCode": "HTTP_301"
+            },
+            "Type": "redirect"
+          }
+        ],
+        "LoadBalancerArn": {
+          "Ref": "WebAlbEB696D17"
+        },
+        "Port": 80,
+        "Protocol": "HTTP",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::Listener"
+    },
+    "WebAlbHttpsApiTokensRuleAFB350A9": {
+      "Properties": {
+        "Actions": [
+          {
+            "TargetGroupArn": {
+              "Ref": "WebTg5A257185"
+            },
+            "Type": "forward"
+          }
+        ],
+        "Conditions": [
+          {
+            "Field": "path-pattern",
+            "PathPatternConfig": {
+              "Values": [
+                "/api/v1/*"
+              ]
+            }
+          }
+        ],
+        "ListenerArn": {
+          "Ref": "WebAlbHttpsEDEFA7A8"
+        },
+        "Priority": 3,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::ListenerRule"
+    },
+    "WebAlbHttpsEDEFA7A8": {
+      "Properties": {
+        "Certificates": [
+          {
+            "CertificateArn": {
+              "Ref": "WebCertificateDA5CDDF6"
+            }
+          }
+        ],
+        "DefaultActions": [
+          {
+            "AuthenticateCognitoConfig": {
+              "OnUnauthenticatedRequest": "authenticate",
+              "SessionTimeout": "43200",
+              "UserPoolArn": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              },
+              "UserPoolClientId": {
+                "Ref": "AuthUserPoolAlbClientA2F916F2"
+              },
+              "UserPoolDomain": {
+                "Ref": "AuthUserPoolDomain31C6792A"
+              }
+            },
+            "Order": 1,
+            "Type": "authenticate-cognito"
+          },
+          {
+            "Order": 2,
+            "TargetGroupArn": {
+              "Ref": "WebTg5A257185"
+            },
+            "Type": "forward"
+          }
+        ],
+        "LoadBalancerArn": {
+          "Ref": "WebAlbEB696D17"
+        },
+        "Port": 443,
+        "Protocol": "HTTPS",
+        "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::Listener"
+    },
+    "WebAlbHttpsHealthRuleBD4C1350": {
+      "Properties": {
+        "Actions": [
+          {
+            "TargetGroupArn": {
+              "Ref": "WebTg5A257185"
+            },
+            "Type": "forward"
+          }
+        ],
+        "Conditions": [
+          {
+            "Field": "path-pattern",
+            "PathPatternConfig": {
+              "Values": [
+                "/api/health"
+              ]
+            }
+          }
+        ],
+        "ListenerArn": {
+          "Ref": "WebAlbHttpsEDEFA7A8"
+        },
+        "Priority": 1,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::ListenerRule"
+    },
+    "WebAlbHttpsLogoutRule596DE02B": {
+      "Properties": {
+        "Actions": [
+          {
+            "TargetGroupArn": {
+              "Ref": "WebTg5A257185"
+            },
+            "Type": "forward"
+          }
+        ],
+        "Conditions": [
+          {
+            "Field": "path-pattern",
+            "PathPatternConfig": {
+              "Values": [
+                "/api/logout"
+              ]
+            }
+          }
+        ],
+        "ListenerArn": {
+          "Ref": "WebAlbHttpsEDEFA7A8"
+        },
+        "Priority": 2,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::ListenerRule"
+    },
+    "WebAlbHttpsSessionHostsGroup6E54A5A8": {
+      "Properties": {
+        "HealthCheckIntervalSeconds": 15,
+        "HealthCheckPath": "/health",
+        "HealthyThresholdCount": 2,
+        "Port": 3002,
+        "Protocol": "HTTP",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TargetGroupAttributes": [
+          {
+            "Key": "deregistration_delay.timeout_seconds",
+            "Value": "15"
+          },
+          {
+            "Key": "stickiness.enabled",
+            "Value": "false"
+          }
+        ],
+        "TargetType": "ip",
+        "VpcId": "vpc-0123456789abcdef0"
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup"
+    },
+    "WebAlbHttpsSessionHostsRule01574267": {
+      "Properties": {
+        "Actions": [
+          {
+            "TargetGroupArn": {
+              "Ref": "WebAlbHttpsSessionHostsGroup6E54A5A8"
+            },
+            "Type": "forward"
+          }
+        ],
+        "Conditions": [
+          {
+            "Field": "host-header",
+            "HostHeaderConfig": {
+              "Values": [
+                "*.apps.dashboard.example.com"
+              ]
+            }
+          }
+        ],
+        "ListenerArn": {
+          "Ref": "WebAlbHttpsEDEFA7A8"
+        },
+        "Priority": 5,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::ListenerRule"
+    },
+    "WebAlbSgE5DDD885": {
+      "Properties": {
+        "GroupDescription": "physical-ai-dashboard-913524902871 ALB",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1"
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "HTTPS",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "HTTP redirect",
+            "FromPort": 80,
+            "IpProtocol": "tcp",
+            "ToPort": 80
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "VpcId": "vpc-0123456789abcdef0"
+      },
+      "Type": "AWS::EC2::SecurityGroup"
+    },
+    "WebAliasRecord22320298": {
+      "Properties": {
+        "AliasTarget": {
+          "DNSName": {
+            "Fn::Join": [
+              "",
+              [
+                "dualstack.",
+                {
+                  "Fn::GetAtt": [
+                    "WebAlbEB696D17",
+                    "DNSName"
+                  ]
+                }
+              ]
+            ]
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "WebAlbEB696D17",
+              "CanonicalHostedZoneID"
+            ]
+          }
+        },
+        "HostedZoneId": "Z0123456789ABCDEF",
+        "Name": "dashboard.example.com.",
+        "Type": "A"
+      },
+      "Type": "AWS::Route53::RecordSet"
+    },
+    "WebAppSessionsRecord1156D3B9": {
+      "Properties": {
+        "AliasTarget": {
+          "DNSName": {
+            "Fn::Join": [
+              "",
+              [
+                "dualstack.",
+                {
+                  "Fn::GetAtt": [
+                    "WebAlbEB696D17",
+                    "DNSName"
+                  ]
+                }
+              ]
+            ]
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "WebAlbEB696D17",
+              "CanonicalHostedZoneID"
+            ]
+          }
+        },
+        "HostedZoneId": "Z0123456789ABCDEF",
+        "Name": "*.apps.dashboard.example.com.",
+        "Type": "A"
+      },
+      "Type": "AWS::Route53::RecordSet"
+    },
+    "WebCertificateDA5CDDF6": {
+      "Properties": {
+        "DomainName": "dashboard.example.com",
+        "DomainValidationOptions": [
+          {
+            "DomainName": "dashboard.example.com",
+            "HostedZoneId": "Z0123456789ABCDEF"
+          },
+          {
+            "DomainName": "*.apps.dashboard.example.com",
+            "HostedZoneId": "Z0123456789ABCDEF"
+          }
+        ],
+        "SubjectAlternativeNames": [
+          "*.apps.dashboard.example.com"
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Name",
+            "Value": "ModuleTest/Web/Certificate"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "ValidationMethod": "DNS"
+      },
+      "Type": "AWS::CertificateManager::Certificate"
+    },
+    "WebCluster20B6B362": {
+      "Properties": {
+        "ClusterName": "physical-ai-dashboard-913524902871",
+        "ClusterSettings": [
+          {
+            "Name": "containerInsights",
+            "Value": "enabled"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ECS::Cluster"
+    },
+    "WebClusterDefaultServiceDiscoveryNamespace599E793B": {
+      "Properties": {
+        "Name": "physical-ai-dashboard-913524902871.internal",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "Vpc": "vpc-0123456789abcdef0"
+      },
+      "Type": "AWS::ServiceDiscovery::PrivateDnsNamespace"
+    },
+    "WebControllerCloudmapService829FC17A": {
+      "DependsOn": [
+        "WebControllerRoleDefaultPolicy9441823B",
+        "WebControllerRoleE828D939",
+        "WebServiceD04B5F3E"
+      ],
+      "Properties": {
+        "DnsConfig": {
+          "DnsRecords": [
+            {
+              "TTL": 60,
+              "Type": "A"
+            }
+          ],
+          "NamespaceId": {
+            "Fn::GetAtt": [
+              "WebClusterDefaultServiceDiscoveryNamespace599E793B",
+              "Id"
+            ]
+          },
+          "RoutingPolicy": "MULTIVALUE"
+        },
+        "HealthCheckCustomConfig": {
+          "FailureThreshold": 1
+        },
+        "Name": "controller",
+        "NamespaceId": {
+          "Fn::GetAtt": [
+            "WebClusterDefaultServiceDiscoveryNamespace599E793B",
+            "Id"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::ServiceDiscovery::Service"
+    },
+    "WebControllerRoleDefaultPolicy9441823B": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":s3:::cdk-hnb659fds-assets-913524902871-us-east-1/<HASH>.zip"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "codebuild:BatchGetProjects",
+                "codebuild:ListBuildsForProject",
+                "codebuild:StartBuild",
+                "codebuild:BatchGetBuilds",
+                "codebuild:StopBuild"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "ecr:DescribeRepositories",
+                "ecr:DescribeImages",
+                "ecr:BatchGetImage",
+                "ecr:GetDownloadUrlForLayer"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildOutputFF368C17",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": "logs:GetLogEvents",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildLogsF8F093C2",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": [
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "sns:Publish",
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "Notifications87298708"
+              }
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OrchestrationArtifactsE0D303B0",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OrchestrationArtifactsE0D303B0",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "s3:ListBucketMultipartUploads",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "OrchestrationArtifactsE0D303B0",
+                  "Arn"
+                ]
+              },
+              "Sid": "CheckpointMultipartDiscovery"
+            },
+            {
+              "Action": [
+                "s3:ListMultipartUploadParts",
+                "s3:AbortMultipartUpload",
+                "s3:GetObjectVersion",
+                "s3:DeleteObjectVersion"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "OrchestrationArtifactsE0D303B0",
+                        "Arn"
+                      ]
+                    },
+                    "/projects/*"
+                  ]
+                ]
+              },
+              "Sid": "CheckpointMultipartLifecycle"
+            },
+            {
+              "Action": [
+                "eks:DescribeCluster",
+                "sts:GetCallerIdentity",
+                "fsx:CreateDataRepositoryTask",
+                "fsx:DescribeDataRepositoryTasks",
+                "fsx:DescribeDataRepositoryAssociations"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": "ssm:GetParameter",
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:ssm:us-east-1:913524902871:parameter/groot/*",
+                "arn:aws:ssm:us-east-1:913524902871:parameter/physical-ai/*",
+                "arn:aws:ssm:us-east-1:913524902871:parameter/pai/*"
+              ]
+            },
+            {
+              "Action": "kms:Decrypt",
+              "Condition": {
+                "StringEquals": {
+                  "kms:ViaService": "ssm.us-east-1.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:AdminListGroupsForUser"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebControllerRoleDefaultPolicy9441823B",
+        "Roles": [
+          {
+            "Ref": "WebControllerRoleE828D939"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebControllerRoleE828D939": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Description": "Physical AI workflow controller; separate from browser request handling",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebControllerService9BC9A713": {
+      "DependsOn": [
+        "WebControllerRoleDefaultPolicy9441823B",
+        "WebControllerRoleE828D939",
+        "WebServiceD04B5F3E"
+      ],
+      "Properties": {
+        "Cluster": {
+          "Ref": "WebCluster20B6B362"
+        },
+        "DeploymentConfiguration": {
+          "Alarms": {
+            "AlarmNames": [],
+            "Enable": false,
+            "Rollback": false
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": true
+          },
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": 100
+        },
+        "DeploymentController": {
+          "Type": "ECS"
+        },
+        "DesiredCount": 1,
+        "EnableECSManagedTags": false,
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": [
+              {
+                "Fn::GetAtt": [
+                  "WebServiceSgF910ED63",
+                  "GroupId"
+                ]
+              }
+            ],
+            "Subnets": [
+              "subnet-00000000000000003",
+              "subnet-00000000000000004"
+            ]
+          }
+        },
+        "ServiceRegistries": [
+          {
+            "RegistryArn": {
+              "Fn::GetAtt": [
+                "WebControllerCloudmapService829FC17A",
+                "Arn"
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskDefinition": {
+          "Ref": "WebControllerTaskFBC369C1"
+        }
+      },
+      "Type": "AWS::ECS::Service"
+    },
+    "WebControllerTaskExecutionRoleDefaultPolicy4446A2E5": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":ecr:us-east-1:913524902871:repository/cdk-hnb659fds-container-assets-913524902871-us-east-1"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WebLogsD9759FC4",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "RuntimeSigningSecretEE1C6871"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebControllerTaskExecutionRoleDefaultPolicy4446A2E5",
+        "Roles": [
+          {
+            "Ref": "WebControllerTaskExecutionRoleE293CE41"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebControllerTaskExecutionRoleE293CE41": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebControllerTaskFBC369C1": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Command": [
+              "node",
+              "/app/services/controller.cjs"
+            ],
+            "Environment": [
+              {
+                "Name": "AWS_REGION",
+                "Value": "us-east-1"
+              },
+              {
+                "Name": "ACCOUNT_ID",
+                "Value": "913524902871"
+              },
+              {
+                "Name": "AUTH_MODE",
+                "Value": "alb"
+              },
+              {
+                "Name": "WORKFLOW_CONTROLLER",
+                "Value": "0"
+              },
+              {
+                "Name": "DEFAULT_NAMESPACE",
+                "Value": "rl"
+              },
+              {
+                "Name": "GREENGRASS_THING_GROUP",
+                "Value": "groot-913524902871-group"
+              },
+              {
+                "Name": "GREENGRASS_INFERENCE_COMPONENT",
+                "Value": "com.workshop.913524902871.inference"
+              },
+              {
+                "Name": "TABLE_NAME",
+                "Value": {
+                  "Ref": "StoreTable0CCFA19B"
+                }
+              },
+              {
+                "Name": "SNS_TOPIC_ARN",
+                "Value": {
+                  "Ref": "Notifications87298708"
+                }
+              },
+              {
+                "Name": "RESOURCE_TAG_KEY",
+                "Value": "PhysicalAI"
+              },
+              {
+                "Name": "RESOURCE_TAG_VALUE",
+                "Value": "true"
+              },
+              {
+                "Name": "MUJOCO_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ISAACLAB_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ROS2_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "WORKSPACE_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "IMAGE_PROFILES_ENFORCED",
+                "Value": "1"
+              },
+              {
+                "Name": "SOURCE_BUILD_TARGETS_JSON",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      {
+                        "Fn::GetAtt": [
+                          "ResearcherSourceBuildBuilderRole9D4FFFC4",
+                          "Arn"
+                        ]
+                      },
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Name": "BACKEND_HOME_VPC_ID",
+                "Value": "vpc-0123456789abcdef0"
+              },
+              {
+                "Name": "EKS_BACKENDS_JSON",
+                "Value": "[]"
+              },
+              {
+                "Name": "DASHBOARD_ARTIFACT_BUCKET",
+                "Value": {
+                  "Ref": "OrchestrationArtifactsE0D303B0"
+                }
+              },
+              {
+                "Name": "TASK_RUNTIME_IMAGE",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "RUNTIME_API_URL",
+                "Value": "http://controller.physical-ai-dashboard-913524902871.internal:3001"
+              },
+              {
+                "Name": "GATEWAY_BASE_DOMAIN",
+                "Value": "apps.dashboard.example.com"
+              },
+              {
+                "Name": "BUILD_PROJECTS",
+                "Value": "physical-ai-dashboard-913524902871-operations"
+              },
+              {
+                "Name": "COGNITO_USER_POOL_ID",
+                "Value": {
+                  "Ref": "AuthUserPool8115E87F"
+                }
+              },
+              {
+                "Name": "NODE_ENV",
+                "Value": "production"
+              }
+            ],
+            "Essential": true,
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                "node -e \"fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+              ],
+              "Interval": 30,
+              "Retries": 3,
+              "StartPeriod": 30,
+              "Timeout": 5
+            },
+            "Image": {
+              "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "WebLogsD9759FC4"
+                },
+                "awslogs-region": "us-east-1",
+                "awslogs-stream-prefix": "controller"
+              }
+            },
+            "Name": "controller",
+            "PortMappings": [
+              {
+                "ContainerPort": 3001,
+                "Protocol": "tcp"
+              }
+            ],
+            "Secrets": [
+              {
+                "Name": "RUNTIME_SIGNING_KEY",
+                "ValueFrom": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Ref": "RuntimeSigningSecretEE1C6871"
+                      },
+                      ":key::"
+                    ]
+                  ]
+                }
+              }
+            ],
+            "StopTimeout": 90
+          }
+        ],
+        "Cpu": "2048",
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "WebControllerTaskExecutionRoleE293CE41",
+            "Arn"
+          ]
+        },
+        "Family": "ModuleTestWebControllerTask98958883",
+        "Memory": "4096",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "RuntimePlatform": {
+          "CpuArchitecture": "X86_64",
+          "OperatingSystemFamily": "LINUX"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "WebControllerRoleE828D939",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::ECS::TaskDefinition"
+    },
+    "WebGatewayRole9A69D05F": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Description": "Physical AI authenticated session transport",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebGatewayRoleDefaultPolicy57565579": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": [
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": [
+                "eks:DescribeCluster",
+                "sts:GetCallerIdentity"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:AdminListGroupsForUser"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebGatewayRoleDefaultPolicy57565579",
+        "Roles": [
+          {
+            "Ref": "WebGatewayRole9A69D05F"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebGatewayServiceBF31E39B": {
+      "DependsOn": [
+        "WebAlbHttpsSessionHostsRule01574267",
+        "WebGatewayRoleDefaultPolicy57565579",
+        "WebGatewayRole9A69D05F"
+      ],
+      "Properties": {
+        "Cluster": {
+          "Ref": "WebCluster20B6B362"
+        },
+        "DeploymentConfiguration": {
+          "Alarms": {
+            "AlarmNames": [],
+            "Enable": false,
+            "Rollback": false
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": true
+          },
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": 100
+        },
+        "DeploymentController": {
+          "Type": "ECS"
+        },
+        "DesiredCount": 1,
+        "EnableECSManagedTags": false,
+        "HealthCheckGracePeriodSeconds": 60,
+        "LaunchType": "FARGATE",
+        "LoadBalancers": [
+          {
+            "ContainerName": "gateway",
+            "ContainerPort": 3002,
+            "TargetGroupArn": {
+              "Ref": "WebAlbHttpsSessionHostsGroup6E54A5A8"
+            }
+          }
+        ],
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": [
+              {
+                "Fn::GetAtt": [
+                  "WebServiceSgF910ED63",
+                  "GroupId"
+                ]
+              }
+            ],
+            "Subnets": [
+              "subnet-00000000000000003",
+              "subnet-00000000000000004"
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskDefinition": {
+          "Ref": "WebGatewayTaskE41CEB7D"
+        }
+      },
+      "Type": "AWS::ECS::Service"
+    },
+    "WebGatewayTaskE41CEB7D": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Command": [
+              "node",
+              "/app/services/gateway.cjs"
+            ],
+            "Environment": [
+              {
+                "Name": "AWS_REGION",
+                "Value": "us-east-1"
+              },
+              {
+                "Name": "ACCOUNT_ID",
+                "Value": "913524902871"
+              },
+              {
+                "Name": "AUTH_MODE",
+                "Value": "alb"
+              },
+              {
+                "Name": "WORKFLOW_CONTROLLER",
+                "Value": "0"
+              },
+              {
+                "Name": "DEFAULT_NAMESPACE",
+                "Value": "rl"
+              },
+              {
+                "Name": "GREENGRASS_THING_GROUP",
+                "Value": "groot-913524902871-group"
+              },
+              {
+                "Name": "GREENGRASS_INFERENCE_COMPONENT",
+                "Value": "com.workshop.913524902871.inference"
+              },
+              {
+                "Name": "TABLE_NAME",
+                "Value": {
+                  "Ref": "StoreTable0CCFA19B"
+                }
+              },
+              {
+                "Name": "SNS_TOPIC_ARN",
+                "Value": {
+                  "Ref": "Notifications87298708"
+                }
+              },
+              {
+                "Name": "RESOURCE_TAG_KEY",
+                "Value": "PhysicalAI"
+              },
+              {
+                "Name": "RESOURCE_TAG_VALUE",
+                "Value": "true"
+              },
+              {
+                "Name": "MUJOCO_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ISAACLAB_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ROS2_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "WORKSPACE_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "IMAGE_PROFILES_ENFORCED",
+                "Value": "1"
+              },
+              {
+                "Name": "SOURCE_BUILD_TARGETS_JSON",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      {
+                        "Fn::GetAtt": [
+                          "ResearcherSourceBuildBuilderRole9D4FFFC4",
+                          "Arn"
+                        ]
+                      },
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Name": "BACKEND_HOME_VPC_ID",
+                "Value": "vpc-0123456789abcdef0"
+              },
+              {
+                "Name": "EKS_BACKENDS_JSON",
+                "Value": "[]"
+              },
+              {
+                "Name": "DASHBOARD_ARTIFACT_BUCKET",
+                "Value": {
+                  "Ref": "OrchestrationArtifactsE0D303B0"
+                }
+              },
+              {
+                "Name": "TASK_RUNTIME_IMAGE",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "RUNTIME_API_URL",
+                "Value": "http://controller.physical-ai-dashboard-913524902871.internal:3001"
+              },
+              {
+                "Name": "GATEWAY_BASE_DOMAIN",
+                "Value": "apps.dashboard.example.com"
+              },
+              {
+                "Name": "BUILD_PROJECTS",
+                "Value": "physical-ai-dashboard-913524902871-operations"
+              },
+              {
+                "Name": "COGNITO_USER_POOL_ID",
+                "Value": {
+                  "Ref": "AuthUserPool8115E87F"
+                }
+              },
+              {
+                "Name": "DASHBOARD_ORIGIN",
+                "Value": "https://dashboard.example.com"
+              },
+              {
+                "Name": "GATEWAY_ASSET_DIR",
+                "Value": "/app/services/gateway-assets"
+              }
+            ],
+            "Essential": true,
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                "node -e \"fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+              ],
+              "Interval": 30,
+              "Retries": 3,
+              "StartPeriod": 30,
+              "Timeout": 5
+            },
+            "Image": {
+              "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "WebLogsD9759FC4"
+                },
+                "awslogs-region": "us-east-1",
+                "awslogs-stream-prefix": "gateway"
+              }
+            },
+            "Name": "gateway",
+            "PortMappings": [
+              {
+                "ContainerPort": 3002,
+                "Protocol": "tcp"
+              }
+            ]
+          }
+        ],
+        "Cpu": "256",
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "WebGatewayTaskExecutionRole5CB387E2",
+            "Arn"
+          ]
+        },
+        "Family": "ModuleTestWebGatewayTask52FCF68C",
+        "Memory": "512",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "RuntimePlatform": {
+          "CpuArchitecture": "X86_64",
+          "OperatingSystemFamily": "LINUX"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "WebGatewayRole9A69D05F",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::ECS::TaskDefinition"
+    },
+    "WebGatewayTaskExecutionRole5CB387E2": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebGatewayTaskExecutionRoleDefaultPolicy5A6BA6A7": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":ecr:us-east-1:913524902871:repository/cdk-hnb659fds-container-assets-913524902871-us-east-1"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WebLogsD9759FC4",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebGatewayTaskExecutionRoleDefaultPolicy5A6BA6A7",
+        "Roles": [
+          {
+            "Ref": "WebGatewayTaskExecutionRole5CB387E2"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebLogsD9759FC4": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "LogGroupName": "/aws/ecs/physical-ai-dashboard-913524902871",
+        "RetentionInDays": 30,
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Delete"
+    },
+    "WebServiceD04B5F3E": {
+      "DependsOn": [
+        "WebAlbHttpsApiTokensRuleAFB350A9",
+        "WebAlbHttpsHealthRuleBD4C1350",
+        "WebAlbHttpsLogoutRule596DE02B",
+        "WebAlbHttpsEDEFA7A8",
+        "WebAlbHttpsSessionHostsGroup6E54A5A8",
+        "WebAlbHttpsSessionHostsRule01574267",
+        "WebTaskRoleDefaultPolicy6B08E1EC",
+        "WebTaskRoleA0C52095"
+      ],
+      "Properties": {
+        "Cluster": {
+          "Ref": "WebCluster20B6B362"
+        },
+        "DeploymentConfiguration": {
+          "Alarms": {
+            "AlarmNames": [],
+            "Enable": false,
+            "Rollback": false
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": true
+          },
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": 100
+        },
+        "DeploymentController": {
+          "Type": "ECS"
+        },
+        "DesiredCount": 1,
+        "EnableECSManagedTags": false,
+        "EnableExecuteCommand": true,
+        "HealthCheckGracePeriodSeconds": 90,
+        "LaunchType": "FARGATE",
+        "LoadBalancers": [
+          {
+            "ContainerName": "web",
+            "ContainerPort": 3000,
+            "TargetGroupArn": {
+              "Ref": "WebTg5A257185"
+            }
+          }
+        ],
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": [
+              {
+                "Fn::GetAtt": [
+                  "WebServiceSgF910ED63",
+                  "GroupId"
+                ]
+              }
+            ],
+            "Subnets": [
+              "subnet-00000000000000003",
+              "subnet-00000000000000004"
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskDefinition": {
+          "Ref": "WebTaskDef1C8E6ED7"
+        }
+      },
+      "Type": "AWS::ECS::Service"
+    },
+    "WebServiceSgF910ED63": {
+      "Properties": {
+        "GroupDescription": "physical-ai-dashboard-913524902871 service",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1"
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "10.0.0.0/16",
+            "Description": "Scoped workload runtime protocol from private VPC",
+            "FromPort": 3001,
+            "IpProtocol": "tcp",
+            "ToPort": 3001
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "VpcId": "vpc-0123456789abcdef0"
+      },
+      "Type": "AWS::EC2::SecurityGroup"
+    },
+    "WebServiceSgfromModuleTestWebAlbSg3C4617AD3000220BA4B7": {
+      "Properties": {
+        "Description": "from ALB",
+        "FromPort": 3000,
+        "GroupId": {
+          "Fn::GetAtt": [
+            "WebServiceSgF910ED63",
+            "GroupId"
+          ]
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "WebAlbSgE5DDD885",
+            "GroupId"
+          ]
+        },
+        "ToPort": 3000
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress"
+    },
+    "WebServiceSgfromModuleTestWebAlbSg3C4617AD30021D36F94A": {
+      "Properties": {
+        "Description": "Authenticated session hosts from ALB",
+        "FromPort": 3002,
+        "GroupId": {
+          "Fn::GetAtt": [
+            "WebServiceSgF910ED63",
+            "GroupId"
+          ]
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "WebAlbSgE5DDD885",
+            "GroupId"
+          ]
+        },
+        "ToPort": 3002
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress"
+    },
+    "WebTaskDef1C8E6ED7": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Environment": [
+              {
+                "Name": "AWS_REGION",
+                "Value": "us-east-1"
+              },
+              {
+                "Name": "ACCOUNT_ID",
+                "Value": "913524902871"
+              },
+              {
+                "Name": "AUTH_MODE",
+                "Value": "alb"
+              },
+              {
+                "Name": "WORKFLOW_CONTROLLER",
+                "Value": "0"
+              },
+              {
+                "Name": "DEFAULT_NAMESPACE",
+                "Value": "rl"
+              },
+              {
+                "Name": "GREENGRASS_THING_GROUP",
+                "Value": "groot-913524902871-group"
+              },
+              {
+                "Name": "GREENGRASS_INFERENCE_COMPONENT",
+                "Value": "com.workshop.913524902871.inference"
+              },
+              {
+                "Name": "TABLE_NAME",
+                "Value": {
+                  "Ref": "StoreTable0CCFA19B"
+                }
+              },
+              {
+                "Name": "SNS_TOPIC_ARN",
+                "Value": {
+                  "Ref": "Notifications87298708"
+                }
+              },
+              {
+                "Name": "RESOURCE_TAG_KEY",
+                "Value": "PhysicalAI"
+              },
+              {
+                "Name": "RESOURCE_TAG_VALUE",
+                "Value": "true"
+              },
+              {
+                "Name": "MUJOCO_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ISAACLAB_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "ROS2_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "WORKSPACE_IMAGE_URI",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "IMAGE_PROFILES_ENFORCED",
+                "Value": "1"
+              },
+              {
+                "Name": "SOURCE_BUILD_TARGETS_JSON",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      {
+                        "Fn::GetAtt": [
+                          "ResearcherSourceBuildBuilderRole9D4FFFC4",
+                          "Arn"
+                        ]
+                      },
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Name": "BACKEND_HOME_VPC_ID",
+                "Value": "vpc-0123456789abcdef0"
+              },
+              {
+                "Name": "EKS_BACKENDS_JSON",
+                "Value": "[]"
+              },
+              {
+                "Name": "DASHBOARD_ARTIFACT_BUCKET",
+                "Value": {
+                  "Ref": "OrchestrationArtifactsE0D303B0"
+                }
+              },
+              {
+                "Name": "TASK_RUNTIME_IMAGE",
+                "Value": {
+                  "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+                }
+              },
+              {
+                "Name": "RUNTIME_API_URL",
+                "Value": "http://controller.physical-ai-dashboard-913524902871.internal:3001"
+              },
+              {
+                "Name": "GATEWAY_BASE_DOMAIN",
+                "Value": "apps.dashboard.example.com"
+              },
+              {
+                "Name": "BUILD_PROJECTS",
+                "Value": "physical-ai-dashboard-913524902871-operations"
+              },
+              {
+                "Name": "ALB_ARN",
+                "Value": {
+                  "Ref": "WebAlbEB696D17"
+                }
+              },
+              {
+                "Name": "COGNITO_USER_POOL_ID",
+                "Value": {
+                  "Ref": "AuthUserPool8115E87F"
+                }
+              },
+              {
+                "Name": "COGNITO_CLIENT_ID",
+                "Value": {
+                  "Ref": "AuthUserPoolAlbClientA2F916F2"
+                }
+              },
+              {
+                "Name": "COGNITO_DOMAIN",
+                "Value": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Ref": "AuthUserPoolDomain31C6792A"
+                      },
+                      ".auth.us-east-1.amazoncognito.com"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Name": "DASHBOARD_ORIGIN",
+                "Value": "https://dashboard.example.com"
+              },
+              {
+                "Name": "PORT",
+                "Value": "3000"
+              },
+              {
+                "Name": "HOSTNAME",
+                "Value": "0.0.0.0"
+              }
+            ],
+            "Essential": true,
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+              ],
+              "Interval": 30,
+              "Retries": 3,
+              "StartPeriod": 30,
+              "Timeout": 5
+            },
+            "Image": {
+              "Fn::Sub": "913524902871.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-913524902871-us-east-1:<HASH>"
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "WebLogsD9759FC4"
+                },
+                "awslogs-region": "us-east-1",
+                "awslogs-stream-prefix": "web"
+              }
+            },
+            "Name": "web",
+            "PortMappings": [
+              {
+                "ContainerPort": 3000,
+                "Protocol": "tcp"
+              }
+            ],
+            "StopTimeout": 30
+          }
+        ],
+        "Cpu": "512",
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "WebTaskDefExecutionRole04EEAF3E",
+            "Arn"
+          ]
+        },
+        "Family": "ModuleTestWebTaskDef39192A71",
+        "Memory": "1024",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "RuntimePlatform": {
+          "CpuArchitecture": "X86_64",
+          "OperatingSystemFamily": "LINUX"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "WebTaskRoleA0C52095",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::ECS::TaskDefinition"
+    },
+    "WebTaskDefExecutionRole04EEAF3E": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebTaskDefExecutionRoleDefaultPolicyCD2B0D05": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":ecr:us-east-1:913524902871:repository/cdk-hnb659fds-container-assets-913524902871-us-east-1"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WebLogsD9759FC4",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebTaskDefExecutionRoleDefaultPolicyCD2B0D05",
+        "Roles": [
+          {
+            "Ref": "WebTaskDefExecutionRole04EEAF3E"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebTaskRoleA0C52095": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Description": "Physical AI Dashboard application role (EKS access entry principal)",
+        "RoleName": "physical-ai-dashboard-913524902871-task",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "WebTaskRoleDefaultPolicy6B08E1EC": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": "logs:DescribeLogGroups",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:DescribeLogStreams",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":s3:::cdk-hnb659fds-assets-913524902871-us-east-1/<HASH>.zip"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "codebuild:BatchGetProjects",
+                "codebuild:ListBuildsForProject",
+                "codebuild:StartBuild",
+                "codebuild:BatchGetBuilds",
+                "codebuild:StopBuild"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition"
+                    },
+                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "ecr:DescribeRepositories",
+                "ecr:DescribeImages",
+                "ecr:BatchGetImage",
+                "ecr:GetDownloadUrlForLayer"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildOutputFF368C17",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": "logs:GetLogEvents",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ResearcherSourceBuildLogsF8F093C2",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": [
+                "codebuild:BatchGetProjects",
+                "codebuild:ListBuildsForProject",
+                "codebuild:StartBuild",
+                "codebuild:BatchGetBuilds"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:codebuild:us-east-1:913524902871:project/physical-ai-dashboard-913524902871-operations",
+                "arn:aws:codebuild:us-east-1:913524902871:build/physical-ai-dashboard-913524902871-operations:*"
+              ]
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": [
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "StoreTable0CCFA19B",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "StoreTable0CCFA19B",
+                          "Arn"
+                        ]
+                      },
+                      "/index/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "sns:Publish",
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "Notifications87298708"
+              }
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OrchestrationArtifactsE0D303B0",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OrchestrationArtifactsE0D303B0",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": [
+                "sagemaker:ListClusters",
+                "sagemaker:DescribeCluster",
+                "sagemaker:ListClusterNodes",
+                "sagemaker:DescribeClusterNode",
+                "sagemaker:UpdateCluster",
+                "sagemaker:BatchRebootClusterNodes",
+                "sagemaker:BatchReplaceClusterNodes",
+                "sagemaker:ListClusterEvents",
+                "sagemaker:DescribeClusterEvent",
+                "sagemaker:ListComputeQuotas",
+                "sagemaker:DescribeComputeQuota",
+                "sagemaker:CreateComputeQuota",
+                "sagemaker:DeleteComputeQuota",
+                "sagemaker:UpdateComputeQuota",
+                "sagemaker:ListClusterSchedulerConfigs",
+                "sagemaker:DescribeClusterSchedulerConfig",
+                "sagemaker:CreateClusterSchedulerConfig",
+                "sagemaker:DeleteClusterSchedulerConfig",
+                "sagemaker:ListTrainingJobs",
+                "sagemaker:DescribeTrainingJob",
+                "sagemaker:ListModelPackages",
+                "sagemaker:DescribeMlflowTrackingServer",
+                "sagemaker:CreatePresignedMlflowTrackingServerUrl",
+                "sagemaker:AddTags"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "HyperPodAndSageMaker"
+            },
+            {
+              "Action": "sagemaker-mlflow:*",
+              "Effect": "Allow",
+              "Resource": "arn:aws:sagemaker:us-east-1:913524902871:mlflow-tracking-server/*",
+              "Sid": "MlflowRest"
+            },
+            {
+              "Action": [
+                "eks:DescribeCluster",
+                "eks:ListAddons",
+                "eks:DescribeAddon",
+                "eks:ListClusters"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Eks"
+            },
+            {
+              "Action": "sts:GetCallerIdentity",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Sts"
+            },
+            {
+              "Action": [
+                "aps:QueryMetrics",
+                "aps:GetLabels",
+                "aps:GetSeries",
+                "aps:GetMetricMetadata",
+                "aps:DescribeWorkspace"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Amp"
+            },
+            {
+              "Action": [
+                "fsx:DescribeFileSystems",
+                "fsx:DescribeDataRepositoryAssociations",
+                "fsx:DescribeDataRepositoryTasks",
+                "fsx:CreateDataRepositoryTask",
+                "fsx:TagResource"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Fsx"
+            },
+            {
+              "Action": [
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:GetLogEvents",
+                "logs:FilterLogEvents",
+                "logs:StartLiveTail"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "CloudWatchLogsRead"
+            },
+            {
+              "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeInstanceStatus"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Ec2Describe"
+            },
+            {
+              "Action": "tag:GetResources",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "TaggedResourceInventory"
+            },
+            {
+              "Action": [
+                "ecr:DescribeImages",
+                "ecr:BatchGetImage",
+                "ecr:GetDownloadUrlForLayer"
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ecr:us-east-1:913524902871:repository/*",
+              "Sid": "ImageProfileInspection"
+            },
+            {
+              "Action": [
+                "ecr:GetAuthorizationToken",
+                "ec2:DescribeInstanceTypes"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ImageProfileDiscovery"
+            },
+            {
+              "Action": "ssm:GetParameter",
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:ssm:us-east-1:913524902871:parameter/groot/*",
+                "arn:aws:ssm:us-east-1:913524902871:parameter/physical-ai/*",
+                "arn:aws:ssm:us-east-1:913524902871:parameter/pai/*"
+              ],
+              "Sid": "SsmCredentialParameters"
+            },
+            {
+              "Action": "kms:Decrypt",
+              "Condition": {
+                "StringEquals": {
+                  "kms:ViaService": "ssm.us-east-1.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "KmsForSecureStrings"
+            },
+            {
+              "Action": [
+                "greengrass:ListCoreDevices",
+                "greengrass:ListComponents",
+                "greengrass:ListDeployments",
+                "greengrass:ListEffectiveDeployments",
+                "greengrass:ListInstalledComponents",
+                "greengrass:CreateDeployment",
+                "greengrass:GetDeployment",
+                "greengrass:GetCoreDevice",
+                "greengrass:GetComponent",
+                "greengrass:DescribeComponent",
+                "greengrass:ResolveComponentCandidates",
+                "iot:DescribeThingGroup",
+                "iot:ListThingsInThingGroup",
+                "iot:DescribeJob",
+                "iot:CreateJob",
+                "iot:DescribeThing"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "Greengrass"
+            },
+            {
+              "Action": [
+                "cognito-idp:ListUsers",
+                "cognito-idp:ListGroups",
+                "cognito-idp:AdminListGroupsForUser",
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:AdminCreateUser",
+                "cognito-idp:AdminSetUserPassword",
+                "cognito-idp:AdminAddUserToGroup",
+                "cognito-idp:AdminRemoveUserFromGroup"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuthUserPool8115E87F",
+                  "Arn"
+                ]
+              },
+              "Sid": "CognitoUserAdmin"
+            },
+            {
+              "Action": "ce:GetCostAndUsage",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "CostExplorer"
+            },
+            {
+              "Action": [
+                "ssm:PutParameter",
+                "ssm:DeleteParameter"
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-east-1:913524902871:parameter/physical-ai/projects/*",
+              "Sid": "ProjectCredentialManagement"
+            },
+            {
+              "Action": "kms:Encrypt",
+              "Condition": {
+                "StringEquals": {
+                  "kms:ViaService": "ssm.us-east-1.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProjectCredentialEncryption"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "WebTaskRoleDefaultPolicy6B08E1EC",
+        "Roles": [
+          {
+            "Ref": "WebTaskRoleA0C52095"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Policy"
+    },
+    "WebTg5A257185": {
+      "Properties": {
+        "HealthCheckIntervalSeconds": 15,
+        "HealthCheckPath": "/api/health",
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "Port": 3000,
+        "Protocol": "HTTP",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "TargetGroupAttributes": [
+          {
+            "Key": "deregistration_delay.timeout_seconds",
+            "Value": "10"
+          },
+          {
+            "Key": "stickiness.enabled",
+            "Value": "false"
+          }
+        ],
+        "TargetType": "ip",
+        "UnhealthyThresholdCount": 3,
+        "VpcId": "vpc-0123456789abcdef0"
+      },
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup"
+    },
+    "WebWebAcl3A82672D": {
+      "Properties": {
+        "DefaultAction": {
+          "Allow": {}
+        },
+        "Name": "physical-ai-dashboard-913524902871-web",
+        "Rules": [
+          {
+            "Name": "AWSManagedRulesCommonRuleSet",
+            "OverrideAction": {
+              "None": {}
+            },
+            "Priority": 10,
+            "Statement": {
+              "ManagedRuleGroupStatement": {
+                "Name": "AWSManagedRulesCommonRuleSet",
+                "RuleActionOverrides": [
+                  {
+                    "ActionToUse": {
+                      "Count": {}
+                    },
+                    "Name": "SizeRestrictions_BODY"
+                  }
+                ],
+                "VendorName": "AWS"
+              }
+            },
+            "VisibilityConfig": {
+              "CloudWatchMetricsEnabled": true,
+              "MetricName": "AWSManagedRulesCommonRuleSet",
+              "SampledRequestsEnabled": true
+            }
+          },
+          {
+            "Name": "AWSManagedRulesKnownBadInputsRuleSet",
+            "OverrideAction": {
+              "None": {}
+            },
+            "Priority": 20,
+            "Statement": {
+              "ManagedRuleGroupStatement": {
+                "Name": "AWSManagedRulesKnownBadInputsRuleSet",
+                "VendorName": "AWS"
+              }
+            },
+            "VisibilityConfig": {
+              "CloudWatchMetricsEnabled": true,
+              "MetricName": "AWSManagedRulesKnownBadInputsRuleSet",
+              "SampledRequestsEnabled": true
+            }
+          },
+          {
+            "Action": {
+              "Block": {}
+            },
+            "Name": "RateLimitPerIp",
+            "Priority": 30,
+            "Statement": {
+              "RateBasedStatement": {
+                "AggregateKeyType": "IP",
+                "Limit": 2000
+              }
+            },
+            "VisibilityConfig": {
+              "CloudWatchMetricsEnabled": true,
+              "MetricName": "RateLimitPerIp",
+              "SampledRequestsEnabled": true
+            }
+          }
+        ],
+        "Scope": "REGIONAL",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "PhysicalAI",
+            "Value": "true"
+          },
+          {
+            "Key": "Project",
+            "Value": "PhysicalAiDashboard"
+          },
+          {
+            "Key": "UserId",
+            "Value": "913524902871"
+          }
+        ],
+        "VisibilityConfig": {
+          "CloudWatchMetricsEnabled": true,
+          "MetricName": "physical-ai-dashboard-913524902871-web",
+          "SampledRequestsEnabled": true
+        }
+      },
+      "Type": "AWS::WAFv2::WebACL"
+    },
+    "WebWebAclAssociation3779D818": {
+      "Properties": {
+        "ResourceArn": {
+          "Ref": "WebAlbEB696D17"
+        },
+        "WebACLArn": {
+          "Fn::GetAtt": [
+            "WebWebAcl3A82672D",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::WAFv2::WebACLAssociation"
+    }
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5"
+                  ],
+                  {
+                    "Ref": "BootstrapVersion"
+                  }
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+        }
+      ]
+    }
+  }
+}

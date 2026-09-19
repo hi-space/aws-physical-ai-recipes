@@ -9,6 +9,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import { issueLaunchTicket, consumeTicket } from './auth';
+import { resolveRoute } from './routing';
 import { createGatewayServer } from './server';
 import type { GatewaySession, GatewayTransport } from './types';
 
@@ -96,7 +97,7 @@ beforeEach(async () => {
   };
   gateway = await listen(createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', transport, recheckMs: 20, assetDirectory }));
   const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-  cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+  cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
 });
 afterEach(async () => {
   for (const ws of browsers) ws.terminate();
@@ -203,7 +204,7 @@ describe('session HTTP and websocket gateway', () => {
     session.expiresAt = new Date(Date.now() + 180).toISOString();
     await repo.kv.put({ pk: 'SESS#local', sk: 'META', ...session });
     const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-    cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+    cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
     const ws = await openWs('/ws');
     await once(ws, 'close');
     await expect(openWs('/ws')).rejects.toThrow();
@@ -212,7 +213,7 @@ describe('session HTTP and websocket gateway', () => {
     session.expiresAt = new Date(Date.now() + 250).toISOString();
     await repo.kv.put({ pk: 'SESS#local', sk: 'META', ...session });
     const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-    cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+    cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
     await new Promise<void>((resolve, reject) => {
       const req = httpRequest({ host: '127.0.0.1', port: port(gateway), path: '/stream', headers: { host, cookie } }, (res) => {
         expect(res.statusCode).toBe(200);
@@ -226,7 +227,7 @@ describe('session HTTP and websocket gateway', () => {
     session = { ...session, kind: 'dcv', nodeName: 'gpu-node', ssmTarget: 'i-owned', dcvSessionId: 'owner-session' };
     await repo.kv.put({ pk: 'SESS#local', sk: 'META', ...session });
     const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-    cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+    cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
     expect((await request('/')).status).toBe(501);
     expect(connects).toHaveLength(0);
   });
@@ -234,7 +235,7 @@ describe('session HTTP and websocket gateway', () => {
     session = { ...session, kind: 'terminal' };
     await repo.kv.put({ pk: 'SESS#local', sk: 'META', ...session });
     const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-    cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+    cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
     expect((await request('/__gateway/assets/terminal.js', { cookie: '' })).status).toBe(401);
     const asset = await request('/__gateway/assets/terminal.js');
     expect(asset.status).toBe(200); expect(asset.body).toBe('/* locally bundled xterm */');
@@ -244,5 +245,55 @@ describe('session HTTP and websocket gateway', () => {
     expect(page.body).not.toContain('line input');
     await rm(join(assetDirectory, 'terminal.js'));
     expect((await request('/')).status).toBe(503);
+  });
+});
+
+describe('path-mode session gateway', () => {
+  const pathOptions = { mode: 'path' as const, publicOrigin: `https://${host}` };
+  async function startPathGateway() {
+    const pathTransport: GatewayTransport = {
+      connect: async (s, signal) => {
+        connects.push(s);
+        const socket = connect(port(upstream), '127.0.0.1');
+        signal.addEventListener('abort', () => socket.destroy(), { once: true });
+        await once(socket, 'connect'); return socket;
+      },
+      exec: async () => { throw new Error('not used'); },
+    };
+    return listen(createGatewayServer({ repo, dashboardOrigin: 'https://physical-ai.hi-yoo.com', transport: pathTransport, recheckMs: 20, assetDirectory, ...pathOptions }));
+  }
+  async function pathRequest(gw: Server, path: string, headers: Record<string, string> = {}) {
+    return new Promise<{ status: number; headers: IncomingHttpHeaders; body: string }>((resolve, reject) => {
+      const req = httpRequest({ host: '127.0.0.1', port: port(gw), path, method: 'GET', headers: { host, ...headers } }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body: data }));
+        res.on('error', reject);
+      });
+      req.on('error', reject); req.end();
+    });
+  }
+  it('exchanges a ticket into a per-session path cookie, strips the prefix and forwards it upstream', async () => {
+    const gateway = await startPathGateway();
+    const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo, ...pathOptions });
+    const exchange = await pathRequest(gateway, `/s/${session.id}/?ticket=${launch.ticket}`);
+    expect(exchange.status).toBe(303);
+    expect(exchange.headers.location).toBe(`/s/${session.id}/`);
+    const setCookie = exchange.headers['set-cookie']?.[0] ?? '';
+    expect(setCookie).toContain(`pai-session-${session.id}=`);
+    const pathCookie = setCookie.split(';')[0];
+    const proxied = await pathRequest(gateway, `/s/${session.id}/lab`, { cookie: pathCookie });
+    expect(proxied.status).toBe(200);
+    expect(seen[0]).toMatchObject({ method: 'GET', url: '/lab' });
+    expect(seen[0].headers['x-forwarded-prefix']).toBe(`/s/${session.id}`);
+    expect((await pathRequest(gateway, '/lab', { cookie: pathCookie })).status).toBe(401);
+  });
+  it('redirects a prefix without a trailing slash so relative assets resolve under the session', async () => {
+    const gateway = await startPathGateway();
+    const redirect = await pathRequest(gateway, `/s/${session.id}?x=1`);
+    expect(redirect.status).toBe(308);
+    expect(redirect.headers.location).toBe(`/s/${session.id}/?x=1`);
+    expect((await pathRequest(gateway, `/s/${session.id}`)).headers.location).toBe(`/s/${session.id}/`);
+    expect(connects).toHaveLength(0);
   });
 });

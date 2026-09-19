@@ -40,7 +40,7 @@ export interface GatewaySession {
   revokedAt?: string;
   status?: string;
   createdAt?: string;
-  authMethod?: 'alb' | 'token';
+  authMethod?: 'alb' | 'cognito' | 'token';
   tokenId?: string;
   tokenProjectId?: string;
   tokenRole?: 'viewer' | 'researcher';
@@ -51,6 +51,8 @@ export interface AuthOptions {
   repo?: Repo;
   now?: () => number;
   baseDomain?: string;
+  mode?: 'host' | 'path';
+  publicOrigin?: string;
   currentUser?: (username: string) => Promise<CurrentUserAuthorization>;
   validateExecutionProfile?: typeof validateExecutionProfile;
   getPod?: typeof getPod;

@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createGatewayServer } from './server';
 import { consumeTicket, issueLaunchTicket } from './auth';
+import { resolveRoute } from './routing';
 import { tokenFixture } from './token-fixtures.test-helpers';
 
 const host = 'derived.apps.physical-ai.hi-yoo.com';
@@ -42,7 +43,7 @@ async function setup(shortExpiry = false) {
     }, exec: async () => { throw new Error('not used'); },
   } }));
   const launch = await issueLaunchTicket(f.session, f.principal, f.options);
-  const cookie = (await consumeTicket(launch.ticket, host, f.options)).cookie.split(';')[0];
+  const cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, f.options), f.options)).cookie.split(';')[0];
   async function open() {
     const ws = new WebSocket(`ws://127.0.0.1:${port(gateway)}/files`, { headers: { host, cookie, origin: `https://${host}` } });
     browsers.push(ws); await once(ws, 'open'); return ws;

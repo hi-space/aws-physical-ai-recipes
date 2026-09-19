@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { MemoryKV } from '../store/dynamo';
 import { Repo } from '../store/repo';
 import { issueLaunchTicket, consumeTicket, authorizeCookie } from './auth';
+import { resolveRoute } from './routing';
 import type { AuthOptions, GatewaySession } from './types';
 import { guardConnection } from './lifetime';
 
@@ -32,8 +33,8 @@ const member = (values: object) => repo.kv.put({ pk: 'WF#w', sk: 'RUNTIME#epoch2
 const launch = () => issueLaunchTicket(s, principal, options);
 it('permits an accepted current process with fresh browser-admin and profile approval', async () => {
   const ticket = await launch();
-  const { cookie } = await consumeTicket(ticket.ticket, host, options);
-  expect((await authorizeCookie(cookie.split(';')[0], host, options)).podUid).toBe('uid1');
+  const { cookie } = await consumeTicket(ticket.ticket, resolveRoute({ host, path: '/' }, options), options);
+  expect((await authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options), options)).podUid).toBe('uid1');
 });
 it.each([
   { phase: 'INITIALIZING', readyEver: true, processStarted: false },
@@ -45,22 +46,29 @@ it.each([
 });
 it.each(['disabled', 'subject', 'groups'])('requires current Cognito %s at issuance, redemption and lifetime checks', async change => {
   const first = await launch(), second = await launch();
-  const { cookie } = await consumeTicket(first.ticket, host, options);
+  const { cookie } = await consumeTicket(first.ticket, resolveRoute({ host, path: '/' }, options), options);
   if (change === 'disabled') user.enabled = false;
   if (change === 'subject') user.subject = 'replacement';
   if (change === 'groups') user.groups = ['researcher'];
   await expect(launch()).rejects.toMatchObject({ status: 403 });
-  await expect(consumeTicket(second.ticket, host, options)).rejects.toMatchObject({ status: 403 });
-  await expect(authorizeCookie(cookie.split(';')[0], host, options)).rejects.toMatchObject({ status: 403 });
+  await expect(consumeTicket(second.ticket, resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 403 });
+  await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 403 });
 });
 it('rejects token-created sessions and token callers even if Cognito currently reports admin', async () => {
   await expect(issueLaunchTicket(s, { ...principal, authMethod: 'token', tokenId: 't', tokenProjectId: 'p' }, options)).rejects.toBeDefined();
   s.authMethod = 'token'; s.tokenId = 't'; await save();
   await expect(launch()).rejects.toBeDefined();
 });
+it('rejects a session or caller whose authMethod is not a browser method (undefined)', async () => {
+  // Positive assert: an absent authMethod must be denied, not fall through as non-token.
+  s.authMethod = undefined; await save();
+  await expect(launch()).rejects.toMatchObject({ status: 403 });
+  s.authMethod = 'alb'; await save();
+  await expect(issueLaunchTicket(s, { ...principal, authMethod: undefined }, options)).rejects.toMatchObject({ status: 403 });
+});
 it.each(['profile', 'barrier', 'attempt', 'pod', 'member', 'node', 'fence'])('invalidates outstanding tickets and active grants after %s changes', async change => {
   const first = await launch(), second = await launch();
-  const { cookie } = await consumeTicket(first.ticket, host, options);
+  const { cookie } = await consumeTicket(first.ticket, resolveRoute({ host, path: '/' }, options), options);
   if (change === 'profile') options.validateExecutionProfile = async () => { throw Object.assign(new Error('revoked'), { status: 409 }); };
   if (change === 'barrier') await repo.kv.put({ pk: 'WF#w', sk: 'RUNTIME#epoch2#META', released: false });
   if (change === 'attempt') await repo.kv.put({ pk: 'WF#w', sk: 'TASK#train', phase: 'RUNNING', attempts: 3, attemptEpoch: 'epoch3' });
@@ -68,8 +76,8 @@ it.each(['profile', 'barrier', 'attempt', 'pod', 'member', 'node', 'fence'])('in
   if (change === 'member') pod.metadata.labels['batch.kubernetes.io/job-completion-index'] = '1';
   if (change === 'node') pod.spec.nodeName = 'node2';
   if (change === 'fence') await repo.kv.put({ pk: 'WF#w', sk: 'FENCE#epoch2' });
-  await expect(consumeTicket(second.ticket, host, options)).rejects.toBeDefined();
-  await expect(authorizeCookie(cookie.split(';')[0], host, options)).rejects.toBeDefined();
+  await expect(consumeTicket(second.ticket, resolveRoute({ host, path: '/' }, options), options)).rejects.toBeDefined();
+  await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options), options)).rejects.toBeDefined();
 });
 it('allows host-network terminal exec but rejects its HTTP grant', async () => {
   pod.spec.hostNetwork = true; s.hostNetwork = true; await save();
@@ -78,9 +86,10 @@ it('allows host-network terminal exec but rejects its HTTP grant', async () => {
   await expect(launch()).rejects.toBeDefined();
 });
 it('aborts an active connection when current browser-administrator membership is revoked', async () => {
-  const ticket = await launch(), { cookie } = await consumeTicket(ticket.ticket, host, options);
+  const ticket = await launch(), route = resolveRoute({ host, path: '/' }, options);
+  const { cookie } = await consumeTicket(ticket.ticket, route, options);
   const connection = new AbortController();
-  const cleanup = guardConnection(s, cookie.split(';')[0], host, connection, { ...options, recheckMs: 10 });
+  const cleanup = guardConnection(s, cookie.split(';')[0], route, connection, { ...options, recheckMs: 10 });
   try {
     user.groups = [];
     await vi.waitFor(() => expect(connection.signal.aborted).toBe(true), { timeout: 1000 });

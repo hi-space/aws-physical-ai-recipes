@@ -1,29 +1,36 @@
 import { route } from '@/server/api';
-import { getRepo } from '@/server/store/repo';
-import { currentBackend } from '@/server/backends/context';
-import { backendId } from '@/server/backends/registry';
-import { LogArchive } from '@/server/logs/archive';
-import { taskLogResponse } from '@/server/logs/http';
 import { HttpError } from '@/server/errors';
-import { retainedPodLogs } from '@/server/logs/retained';
+import { assertNamespaceAccess } from '@/server/auth/projects';
+import { getPod } from '@/server/k8s/resources';
+import { getRepo } from '@/server/store/repo';
+import { redactorFor, sinceParam, sseResponse } from '@/server/logs/http';
+import { followLogs, pickContainer, readLogs, targetsFromPods } from '@/server/logs/stream';
+import { LIMITS, type LogSnapshot } from '@/server/logs/types';
 export const dynamic = 'force-dynamic';
+const HEADERS = { 'cache-control': 'no-store, no-transform', 'x-content-type-options': 'nosniff' };
 export const GET = route<{ ns: string; name: string }>('viewer', async ({ params, req, session }) => {
-  const repo = getRepo(), archive = new LogArchive({ repo }), url = new URL(req.url);
-  if (url.searchParams.get('source') === 'retained') return retainedPodLogs(session, params.ns, params.name, url, req.signal);
-  let stream = url.searchParams.get('stream');
-  if (!stream) {
-    const rows = await repo.kv.query(`LOG_POD#${backendId(currentBackend()?.id)}#${params.ns}#${params.name}`, '', { limit: 257 });
-    // Reused names cannot silently select another UID. Containers on one UID can use the main stream.
-    const scopes = await Promise.all(rows.map(row => archive.head(String(row.id))));
-    if (!scopes.length || rows.length > 256 || new Set(scopes.map(h => h.scope.podUid)).size !== 1) throw new HttpError(409, 'Select the workflow task log archive and exact Pod UID', 'log_source_required');
-    const candidates = scopes.filter(h => !url.searchParams.has('container') || h.scope.container === url.searchParams.get('container'));
-    stream = candidates.sort((a, b) => Number(b.scope.container === 'main') - Number(a.scope.container === 'main') || b.scope.restartCount - a.scope.restartCount || b.createdAt.localeCompare(a.createdAt))[0]?.id;
-    if (!stream) throw new HttpError(404, 'Container log archive not found');
+  await assertNamespaceAccess(session, params.ns);
+  if (![params.ns, params.name].every(v => /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(v))) throw new HttpError(400, 'Invalid Pod identity');
+  const url = new URL(req.url), pod = await getPod(params.ns, params.name);
+  if (!pod) return Response.json({ source: 'none', reason: 'pod-gone', targets: [], lines: [], truncated: false, redaction: 'none' } satisfies LogSnapshot, { headers: HEADERS });
+  const labels = pod.metadata.labels ?? {};
+  const target = targetsFromPods([{ ...pod, metadata: { ...pod.metadata, labels: { 'pai.aws/attempt': '0', ...labels } } }])[0];
+  const container = pickContainer(target, url.searchParams.get('container') ?? undefined);
+  const tailRaw = url.searchParams.get('tail'), tail = tailRaw === null ? undefined : Number(tailRaw);
+  const sinceTime = sinceParam(req.headers.get('last-event-id') ?? url.searchParams.get('since'));
+  let redaction: LogSnapshot['redaction'] = 'none', redactor;
+  if (labels['pai.aws/workflow-id'] && labels['pai.aws/task']) {
+    const repo = getRepo(), wf = await repo.getWorkflow(labels['pai.aws/workflow-id']);
+    const task = wf ? (await repo.listTasks(wf.id)).find(t => t.name === labels['pai.aws/task']) : undefined;
+    redactor = wf ? await redactorFor(wf, task, target, container, { repo }) : undefined;
+    redaction = redactor ? 'applied' : 'unavailable';
+    if (!redactor && session.role !== 'admin') throw new HttpError(403, 'Secret redaction for this Pod cannot be verified; ask an administrator', 'log_redaction_unavailable');
   }
-  const head = await archive.head(stream);
-  if (head.scope.namespace !== params.ns || head.scope.podName !== params.name || head.scope.backendId !== backendId(currentBackend()?.id)) throw new HttpError(403, 'Log source binding mismatch');
-  url.searchParams.set('stream', stream); url.searchParams.set('podName', params.name);
-  // Existing Jobs panel polls JSON with follow=1. EventSource explicitly accepts SSE.
-  if (!req.headers.get('accept')?.includes('text/event-stream')) url.searchParams.delete('follow');
-  return taskLogResponse(new Request(url, { headers: req.headers, signal: req.signal }), session, head.scope.workflowId, head.scope.taskName, { repo });
+  if (url.searchParams.get('follow') === '1' && (req.headers.get('accept') ?? '').includes('text/event-stream')) {
+    const stop = new AbortController();
+    return sseResponse(followLogs(target, container, { tail, sinceTime, redactor, signal: stop.signal }),
+      { lifetimeMs: LIMITS.followMs, authMs: 5000, stop, request: req.signal, reauth: () => assertNamespaceAccess(session, params.ns) });
+  }
+  const { lines, truncated } = await readLogs(target, container, { tail, sinceTime, redactor });
+  return Response.json({ source: 'kubernetes', phase: pod.status?.phase, target, container, targets: [target], lines, truncated, redaction } satisfies LogSnapshot, { headers: HEADERS });
 });

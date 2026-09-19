@@ -1,16 +1,16 @@
 aws:
-  account_id: ''
-  alias: ''
-  bucket_name: ''
+  account_id: '913524902871'
+  alias: '913524902871'
+  bucket_name: groot-sm-artifacts-913524902871-us-east-1
   region: us-east-1
-  role_arn: ''
+  role_arn: arn:aws:iam::913524902871:role/GR00TSageMakerRole-913524902871-us-east-1
 codebuild:
   training_project: groot-sm-training-build
 dataset:
   s3_prefix: datasets/leisaac-pick-orange
   hf_dataset_id: LightwheelAI/leisaac-pick-orange
 ecr:
-  training_uri: ''
+  training_uri: 913524902871.dkr.ecr.us-east-1.amazonaws.com/groot-sm-training:latest
 eval:
   instance_type: ml.g5.2xlarge
 model:
@@ -25,10 +25,11 @@ training:
   save_steps: 50
   max_wait_seconds: 86400
   use_spot: false
-  # run_with_fallback.py: 용량 부족 시 이 순서로 on-demand 재시도 (primary 다음).
-  # 예: [ml.g6e.12xlarge, ml.g6.12xlarge] — 해당 training job usage 쿼터가 있는 계정만.
   instance_fallbacks: []
-  # Pending(용량 대기)이 이 시간(초)을 넘으면 Job 중단하고 다음 후보로 폴백.
   capacity_timeout_seconds: 900
 transform:
   instance_type: ml.m5.2xlarge
+mlflow:
+  tracking_server_arn: arn:aws:sagemaker:us-east-1:913524902871:mlflow-tracking-server/groot-mlflow-913524902871
+  tracking_server_name: groot-mlflow-913524902871
+  experiment_name: groot-sm-finetune

@@ -15,6 +15,7 @@ const outputPath = '/fsx/checkpoints/projects/team-a/runs/run-a/attempts/2/train
 describe.skipIf(!existsSync(chromium.executablePath()))('task connections browser flow', () => {
   let server: Server, browser: Browser, context: BrowserContext, page: Page, origin: string;
   let status: 'RUNNING' | 'SUCCEEDED', phase: 'RUNNING' | 'SUCCEEDED', role: string, subject: string, ports: string[];
+  let gatewayMode: 'host' | 'path';
   let rows: Row[], calls: Array<{ path: string; method: string; project?: string; body: Record<string, unknown> }>;
   let rejectCreate: boolean, rejectLaunch: boolean, errors: string[], launched: string[];
   let hiddenSessionReads: number;
@@ -44,7 +45,8 @@ describe.skipIf(!existsSync(chromium.executablePath()))('task connections browse
       const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
       calls.push({ path: url.pathname, method: req.method!, project: req.headers['x-pai-project'] as string | undefined, body });
-      if (url.pathname === '/api/me') return json({ user: 'alice', subject, role, project: { id: 'team-a', role: 'researcher' } });
+      if (url.pathname === '/api/me') return json({ user: 'alice', subject, role, project: { id: 'team-a', role: 'researcher' },
+        gateway: gatewayMode === 'path' ? { mode: 'path', origin: 'http://alb.example.com:8080' } : { mode: 'host' } });
       if (url.pathname === '/api/sessions/connect') return json({ replicas: [{ replicaIndex: 0, ports }] });
       if (url.pathname === '/api/sessions' && req.method === 'POST') {
         if (rejectCreate) return json({ error: '프로젝트 권한을 확인하세요.' }, 403);
@@ -62,7 +64,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('task connections browse
         if (rejectLaunch) return json({ error: '접속 권한이 변경되었습니다.' }, 403);
         const id = url.pathname.split('/')[3];
         const count = calls.filter(call => call.path.endsWith('/launch')).length;
-        return json({ url: `https://${id}.apps.physical-ai.hi-yoo.com/?ticket=synthetic-${count}` });
+        return json({ url: gatewayMode === 'path' ? `http://alb.example.com:8080/s/${id}/?ticket=synthetic-${count}` : `https://${id}.apps.physical-ai.hi-yoo.com/?ticket=synthetic-${count}` });
       }
       return json({ error: 'Unknown fixture route' }, 404);
     });
@@ -71,14 +73,14 @@ describe.skipIf(!existsSync(chromium.executablePath()))('task connections browse
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   }, 30_000);
   beforeEach(async () => {
-    status = 'RUNNING'; phase = 'RUNNING'; role = 'researcher'; subject = 'owner-sub'; ports = ['pai-files'];
+    status = 'RUNNING'; phase = 'RUNNING'; role = 'researcher'; subject = 'owner-sub'; ports = ['pai-files']; gatewayMode = 'host';
     rows = []; calls = []; errors = []; launched = []; rejectCreate = false; rejectLaunch = false;
     hiddenSessionReads = 0;
     context = await browser.newContext();
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.origin === origin) return route.continue();
-      if (url.hostname.endsWith('.apps.physical-ai.hi-yoo.com')) {
+      if (url.hostname.endsWith('.apps.physical-ai.hi-yoo.com') || url.origin === 'http://alb.example.com:8080') {
         launched.push(url.toString());
         return route.fulfill({ contentType: 'text/html', body: '<h1>Isolated fixture session</h1>' });
       }
@@ -145,6 +147,17 @@ describe.skipIf(!existsSync(chromium.executablePath()))('task connections browse
     await page.getByText('세션이 만료되었습니다.', { exact: false }).waitFor();
     expect(await page.getByRole('button', { name: '작업 파일 열기', exact: true }).isDisabled()).toBe(true);
     expect(calls.some(call => call.path.endsWith('/launch'))).toBe(false);
+  }, 10000);
+
+  it('opens a path-mode gateway launch URL under the shared origin and session prefix', async () => {
+    gatewayMode = 'path'; await page.goto(origin);
+    await page.getByRole('button', { name: '터미널 준비', exact: true }).click();
+    await page.getByText('준비가 끝났습니다.', { exact: false }).waitFor();
+    const popup = context.waitForEvent('page');
+    await page.getByRole('button', { name: '터미널 열기', exact: true }).click();
+    const tab = await popup; await tab.getByRole('heading', { name: 'Isolated fixture session' }).waitFor(); await tab.close();
+    expect(launched).toHaveLength(1);
+    expect(launched[0]).toMatch(/^http:\/\/alb\.example\.com:8080\/s\/created-1\/\?ticket=/);
   }, 10000);
 
   it('surfaces create and launch authorization errors without showing a successful navigation', async () => {

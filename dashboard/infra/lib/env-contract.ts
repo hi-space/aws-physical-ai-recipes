@@ -12,11 +12,12 @@ export interface DiscoveredOutputs {
   isaacLab?: Record<string, string>; // IsaacLab-<Profile>-<acct>
 }
 
-export function buildEnv(d: DiscoveredOutputs, extra: Record<string, string | undefined>): Record<string, string> {
+export function buildEnv(d: DiscoveredOutputs, extra: Record<string, string | undefined>, authMode: 'alb' | 'cognito' = 'alb'): Record<string, string> {
   const e: Record<string, string | undefined> = {
     AWS_REGION: d.region,
     ACCOUNT_ID: d.accountId,
-    AUTH_MODE: 'alb',
+    // Kept at position 3 so the rendered container Environment array is byte-identical for https (parity gate).
+    AUTH_MODE: authMode,
     WORKFLOW_CONTROLLER: '1',
     DEFAULT_NAMESPACE: 'rl',
     // HyperPod EKS
@@ -44,9 +45,6 @@ export function buildEnv(d: DiscoveredOutputs, extra: Record<string, string | un
     DCV_SECRET_ARN: d.isaacLab?.SecretArn,
     DCV_URL: d.isaacLab?.DcvUrl,
     CODE_SERVER_URL: d.isaacLab?.CodeServerUrl,
-    // Edge
-    GREENGRASS_THING_GROUP: `groot-${d.accountId}-group`,
-    GREENGRASS_INFERENCE_COMPONENT: `com.workshop.${d.accountId}.inference`,
     ...extra,
   };
   const out: Record<string, string> = {};

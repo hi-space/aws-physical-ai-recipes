@@ -13,16 +13,18 @@ export async function injectedLogSecrets(workflow: Workflow, task: Task, pod: Po
   const refs = containers.flatMap(container => container.env ?? []).flatMap(env => env.valueFrom?.secretKeyRef ? [env.valueFrom.secretKeyRef] : []);
   if (!refs.length) return [];
   const name = `${jobNameFor(workflow.id, task.name, task.attempts)}-creds`;
+  const podEpoch = pod.metadata.labels?.['pai.aws/epoch'], podAttempt = pod.metadata.labels?.['pai.aws/attempt'];
   if (refs.some(ref => ref.name !== name || !ref.key) || pod.metadata.namespace !== workflow.namespace ||
     pod.metadata.annotations?.['pai.aws/attempt-secret-name'] !== name ||
-    !pod.metadata.annotations?.['pai.aws/attempt-secret-uid']) throw new Error('Original attempt Secret binding unavailable');
+    !pod.metadata.annotations?.['pai.aws/attempt-secret-uid'] ||
+    !podEpoch || !podAttempt) throw new Error('Original attempt Secret binding unavailable');
   const secret = await read(workflow.namespace, name);
   const labels = secret.metadata.labels;
   if (secret.immutable !== true || secret.type !== 'Opaque' || secret.metadata.name !== name ||
     secret.metadata.namespace !== workflow.namespace || secret.metadata.uid !== pod.metadata.annotations['pai.aws/attempt-secret-uid'] ||
     labels?.['app.kubernetes.io/managed-by'] !== 'physical-ai-dashboard' || labels['pai.aws/workflow-id'] !== workflow.id ||
-    labels['pai.aws/task'] !== task.name || labels['pai.aws/epoch'] !== task.attemptEpoch ||
-    labels['pai.aws/attempt'] !== String(task.attempts) || labels['pai.aws/project'] !== workflow.projectId) {
+    labels['pai.aws/task'] !== task.name || labels['pai.aws/epoch'] !== podEpoch ||
+    labels['pai.aws/attempt'] !== podAttempt || labels['pai.aws/project'] !== workflow.projectId) {
     throw new Error('Original attempt Secret identity cannot be verified');
   }
   return [...new Set(refs.map(ref => {

@@ -16,7 +16,9 @@ export async function authorizeExecutionSession(s: GatewaySession, options: Auth
   const pins = wf.executionProfilePins;
   if (!s.trustedExecution && !spec?.executionProfile && !Object.keys(pins ?? {}).length) return;
   if (!spec || s.trustedExecution && !Object.keys(pins ?? {}).length) throw deny();
-  if (hasTokenBinding(s) || s.authMethod !== 'alb' || principal && (principal.authMethod !== 'alb' || principal.role !== 'admin' || principal.tokenId || principal.tokenProjectId)) throw deny();
+  // Positive assert: only the two browser session methods (alb / cognito) may hold a trusted
+  // execution grant. An undefined or token authMethod is denied instead of falling through.
+  if (hasTokenBinding(s) || (s.authMethod !== 'alb' && s.authMethod !== 'cognito') || principal && ((principal.authMethod !== 'alb' && principal.authMethod !== 'cognito') || principal.role !== 'admin' || principal.tokenId || principal.tokenProjectId)) throw deny();
   if (!s.podUid || !s.podName || !s.nodeName || !s.attemptEpoch || !Number.isSafeInteger(s.attempt) || wf.ownerSubject !== s.ownerSubject || wf.projectId !== s.projectId || wf.namespace !== s.namespace || wf.status !== 'RUNNING') throw deny();
   let user;
   try { user = await (options.currentUser ?? currentUserAuthorization)(wf.owner); }

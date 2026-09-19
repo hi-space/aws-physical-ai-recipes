@@ -1,15 +1,11 @@
 import type { Repo } from '../store/repo';
 import type { CurrentUserAuthorization } from '../aws/cognito';
-export const LIMITS = { chunk: 16 * 1024, page: 64 * 1024, maxPage: 256 * 1024, records: 64, archive: 64 * 1024 * 1024, retentionMs: 30 * 86400_000, cursorMs: 3600_000 } as const;
-export interface LogScope {
-  projectId: string; backendId: string; backendConfigHash?: string; namespace: string;
-  workflowId: string; taskName: string; attempt: number; epoch: string; member: number;
-  container: string; podName: string; podUid: string; restartCount: number;
+export const LIMITS = { chunk: 16 * 1024, tailDefault: 1000, tailMax: 5000, snapshotBytes: 1024 * 1024, followMs: 55_000 } as const;
+export interface LogTarget { namespace: string; podName: string; podUid: string; attempt: number; member: number; containers: string[]; phase?: string }
+export interface LogLine { ts: string; text: string }
+export interface LogSnapshot {
+  source: 'kubernetes' | 'none'; reason?: 'pod-gone' | 'not-started'; phase?: string;
+  target?: LogTarget; container?: string; targets: LogTarget[]; lines: LogLine[]; truncated: boolean;
+  redaction: 'applied' | 'unavailable' | 'none';
 }
-export type GapReason = 'source-start' | 'source-reconnect' | 'source-error' | 'source-eof' | 'watch-reset' | 'pod-gone' | 'capture-stop' | 'capacity';
-export type LogInput = { kind: 'data'; data: string } | { kind: 'gap'; reason: GapReason };
-export interface LogRecord { sequence: number; kind: 'data' | 'gap'; data?: string; reason?: GapReason; bytes: number; hash: string; at: string }
-export interface LogHead { id: string; scope: LogScope; sequence: number; bytes: number; gaps: number; state: 'open' | 'closed' | 'capped'; createdAt: string; expiresAt: number; coverage: 'captured-only' }
-export interface LogLease { id: string; holder: string }
-export interface LogDeps { repo: Repo; now?: () => number; currentUser?: (username: string) => Promise<CurrentUserAuthorization>; maxArchiveBytes?: number }
-export interface LogPage { stream: LogHead; records: LogRecord[]; nextSequence: number; hasMore: boolean }
+export interface LogDeps { repo: Repo; now?: () => number; currentUser?: (username: string) => Promise<CurrentUserAuthorization> }

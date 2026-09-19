@@ -1,11 +1,12 @@
 import { authorizeCookie } from './auth';
+import type { GatewayRoute } from './routing';
 import type { AuthOptions, GatewaySession } from './types';
 
 /** Bounds already-open streams, including requests still waiting for the upstream handshake. */
 export function guardConnection(
   session: GatewaySession,
   cookie: string | undefined,
-  host: string,
+  route: GatewayRoute,
   controller: AbortController,
   options: AuthOptions & { recheckMs?: number },
 ): () => void {
@@ -25,7 +26,7 @@ export function guardConnection(
     checking = true;
     validationTimeout = setTimeout(() => controller.abort(), 5_000);
     validationTimeout.unref();
-    try { await authorizeCookie(cookie, host, options); }
+    try { await authorizeCookie(cookie, route, options); }
     catch { controller.abort(); }
     finally { clearTimeout(validationTimeout); checking = false; }
   }, Math.max(10, Math.min(options.recheckMs ?? 5_000, 5_000)));

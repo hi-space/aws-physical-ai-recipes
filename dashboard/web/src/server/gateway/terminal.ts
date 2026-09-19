@@ -69,8 +69,8 @@ export async function serveTerminal(ws: WebSocket, session: GatewaySession, tran
 /** ANSI terminal assets are bundled locally by the parent service build. */
 export const terminalPage = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Research task terminal</title>
-<link rel="stylesheet" href="/__gateway/assets/terminal.css">
+<link rel="stylesheet" href="./__gateway/assets/terminal.css">
 <style>html,body{height:100%;margin:0;background:#141820;color:#e7ebf1;font:14px ui-sans-serif,system-ui}body{display:flex;flex-direction:column}header{display:flex;align-items:center;gap:20px;padding:14px 20px;border-bottom:1px solid #354052}h1{font-size:14px;margin:0}#terminal-status{color:#b8c4d6;flex:1}button{background:#283447;color:#e7ebf1;border:1px solid #566782;border-radius:4px;padding:6px 10px}main{flex:1;min-height:0;padding:12px}#terminal{height:100%;width:100%}.xterm{height:100%}</style>
-<script src="/__gateway/assets/terminal.js" defer></script></head>
+<script src="./__gateway/assets/terminal.js" defer></script></head>
 <body><header><h1>Task terminal</h1><span id="terminal-status" role="status">Connecting…</span><button id="terminal-focus" type="button">Focus terminal</button></header>
 <main><div id="terminal" aria-label="Research task terminal"></div></main></body></html>`;

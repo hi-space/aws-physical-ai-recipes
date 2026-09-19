@@ -82,6 +82,7 @@ export class GrootFinetuneStack extends cdk.Stack {
     const namedGlobal = (base: string) => `${base}-${accountId}-${this.region}`;
 
     cdk.Tags.of(this).add('Project', 'GrootFinetune');
+    cdk.Tags.of(this).add('PhysicalAI', 'true');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
 
     // ---------- [1] GR00T 런타임 ECR + CodeBuild (auto-trigger build) ----------

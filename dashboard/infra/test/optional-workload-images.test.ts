@@ -31,7 +31,7 @@ function fixture() {
 function synth(root: string, optionalImages?: unknown) {
   const app = new cdk.App({ outdir: fs.mkdtempSync(path.join(os.tmpdir(), 'pai-optional-out-')) });
   const stack = new cdk.Stack(app, 'Test', { env: { account: '123456789012', region: 'us-east-1' } });
-  const images = new WorkloadImages(stack, 'Images', { repositoryRoot: root, optionalImages } as ConstructorParameters<typeof WorkloadImages>[2]);
+  const images = new WorkloadImages(stack, 'Images', { repositoryRoot: root, build: ['mujoco', 'isaaclab', 'ros2', 'workspace'], overrides: {}, optionalImages } as ConstructorParameters<typeof WorkloadImages>[2]);
   const assembly = app.synth();
   const manifest = JSON.parse(fs.readFileSync(path.join(assembly.directory, 'Test.assets.json'), 'utf8'));
   return { environment: images.environment, assets: manifest.dockerImages as Record<string, { displayName: string; source: { dockerBuildArgs?: Record<string, string> } }> };

@@ -1,4 +1,6 @@
+import { NextResponse } from 'next/server';
 import { route } from '@/server/api';
-import { last30DaysByService } from '@/server/aws/cost';
+import { cachedAccountCost } from '@/server/aws/cost';
 export const dynamic = 'force-dynamic';
-export const GET = route('admin', async () => last30DaysByService());
+export const GET = route('admin', async () =>
+  NextResponse.json(await cachedAccountCost(), { headers: { 'cache-control': 'private, max-age=600' } }));

@@ -6,10 +6,9 @@ import { currentUserAuthorization } from '../aws/cognito';
 import { HttpError } from '../errors';
 import { backendId } from '../backends/registry';
 import type { Item } from '../store/dynamo';
-import type { LogDeps, LogScope } from './types';
+import type { LogDeps } from './types';
 const fail = () => new HttpError(403, 'Log access is no longer authorized', 'log_forbidden');
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
-export const principalBinding = (p: Session) => `${p.subject ?? ''}/${p.authMethod ?? 'alb'}/${p.tokenId ?? ''}`;
 function token(item: Item | undefined, p: Session, projectId: string, now: number) {
   if (!item || item.id !== p.tokenId || item.projectId !== projectId || item.ownerSubject !== p.subject || item.revokedAt ||
     typeof item.ownerUsername !== 'string' || !item.ownerUsername || typeof item.tokenHash !== 'string' || !/^[a-f0-9]{64}$/.test(item.tokenHash) ||
@@ -18,13 +17,12 @@ function token(item: Item | undefined, p: Session, projectId: string, now: numbe
   return item;
 }
 function stamp(item: Item) { return JSON.stringify([item.id, item.projectId, item.ownerSubject, item.ownerUsername, item.tokenHash, item.expiresAt, item.revokedAt, item.roleCeiling, item.revision, item.scopes]); }
-export async function authorizeLogs(p: Session, workflowId: string, taskName: string, deps: LogDeps, scope?: LogScope) {
+export async function authorizeLogs(p: Session, workflowId: string, taskName: string, deps: LogDeps) {
   if (!p.subject || !['viewer', 'researcher', 'admin'].includes(p.role)) throw fail();
   const wf = await deps.repo.getWorkflow(workflowId);
-  if (!wf?.projectId) throw new HttpError(404, 'Project workflow log archive not found');
+  if (!wf?.projectId) throw new HttpError(404, 'Project workflow not found');
   const task = wf.spec.workflow.tasks.find(t => t.name === taskName);
   if (!task) throw new HttpError(404, 'Workflow task not found');
-  if (scope && (scope.workflowId !== wf.id || scope.taskName !== taskName || scope.projectId !== wf.projectId || scope.namespace !== wf.namespace || scope.backendId !== backendId(wf.backendId) || scope.backendConfigHash !== wf.backendConfigHash)) throw fail();
   const now = deps.now ?? Date.now;
   const marked = p.authMethod === 'token' || p.tokenId !== undefined || p.tokenProjectId !== undefined;
   let record: Item | undefined, ownerKey: string | undefined;

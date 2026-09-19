@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { authorizeCookie, consumeTicket, issueLaunchTicket } from './auth';
+import { resolveRoute } from './routing';
 import { tokenFixture } from './token-fixtures.test-helpers';
 const host = 'derived.apps.physical-ai.hi-yoo.com';
 
 async function cookieFixture() {
   const f = await tokenFixture();
   const launch = await issueLaunchTicket(f.session, f.principal, f.options);
-  const exchanged = await consumeTicket(launch.ticket, host, f.options);
+  const exchanged = await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, f.options), f.options);
   return { ...f, launch, cookie: exchanged.cookie.split(';')[0] };
 }
 describe('derived token gateway grants', () => {
@@ -16,7 +17,7 @@ describe('derived token gateway grants', () => {
     const launch = await issueLaunchTicket(f.session, f.principal, f.options);
     const ticket = await f.repo.kv.get(`GATEWAY#TICKET#${createHash('sha256').update(launch.ticket).digest('hex')}`, 'META');
     expect(ticket).toMatchObject({ tokenId: f.principal.tokenId, tokenProjectId: f.project.id, tokenRole: 'researcher', tokenExpiresAt: f.issued.metadata.expiresAt });
-    const exchanged = await consumeTicket(launch.ticket, host, f.options);
+    const exchanged = await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, f.options), f.options);
     const secret = exchanged.cookie.split(';')[0].split('=')[1];
     const grant = await f.repo.kv.get(`GATEWAY#COOKIE#${createHash('sha256').update(secret).digest('hex')}`, 'META');
     expect(grant).toMatchObject({ tokenId: f.principal.tokenId, tokenRole: 'researcher', expiresAt: Date.parse(f.session.expiresAt) });
@@ -26,7 +27,7 @@ describe('derived token gateway grants', () => {
     const f = await tokenFixture();
     const launch = await issueLaunchTicket(f.session, f.principal, f.options);
     await f.revoke();
-    await expect(consumeTicket(launch.ticket, host, f.options)).rejects.toMatchObject({ status: 401 });
+    await expect(consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 401 });
   });
   it.each(['revoked', 'disabled', 'recreated', 'cognito-role', 'project-role', 'project-namespace', 'token-project', 'role-ceiling', 'scope', 'owner-only-revocation', 'digest-only-revocation'])('invalidates exchanged cookies after %s changes', async (change) => {
     const f = await cookieFixture();
@@ -41,16 +42,16 @@ describe('derived token gateway grants', () => {
     if (change === 'scope') await f.changeToken({ scopes: ['sessions:read'] });
     if (change === 'owner-only-revocation') await f.changeToken({ revokedAt: new Date().toISOString() }, 'owner');
     if (change === 'digest-only-revocation') await f.changeToken({ revokedAt: new Date().toISOString() }, 'digest');
-    await expect(authorizeCookie(f.cookie, host, f.options)).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(f.cookie, resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 401 });
   });
   it('fails closed on Cognito provider errors without exposing their details', async () => {
     const f = await cookieFixture(); f.state.failUser = true;
-    await expect(authorizeCookie(f.cookie, host, f.options)).rejects.toMatchObject({ status: 503, message: 'Token authorization unavailable' });
+    await expect(authorizeCookie(f.cookie, resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 503, message: 'Token authorization unavailable' });
   });
   it('rechecks source records after an in-flight Cognito lookup', async () => {
     const f = await cookieFixture();
     f.options.currentUser = async () => { await f.revoke(); return f.state.user; };
-    await expect(authorizeCookie(f.cookie, host, f.options)).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(f.cookie, resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 401 });
   });
   it('rejects forged token role/project markers and token launch of an unbound browser session', async () => {
     const f = await tokenFixture();
@@ -70,15 +71,15 @@ describe('derived token gateway grants', () => {
     await f.repo.kv.put({ pk: 'SESS#derived', sk: 'META', ...f.session });
     const launch = await issueLaunchTicket(f.session, f.principal, f.options);
     expect(launch.expiresAt).toBe(expiry);
-    const { cookie } = await consumeTicket(launch.ticket, host, f.options);
+    const { cookie } = await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, f.options), f.options);
     f.state.now = Date.parse(expiry);
-    await expect(authorizeCookie(cookie.split(';')[0], host, f.options)).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 401 });
   });
   it('rejects an inconsistent grant role and a stored session that exceeds its source expiry', async () => {
     const f = await cookieFixture();
     const key = `GATEWAY#COOKIE#${createHash('sha256').update(f.cookie.split('=')[1]).digest('hex')}`;
     await f.repo.kv.put({ ...(await f.repo.kv.get(key, 'META'))!, tokenRole: 'admin' });
-    await expect(authorizeCookie(f.cookie, host, f.options)).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(f.cookie, resolveRoute({ host, path: '/' }, f.options), f.options)).rejects.toMatchObject({ status: 401 });
     const tooLong = { ...f.session, expiresAt: new Date(Date.parse(f.session.tokenExpiresAt!) + 1).toISOString() };
     await f.repo.kv.put({ pk: 'SESS#derived', sk: 'META', ...tooLong });
     await expect(issueLaunchTicket(tooLong, f.browser, f.options)).rejects.toMatchObject({ status: 401 });

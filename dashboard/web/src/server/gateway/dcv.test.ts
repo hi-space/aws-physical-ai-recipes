@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createGatewayServer } from './server';
 import { issueLaunchTicket, consumeTicket } from './auth';
+import { resolveRoute } from './routing';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import type { DcvUpstream, GatewaySession } from './types';
@@ -44,7 +45,7 @@ async function setup(change: (target: DcvUpstream) => DcvUpstream = (t) => t) {
   } });
   gateway.listen(0, '127.0.0.1'); await once(gateway, 'listening');
   const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, { repo });
-  const cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+  const cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
   return { closed: () => closed, received: () => received, get: () => new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = request({ host: '127.0.0.1', port: (gateway.address() as AddressInfo).port, headers: { host, cookie } }, (res) => {
       let body = ''; res.on('data', (b) => { body += b; }); res.on('end', () => resolve({ status: res.statusCode!, body }));

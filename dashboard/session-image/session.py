@@ -12,15 +12,19 @@ IDENTITY_ENV = {
 }
 
 
-def command(kind):
+def command(kind, prefix=""):
+    if prefix and (not prefix.startswith("/s/") or prefix.endswith("/") or len(prefix) > 80):
+        raise ValueError("Invalid session prefix")
     if kind == "tensorboard":
-        return ["tensorboard", "--logdir=/logs", "--host=127.0.0.1", "--port=6006", "--reload_interval=15"]
+        return ["tensorboard", "--logdir=/logs", "--host=127.0.0.1", "--port=6006", "--reload_interval=15"] + \
+            ([f"--path_prefix={prefix}"] if prefix else [])
     if kind == "jupyter":
         return ["jupyter", "lab", "--ServerApp.ip=127.0.0.1", "--ServerApp.port=8888",
                 "--ServerApp.port_retries=0", "--ServerApp.open_browser=False",
                 "--ServerApp.root_dir=/workspace", "--ServerApp.allow_remote_access=True",
                 "--ServerApp.trust_xheaders=True", "--IdentityProvider.token=",
-                "--PasswordIdentityProvider.hashed_password="]
+                "--PasswordIdentityProvider.hashed_password="] + \
+            ([f"--ServerApp.base_url={prefix}/"] if prefix else [])
     if kind == "code-server":
         return ["code-server", "--bind-addr=127.0.0.1:8080", "--auth=none",
                 "--disable-telemetry", "--disable-update-check", "/workspace"]
@@ -40,7 +44,9 @@ def main(args):
     env["AWS_EC2_METADATA_DISABLED"] = "true"
     for relative in (".config", ".cache", ".local/share", ".jupyter"):
         os.makedirs(os.path.join("/workspace", relative), mode=0o700, exist_ok=True)
-    os.execvpe(command(args[0])[0], command(args[0]), env)
+    prefix = os.environ.get("PAI_SESSION_PREFIX", "")
+    argv = command(args[0], prefix)
+    os.execvpe(argv[0], argv, env)
 
 
 if __name__ == "__main__":

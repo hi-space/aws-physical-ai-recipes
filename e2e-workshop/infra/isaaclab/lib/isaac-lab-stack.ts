@@ -90,6 +90,7 @@ export class IsaacLabStack extends cdk.Stack {
 
     // --- 스택 레벨 태그 (모든 리소스에 자동 전파) ---
     cdk.Tags.of(this).add('Project', 'IsaacLab');
+    cdk.Tags.of(this).add('PhysicalAI', 'true');
     cdk.Tags.of(this).add('Environment', props.versionProfile);
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
     if (accountId) {

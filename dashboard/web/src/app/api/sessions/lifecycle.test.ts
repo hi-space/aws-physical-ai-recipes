@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Repo } from '@/server/store/repo';
 import { MemoryKV } from '@/server/store/dynamo';
 import { createManagedSession, deleteSession, extendSession, launchSession, cleanupExpiredSessions, cancelRunSessions, listSessionsWithStatus, taskConnectionOptions, type SessionDeps } from '@/server/services/sessions';
 import type { Session, Workflow } from '@/server/store/types';
 import type { Project } from '@/server/auth/projects';
 import { authorizeCookie, consumeTicket } from '@/server/gateway/auth';
+import { resolveRoute } from '@/server/gateway/routing';
 import { tokenFixture } from '@/server/gateway/token-fixtures.test-helpers';
 
 let repo: Repo, deps: SessionDeps;
@@ -70,6 +71,21 @@ describe('managed development sessions', () => {
     expect(pod.initContainers[1]).not.toHaveProperty('env');
     expect(JSON.stringify(app)).not.toMatch(/pip install|PAI_RUNTIME_TOKEN|AWS_ACCESS_KEY_ID|AWS_ROLE_ARN/);
     if (kind === 'tensorboard') expect(app.volumeMounts.find((m: any) => m.mountPath === '/logs')).toMatchObject({ readOnly: true, subPath: 'checkpoints/projects/team-a/runs/run-a/train' });
+  });
+  it('injects PAI_SESSION_PREFIX empty in host mode and /s/<id> in path mode', async () => {
+    try {
+      vi.stubEnv('GATEWAY_MODE', 'host');
+      await create();
+      const hostEnv = creations[0].spec.template.spec.containers[0].env;
+      expect(hostEnv).toEqual(expect.arrayContaining([{ name: 'PAI_SESSION_PREFIX', value: '' }]));
+
+      vi.stubEnv('GATEWAY_MODE', 'path');
+      const pathSession = await create();
+      const pathEnv = creations[1].spec.template.spec.containers[0].env;
+      expect(pathEnv).toEqual(expect.arrayContaining([{ name: 'PAI_SESSION_PREFIX', value: `/s/${pathSession.id}` }]));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   it('rejects managed creation before writing intent if the isolation runtime image is absent', async () => {
     deps.runtimeImage = undefined;
@@ -182,8 +198,8 @@ describe('post-completion TensorBoard contract', () => {
     const registered = await ready(s);
     expect(registered).toMatchObject({ status: 'READY', podUid: 'pod-uid', podName: 'session-pod' });
     const url = new URL((await launchSession(s.id, principal, deps)).url);
-    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, url.host, { repo, now: deps.now });
-    expect((await authorizeCookie(cookie.split(';')[0], url.host, { repo, now: deps.now })).id).toBe(s.id);
+    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now });
+    expect((await authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now })).id).toBe(s.id);
     expect(await cancelRunSessions(wf, { attempt: 2 }, deps)).toBe(true);
     expect((await repo.getSession(s.id))?.status).toBe('READY');
   });
@@ -196,10 +212,10 @@ describe('post-completion TensorBoard contract', () => {
       : { kind, workflowId: wf.id, taskName: 'train', portName: 'pai-files' };
     const live = await createManagedSession(input, principal, project, deps);
     const url = new URL((await launchSession(live.id, principal, deps)).url);
-    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, url.host, { repo, now: deps.now });
+    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now });
     await completeWorkflow(wf);
     await expect(createManagedSession(input, principal, project, deps)).rejects.toMatchObject({ status: 409 });
-    await expect(authorizeCookie(cookie.split(';')[0], url.host, { repo, now: deps.now })).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now })).rejects.toMatchObject({ status: 401 });
   });
 
   it('keeps post-completion TensorBoard subject to its source API-token revocation', async () => {
@@ -211,9 +227,9 @@ describe('post-completion TensorBoard contract', () => {
     }, source.principal, source.project, deps);
     await ready(s);
     const url = new URL((await launchSession(s.id, source.principal, deps)).url);
-    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, url.host, source.options);
+    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, source.options), source.options);
     await source.revoke();
-    await expect(authorizeCookie(cookie.split(';')[0], url.host, source.options)).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, source.options), source.options)).rejects.toMatchObject({ status: 401 });
   });
 });
 

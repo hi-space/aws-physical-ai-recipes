@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Boxes, Cpu, Database, FlaskConical, GitBranch, HardDrive, Layers, LayoutDashboard, ListTree, MonitorPlay, Radio, Settings, Workflow, type LucideIcon } from 'lucide-react';
+import { Activity, Boxes, Cpu, Database, FlaskConical, GitBranch, HardDrive, Layers, LayoutDashboard, ListTree, MonitorPlay, Radio, Server, Settings, Workflow, type LucideIcon } from 'lucide-react';
 import { classNames as cx } from '@/lib/format';
 import { api, useMe, type Me } from '@/lib/api-client';
 import { LOCALES, LOCALE_SHORT_LABELS, useLocale, useSetLocale, useT, type MessageKey } from '@/lib/i18n';
@@ -32,6 +32,7 @@ const NAV: NavGroup[] = [
     key: 'groupCluster',
     items: [
       { href: '/compute', key: 'compute', icon: Cpu },
+      { href: '/resources', key: 'resources', icon: Server },
       { href: '/queues', key: 'queues', icon: Layers, feature: 'eks' },
       { href: '/jobs', key: 'jobs', icon: ListTree, feature: 'eks' },
       { href: '/metrics', key: 'metrics', icon: Activity, feature: 'amp' },

@@ -5,6 +5,7 @@ import WebSocket from 'ws';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import { issueLaunchTicket, consumeTicket } from './auth';
+import { resolveRoute } from './routing';
 import { createGatewayServer } from './server';
 import type { GatewaySession, TerminalCallbacks } from './types';
 
@@ -34,7 +35,7 @@ async function terminal() {
   } });
   servers.push(server); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const launch = await issueLaunchTicket(session, { subject: 'sub' }, { repo });
-  const cookie = (await consumeTicket(launch.ticket, host, { repo })).cookie.split(';')[0];
+  const cookie = (await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, { repo }), { repo })).cookie.split(';')[0];
   const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/__gateway/terminal`,
     { headers: { host, cookie, origin: `https://${host}` } });
   browsers.push(ws); await once(ws, 'open');

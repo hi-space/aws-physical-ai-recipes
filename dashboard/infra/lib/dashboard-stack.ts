@@ -20,6 +20,7 @@ import { ArtifactsConstruct } from './constructs/artifacts';
 import { WorkloadImages } from './constructs/workload-images';
 import { OperationsConstruct } from './constructs/operations';
 import { SourceBuildProject } from './constructs/source-build-project';
+import { resolveModules, type DashboardModules } from './modules';
 
 export interface DashboardStackProps extends cdk.StackProps {
   accountId: string;
@@ -40,6 +41,7 @@ export interface DashboardStackProps extends cdk.StackProps {
   extendedImages?: boolean;
   workflowNamespaces?: string[];
   mlflowTrackingServerArns?: string[];
+  modules?: DashboardModules;
 }
 
 export class DashboardStack extends cdk.Stack {
@@ -47,7 +49,13 @@ export class DashboardStack extends cdk.Stack {
     super(scope, id, props);
     const prefix = `physical-ai-dashboard-${props.accountId}`;
     const d = props.discovered;
+    const modules = props.modules ?? resolveModules(k => ({
+      domainName: props.domainName, hostedZoneId: props.hostedZoneId, hostedZoneName: props.hostedZoneName,
+      extendedImages: props.extendedImages ? 'true' : undefined,
+    } as Record<string, unknown>)[k]);
+    const domainName = modules.ingress.mode === 'https' ? modules.ingress.domainName : undefined;
 
+    cdk.Tags.of(this).add(modules.resourceTag.key, modules.resourceTag.value);
     cdk.Tags.of(this).add('Project', 'PhysicalAiDashboard');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
     cdk.Tags.of(this).add('UserId', props.accountId);
@@ -59,22 +67,26 @@ export class DashboardStack extends cdk.Stack {
       privateSubnetIds: props.network.privateSubnetIds,
       vpcCidrBlock: props.network.vpcCidr,
     });
-    const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.hostedZoneName });
+    // The hosted zone is only referenced for https DNS records; http ingress has no domain to import.
+    const zone = modules.ingress.mode === 'https'
+      ? route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: props.hostedZoneId, zoneName: props.hostedZoneName })
+      : undefined;
 
     const table = new TableConstruct(this, 'Store', { tableName: `${prefix}-${props.region}` });
     const artifacts = new ArtifactsConstruct(this, 'Orchestration');
     const workloadImages = new WorkloadImages(this, 'WorkloadImages', {
       repositoryRoot: path.resolve(props.webAppPath, '..', '..'),
-      extended: props.extendedImages,
+      build: modules.images.build,
+      overrides: modules.images.overrides,
       optionalImages: typeof this.node.tryGetContext('optionalImages') === 'string'
         ? JSON.parse(this.node.tryGetContext('optionalImages')) : this.node.tryGetContext('optionalImages'),
     });
     const sourceDirectory = this.node.tryGetContext('sourceBuildDirectory');
     if (sourceDirectory !== undefined && typeof sourceDirectory !== 'string') throw new Error('sourceBuildDirectory must be a local source path');
-    const sourceBuild = new SourceBuildProject(this, 'ResearcherSourceBuild', {
+    const sourceBuild = modules.sourceBuild ? new SourceBuildProject(this, 'ResearcherSourceBuild', {
       repositoryRoot: path.resolve(props.webAppPath, '..', '..'), projectId: 'workshop',
       ...(sourceDirectory ? { sourceDirectory: path.resolve(props.webAppPath, '..', '..', sourceDirectory) } : {}),
-    });
+    }) : undefined;
     const runtimeImage = new ecrAssets.DockerImageAsset(this, 'TaskRuntimeImage', {
       directory: path.resolve(props.webAppPath, '..', 'runtime'), platform: ecrAssets.Platform.LINUX_AMD64,
       exclude: ['pai-runtime', 'pai-runtime-arm64'],
@@ -83,6 +95,11 @@ export class DashboardStack extends cdk.Stack {
       generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', passwordLength: 64, excludePunctuation: true },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
+    // http ingress runs in-app Cognito login (AUTH_MODE=cognito); the web tier signs its session cookie with this key.
+    const sessionSigningSecret = modules.ingress.mode === 'http' ? new secretsmanager.Secret(this, 'SessionSigningSecret', {
+      generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', passwordLength: 64, excludePunctuation: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    }) : undefined;
     const dcvSsoSecret = d.isaacLab?.InstanceId ? new secretsmanager.Secret(this, 'DcvSsoSecret', {
       generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', passwordLength: 64, excludePunctuation: true },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -96,55 +113,68 @@ export class DashboardStack extends cdk.Stack {
       dcvSsoSecret.grantRead(hostRole);
       dcvAgent.grantRead(hostRole);
     }
-    artifacts.bucket.addCorsRule({
-      allowedOrigins: [`https://${props.domainName}`],
-      allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.HEAD],
-      allowedHeaders: ['*'], exposedHeaders: ['ETag', 'x-amz-version-id', 'x-amz-checksum-sha256'], maxAge: 3600,
-    });
     const topic = new sns.Topic(this, 'Notifications', { topicName: `${prefix}-notifications`, displayName: 'Physical AI Dashboard' });
     if (props.notifyEmail) topic.addSubscription(new subs.EmailSubscription(props.notifyEmail));
 
-    const auth = new AuthConstruct(this, 'Auth', { accountId: props.accountId, domainName: props.domainName, adminUsername: props.adminUsername, adminEmail: props.adminEmail });
+    const auth = new AuthConstruct(this, 'Auth', {
+      accountId: props.accountId, mode: modules.ingress.mode, domainName: domainName,
+      adminUsername: props.adminUsername, adminEmail: props.adminEmail,
+    });
 
-    const discoveredEnvironment = buildEnv(d, { TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn });
+    const discoveredEnvironment = buildEnv(d, {
+      ...(modules.edge ? {
+        GREENGRASS_THING_GROUP: `groot-${d.accountId}-group`,
+        GREENGRASS_INFERENCE_COMPONENT: `com.workshop.${d.accountId}.inference`,
+      } : {}),
+      TABLE_NAME: table.table.tableName, SNS_TOPIC_ARN: topic.topicArn,
+      RESOURCE_TAG_KEY: modules.resourceTag.key, RESOURCE_TAG_VALUE: modules.resourceTag.value,
+    }, modules.ingress.mode === 'http' ? 'cognito' : 'alb');
     const pipelineName = discoveredEnvironment.SM_PIPELINE_NAME;
     const pipelineArn = pipelineName ? `arn:aws:sagemaker:${props.region}:${props.accountId}:pipeline/${pipelineName}` : undefined;
     const environment = {
       ...discoveredEnvironment,
       ...workloadImages.environment,
       IMAGE_PROFILES_ENFORCED: '1',
-      LOG_ARCHIVE_ENABLED: '1',
-      SOURCE_BUILD_TARGETS_JSON: cdk.Stack.of(this).toJsonString([sourceBuild.target]),
+      SOURCE_BUILD_TARGETS_JSON: sourceBuild ? cdk.Stack.of(this).toJsonString([sourceBuild.target]) : '[]',
       BACKEND_HOME_VPC_ID: vpc.vpcId,
       EKS_BACKENDS_JSON: JSON.stringify(typeof this.node.tryGetContext('eksBackends') === 'string'
         ? JSON.parse(this.node.tryGetContext('eksBackends')) : this.node.tryGetContext('eksBackends') ?? []),
       DASHBOARD_ARTIFACT_BUCKET: artifacts.bucket.bucketName,
       TASK_RUNTIME_IMAGE: runtimeImage.imageUri,
       RUNTIME_API_URL: `http://controller.${prefix}.internal:3001`,
-      GATEWAY_BASE_DOMAIN: `apps.${props.domainName}`,
+      ...(modules.gateway && modules.ingress.mode === 'https' ? { GATEWAY_BASE_DOMAIN: `apps.${domainName}` } : {}),
       ...(dcvSsoSecret && dcvAgent ? { DCV_SSO_SECRET_ARN: dcvSsoSecret.secretArn, DCV_AGENT_ASSET_URI: dcvAgent.s3ObjectUrl } : {}),
       BUILD_PROJECTS: [`${prefix}-operations`, d.groot?.SmTrainingBuildProjectName, d.groot?.RuntimeCodeBuildProjectName].filter(Boolean).join(','),
     };
 
     const svc = new ServiceConstruct(this, 'Web', {
       vpc,
-      domainName: props.domainName,
+      modules: { ingress: modules.ingress, gateway: modules.gateway, waf: modules.waf },
       hostedZone: zone,
       userPool: auth.userPool,
       userPoolClient: auth.userPoolClient,
       userPoolDomain: auth.userPoolDomain,
+      appClient: auth.appClient,
       environment,
       webAppPath: props.webAppPath,
       namePrefix: prefix,
       runtimeSigningSecret,
+      sessionSigningSecret,
+    });
+    // Presigned browser uploads: allow the dashboard origin. https uses the custom domain; http uses the ALB DNS
+    // (only known now that the load balancer exists).
+    artifacts.bucket.addCorsRule({
+      allowedOrigins: [domainName ? `https://${domainName}` : `http://${svc.loadBalancer.loadBalancerDnsName}`],
+      allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.HEAD],
+      allowedHeaders: ['*'], exposedHeaders: ['ETag', 'x-amz-version-id', 'x-amz-checksum-sha256'], maxAge: 3600,
     });
     if (props.network.vpcCidr) svc.serviceSecurityGroup.addIngressRule(ec2.Peer.ipv4(props.network.vpcCidr), ec2.Port.tcp(3001), 'Scoped workload runtime protocol from private VPC');
-    new AlarmsConstruct(this, 'Alarms', {
+    if (modules.alarms) new AlarmsConstruct(this, 'Alarms', {
       namePrefix: prefix,
       loadBalancer: svc.loadBalancer,
       controllerService: svc.controllerService,
       clusterName: prefix,
-      webAclName: `${prefix}-web`,
+      webAclName: svc.webAcl ? `${prefix}-web` : undefined,
       topic,
     });
     if (d.hyperPodEks?.EksClusterName) {
@@ -165,8 +195,8 @@ export class DashboardStack extends cdk.Stack {
 
     // ------------------------------------------------------------------ IAM
     const role = svc.taskRole;
-    sourceBuild.grantControlPlane(role);
-    sourceBuild.grantControlPlane(svc.controllerRole);
+    sourceBuild?.grantControlPlane(role);
+    sourceBuild?.grantControlPlane(svc.controllerRole);
     if (d.hyperPodEks?.ClusterArn) for (const operator of [role, svc.controllerRole]) {
       operator.addToPolicy(new iam.PolicyStatement({
         sid: 'ReviewedHyperPodCapacity', actions: ['sagemaker:DescribeCluster', 'sagemaker:ListClusterNodes',
@@ -174,8 +204,8 @@ export class DashboardStack extends cdk.Stack {
         resources: [d.hyperPodEks.ClusterArn],
       }));
     }
-    const builds = environment.BUILD_PROJECTS.split(',');
-    role.addToPolicy(new iam.PolicyStatement({
+    const builds = environment.BUILD_PROJECTS.split(',').filter(Boolean);
+    if (builds.length) role.addToPolicy(new iam.PolicyStatement({
       actions: ['codebuild:BatchGetProjects', 'codebuild:ListBuildsForProject', 'codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
       resources: builds.flatMap((name) => [`arn:aws:codebuild:${props.region}:${props.accountId}:project/${name}`, `arn:aws:codebuild:${props.region}:${props.accountId}:build/${name}:*`]),
     }));
@@ -184,8 +214,10 @@ export class DashboardStack extends cdk.Stack {
     topic.grantPublish(role);
     artifacts.bucket.grantReadWrite(role);
     table.table.grantReadWriteData(svc.controllerRole);
-    table.table.grantReadWriteData(svc.gatewayRole);
-    svc.gatewayRole.addToPolicy(new iam.PolicyStatement({ actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity'], resources: ['*'] }));
+    if (svc.gatewayRole && svc.gatewayService) {
+      table.table.grantReadWriteData(svc.gatewayRole);
+      svc.gatewayRole.addToPolicy(new iam.PolicyStatement({ actions: ['eks:DescribeCluster', 'sts:GetCallerIdentity'], resources: ['*'] }));
+    }
     topic.grantPublish(svc.controllerRole);
     artifacts.bucket.grantReadWrite(svc.controllerRole);
     svc.controllerRole.addToPolicy(new iam.PolicyStatement({
@@ -317,6 +349,7 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'Ec2Describe', actions: ['ec2:DescribeInstances', 'ec2:DescribeInstanceStatus'], resources: ['*'] }));
+    role.addToPolicy(new iam.PolicyStatement({ sid: 'TaggedResourceInventory', actions: ['tag:GetResources'], resources: ['*'] }));
     role.addToPolicy(new iam.PolicyStatement({
       sid: 'ImageProfileInspection',
       actions: ['ecr:DescribeImages', 'ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'],
@@ -338,13 +371,15 @@ export class DashboardStack extends cdk.Stack {
         actions: ['ssm:SendCommand'], resources: [instanceArn, `arn:aws:ssm:${props.region}::document/AWS-RunShellScript`],
       }));
       for (const reader of [role, svc.controllerRole]) reader.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetCommandInvocation'], resources: ['*'] }));
-      svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
-        actions: ['ssm:StartSession'], resources: [instanceArn, `arn:aws:ssm:${props.region}::document/AWS-StartPortForwardingSession`],
-      }));
-      svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
-        actions: ['ssm:TerminateSession', 'ssmmessages:OpenDataChannel'],
-        resources: [`arn:aws:ssm:${props.region}:${props.accountId}:session/*`],
-      }));
+      if (svc.gatewayRole && svc.gatewayService) {
+        svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
+          actions: ['ssm:StartSession'], resources: [instanceArn, `arn:aws:ssm:${props.region}::document/AWS-StartPortForwardingSession`],
+        }));
+        svc.gatewayRole.addToPolicy(new iam.PolicyStatement({
+          actions: ['ssm:TerminateSession', 'ssmmessages:OpenDataChannel'],
+          resources: [`arn:aws:ssm:${props.region}:${props.accountId}:session/*`],
+        }));
+      }
     }
     if (d.isaacLab?.SecretArn) {
       role.addToPolicy(new iam.PolicyStatement({ sid: 'DcvSecret', actions: ['secretsmanager:GetSecretValue'], resources: [d.isaacLab.SecretArn] }));
@@ -357,7 +392,7 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'KmsForSecureStrings', actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } } }));
-    role.addToPolicy(
+    if (modules.edge) role.addToPolicy(
       new iam.PolicyStatement({
         sid: 'Greengrass',
         actions: [
@@ -398,7 +433,7 @@ export class DashboardStack extends cdk.Stack {
       }),
     );
     role.addToPolicy(new iam.PolicyStatement({ sid: 'CostExplorer', actions: ['ce:GetCostAndUsage'], resources: ['*'] }));
-    for (const reader of [svc.gatewayRole, svc.controllerRole]) reader.addToPolicy(new iam.PolicyStatement({
+    for (const reader of (svc.gatewayRole ? [svc.gatewayRole, svc.controllerRole] : [svc.controllerRole])) reader.addToPolicy(new iam.PolicyStatement({
       actions: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser'],
       resources: [auth.userPool.userPoolArn],
     }));
@@ -464,22 +499,27 @@ export class DashboardStack extends cdk.Stack {
         kubernetesGroups: ['physical-ai:controller'],
       });
       svc.controllerService.node.addDependency(controllerEntry);
-      const gatewayEntry = new eks.CfnAccessEntry(this, 'GatewayEksAccessEntry', {
-        clusterName: d.hyperPodEks.EksClusterName, principalArn: svc.gatewayRole.roleArn,
-        type: 'STANDARD', kubernetesGroups: ['physical-ai:gateway'],
-      });
-      svc.gatewayService.node.addDependency(gatewayEntry);
+      if (svc.gatewayRole && svc.gatewayService) {
+        const gatewayEntry = new eks.CfnAccessEntry(this, 'GatewayEksAccessEntry', {
+          clusterName: d.hyperPodEks.EksClusterName, principalArn: svc.gatewayRole.roleArn,
+          type: 'STANDARD', kubernetesGroups: ['physical-ai:gateway'],
+        });
+        svc.gatewayService.node.addDependency(gatewayEntry);
+      }
     }
 
     // ------------------------------------------------------------------ Outputs
-    new cdk.CfnOutput(this, 'DashboardUrl', { value: `https://${props.domainName}/`, description: 'Dashboard (Cognito login)' });
+    new cdk.CfnOutput(this, 'DashboardUrl', {
+      value: domainName ? `https://${domainName}/` : `http://${svc.loadBalancer.loadBalancerDnsName}/`,
+      description: 'Dashboard (Cognito login)',
+    });
     new cdk.CfnOutput(this, 'AlbDnsName', { value: svc.loadBalancer.loadBalancerDnsName });
     new cdk.CfnOutput(this, 'AdminCredentialsSecret', { value: auth.adminSecret.secretName, description: 'Secrets Manager secret with the bootstrap admin username/password' });
     new cdk.CfnOutput(this, 'AdminCredentialsCommand', {
       value: `aws secretsmanager get-secret-value --secret-id ${auth.adminSecret.secretName} --region ${props.region} --query SecretString --output text`,
     });
     new cdk.CfnOutput(this, 'UserPoolId', { value: auth.userPool.userPoolId });
-    new cdk.CfnOutput(this, 'UserPoolClientId', { value: auth.userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'UserPoolClientId', { value: (auth.userPoolClient ?? auth.appClient).userPoolClientId });
     new cdk.CfnOutput(this, 'TableName', { value: table.table.tableName });
     new cdk.CfnOutput(this, 'TaskRoleArn', { value: role.roleArn });
     new cdk.CfnOutput(this, 'LogGroupName', { value: svc.logGroup.logGroupName });
@@ -492,6 +532,6 @@ export class DashboardStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ControllerRoleArn', { value: svc.controllerRole.roleArn });
     new cdk.CfnOutput(this, 'ControllerServiceName', { value: svc.controllerService.serviceName });
     new cdk.CfnOutput(this, 'ArtifactBucketName', { value: artifacts.bucket.bucketName });
-    new cdk.CfnOutput(this, 'GatewayServiceName', { value: svc.gatewayService.serviceName });
+    if (svc.gatewayService) new cdk.CfnOutput(this, 'GatewayServiceName', { value: svc.gatewayService.serviceName });
   }
 }

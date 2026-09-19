@@ -5,7 +5,8 @@ import { connect as connectTls } from 'node:tls';
 import { once } from 'node:events';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
-import { authorizeCookie, consumeTicket, sessionIdFromHost } from './auth';
+import { authorizeCookie, consumeTicket } from './auth';
+import { resolveRoute, type GatewayRoute } from './routing';
 import { upstreamHeaders, downstreamHeaders } from './headers';
 import { guardConnection } from './lifetime';
 import { serveTerminal, terminalPage } from './terminal';
@@ -58,33 +59,34 @@ function rejectUpgrade(socket: Duplex, error: unknown, afterFlush?: () => void) 
   socket.resume();
 }
 
-function requestUrl(req: IncomingMessage, options: GatewayOptions): { host: string; url: URL } {
+function requestUrl(req: IncomingMessage, options: GatewayOptions): { route: GatewayRoute; url: URL } {
   // Duplicate Host/Origin/Cookie fields are ambiguous across intermediaries.
   for (const name of ['host', 'origin', 'cookie']) {
     if (req.rawHeaders.filter((_, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === name).length > 1) {
       throw new GatewayError(400, 'Ambiguous request headers');
     }
   }
-  const host = req.headers.host!;
-  sessionIdFromHost(host, options);
   const path = req.url ?? '/';
   if (!path.startsWith('/') || path.startsWith('//') || /[\r\n\\#]/.test(path)) throw new GatewayError(400, 'Invalid request path');
-  const url = new URL(path, `https://${host}`);
-  if (url.origin !== `https://${host}` || url.pathname.startsWith('//')) throw new GatewayError(400, 'Invalid request path');
-  return { host, url };
+  // resolveRoute derives the session (from host or the /s/<id> prefix) and validates the authority for the mode.
+  const route = resolveRoute({ host: req.headers.host, path }, options);
+  const origin = new URL(route.publicOrigin);
+  const url = new URL(`${route.prefix}${route.rest}`, origin);
+  if (url.origin !== origin.origin || url.pathname.startsWith('//')) throw new GatewayError(400, 'Invalid request path');
+  return { route, url };
 }
 
 /** The dashboard's public origin is deployment configuration with no built-in default. When absent, launch
  * exchanges accept only same-origin/absent Origin headers and the DCV desktop cannot be embedded. */
 function dashboardOrigin(options: GatewayOptions): string | undefined {
   const origin = options.dashboardOrigin ?? process.env.DASHBOARD_ORIGIN;
-  if (origin && !/^https:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(origin)) throw new GatewayError(500, 'DASHBOARD_ORIGIN is malformed');
+  if (origin && !/^https?:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(origin)) throw new GatewayError(500, 'DASHBOARD_ORIGIN is malformed');
   return origin || undefined;
 }
 
-function checkOrigin(req: IncomingMessage, host: string, websocket: boolean, exchange: boolean, options: GatewayOptions) {
+function checkOrigin(req: IncomingMessage, route: GatewayRoute, websocket: boolean, exchange: boolean, options: GatewayOptions) {
   const origin = req.headers.origin;
-  const expected = `https://${host}`;
+  const expected = route.publicOrigin;
   const dashboard = dashboardOrigin(options);
   if (origin && origin !== expected && !(exchange && dashboard && origin === dashboard)) throw new GatewayError(403, 'Origin is not authorized');
   if ((!['GET', 'HEAD'].includes(req.method ?? '') || websocket) && origin !== expected) {
@@ -144,10 +146,10 @@ export function createGatewayServer(options: GatewayOptions = {}) {
   server.requestTimeout = 0; // Long uploads/streams are bounded by their authenticated session.
   server.keepAliveTimeout = 5_000;
 
-  function lifetime(session: GatewaySession, req: IncomingMessage, host: string, peer: ServerResponse | Duplex) {
+  function lifetime(session: GatewaySession, req: IncomingMessage, route: GatewayRoute, peer: ServerResponse | Duplex) {
     const controller = new AbortController();
     active.add(controller);
-    const cleanup = guardConnection(session, req.headers.cookie, host, controller, options);
+    const cleanup = guardConnection(session, req.headers.cookie, route, controller, options);
     const abort = () => controller.abort();
     peer.once('close', abort);
     peer.once('error', abort);
@@ -200,12 +202,13 @@ export function createGatewayServer(options: GatewayOptions = {}) {
     }
   }
 
-  function outgoing(req: IncomingMessage, host: string, stream: Duplex, controller: AbortController, websocket = false) {
+  function outgoing(req: IncomingMessage, route: GatewayRoute, stream: Duplex, controller: AbortController, websocket = false) {
     const agent = new Agent({ keepAlive: false });
     agent.createConnection = () => stream as Socket;
     const upstream = requestHttp({
-      method: req.method, host, path: req.url,
-      headers: upstreamHeaders(req.headers, host, websocket), agent,
+      // The upstream is reached over `stream`; `path` is the prefix-stripped app path (route.rest).
+      method: req.method, host: new URL(route.publicOrigin).host, path: route.rest,
+      headers: upstreamHeaders(req.headers, route, websocket), agent,
     });
     const timeout = setTimeout(() => upstream.destroy(new GatewayError(504, 'Session upstream handshake timed out')), 15_000);
     timeout.unref();
@@ -222,43 +225,55 @@ export function createGatewayServer(options: GatewayOptions = {}) {
       res.end('{"status":"ok"}');
       return;
     }
-    const { host, url } = requestUrl(req, options);
+    const { route, url } = requestUrl(req, options);
+    // `/s/<id>` (no trailing slash) serves the session root, but the browser would resolve the page's
+    // relative `./__gateway/...` assets against `/s/` → a foreign session. Normalize to the slash form
+    // (preserving the query so `/s/<id>?ticket=…` still exchanges) before any upstream work.
+    if (route.mode === 'path') {
+      const afterPrefix = (req.url ?? '').slice(route.prefix.length);
+      if (afterPrefix === '' || afterPrefix.startsWith('?')) {
+        res.writeHead(308, { ...noCache, location: `${route.prefix}/${afterPrefix}` });
+        res.end();
+        return;
+      }
+    }
     const ticketParams = url.searchParams.getAll('ticket');
-    checkOrigin(req, host, false, ticketParams.length > 0, options);
+    checkOrigin(req, route, false, ticketParams.length > 0, options);
     if (ticketParams.length) {
       if (req.method !== 'GET' || ticketParams.length !== 1) throw new GatewayError(400, 'Invalid launch exchange');
-      const exchange = await consumeTicket(ticketParams[0], host, options);
+      const exchange = await consumeTicket(ticketParams[0], route, options);
       url.searchParams.delete('ticket');
+      // url.pathname already carries the prefix in path mode, so this is `${prefix}${rest without ticket}`.
       res.writeHead(303, { ...noCache, 'set-cookie': exchange.cookie, location: `${url.pathname}${url.search}` });
       res.end();
       return;
     }
-    const session = await authorizeCookie(req.headers.cookie, host, options);
+    const session = await authorizeCookie(req.headers.cookie, route, options);
     if (session.kind === 'terminal') {
-      if (['GET', 'HEAD'].includes(req.method ?? '') && ['/__gateway/assets/terminal.js', '/__gateway/assets/terminal.css'].includes(url.pathname)) {
-        const name = url.pathname.endsWith('.js') ? 'terminal.js' : 'terminal.css';
+      if (['GET', 'HEAD'].includes(req.method ?? '') && ['/__gateway/assets/terminal.js', '/__gateway/assets/terminal.css'].includes(route.rest)) {
+        const name = route.rest.endsWith('.js') ? 'terminal.js' : 'terminal.css';
         const asset = await terminalAsset(name, options.assetDirectory);
         res.writeHead(200, { ...noCache, 'content-type': name.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8', 'x-content-type-options': 'nosniff' });
         res.end(req.method === 'HEAD' ? '' : asset);
         return;
       }
-      if (url.pathname !== '/' || !['GET', 'HEAD'].includes(req.method ?? '')) throw new GatewayError(404, 'Terminal endpoint not found');
+      if (route.rest !== '/' || !['GET', 'HEAD'].includes(req.method ?? '')) throw new GatewayError(404, 'Terminal endpoint not found');
       await Promise.all([terminalAsset('terminal.js', options.assetDirectory), terminalAsset('terminal.css', options.assetDirectory)]);
       res.writeHead(200, { ...noCache, 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff',
         'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'" });
       res.end(req.method === 'HEAD' ? '' : terminalPage);
       return;
     }
-    const controller = lifetime(session, req, host, res);
+    const controller = lifetime(session, req, route, res);
     try {
       const stream = await openUpstream(session, controller);
-      const upstream = outgoing(req, host, stream, controller);
+      const upstream = outgoing(req, route, stream, controller);
       upstream.once('response', (response) => {
         try {
           // DCV's web client sends X-Frame-Options: DENY; the dashboard embeds it (stage 3 live view), so the
           // gateway grants framing to the dashboard origin only. Other kinds keep the app's own policy.
           const embedder = session.kind === 'dcv' ? dashboardOrigin(options) : undefined;
-          res.writeHead(response.statusCode ?? 502, downstreamHeaders(response.headers, host, false, req.url, embedder));
+          res.writeHead(response.statusCode ?? 502, downstreamHeaders(response.headers, route, false, route.rest, embedder));
           response.on('error', () => res.destroy());
           response.pipe(res);
         } catch (error) { response.destroy(); sendError(res, error); }
@@ -274,17 +289,17 @@ export function createGatewayServer(options: GatewayOptions = {}) {
   async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
     socket.on('error', () => undefined);
     socket.pause();
-    const { host, url } = requestUrl(req, options);
-    checkOrigin(req, host, true, false, options);
+    const { route, url } = requestUrl(req, options);
+    checkOrigin(req, route, true, false, options);
     if (url.searchParams.has('ticket')) throw new GatewayError(400, 'Exchange ticket over HTTPS first');
     if (req.method !== 'GET' || req.headers.upgrade?.toLowerCase() !== 'websocket' ||
       req.headers['sec-websocket-version'] !== '13' || !/^[A-Za-z0-9+/]{22}==$/.test(String(req.headers['sec-websocket-key'] ?? ''))) {
       throw new GatewayError(400, 'Invalid WebSocket handshake');
     }
-    const session = await authorizeCookie(req.headers.cookie, host, options);
-    const controller = lifetime(session, req, host, socket);
+    const session = await authorizeCookie(req.headers.cookie, route, options);
+    const controller = lifetime(session, req, route, socket);
     if (session.kind === 'terminal') {
-      if (url.pathname !== '/__gateway/terminal') throw new GatewayError(404, 'Terminal endpoint not found');
+      if (route.rest !== '/__gateway/terminal') throw new GatewayError(404, 'Terminal endpoint not found');
       terminalWs.handleUpgrade(req, socket, head, (ws) => { void serveTerminal(ws, session, transport, controller); });
       socket.resume();
       return;
@@ -292,7 +307,7 @@ export function createGatewayServer(options: GatewayOptions = {}) {
     let stream: Duplex;
     try { stream = await openUpstream(session, controller); }
     catch (error) { rejectUpgrade(socket, error, () => controller.abort()); return; }
-    const upstream = outgoing(req, host, stream, controller, true);
+    const upstream = outgoing(req, route, stream, controller, true);
     upstream.once('upgrade', (response, upstreamSocket, upstreamHead) => {
       try {
         const expected = createHash('sha1').update(String(req.headers['sec-websocket-key']) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
@@ -302,7 +317,7 @@ export function createGatewayServer(options: GatewayOptions = {}) {
           response.headers['sec-websocket-protocol'] && !protocols.includes(String(response.headers['sec-websocket-protocol']))) {
           throw new GatewayError(502, 'Invalid upstream WebSocket handshake');
         }
-        socket.write(`HTTP/1.1 101 Switching Protocols\r\n${serializeUpgrade(downstreamHeaders(response.headers, host, true, req.url))}\r\n`);
+        socket.write(`HTTP/1.1 101 Switching Protocols\r\n${serializeUpgrade(downstreamHeaders(response.headers, route, true, route.rest))}\r\n`);
         upstreamSocket.on('error', () => controller.abort());
         upstreamSocket.once('close', () => controller.abort());
         if (upstreamHead.length) socket.write(upstreamHead);

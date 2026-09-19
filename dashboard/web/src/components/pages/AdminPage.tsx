@@ -563,7 +563,7 @@ function CostTab() {
   const tc = useT('common');
   const { fmtUsd } = useFormat();
   const { ago } = useFormat();
-  const { data, isLoading, error } = useApi<CostData>('/api/cost', { refetch: 60000 });
+  const { data, isLoading, error } = useApi<CostData>('/api/cost', { refetch: 600000 });
 
   if (isLoading && !data) return <Spinner label={tc('loading')} />;
 

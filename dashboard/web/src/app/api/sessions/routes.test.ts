@@ -51,6 +51,12 @@ describe('session APIs with the actual body/auth wrappers', () => {
     expect(response.status).toBe(200); expect((await response.json()).url).toContain('owned.apps.');
     expect(services.launchSession).toHaveBeenCalledWith('owned', expect.objectContaining({ subject: 'sub' }));
   });
+  it('passes a path-mode gateway launch URL through unchanged', async () => {
+    vi.mocked(services.launchSession).mockResolvedValue({ url: 'http://alb.example.com:8080/s/owned/?ticket=synthetic-test', expiresAt: row.expiresAt! });
+    const response = await launch(req('/api/sessions/owned/launch', 'POST'), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).url).toBe('http://alb.example.com:8080/s/owned/?ticket=synthetic-test');
+  });
   it('parses extension bodies and reports pending deletion instead of false completion', async () => {
     expect((await extend(req('/api/sessions/owned', 'PATCH', { ttlMinutes: '60' }), context)).status).toBe(400);
     expect((await extend(req('/api/sessions/owned', 'PATCH', { ttlMinutes: 120 }), context)).status).toBe(200);

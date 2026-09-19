@@ -59,6 +59,29 @@ describe('API request contract', () => {
     client.clear();
   });
 
+  it('redirects to the hardcoded /login on a 401 carrying x-pai-login, ignoring the header value', async () => {
+    const assign = vi.fn();
+    const loc = { pathname: '/workflows', search: '?x=1', assign };
+    vi.stubGlobal('location', loc);
+    vi.stubGlobal('window', { location: loc });
+    // A forged/MITM header value must be ignored: the destination is always /login.
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'Sign in required', code: 'unauthorized' }), {
+      status: 401, headers: { 'content-type': 'application/json', 'x-pai-login': 'https://evil.example' },
+    }));
+    await expect(api('/api/me')).rejects.toBeInstanceOf(ApiError);
+    expect(assign).toHaveBeenCalledWith('/login?next=%2Fworkflows%3Fx%3D1');
+  });
+
+  it('does not redirect on a 401 without x-pai-login', async () => {
+    const assign = vi.fn();
+    const loc = { pathname: '/workflows', search: '', assign };
+    vi.stubGlobal('location', loc);
+    vi.stubGlobal('window', { location: loc });
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'nope', code: 'unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } }));
+    await expect(api('/api/me')).rejects.toBeInstanceOf(ApiError);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it('rejects failed mutations with the server message and error details', async () => {
     vi.stubGlobal('fetch', async () => Response.json(
       { error: '배포 요청 실패', code: 'conflict', details: { deploymentId: 'd1' } }, { status: 409 },

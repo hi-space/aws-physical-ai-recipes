@@ -1,11 +1,14 @@
 'use client';
 import { useState } from 'react';
-import { api, useApi } from '@/lib/api-client';
+import { api, useApi, useMe } from '@/lib/api-client';
 import { useT } from '@/lib/i18n';
 import { Badge, Button, Card, ErrorBox } from '@/components/ui';
+import { isSafeLaunchUrl } from '@/lib/session-url';
 
 export function DcvBrowserCard() {
   const t = useT('sessions');
+  const me = useMe();
+  const pathMode = me.data?.gateway?.mode === 'path';
   const state = useApi<{ configured: boolean; status?: string; error?: string }>('/api/sessions/dcv/browser', { refetch: 5000 });
   const [session, setSession] = useState<{ id: string; expiresAt: string }>();
   const [embed, setEmbed] = useState<string>();
@@ -28,7 +31,7 @@ export function DcvBrowserCard() {
       setSession(created);
       const launch = await api<{ url: string }>(`/api/sessions/dcv/browser/${created.id}`, { method: 'POST' });
       const url = new URL(launch.url);
-      if (url.protocol !== 'https:' || !url.hostname.startsWith(`${created.id}.`) || !url.searchParams.get('ticket')) throw new Error(t('adminDcvError', { error: 'Invalid session URL' }));
+      if (!isSafeLaunchUrl(url, created.id, me.data?.gateway)) throw new Error(t('adminDcvError', { error: 'Invalid session URL' }));
       if (embedded) setEmbed(url.toString());
       else if (tab) tab.location.href = url.toString(); else window.location.href = url.toString();
     } catch (value) { tab?.close(); setError(value); } finally { setBusy(false); }
@@ -44,8 +47,8 @@ export function DcvBrowserCard() {
       <Badge tone={state.data?.configured ? 'ok' : 'warn'}>{state.data?.configured ? t('dcvBrowserReady') : state.data?.status ?? t('dcvBrowserNotReady')}</Badge>
       {state.data?.configured
         ? <>
-          <Button variant="primary" loading={busy} onClick={() => open(true)}>{t('dcvBrowserViewHere')}</Button>
-          <Button loading={busy} onClick={() => open(false)}>{t('dcvBrowserOpenNew')}</Button>
+          {!pathMode && <Button variant="primary" loading={busy} onClick={() => open(true)}>{t('dcvBrowserViewHere')}</Button>}
+          <Button variant={pathMode ? 'primary' : undefined} loading={busy} onClick={() => open(false)}>{t('dcvBrowserOpenNew')}</Button>
         </>
         : <Button loading={busy || state.data?.status === 'CONFIGURING'} onClick={prepare}>{t('dcvBrowserSetup')}</Button>}
       {session && <Button onClick={close} loading={busy}>{t('dcvBrowserCloseConnection')}</Button>}

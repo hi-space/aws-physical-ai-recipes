@@ -10,7 +10,6 @@ vi.mock('../k8s/resources', () => ({ getJobSet: vi.fn(), createJobSet: vi.fn(), 
 vi.mock('../services/profile-binding', () => ({ validateTaskImagePolicy: async () => undefined }));
 vi.mock('../services/execution-profiles', () => ({ validateExecutionProfile: async () => undefined }));
 vi.mock('./topology', () => ({ productionTopologyInventory: {} }));
-vi.mock('./logs', () => ({ workflowLogHooks: () => ({}) }));
 
 describe('productionControllerDeps', () => {
   it('completes a workflow by enqueuing its webhook only', async () => {

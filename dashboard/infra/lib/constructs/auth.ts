@@ -6,20 +6,31 @@ import { Construct } from 'constructs';
 
 export interface AuthConstructProps {
   accountId: string;
-  domainName: string;
+  /** HTTPS ingress mode uses the ALB authenticate-cognito client + managed-login branding; HTTP uses in-app password login. */
+  mode: 'https' | 'http';
+  /** Required in https mode (callback/logout URLs, admin loginUrl); unused in http mode. */
+  domainName?: string;
   adminUsername: string;
   adminEmail: string;
 }
 
 /**
- * Cognito user pool + hosted UI + app client wired for ALB authenticate-cognito,
- * the three RBAC groups, and a bootstrap admin whose permanent password lives in
- * Secrets Manager (no email round-trip needed).
+ * Cognito user pool + hosted UI, the three RBAC groups, and a bootstrap admin whose
+ * permanent password lives in Secrets Manager (no email round-trip needed).
+ *
+ * Two client shapes:
+ *   - `userPoolClient` ('alb', https only): confidential client for ALB authenticate-cognito
+ *     plus the managed-login (branding v2) theme.
+ *   - `appClient` ('app', both modes): public client with USER_PASSWORD/USER_SRP flows for the
+ *     web app's in-app Cognito login (AUTH_MODE=cognito, HTTP deployments).
  */
 export class AuthConstruct extends Construct {
   readonly userPool: cognito.UserPool;
-  readonly userPoolClient: cognito.UserPoolClient;
+  /** ALB authenticate-cognito client; only created in https mode. */
+  readonly userPoolClient?: cognito.UserPoolClient;
   readonly userPoolDomain: cognito.UserPoolDomain;
+  /** Secret-less app client for in-app InitiateAuth login; created in both modes. */
+  readonly appClient: cognito.UserPoolClient;
   readonly adminSecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: AuthConstructProps) {
@@ -53,6 +64,22 @@ export class AuthConstruct extends Construct {
       managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
     });
 
+    // Secret-less public client for the web app's in-app InitiateAuth login (AUTH_MODE=cognito).
+    // Created in BOTH modes; it is the only client in http mode.
+    this.appClient = this.userPool.addClient('AppClient', {
+      userPoolClientName: 'app',
+      generateSecret: false,
+      authFlows: { userPassword: true, userSrp: true },
+      // Direct InitiateAuth only — no hosted-UI OAuth flows/callbacks on this public client.
+      disableOAuth: true,
+      preventUserExistenceErrors: true,
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(30),
+    });
+
+    // ALB authenticate-cognito client + managed-login branding are https-only.
+    if (props.mode === 'https') {
     this.userPoolClient = this.userPool.addClient('AlbClient', {
       userPoolClientName: 'alb',
       generateSecret: true,
@@ -144,13 +171,17 @@ export class AuthConstruct extends Construct {
         },
       },
     });
+    }
 
     // ---- bootstrap admin
+    // The ALB DNS name is not known when Auth is built (the ALB lives in the sibling service
+    // construct), so http mode records a placeholder pointing at the DashboardUrl output.
+    const loginUrl = props.mode === 'https' ? `https://${props.domainName}/` : '(ALB DNS)/login — see the DashboardUrl stack output';
     this.adminSecret = new secretsmanager.Secret(this, 'AdminSecret', {
       secretName: `physical-ai-dashboard/${props.accountId}/admin`,
       description: 'Bootstrap admin login for the Physical AI Dashboard (Cognito)',
       generateSecretString: {
-        secretStringTemplate: JSON.stringify({ username: props.adminUsername, email: props.adminEmail, loginUrl: `https://${props.domainName}/` }),
+        secretStringTemplate: JSON.stringify({ username: props.adminUsername, email: props.adminEmail, loginUrl }),
         generateStringKey: 'password',
         passwordLength: 20,
         excludePunctuation: true,

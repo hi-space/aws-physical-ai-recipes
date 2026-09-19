@@ -93,7 +93,6 @@ fi
 export AUTH_MODE=dev
 export DEV_USER DEV_ROLE
 export WORKFLOW_CONTROLLER=0        # never run a second controller against the shared table
-export LOG_ARCHIVE_ENABLED=0
 export DASHBOARD_ORIGIN="http://localhost:${PORT}"
 
 # ---- banner -------------------------------------------------------------------------

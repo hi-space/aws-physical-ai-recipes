@@ -16,6 +16,7 @@ import { currentBackend, runOnBackend, assertBackendReady } from '../backends/co
 import { backendId } from '../backends/registry';
 import { assertWorkflowBackend } from '../backends/binding';
 import { authorizeExecutionSession } from '../gateway/execution-session';
+import { gatewayMode } from '../gateway/routing';
 
 const LABEL = 'pai.aws/session';
 const MANAGED = 'pai.aws/managed-session';
@@ -156,7 +157,8 @@ export function sessionJob(s: Session) {
       }],
       containers: [{ name: 'workspace', image, args: [s.kind], workingDir: '/workspace', securityContext: appSecurity,
         ports: [{ name: 'app', containerPort: port }],
-        env: [{ name: 'HOME', value: '/workspace' }, { name: 'AWS_EC2_METADATA_DISABLED', value: 'true' }],
+        env: [{ name: 'HOME', value: '/workspace' }, { name: 'AWS_EC2_METADATA_DISABLED', value: 'true' },
+          { name: 'PAI_SESSION_PREFIX', value: gatewayMode() === 'path' ? `/s/${s.id}` : '' }],
         resources: { requests: { cpu: '500m', memory: '1Gi' }, limits: { cpu: '2', memory: '4Gi' } },
         volumeMounts: [{ name: 'fsx', mountPath: '/workspace', subPath: `sessions/projects/${s.projectId}/${s.id}` }, { name: 'tmp', mountPath: '/tmp' }, ...(logs ? [{ name: 'fsx', mountPath: '/logs', subPath: logs, readOnly: true }] : [])],
         readinessProbe: { exec: { command: ['python', '/opt/pai/session.py', '--ready', s.kind] }, initialDelaySeconds: 3, periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 3 },

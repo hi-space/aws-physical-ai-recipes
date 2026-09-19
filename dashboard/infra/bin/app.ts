@@ -9,8 +9,8 @@
  * independently of the clusters.
  *
  * Context:
- *   -c domainName=physical-ai.example.com   (required)
- *   -c hostedZoneId=Z...  -c hostedZoneName=example.com   (required)
+ *   -c domainName=physical-ai.example.com   (HTTPS ingress; all three given together)
+ *   -c hostedZoneId=Z...  -c hostedZoneName=example.com   (omit all three for HTTP ingress)
  *   -c adminUsername=admin  -c adminEmail=you@example.com  (default admin / admin@<domain>)
  *   -c notifyEmail=you@example.com          (optional SNS subscription)
  *   -c region=us-east-1                     (default CDK_DEFAULT_REGION)
@@ -25,6 +25,7 @@ import { DescribeClusterCommand, EKSClient } from '@aws-sdk/client-eks';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { DashboardStack } from '../lib/dashboard-stack';
 import type { DiscoveredOutputs } from '../lib/env-contract';
+import { describeModules, resolveModules } from '../lib/modules';
 
 async function stackOutputs(cfn: CloudFormationClient, name: string): Promise<Record<string, string> | undefined> {
   try {
@@ -42,7 +43,10 @@ async function stackOutputs(cfn: CloudFormationClient, name: string): Promise<Re
 
 async function main() {
   const app = new cdk.App();
-  const region = (app.node.tryGetContext('region') as string | undefined) ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
+  const modules = resolveModules((k) => app.node.tryGetContext(k));
+  cdk.Tags.of(app).add(modules.resourceTag.key, modules.resourceTag.value);
+  console.error('[dashboard] modules\n' + describeModules(modules));
+  const region =(app.node.tryGetContext('region') as string | undefined) ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
   const sts = new STSClient({ region });
   const accountId = process.env.CDK_DEFAULT_ACCOUNT ?? (await sts.send(new GetCallerIdentityCommand({}))).Account!;
   const cfn = new CloudFormationClient({ region });
@@ -80,10 +84,9 @@ async function main() {
     network.privateSubnetIds = common.map((az) => privateSubnets.find((s) => s.AvailabilityZone === az)!.SubnetId!);
   }
 
-  const domainName = app.node.tryGetContext('domainName') as string | undefined;
-  const hostedZoneId = app.node.tryGetContext('hostedZoneId') as string | undefined;
-  const hostedZoneName = app.node.tryGetContext('hostedZoneName') as string | undefined;
-  if (!domainName || !hostedZoneId || !hostedZoneName) throw new Error('Pass -c domainName=<fqdn> -c hostedZoneId=<Z...> -c hostedZoneName=<zone> (ALB + Cognito requires HTTPS)');
+  const domainName = modules.ingress.mode === 'https' ? modules.ingress.domainName : '';
+  const hostedZoneId = modules.ingress.mode === 'https' ? modules.ingress.hostedZoneId : '';
+  const hostedZoneName = modules.ingress.mode === 'https' ? modules.ingress.hostedZoneName : '';
 
   const buckets = [hyperPodEks?.S3BucketName, groot?.BucketName, hyperPodSlurm?.S3BucketName].filter(Boolean) as string[];
 
@@ -106,13 +109,14 @@ async function main() {
     domainName,
     hostedZoneId,
     hostedZoneName,
+    modules,
     adminUsername: (app.node.tryGetContext('adminUsername') as string | undefined) ?? 'admin',
-    adminEmail: (app.node.tryGetContext('adminEmail') as string | undefined) ?? `admin@${hostedZoneName}`,
+    adminEmail: (app.node.tryGetContext('adminEmail') as string | undefined) ?? (modules.ingress.mode === 'https' ? `admin@${modules.ingress.hostedZoneName}` : 'admin@example.invalid'),
     notifyEmail: app.node.tryGetContext('notifyEmail') as string | undefined,
     webAppPath: path.resolve(__dirname, '..', '..', 'web'),
     buckets,
     eksClusterSecurityGroupId,
-    extendedImages: app.node.tryGetContext('extendedImages') === 'true' || app.node.tryGetContext('extendedImages') === true,
+    extendedImages: modules.images.build.includes('groot'),
     workflowNamespaces: ((app.node.tryGetContext('workflowNamespaces') as string | undefined) ?? 'rl,hyperpod-ns-team-a,hyperpod-ns-team-b').split(',').map((value) => value.trim()).filter(Boolean),
     mlflowTrackingServerArns: [groot?.MlflowTrackingServerArn, hyperPodEks?.MlflowTrackingArn].filter(Boolean) as string[],
   });

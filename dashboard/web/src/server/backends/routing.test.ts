@@ -119,6 +119,11 @@ beforeEach(async () => {
     if (path.endsWith('/jobsets') && init.method === 'POST') {
       const set = body as unknown as JobSet; set.metadata.uid = `uid:${cluster}:${set.metadata.name}`; jobsets[cluster].set(set.metadata.name, set); return response(set, 201);
     }
+    if (path.endsWith('/secrets') && init.method === 'POST') {
+      const secret = body as { metadata: { name: string; uid?: string } };
+      secret.metadata.uid = `uid:${cluster}:secret:${secret.metadata.name}`;
+      return response(secret, 201);
+    }
     if (path.includes('/jobsets/')) {
       const name = path.split('/').pop()!;
       if (init.method === 'DELETE') { jobsets[cluster].delete(name); return response({}); }

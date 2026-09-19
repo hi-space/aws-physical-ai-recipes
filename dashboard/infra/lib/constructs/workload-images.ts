@@ -5,6 +5,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as assets from 'aws-cdk-lib/aws-ecr-assets';
 import { Construct } from 'constructs';
 import { optionalImageDefinitions, type OptionalWorkloadImages } from './optional-workload-images';
+import { IMAGE_ENV, type WorkloadImageName } from '../modules';
 export type { OptionalWorkloadImages } from './optional-workload-images';
 
 /** Stage only workload source so a UI edit does not rebuild every model image. */
@@ -36,23 +37,28 @@ export function workloadContext(repositoryRoot: string): string {
   return directory;
 }
 
+export interface WorkloadImagesProps {
+  repositoryRoot: string;
+  build: WorkloadImageName[];
+  overrides: Partial<Record<WorkloadImageName, string>>;
+  optionalImages?: OptionalWorkloadImages;
+}
+
 export class WorkloadImages extends Construct {
-  readonly environment: Record<string, string>;
-  constructor(scope: Construct, id: string, props: { repositoryRoot: string; extended?: boolean; optionalImages?: OptionalWorkloadImages }) {
+  readonly environment: Record<string, string> = {};
+  constructor(scope: Construct, id: string, props: WorkloadImagesProps) {
     super(scope, id);
+    const build = props.build;
+    const overrides = props.overrides;
     const optional = optionalImageDefinitions(props.optionalImages, cdk.Stack.of(this).account, cdk.Stack.of(this).region);
-    const context = workloadContext(props.repositoryRoot);
-    this.environment = {};
-    const images: Record<string, string> = {
-      MUJOCO_IMAGE_URI: 'mujoco', ISAACLAB_IMAGE_URI: 'isaaclab', ROS2_IMAGE_URI: 'ros2',
-      ...(props.extended ? { GROOT_RUNTIME_IMAGE_URI: 'groot', OPENPI_IMAGE_URI: 'openpi' } : {}),
-    };
-    for (const [environmentName, name] of Object.entries(images)) {
+    const modelImages = build.filter(name => name !== 'workspace' && !(name in overrides));
+    const context = modelImages.length ? workloadContext(props.repositoryRoot) : undefined;
+    for (const name of modelImages) {
       const image = new assets.DockerImageAsset(this, name, {
-        directory: context, file: `dashboard/images/${name}/Dockerfile`,
+        directory: context!, file: `dashboard/images/${name}/Dockerfile`,
         platform: assets.Platform.LINUX_AMD64,
       });
-      this.environment[environmentName] = image.imageUri;
+      this.environment[IMAGE_ENV[name]] = image.imageUri;
       new cdk.CfnOutput(this, `${name}Image`, { value: image.imageUri });
     }
     // Optional Dockerfiles never modify the context already hashed by default
@@ -72,10 +78,16 @@ export class WorkloadImages extends Construct {
       this.environment[definition.environment] = image.imageUri;
       new cdk.CfnOutput(this, `${definition.name}Image`, { value: image.imageUri });
     }
-    const workspace = new assets.DockerImageAsset(this, 'workspace', {
-      directory: path.join(props.repositoryRoot, 'dashboard/session-image'),
-      platform: assets.Platform.LINUX_AMD64,
-    });
-    this.environment.WORKSPACE_IMAGE_URI = workspace.imageUri;
+    if (build.includes('workspace') && !('workspace' in overrides)) {
+      const workspace = new assets.DockerImageAsset(this, 'workspace', {
+        directory: path.join(props.repositoryRoot, 'dashboard/session-image'),
+        platform: assets.Platform.LINUX_AMD64,
+      });
+      this.environment.WORKSPACE_IMAGE_URI = workspace.imageUri;
+    }
+    for (const [name, uri] of Object.entries(overrides) as [WorkloadImageName, string][]) {
+      this.environment[IMAGE_ENV[name]] = uri;
+      new cdk.CfnOutput(this, `${name}Image`, { value: uri });
+    }
   }
 }

@@ -31,9 +31,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Live view</tit
 <div id="s"><span class="dot" id="d"></span><span id="t">waiting for frames</span><span id="f"></span></div></div>
 <script>
 const v=document.getElementById('v'),w=document.getElementById('w'),d=document.getElementById('d'),t=document.getElementById('t'),f=document.getElementById('f');
-let live=false;function start(){v.src='/stream?'+Date.now();}
+let live=false;function start(){v.src='stream?'+Date.now();}
 v.onload=()=>{};v.onerror=()=>{live=false;setTimeout(start,1500);};
-async function poll(){try{const r=await fetch('/status.json',{cache:'no-store'});const s=await r.json();
+async function poll(){try{const r=await fetch('status.json',{cache:'no-store'});const s=await r.json();
 if(s.frames>0){if(!live){live=true;start();}v.style.display='block';w.style.display='none';d.className='dot on';
 t.textContent='live · frame '+s.frames+' · '+s.width+'x'+s.height;f.textContent=s.age_seconds>10?('last frame '+Math.round(s.age_seconds)+'s ago'):'';}
 else{t.textContent='waiting for frames';}}catch(e){d.className='dot';t.textContent='stream unavailable';}setTimeout(poll,2000);}poll();

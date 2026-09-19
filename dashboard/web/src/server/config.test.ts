@@ -28,7 +28,66 @@ describe('loadConfig', () => {
       ACCOUNT_ID: '123',
     } as unknown as NodeJS.ProcessEnv);
     expect(c.eks?.logGroupPrefix).toBe('/aws/sagemaker/Clusters/hyperpod-eks-1');
-    expect(c.edge?.thingGroup).toBe('groot-123-group');
+    expect(c.edge?.thingGroup).toBeUndefined();
+  });
+  it('takes the edge thing group from the environment, with no account fallback', () => {
+    const c = loadConfig({ AUTH_MODE: 'dev', ACCOUNT_ID: '123', GREENGRASS_THING_GROUP: 'g' } as unknown as NodeJS.ProcessEnv);
+    expect(c.edge?.thingGroup).toBe('g');
+  });
+  it('cognito mode requires app client id and signing key', () => {
+    expect(() =>
+      loadConfig({
+        AUTH_MODE: 'cognito',
+        COGNITO_USER_POOL_ID: 'p',
+        SESSION_SIGNING_KEY: 'k'.repeat(48),
+        DASHBOARD_ORIGIN: 'http://x',
+        TABLE_NAME: 't',
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/COGNITO_APP_CLIENT_ID/);
+    const c = loadConfig({
+      AUTH_MODE: 'cognito',
+      COGNITO_USER_POOL_ID: 'p',
+      COGNITO_APP_CLIENT_ID: 'c',
+      SESSION_SIGNING_KEY: 'k'.repeat(48),
+      DASHBOARD_ORIGIN: 'http://x',
+      TABLE_NAME: 't',
+    } as unknown as NodeJS.ProcessEnv);
+    expect(c.authMode).toBe('cognito');
+    expect(c.cognitoAppClientId).toBe('c');
+  });
+  it('requires TABLE_NAME in cognito mode even with a complete cognito env', () => {
+    expect(() =>
+      loadConfig({
+        AUTH_MODE: 'cognito',
+        COGNITO_USER_POOL_ID: 'p',
+        COGNITO_APP_CLIENT_ID: 'c',
+        SESSION_SIGNING_KEY: 'k'.repeat(48),
+        DASHBOARD_ORIGIN: 'http://x',
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/TABLE_NAME/);
+  });
+  it('defaults gatewayMode to host and tolerates GATEWAY_PUBLIC_ORIGIN being unset', () => {
+    const c = loadConfig({ AUTH_MODE: 'dev' } as unknown as NodeJS.ProcessEnv);
+    expect(c.gatewayMode).toBe('host');
+    expect(c.gatewayPublicOrigin).toBeUndefined();
+  });
+  it('rejects an unknown GATEWAY_MODE', () => {
+    expect(() => loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'bogus' } as unknown as NodeJS.ProcessEnv)).toThrow(/GATEWAY_MODE/);
+  });
+  it('accepts path mode with no GATEWAY_PUBLIC_ORIGIN set (feature stays off)', () => {
+    const c = loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path' } as unknown as NodeJS.ProcessEnv);
+    expect(c.gatewayMode).toBe('path');
+    expect(c.gatewayPublicOrigin).toBeUndefined();
+  });
+  it('accepts a bare origin for GATEWAY_PUBLIC_ORIGIN in path mode', () => {
+    const c = loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path', GATEWAY_PUBLIC_ORIGIN: 'http://alb.example.com:8080' } as unknown as NodeJS.ProcessEnv);
+    expect(c.gatewayPublicOrigin).toBe('http://alb.example.com:8080');
+  });
+  it('rejects a GATEWAY_PUBLIC_ORIGIN with a path, query, or non-http(s) scheme', () => {
+    expect(() => loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path', GATEWAY_PUBLIC_ORIGIN: 'http://alb.example.com/prefix' } as unknown as NodeJS.ProcessEnv)).toThrow(/GATEWAY_PUBLIC_ORIGIN/);
+    expect(() => loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path', GATEWAY_PUBLIC_ORIGIN: 'http://alb.example.com?x=1' } as unknown as NodeJS.ProcessEnv)).toThrow(/GATEWAY_PUBLIC_ORIGIN/);
+    expect(() => loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path', GATEWAY_PUBLIC_ORIGIN: 'ftp://alb.example.com' } as unknown as NodeJS.ProcessEnv)).toThrow(/GATEWAY_PUBLIC_ORIGIN/);
+    expect(() => loadConfig({ AUTH_MODE: 'dev', GATEWAY_MODE: 'path', GATEWAY_PUBLIC_ORIGIN: 'not a url' } as unknown as NodeJS.ProcessEnv)).toThrow(/GATEWAY_PUBLIC_ORIGIN/);
   });
 });
 

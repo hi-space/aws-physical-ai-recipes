@@ -1,5 +1,5 @@
 import { backendConfig as config } from '../backends/context';
-import { last30DaysByService } from '../aws/cost';
+import { cachedAccountCost } from '../aws/cost';
 import { queryInstant } from '../aws/amp';
 import { listClusterQueues, listWorkloads } from '../k8s/kueue';
 import { controllerStatus } from '../workflow/controller';
@@ -7,8 +7,6 @@ import { getRepo } from '../store/repo';
 import { allClusters, k8sNodes } from './compute';
 import type { Session } from '../auth/session';
 import { filterAccessible } from '../auth/projects';
-
-let costCache: { at: number; value: Awaited<ReturnType<typeof last30DaysByService>> } | undefined;
 
 async function safe<T>(p: Promise<T>, fallback: T): Promise<{ value: T; error?: string }> {
   try {
@@ -29,10 +27,7 @@ export async function overview(session?: Session) {
     safe(c.eks ? listWorkloads() : Promise.resolve([]), []),
     safe(c.eks?.ampWorkspaceId ? queryInstant('avg(DCGM_FI_DEV_GPU_UTIL)') : Promise.resolve([]), []),
   ]);
-  if (session?.role === 'admin' && (!costCache || Date.now() - costCache.at > 3600_000)) {
-    const r = await safe(last30DaysByService(), { total: 0, byService: [], daily: [], fetchedAt: new Date().toISOString() });
-    if (!r.error) costCache = { at: Date.now(), value: r.value };
-  }
+  const cost = session?.role === 'admin' ? (await safe(cachedAccountCost(), undefined)).value : undefined;
   const wfs = session ? await filterAccessible(session, workflows.value) : [];
   const byStatus: Record<string, number> = {};
   for (const w of wfs) byStatus[w.status] = (byStatus[w.status] ?? 0) + 1;
@@ -60,7 +55,7 @@ export async function overview(session?: Session) {
     workflows: { total: wfs.length, byStatus, recent: wfs.slice(0, 8) },
     queues: { clusterQueues: cqs.value.length, pendingWorkloads: pending, admitted: cqs.value.reduce((a, q) => a + (q.status?.admittedWorkloads ?? 0), 0) },
     recentEvents,
-    cost: session?.role === 'admin' ? costCache?.value : undefined,
+    cost,
     controller: await controllerHealth(),
     errors: [clusters.error, workflows.error, cqs.error, workloads.error].filter(Boolean),
   };

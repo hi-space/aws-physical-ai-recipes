@@ -339,16 +339,14 @@ function LogViewer({
   const pods = job.pods ?? [];
   const pod = pods[podIdx];
   const [searchTerm, setSearchTerm] = React.useState('');
-  const me = useMe();
-  const [retained, setRetained] = React.useState(false);
-  const logsUrl = pod ? `/api/k8s/pods/${job.namespace}/${pod.name}/logs?tail=1000${follow ? '&follow=1' : ''}${retained ? '&source=retained' : ''}` : '';
+  const logsUrl = pod ? `/api/k8s/pods/${job.namespace}/${pod.name}/logs?tail=1000` : '';
 
-  const { data: logsData, isLoading, error: logsError } = useApi<{ source: string; phase?: string; lines: string[] }>(logsUrl, { refetch: follow ? 1000 : 0 });
+  const { data: logsData, isLoading, error: logsError } = useApi<{ source: string; phase?: string; lines: { ts: string; text: string }[] }>(logsUrl, { refetch: follow ? 2000 : 0 });
 
   const filteredLines = React.useMemo(() => {
     if (!logsData?.lines) return [];
     if (!searchTerm) return logsData.lines;
-    return logsData.lines.filter((line) => line.toLowerCase().includes(searchTerm.toLowerCase()));
+    return logsData.lines.filter((line) => line.text.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [logsData?.lines, searchTerm]);
 
   if (!pod) return <EmptyState title={t('noJobs')} />;
@@ -366,10 +364,6 @@ function LogViewer({
           ))}
         </select>
       </div>
-      {me.data?.role === 'admin' && <label className="flex items-center gap-2 text-xs text-fg-muted">
-        <input type="checkbox" checked={retained} onChange={event => setRetained(event.target.checked)} />
-        {t('retainedLogsLabel')}
-      </label>}
       <ErrorBox error={logsError} />
 
       {/* Log Viewer Controls */}
@@ -386,7 +380,7 @@ function LogViewer({
         </label>
         <button
           onClick={() => {
-            const text = filteredLines.join('\n');
+            const text = filteredLines.map((line) => line.text).join('\n');
             const blob = new Blob([text], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -412,7 +406,7 @@ function LogViewer({
           <div>
             {filteredLines.map((line, i) => (
               <div key={i} className="whitespace-pre-wrap break-words">
-                {line}
+                {line.text}
               </div>
             ))}
           </div>

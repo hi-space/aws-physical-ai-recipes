@@ -35,6 +35,8 @@ import { edge } from './edge';
 import { pipelines } from './pipelines';
 import { sessions } from './sessions';
 import { resources } from './resources';
+import { resourcesPage } from './resourcesPage';
+import { login } from './login';
 
 export const catalog = {
   common,
@@ -70,6 +72,8 @@ export const catalog = {
   pipelines,
   sessions,
   resources,
+  resourcesPage,
+  login,
 } as const;
 
 export type Catalog = typeof catalog;

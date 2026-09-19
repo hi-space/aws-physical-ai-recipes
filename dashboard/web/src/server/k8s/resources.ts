@@ -179,14 +179,14 @@ export async function getDeployment(ns: string, name: string) {
   return k8sGetOrNull<{ metadata: Meta; status?: { readyReplicas?: number; availableReplicas?: number } }>(`/apis/apps/v1/namespaces/${ns}/deployments/${name}`);
 }
 
-export async function podLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; sinceSeconds?: number; previous?: boolean } = {}): Promise<string> {
-  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 2000, sinceSeconds: opts.sinceSeconds, previous: opts.previous ? 'true' : undefined, timestamps: 'true' })}`, {
+export async function podLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; sinceSeconds?: number; sinceTime?: string; previous?: boolean; limitBytes?: number } = {}): Promise<string> {
+  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 2000, sinceSeconds: opts.sinceSeconds, sinceTime: opts.sinceTime, limitBytes: opts.limitBytes, previous: opts.previous ? 'true' : undefined, timestamps: 'true' })}`, {
     headers: { accept: '*/*' },
   });
   return res.text();
 }
-export async function streamPodLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; signal?: AbortSignal } = {}): Promise<ReadableStream<Uint8Array>> {
-  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, follow: 'true', timestamps: 'true' })}`, { headers: { accept: '*/*' }, signal: opts.signal });
+export async function streamPodLogs(ns: string, pod: string, opts: { container?: string; tailLines?: number; sinceTime?: string; signal?: AbortSignal } = {}): Promise<ReadableStream<Uint8Array>> {
+  const res = await k8sRequest(`/api/v1/namespaces/${ns}/pods/${pod}/log?${q({ container: opts.container, tailLines: opts.tailLines ?? 500, sinceTime: opts.sinceTime, follow: 'true', timestamps: 'true' })}`, { headers: { accept: '*/*' }, signal: opts.signal });
   return res.body as ReadableStream<Uint8Array>;
 }
 

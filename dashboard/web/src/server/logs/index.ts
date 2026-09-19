@@ -1,4 +1,3 @@
-export { createLogCollector, type CollectorDeps } from './collector';
-export { LogArchive, scopeId } from './archive';
-export { taskLogResponse, readTaskLogs } from './http';
-export type { LogScope, LogRecord, LogHead } from './types';
+export { taskLogResponse, sseResponse, redactorFor } from './http';
+export { resolveTargets, readLogs, followLogs } from './stream';
+export type { LogTarget, LogLine, LogSnapshot } from './types';

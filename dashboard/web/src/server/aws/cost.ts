@@ -14,6 +14,7 @@ export interface AccountCost {
   fetchedAt?: string;
   start?: string;
   end?: string;
+  stale?: boolean;
 }
 export async function last30DaysByService(): Promise<AccountCost> {
   const end = new Date();
@@ -65,3 +66,19 @@ export async function last30DaysByService(): Promise<AccountCost> {
     end: fmt(end),
   };
 }
+
+const COST_TTL_MS = 3_600_000;
+let accountCostCache: { at: number; value: AccountCost } | undefined;
+/** Cost Explorer bills per request; every reader shares one hourly snapshot. */
+export async function cachedAccountCost(now: () => number = Date.now): Promise<AccountCost & { stale?: boolean }> {
+  if (accountCostCache && now() - accountCostCache.at <= COST_TTL_MS) return accountCostCache.value;
+  try {
+    const value = await last30DaysByService();
+    accountCostCache = { at: now(), value };
+    return value;
+  } catch (error) {
+    if (accountCostCache) return { ...accountCostCache.value, stale: true };
+    throw error;
+  }
+}
+export function resetAccountCostCache(): void { accountCostCache = undefined; }

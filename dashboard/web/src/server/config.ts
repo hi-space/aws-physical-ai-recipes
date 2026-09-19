@@ -7,8 +7,9 @@
  * values are `undefined` when the corresponding stack is not deployed, and the
  * UI degrades gracefully (the page shows "not configured" instead of failing).
  */
+import { cognitoSessionEnv } from './auth/cognito-session';
 
-export type AuthMode = 'alb' | 'dev';
+export type AuthMode = 'alb' | 'cognito' | 'dev';
 
 export interface DashboardConfig {
   region: string;
@@ -22,9 +23,15 @@ export interface DashboardConfig {
   snsTopicArn?: string;
   cognitoUserPoolId?: string;
   cognitoClientId?: string;
+  /** Cognito app client used for in-app InitiateAuth login (AUTH_MODE=cognito). */
+  cognitoAppClientId?: string;
   dashboardOrigin?: string;
   /** Wildcard domain for isolated session hosts; absent = session features disabled. */
   gatewayBaseDomain?: string;
+  /** Session gateway isolation strategy: subdomain-per-session ('host') or path-prefix under a shared origin ('path'). */
+  gatewayMode: 'host' | 'path';
+  /** Shared origin sessions are served under in path mode (e.g. the ALB origin); unset disables the path-mode feature. */
+  gatewayPublicOrigin?: string;
   albArn?: string;
   /** HyperPod EKS orchestrator */
   eks?: {
@@ -66,6 +73,8 @@ export interface DashboardConfig {
     thingGroup?: string;
     inferenceComponent?: string;
   };
+  /** Resource tag applied to every stack resource (from the CDK module contract). */
+  resourceTag?: { key: string; value: string };
 }
 
 export const ENV_KEYS = [
@@ -73,7 +82,6 @@ export const ENV_KEYS = [
   'ACCOUNT_ID',
   'AUTH_MODE',
   'WORKFLOW_CONTROLLER',
-  'LOG_ARCHIVE_ENABLED',
   'SOURCE_BUILD_TARGETS_JSON',
   'DEFAULT_NAMESPACE',
   'WORKFLOW_SERVICE_ACCOUNT',
@@ -81,9 +89,13 @@ export const ENV_KEYS = [
   'SNS_TOPIC_ARN',
   'COGNITO_USER_POOL_ID',
   'COGNITO_CLIENT_ID',
+  'COGNITO_APP_CLIENT_ID',
   'COGNITO_DOMAIN',
+  'SESSION_SIGNING_KEY',
   'DASHBOARD_ORIGIN',
   'GATEWAY_BASE_DOMAIN',
+  'GATEWAY_MODE',
+  'GATEWAY_PUBLIC_ORIGIN',
   'ALB_ARN',
   'EKS_CLUSTER_NAME',
   'HYPERPOD_EKS_CLUSTER_NAME',
@@ -109,6 +121,8 @@ export const ENV_KEYS = [
   'CODE_SERVER_URL',
   'GREENGRASS_THING_GROUP',
   'GREENGRASS_INFERENCE_COMPONENT',
+  'RESOURCE_TAG_KEY',
+  'RESOURCE_TAG_VALUE',
 ] as const;
 
 export type EnvKey = (typeof ENV_KEYS)[number];
@@ -122,14 +136,38 @@ export class ConfigError extends Error {}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfig {
   const authMode = (opt(env, 'AUTH_MODE') ?? 'alb') as AuthMode;
-  if (authMode !== 'alb' && authMode !== 'dev') throw new ConfigError(`AUTH_MODE must be alb|dev, got ${authMode}`);
+  if (authMode !== 'alb' && authMode !== 'cognito' && authMode !== 'dev') throw new ConfigError(`AUTH_MODE must be alb|cognito|dev, got ${authMode}`);
   if (authMode === 'dev' && (env.NODE_ENV === 'production' || env.AWS_EXECUTION_ENV || env.ECS_CONTAINER_METADATA_URI_V4)) {
     throw new ConfigError('development authentication cannot be used in a deployed process');
   }
+  if (authMode === 'cognito') {
+    // Fail fast on a misconfigured in-app-login deployment; surface the missing
+    // variable name as a ConfigError like the rest of loadConfig.
+    try {
+      cognitoSessionEnv(env);
+    } catch (e) {
+      throw new ConfigError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  const gatewayMode = (opt(env, 'GATEWAY_MODE') ?? 'host') as DashboardConfig['gatewayMode'];
+  if (gatewayMode !== 'host' && gatewayMode !== 'path') throw new ConfigError(`GATEWAY_MODE must be host|path, got ${gatewayMode}`);
+  const gatewayPublicOrigin = opt(env, 'GATEWAY_PUBLIC_ORIGIN');
+  if (gatewayMode === 'path' && gatewayPublicOrigin) {
+    let parsed: URL;
+    try {
+      parsed = new URL(gatewayPublicOrigin);
+    } catch {
+      throw new ConfigError(`GATEWAY_PUBLIC_ORIGIN must be a URL origin (scheme + host, no path/query/fragment), got ${gatewayPublicOrigin}`);
+    }
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.origin !== gatewayPublicOrigin) {
+      throw new ConfigError(`GATEWAY_PUBLIC_ORIGIN must be a URL origin (scheme + host, no path/query/fragment), got ${gatewayPublicOrigin}`);
+    }
+  }
+
   const region = opt(env, 'AWS_REGION') ?? env.AWS_DEFAULT_REGION ?? 'us-east-1';
   const accountId = opt(env, 'ACCOUNT_ID') ?? '';
   const tableName = opt(env, 'TABLE_NAME');
-  if (!tableName && authMode === 'alb') throw new ConfigError('TABLE_NAME is required');
+  if (!tableName && authMode !== 'dev') throw new ConfigError('TABLE_NAME is required');
 
   const eksName = opt(env, 'EKS_CLUSTER_NAME');
   const hpEks = opt(env, 'HYPERPOD_EKS_CLUSTER_NAME');
@@ -173,9 +211,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
     : undefined;
 
   const edge: DashboardConfig['edge'] = {
-    thingGroup: opt(env, 'GREENGRASS_THING_GROUP') ?? (accountId ? `groot-${accountId}-group` : undefined),
-    inferenceComponent: opt(env, 'GREENGRASS_INFERENCE_COMPONENT') ?? (accountId ? `com.workshop.${accountId}.inference` : undefined),
+    thingGroup: opt(env, 'GREENGRASS_THING_GROUP'),
+    inferenceComponent: opt(env, 'GREENGRASS_INFERENCE_COMPONENT'),
   };
+
+  const resourceTagKey = opt(env, 'RESOURCE_TAG_KEY');
+  const resourceTagValue = opt(env, 'RESOURCE_TAG_VALUE');
+  const resourceTag: DashboardConfig['resourceTag'] =
+    resourceTagKey && resourceTagValue ? { key: resourceTagKey, value: resourceTagValue } : undefined;
 
   return {
     region,
@@ -188,14 +231,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
     snsTopicArn: opt(env, 'SNS_TOPIC_ARN'),
     cognitoUserPoolId: opt(env, 'COGNITO_USER_POOL_ID'),
     cognitoClientId: opt(env, 'COGNITO_CLIENT_ID'),
+    cognitoAppClientId: opt(env, 'COGNITO_APP_CLIENT_ID'),
     dashboardOrigin: opt(env, 'DASHBOARD_ORIGIN'),
     gatewayBaseDomain: opt(env, 'GATEWAY_BASE_DOMAIN'),
+    gatewayMode,
+    gatewayPublicOrigin,
     albArn: opt(env, 'ALB_ARN'),
     eks,
     slurm,
     groot,
     dcv,
     edge,
+    resourceTag,
   };
 }
 

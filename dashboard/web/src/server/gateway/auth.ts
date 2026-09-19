@@ -4,46 +4,28 @@ import type { Repo } from '../store/repo';
 import { GatewayError, type AuthOptions, type GatewaySession } from './types';
 import { assertTokenLaunchPrincipal, authorizeDerivedToken, hasTokenBinding, matchesTokenGrant, tokenGrantFields, type GatewayPrincipal } from './token-grants';
 import { backendId } from '../backends/registry';
-import { notConfigured } from '../errors';
 import { assertWorkflowBackend } from '../backends/binding';
 import { authorizeExecutionSession } from './execution-session';
+import { cookieAttributes, cookieName, gatewayMode, invalid, labelPattern, launchUrl, type GatewayRoute } from './routing';
+
+// Host-mode routing primitives live in ./routing (the dependency-free leaf module).
+// Re-exported here so existing callers and tests keep importing them from './auth'.
+export { baseDomain, sessionHost, sessionIdFromHost } from './routing';
 
 export const COOKIE_NAME = '__Host-pai-session';
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
-const labelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const kinds = new Set(['terminal', 'port-forward', 'tensorboard', 'jupyter', 'code-server', 'dcv']);
-const invalid = () => new GatewayError(401, 'Session authorization expired or invalid');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
 const context = (o: AuthOptions) => ({ repo: o.repo ?? getRepo(), now: o.now ?? Date.now });
 
-/** Session hosts (`<id>.apps.<domain>`) need a wildcard domain; deployments without one simply have no session features. */
-export function sessionHostsConfigured(options: AuthOptions = {}): boolean {
-  return Boolean(options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN);
+/** Session routing needs either a wildcard host domain or, in path mode, a public origin; deployments with neither simply have no session features. */
+export function sessionGatewayConfigured(options: AuthOptions = {}): boolean {
+  return Boolean(options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN) ||
+    (gatewayMode(options) === 'path' && Boolean(options.publicOrigin ?? process.env.GATEWAY_PUBLIC_ORIGIN));
 }
-export function baseDomain(options: AuthOptions = {}): string {
-  const domain = options.baseDomain ?? process.env.GATEWAY_BASE_DOMAIN;
-  if (!domain) throw notConfigured('Session hosts (GATEWAY_BASE_DOMAIN)');
-  if (domain.length > 190 || !domain.includes('.') || !domain.split('.').every((part) => labelPattern.test(part))) {
-    throw new GatewayError(500, 'Invalid gateway domain configuration');
-  }
-  return domain;
-}
-
-export function sessionHost(id: string, options: AuthOptions = {}): string {
-  if (!labelPattern.test(id)) throw invalid();
-  return `${id}.${baseDomain(options)}`;
-}
-
-/** Do not normalize authorities: aliases, ports, case variants and trailing dots fail closed. */
-export function sessionIdFromHost(host: string | undefined, options: AuthOptions = {}): string {
-  if (!host) throw invalid();
-  const suffix = `.${baseDomain(options)}`;
-  if (!host.endsWith(suffix)) throw invalid();
-  const id = host.slice(0, -suffix.length);
-  if (!labelPattern.test(id) || sessionHost(id, options) !== host) throw invalid();
-  return id;
-}
+/** Retained alias for callers (`services/sessions.ts`, `dcv/sessions.ts`) that predate path mode. */
+export const sessionHostsConfigured = sessionGatewayConfigured;
 
 /** Only these persisted fields may affect routing or authorization. Changes invalidate every grant. */
 export function sessionBinding(s: GatewaySession): string {
@@ -115,69 +97,80 @@ export async function issueLaunchTicket(
   sessionRecord: GatewaySession,
   principal: GatewayPrincipal,
   options: AuthOptions = {},
-): Promise<{ ticket: string; url: string; expiresAt: string; host: string }> {
+): Promise<{ ticket: string; url: string; expiresAt: string; binding: string; host: string | undefined }> {
   if (!principal.subject || principal.subject !== sessionRecord.ownerSubject) {
     throw new GatewayError(403, 'Only the verified session owner may launch this session');
   }
   assertTokenLaunchPrincipal(sessionRecord, principal);
   await authorizeExecutionSession(sessionRecord, options, principal);
   const { repo, now } = context(options);
-  const host = sessionHost(sessionRecord.id, options);
+  const hostMode = gatewayMode(options) === 'host';
+  const { url, binding } = launchUrl(sessionRecord.id, options);
   const session = await currentSession(repo, sessionRecord.id, now, options);
   if (sessionBinding(sessionRecord) !== sessionBinding(session)) throw invalid();
   const expires = Math.min(now() + 60_000, Date.parse(session.expiresAt));
   const ticket = token();
   const stored = await repo.kv.put({
     pk: `GATEWAY#TICKET#${digest(ticket)}`, sk: 'META',
-    sessionId: session.id, host, ownerSubject: session.ownerSubject, binding: sessionBinding(session),
+    // `binding` stays the integrity digest (unchanged from the pre-path code, for on-deploy/rollback
+    // compatibility). `routeBinding` is the route binding (host, or origin+prefix in path mode); host
+    // mode also mirrors it into `host` exactly as before so old code still reads the launch host.
+    sessionId: session.id, routeBinding: binding, ...(hostMode ? { host: binding } : {}),
+    ownerSubject: session.ownerSubject, binding: sessionBinding(session),
     workflowId: session.workflowId, attempt: session.attempt, expiresAt: expires, ttl: Math.ceil(expires / 1000),
     ...tokenGrantFields(session),
   }, 'not_exists');
   if (!stored) throw new GatewayError(503, 'Unable to issue launch ticket');
-  return { ticket, host, url: `https://${host}/?ticket=${ticket}`, expiresAt: new Date(expires).toISOString() };
+  return { ticket, url: `${url}${ticket}`, expiresAt: new Date(expires).toISOString(), binding, host: hostMode ? binding : undefined };
 }
 
-export async function consumeTicket(ticket: string, host: string, options: AuthOptions = {}) {
-  const id = sessionIdFromHost(host, options);
+export async function consumeTicket(ticket: string, route: GatewayRoute, options: AuthOptions = {}) {
+  const id = route.sessionId;
   if (!tokenPattern.test(ticket)) throw invalid();
   const { repo, now } = context(options);
   const pk = `GATEWAY#TICKET#${digest(ticket)}`;
   const grant = await repo.kv.get(pk, 'META');
-  if (!grant || grant.sessionId !== id || grant.host !== host ||
+  // Legacy grants carry the route binding only under `host`; new ones under `routeBinding`.
+  const boundEquals = grant?.routeBinding !== undefined ? { routeBinding: grant.routeBinding } : { host: grant?.host };
+  if (!grant || grant.sessionId !== id || (grant.routeBinding ?? grant.host) !== route.binding ||
     typeof grant.expiresAt !== 'number' || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= now()) throw invalid();
   const session = await currentSession(repo, id, now, options);
   if (grant.ownerSubject !== session.ownerSubject || grant.binding !== sessionBinding(session) || !matchesTokenGrant(grant, session)) throw invalid();
   const secret = token();
   const expires = Date.parse(session.expiresAt);
+  const hostMode = gatewayMode(options) === 'host';
+  const maxAge = Math.max(0, Math.floor((expires - now()) / 1000));
   const ok = await repo.kv.transaction([
     { kind: 'delete', pk, sk: 'META', condition: {
-      equals: { sessionId: id, host, ownerSubject: session.ownerSubject, binding: grant.binding },
+      equals: { sessionId: id, ownerSubject: session.ownerSubject, ...boundEquals },
       after: { expiresAt: now() },
     } },
     { kind: 'put', item: {
       pk: `GATEWAY#COOKIE#${digest(secret)}`, sk: 'META',
-      sessionId: id, host, ownerSubject: session.ownerSubject, binding: grant.binding,
+      sessionId: id, routeBinding: route.binding, ...(hostMode ? { host: route.binding } : {}),
+      ownerSubject: session.ownerSubject, binding: sessionBinding(session),
       workflowId: session.workflowId, attempt: session.attempt, expiresAt: expires, ttl: Math.ceil(expires / 1000),
       ...tokenGrantFields(session),
     }, condition: { absent: true } },
   ]);
   if (!ok) throw invalid();
   return {
-    cookie: `${COOKIE_NAME}=${secret}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.max(0, Math.floor((expires - now()) / 1000))}; Expires=${new Date(expires).toUTCString()}`,
+    cookie: `${cookieName(route.sessionId, options)}=${secret}; ${cookieAttributes(route.sessionId, maxAge, new Date(expires), options)}`,
     session,
   };
 }
 
-export async function authorizeCookie(cookieHeader: string | undefined, host: string, options: AuthOptions = {}): Promise<GatewaySession> {
-  const id = sessionIdFromHost(host, options);
+export async function authorizeCookie(cookieHeader: string | undefined, route: GatewayRoute, options: AuthOptions = {}): Promise<GatewaySession> {
+  const id = route.sessionId;
+  const name = cookieName(id, options);
   const cookies = (cookieHeader ?? '').split(';').map((part) => part.trim())
-    .filter((part) => part.split('=', 1)[0] === COOKIE_NAME);
+    .filter((part) => part.split('=', 1)[0] === name);
   if (cookies.length !== 1) throw invalid();
-  const secret = cookies[0].slice(COOKIE_NAME.length + 1);
+  const secret = cookies[0].slice(name.length + 1);
   if (!tokenPattern.test(secret)) throw invalid();
   const { repo, now } = context(options);
   const grant = await repo.kv.get(`GATEWAY#COOKIE#${digest(secret)}`, 'META');
-  if (!grant || grant.host !== host || grant.sessionId !== id ||
+  if (!grant || (grant.routeBinding ?? grant.host) !== route.binding || grant.sessionId !== id ||
     typeof grant.expiresAt !== 'number' || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= now()) throw invalid();
   const session = await currentSession(repo, id, now, options);
   if (grant.ownerSubject !== session.ownerSubject || grant.binding !== sessionBinding(session) || !matchesTokenGrant(grant, session)) throw invalid();

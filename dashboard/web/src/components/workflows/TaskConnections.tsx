@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Badge, Button, Card, ErrorBox, Select } from '@/components/ui';
 import { api, can, useApi, useMe } from '@/lib/api-client';
 import { translate, useT, type Locale, type Translator } from '@/lib/i18n';
+import { isSafeLaunchUrl } from '@/lib/session-url';
 import type { Task, Workflow } from '@/server/store/types';
 
 export type ConnectionWorkflow = Pick<Workflow, 'id' | 'projectId' | 'ownerSubject' | 'status'>;
@@ -169,7 +170,7 @@ export function TaskConnections({ workflow, tasks, selectedTask, onSelectTask }:
       });
       if (currentOperation !== operation.current) { tab?.close(); return; }
       const url = new URL(launch.url);
-      if (url.protocol !== 'https:' || !url.hostname.startsWith(`${session.id}.`) || url.username || url.password || !url.searchParams.get('ticket')) {
+      if (!isSafeLaunchUrl(url, session.id, me.data?.gateway)) {
         throw new Error(t('errorSafeAddress'));
       }
       if (embedded) setEmbed({ sessionId: session.id, url: url.toString() });

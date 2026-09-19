@@ -25,7 +25,11 @@ describe.skipIf(!python)('live view sidecar server', () => {
 
   it('serves the viewer page and reports no frames until the recipe publishes one', async () => {
     const page = await get(`${base}/`);
-    expect(page.status).toBe(200); expect(page.type).toContain('text/html'); expect(page.body.toString()).toContain('/stream');
+    expect(page.status).toBe(200); expect(page.type).toContain('text/html');
+    const html = page.body.toString();
+    expect(html).toContain('stream');
+    expect(html).not.toMatch(/['"(]\/stream/);
+    expect(html).not.toMatch(/['"(]\/status\.json/);
     expect(JSON.parse((await get(`${base}/status.json`)).body.toString())).toMatchObject({ frames: 0, age_seconds: null });
     expect((await get(`${base}/frame.jpg`)).status).toBe(404);
   });

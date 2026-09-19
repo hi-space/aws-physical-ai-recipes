@@ -7,13 +7,11 @@ import { validateExecutionProfile } from '../services/execution-profiles';
 import { enqueueWorkflowWebhook } from '../services/webhooks';
 import { getRepo } from '../store/repo';
 import { productionTopologyInventory } from './topology';
-import { workflowLogHooks } from './logs';
 
 export function productionControllerDeps(): ControllerDeps {
   const base = realDeps();
   return {
     ...base, artifactPublisher,
-    ...(process.env.LOG_ARCHIVE_ENABLED === '1' ? { logs: workflowLogHooks(base.repo) } : {}),
     completeWorkflow: async (workflow, context) => {
       context.signal.throwIfAborted();
       await enqueueWorkflowWebhook(await getRepo().getWorkflow(workflow.id) ?? workflow);

@@ -386,10 +386,10 @@ test('one existing GPU trains Isaac Lab PPO, publishes learned checkpoints, then
       const diagnostics = [];
       for (const record of researcher.runs.filter(record => record.id)) {
         try {
-          const logs = await researcher.api<{ source: string; lines: string[] }>('GET',
+          const logs = await researcher.api<{ source: string; lines: { text: string }[] }>('GET',
             `/api/workflows/${record.id}/tasks/${record.task}/logs?tail=120`, undefined, [200], 10_000);
           diagnostics.push({ runId: record.id, task: record.task, source: logs.source,
-            lines: logs.lines.slice(-80).map(redacted) });
+            lines: logs.lines.slice(-80).map(l => redacted(l.text)) });
         } catch { diagnostics.push({ runId: record.id, task: record.task, error: 'Bounded task diagnostic fetch unavailable' }); }
       }
       evidence.failureDiagnostics = diagnostics;

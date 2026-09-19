@@ -4,8 +4,19 @@ import { roleFromGroups } from '@/server/auth/rbac';
 import { SESSION_HEADERS } from '@/server/auth/session';
 import { decodeJwt } from 'jose';
 import { verifyApiToken } from '@/server/auth/api-tokens';
+import {
+  AUTH_COOKIE,
+  authCookieHeader,
+  clearAuthCookieHeader,
+  cognitoSessionEnv,
+  openAuthCookie,
+  refreshAccess,
+  sealAuthCookie,
+  verifyAccessToken,
+  type VerifiedAccess,
+} from '@/server/auth/cognito-session';
 
-const PUBLIC_PATHS = ['/api/health', '/api/logout'];
+const PUBLIC_PATHS = ['/api/health', '/api/logout', '/login', '/api/auth/login', '/api/auth/challenge'];
 
 /**
  * Next.js 16 request boundary. Turns the ALB's Cognito identity headers into
@@ -14,11 +25,22 @@ const PUBLIC_PATHS = ['/api/health', '/api/logout'];
  */
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith('/_next/')) return NextResponse.next();
 
   const headers = new Headers(req.headers);
-  // Never trust client-supplied session headers.
+  // Never trust client-supplied session headers, nor a client-supplied copy of
+  // the bare-layout flag — both are set only by this middleware, below.
   for (const h of Object.values(SESSION_HEADERS)) headers.delete(h);
+  headers.delete('x-pai-bare-layout');
+
+  if (pathname === '/login') {
+    // Render the login page without the app chrome: the sidebar's own /api/me
+    // fetch would 401-redirect in a loop. This trusted request header tells the
+    // (server-component) root layout to drop the sidebar; it is scrubbed above so
+    // it can only ever originate here.
+    headers.set('x-pai-bare-layout', '1');
+    return NextResponse.next({ request: { headers } });
+  }
+  if (PUBLIC_PATHS.some((p) => pathname === p) || pathname.startsWith('/_next/')) return NextResponse.next({ request: { headers } });
   if (pathname.startsWith('/api/v1/')) {
     try {
       const authorization = req.headers.get('authorization') ?? '';
@@ -52,6 +74,45 @@ export default async function proxy(req: NextRequest) {
     headers.set(SESSION_HEADERS.role, process.env.DEV_ROLE ?? 'admin');
     headers.set(SESSION_HEADERS.authMethod, 'alb');
     return NextResponse.next({ request: { headers } });
+  }
+
+  if (authMode === 'cognito') {
+    const env = cognitoSessionEnv();
+    // The cookie envelope is app-signed but deliberately opens even when expired
+    // (openAuthCookie tolerates the clock), so it proves nothing on its own: the
+    // access token is always re-verified against the user pool before we trust it.
+    const cookie = await openAuthCookie(req.cookies.get(AUTH_COOKIE)?.value, env.signingKey);
+    if (!cookie) return denyCognito(req, env.origin);
+    let at = cookie.at, exp = cookie.exp, setCookie: string | undefined;
+    let identity: VerifiedAccess;
+    try {
+      identity = await verifyAccessToken(at, env);
+    } catch {
+      // Access token expired/invalid: mint a fresh one from the refresh token,
+      // re-verify it, and re-seal the cookie for the refresh token's lifetime.
+      try {
+        const fresh = await refreshAccess(cookie.rt, env);
+        at = fresh.at; exp = fresh.exp;
+        identity = await verifyAccessToken(at, env);
+        setCookie = authCookieHeader(
+          await sealAuthCookie({ at, rt: cookie.rt, sub: identity.sub, exp }, env.signingKey),
+          env.origin,
+          Math.max(60, exp - Math.floor(Date.now() / 1000) + 30 * 86400),
+        );
+      } catch (e) {
+        console.warn('[auth] cognito refresh failed', e instanceof Error ? e.message : e);
+        return denyCognito(req, env.origin, true);
+      }
+    }
+    if (identity.sub !== cookie.sub) return denyCognito(req, env.origin, true);
+    headers.set(SESSION_HEADERS.user, identity.username);
+    headers.set(SESSION_HEADERS.subject, identity.sub);
+    headers.set(SESSION_HEADERS.email, identity.email);
+    headers.set(SESSION_HEADERS.role, roleFromGroups(identity.groups));
+    headers.set(SESSION_HEADERS.authMethod, 'cognito');
+    const res = NextResponse.next({ request: { headers } });
+    if (setCookie) res.headers.append('set-cookie', setCookie);
+    return res;
   }
 
   const oidcData = req.headers.get('x-amzn-oidc-data');
@@ -89,6 +150,27 @@ function deny(req: NextRequest, message: string) {
     status: 401,
     headers: { 'content-type': 'text/html' },
   });
+}
+
+/**
+ * Deny an AUTH_MODE=cognito request: 401 JSON for /api/*, otherwise a 302 to
+ * the in-app login page carrying the original path as ?next=. When `clear` is
+ * set the browser's session cookie is cleared, so a bad or unrefreshable cookie
+ * never lingers to be retried.
+ */
+function denyCognito(req: NextRequest, origin: string, clear = false) {
+  const { pathname, search } = req.nextUrl;
+  let res: NextResponse;
+  if (pathname.startsWith('/api/')) {
+    // The client's api() reads this header and sends the browser to the login
+    // page; a bare 401 body alone can't drive navigation from a fetch.
+    res = NextResponse.json({ error: 'Sign in required', code: 'unauthorized' }, { status: 401 });
+    res.headers.set('x-pai-login', '/login');
+  } else {
+    res = NextResponse.redirect(`${origin}/login?next=${encodeURIComponent(pathname + search)}`, { status: 302 });
+  }
+  if (clear) res.headers.append('set-cookie', clearAuthCookieHeader(origin));
+  return res;
 }
 
 export const config = {

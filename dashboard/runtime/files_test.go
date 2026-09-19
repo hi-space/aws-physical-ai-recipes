@@ -89,6 +89,20 @@ func TestFilesUploadListDownloadAndNoDelete(t *testing.T) {
 	}
 }
 
+// The file browser is served at the session root, which may be reached through
+// a path-mode gateway prefix (e.g. /s/<id>/); its links and fetch URLs must be
+// relative so they resolve under whatever prefix the browser is actually on.
+func TestFileBrowserPageUsesRelativeUrls(t *testing.T) {
+	for _, marker := range []string{`"/files`, `'/files`, `"/api/files`, `'/api/files`, `href="/`, `src="/`, `action="/`} {
+		if strings.Contains(fileBrowserScript, marker) || strings.Contains(fileBrowserHTML(), marker) {
+			t.Fatalf("file browser page contains an absolute URL literal: %q", marker)
+		}
+	}
+	if !strings.Contains(fileBrowserScript, `new URL("./", window.location.href)`) {
+		t.Fatal("file browser must resolve file/api URLs relative to its own (possibly prefixed) location")
+	}
+}
+
 func TestFilesRejectTraversalSymlinksHardlinksSpecialAndReservedNames(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

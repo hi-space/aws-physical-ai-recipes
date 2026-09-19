@@ -12,8 +12,9 @@ export const GET = route('viewer', async ({ session, req }) => {
     features: {
       eks: Boolean(c.eks), slurm: Boolean(c.slurm), amp: Boolean(c.eks?.ampWorkspaceId), mlflow: Boolean(c.groot?.mlflowTrackingServerArn),
       pipeline: Boolean(c.groot?.pipelineName), dcv: Boolean(c.dcv), fsx: Boolean(c.eks?.fsxFileSystemId), edge: Boolean(c.edge?.thingGroup), cognito: Boolean(c.cognitoUserPoolId),
-      sessions: Boolean(c.gatewayBaseDomain),
+      sessions: Boolean(c.gatewayBaseDomain || (c.gatewayMode === 'path' && c.gatewayPublicOrigin)),
     },
+    gateway: c.gatewayMode === 'path' ? { mode: 'path' as const, origin: c.gatewayPublicOrigin } : { mode: 'host' as const },
     clusters: { eks: c.eks?.hyperPodClusterName, slurm: c.slurm?.hyperPodClusterName, eksName: c.eks?.eksClusterName },
     buckets: { data: c.eks?.dataBucket, artifacts: c.groot?.artifactsBucket },
     // Identifiers of the AWS resources behind each page, straight from the deployment contract (config.ts). No status

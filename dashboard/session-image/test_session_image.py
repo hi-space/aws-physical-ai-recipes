@@ -62,6 +62,18 @@ class LauncherTests(unittest.TestCase):
                 execute.assert_not_called()
     def test_rejects_unregistered_app(self):
         with self.assertRaises(ValueError): session.command('http://unregistered')
+    def test_empty_prefix_is_byte_identical_to_no_prefix(self):
+        for kind in session.PORTS:
+            self.assertEqual(session.command(kind), session.command(kind, ''))
+    def test_jupyter_prefix_sets_base_url(self):
+        self.assertIn('--ServerApp.base_url=/s/abc/', session.command('jupyter', '/s/abc'))
+    def test_tensorboard_prefix_sets_path_prefix(self):
+        self.assertIn('--path_prefix=/s/abc', session.command('tensorboard', '/s/abc'))
+    def test_code_server_prefix_has_no_flag(self):
+        self.assertEqual(session.command('code-server'), session.command('code-server', '/s/abc'))
+    def test_invalid_prefix_raises(self):
+        for bad in ('not-slash-s', '/s/abc/', '/s/' + 'x' * 80):
+            with self.assertRaises(ValueError): session.command('jupyter', bad)
 
 
 if __name__ == '__main__':

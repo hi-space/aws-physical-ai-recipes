@@ -57,6 +57,7 @@ export class HyperPodEksStack extends cdk.Stack {
     const clusterName = `hyperpod-eks${accountSuffix}`.toLowerCase();
 
     cdk.Tags.of(this).add('Project', 'HyperPod');
+    cdk.Tags.of(this).add('PhysicalAI', 'true');
     cdk.Tags.of(this).add('Orchestrator', 'EKS');
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
     if (props.accountId) {
