@@ -375,6 +375,27 @@ describe.skipIf(!existsSync(chromium.executablePath()))('NewWorkflowPage browser
     expect(parse(String(payload.yaml)).workflow.tasks[0].args).toContain('--composed');
   }, 15000);
 
+  it('shows composer-edited param values from the composed draft default-values on step 2', async () => {
+    // Defect 2 wizard side: a composed draft whose default-values carry an inspector-edited value must
+    // surface that value (not the recipe default) in the step-2 param field.
+    const draftYaml = stringify({
+      workflow: { name: 'composed-edited', resources: { cpu: { cpu: 1 } }, tasks: [{ name: 't', resource: 'cpu', image: 'test-image', args: ['{{ finetune_max_steps }}'] }] },
+      'default-values': { finetune_max_steps: '2000' },
+      ui: { recipe: { revision: 'composed', readiness: 'cpu-validated', verification: 'local-docker', prerequisites: [], sources: [], artifacts: [], imageContract: '', ports: { inputs: [], outputs: [] } } },
+    });
+    await page.goto(origin + '/workflows/new');
+    await page.evaluate((d) => sessionStorage.setItem('pai-compose-draft', d), JSON.stringify({
+      yaml: draftYaml,
+      params: [{ name: 'finetune_max_steps', label: 'Finetune › steps', type: 'number', default: '2000' }],
+      title: 'Composed edited',
+    }));
+    await page.goto(origin + '/workflows/new?draft=1');
+
+    const field = page.getByLabel('Finetune › steps');
+    await field.waitFor();
+    expect(await field.inputValue()).toBe('2000');
+  }, 15000);
+
   it('renders the DatasetPicker for an unbound dataset param carried by a composed draft', async () => {
     // A composed pipeline whose only recipe still has an unbound `dataset` input surfaces it as a
     // `type:'dataset'` composite param; the wizard must render the DatasetPicker (not a raw text field).

@@ -48,6 +48,24 @@ function newId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Math.random().toString(36).slice(2)}`;
 }
 
+/** A handle recovered from a pointer position (React Flow tags every handle with these attributes). */
+interface DropHandle { nodeId: string; id?: string | null; type: 'source' | 'target' }
+
+/**
+ * The React Flow handle directly under a pointer, or null. React Flow only fills `connectionState.toHandle`
+ * when its own closest-handle lookup snapped within `connectionRadius` on the last pointermove, so a real
+ * drop that lands just off that radius reports no target even though the cursor is over a handle. Reading
+ * the element under the release point recovers the true drop target so the rejection reason still toasts.
+ */
+function handleFromPoint(event: MouseEvent | TouchEvent): DropHandle | null {
+  const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+  if (!point) return null;
+  const el = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__handle');
+  const nodeId = el?.getAttribute('data-nodeid');
+  if (!el || !nodeId) return null;
+  return { nodeId, id: el.getAttribute('data-handleid'), type: el.classList.contains('target') ? 'target' : 'source' };
+}
+
 function ComposePageInner() {
   const t = useT('compose');
   const { screenToFlowPosition } = useReactFlow();
@@ -161,14 +179,18 @@ function ComposePageInner() {
   }, [reasonMessage]);
 
   // `isValidConnection` hard-blocks an invalid drag before `onConnect` fires, so the rejection toast can
-  // only be surfaced here: `onConnectEnd` always fires, and when the drag ended over a handle that the
-  // gate rejected (`toHandle` present, `!isValid`) we recompute the reason from the two handles and toast
-  // it. Handles are normalised by type so a target→source drag is read the same as source→target.
-  const onConnectEnd = useCallback<OnConnectEnd>((_event, connectionState) => {
+  // only be surfaced here. `onConnectEnd` always fires; an accepted connection (`isValid`) already went
+  // through `onConnect`, so we skip it. Otherwise we find the drop target — preferring React Flow's
+  // `toHandle`, falling back to the handle under the release point when React Flow reports none (see
+  // `handleFromPoint`) — and recompute the reason from the two handles. A drop on empty canvas resolves
+  // to no target and stays silent. Handles are normalised by type so a target→source drag reads the same.
+  const onConnectEnd = useCallback<OnConnectEnd>((event, connectionState) => {
     const { fromHandle, toHandle, isValid } = connectionState;
-    if (!fromHandle || !toHandle || isValid) return;
-    const outHandle = fromHandle.type === 'source' ? fromHandle : toHandle;
-    const inHandle = fromHandle.type === 'source' ? toHandle : fromHandle;
+    if (!fromHandle || isValid) return;
+    const target: DropHandle | null = toHandle ?? handleFromPoint(event);
+    if (!target) return;
+    const outHandle = fromHandle.type === 'source' ? fromHandle : target;
+    const inHandle = fromHandle.type === 'source' ? target : fromHandle;
     const s = stateRef.current;
     const reason = connectionReason(
       { source: outHandle.nodeId, sourceHandle: outHandle.id, target: inHandle.nodeId, targetHandle: inHandle.id },
@@ -184,21 +206,28 @@ function ComposePageInner() {
   // Test-only introspection: exposes the real onConnect/onConnectEnd handlers plus the current node/dataset
   // ids so the browser contract test can drive both an accepted connection and a rejected drag through
   // production logic (React Flow's handle drag is not reliably reproducible headless). `connectEnd`
-  // reconstructs the FinalConnectionState React Flow hands a rejected drag: the gate leaves `isValid`
-  // false with `toHandle` set. Compiled out of any non-test build, so it never affects production.
+  // reconstructs the FinalConnectionState React Flow hands a rejected real drop where its closest-handle
+  // lookup did NOT snap: `isValid` false and `toHandle` null. The reject reason must then be recovered from
+  // the pointer position over the target handle — so the mouseup carries that handle's centre coordinates.
+  // Compiled out of any non-test build, so it never affects production.
   useEffect(() => {
     if (process.env.NODE_ENV !== 'test') return;
     const w = window as unknown as { __composeTest?: unknown };
     w.__composeTest = {
       connect: (c: Connection) => onConnect(c),
-      connectEnd: (c: Connection) => onConnectEnd(
-        new MouseEvent('mouseup'),
-        {
-          isValid: false,
-          fromHandle: { nodeId: c.source, id: c.sourceHandle, type: 'source' },
-          toHandle: { nodeId: c.target, id: c.targetHandle, type: 'target' },
-        } as unknown as Parameters<OnConnectEnd>[1],
-      ),
+      connectEnd: (c: Connection) => {
+        const el = document.querySelector(`.react-flow__handle[data-nodeid="${c.target}"][data-handleid="${c.targetHandle}"]`);
+        const rect = el?.getBoundingClientRect();
+        const point = rect ? { clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 } : {};
+        onConnectEnd(
+          new MouseEvent('mouseup', point),
+          {
+            isValid: false,
+            fromHandle: { nodeId: c.source, id: c.sourceHandle, type: 'source' },
+            toHandle: null,
+          } as unknown as Parameters<OnConnectEnd>[1],
+        );
+      },
       nodes: () => stateRef.current.nodes.map((n) => ({ id: n.id, templateId: n.templateId, title: n.title })),
       datasets: () => stateRef.current.datasets.map((d) => ({ id: d.id, name: d.name })),
     };

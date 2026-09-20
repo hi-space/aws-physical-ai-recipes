@@ -96,6 +96,28 @@ describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser con
   const connect = (c: ComposeConnection) => page.evaluate((conn) => (window as unknown as { __composeTest: ComposeTestApi }).__composeTest.connect(conn), c);
   const connectEnd = (c: ComposeConnection) => page.evaluate((conn) => (window as unknown as { __composeTest: ComposeTestApi }).__composeTest.connectEnd(conn), c);
 
+  // Real React Flow handle drag: mouse from one handle's centre to another. Handles carry data-nodeid /
+  // data-handleid, so the drop target is a genuine DOM element under the release point — this exercises the
+  // isValidConnection gate + onConnectEnd path a headless synthetic hook cannot, which is where Defect 1 hid.
+  const handleCentre = async (nodeId: string, handleId: string) => {
+    const locator = page.locator(`.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`);
+    await locator.waitFor();
+    const box = await locator.boundingBox();
+    if (!box) throw new Error(`handle ${nodeId}/${handleId} not visible`);
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const realDragTo = async (from: { nodeId: string; handleId: string }, to: { x: number; y: number }) => {
+    const a = await handleCentre(from.nodeId, from.handleId);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + to.x) / 2, (a.y + to.y) / 2, { steps: 8 });
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+  };
+  const realDrag = async (from: { nodeId: string; handleId: string }, to: { nodeId: string; handleId: string }) =>
+    realDragTo(from, await handleCentre(to.nodeId, to.handleId));
+  const kindMismatch = () => page.getByText('포트 종류가 일치하지 않습니다.');
+
   it('adds recipes from the palette, connects matching kinds, locks the bound input, and validates', async () => {
     await page.goto(origin);
     await addNode('hf-dataset-import');
@@ -126,11 +148,52 @@ describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser con
     const nodes = await nodeList();
 
     // lerobot-dataset output → checkpoint input. In production the isValidConnection gate blocks the drag
-    // before onConnect, so the toast can only come from onConnectEnd — drive that exact handler here.
+    // before onConnect, so the toast can only come from onConnectEnd. The hook drives that handler with
+    // `toHandle: null` (React Flow's closest-handle snap missed, as on the live site) so the reason must be
+    // recovered from the pointer position over the target handle — the exact path Defect 1 fixed.
     await connectEnd({ source: idOf(nodes, 'hf-dataset-import'), sourceHandle: 'hf-import', target: idOf(nodes, 'leisaac-evaluate'), targetHandle: 'dataset_name' });
     await page.getByText('포트 종류가 일치하지 않습니다.').waitFor();
     // No edge was created: the rejected input is still editable (not bound).
     expect(await page.getByText('업스트림 연결에서 제공됩니다.').count()).toBe(0);
+  }, 30000);
+
+  it('toasts the reason for a real kind-mismatched drag, but stays silent for a valid drop or empty canvas', async () => {
+    await page.goto(origin);
+    await addNode('hf-dataset-import');
+    await addNode('leisaac-evaluate');
+    const nodes = await nodeList();
+    const hf = idOf(nodes, 'hf-dataset-import');
+    const leisaac = idOf(nodes, 'leisaac-evaluate');
+
+    // 1) Empty canvas: dragging the output into open space must NOT toast (no target handle).
+    const canvas = await page.getByTestId('compose-canvas').boundingBox();
+    if (!canvas) throw new Error('canvas not visible');
+    await realDragTo({ nodeId: hf, handleId: 'hf-import' }, { x: canvas.x + canvas.width * 0.5, y: canvas.y + canvas.height - 24 });
+    await page.waitForTimeout(400);
+    expect(await kindMismatch().count()).toBe(0);
+
+    // 2) Kind mismatch: lerobot-dataset output → checkpoint input. React Flow's gate blocks the edge; the
+    //    reason must surface as a toast even though `connectionState.toHandle` may be null on a real drop.
+    await realDrag({ nodeId: hf, handleId: 'hf-import' }, { nodeId: leisaac, handleId: 'dataset_name' });
+    await kindMismatch().waitFor();
+    // No edge was created: the rejected input is still editable (not bound).
+    expect(await page.getByText('업스트림 연결에서 제공됩니다.').count()).toBe(0);
+  }, 30000);
+
+  it('accepts a real matching drag with no toast and binds the input', async () => {
+    await page.goto(origin);
+    await addNode('hf-dataset-import');
+    await addNode('gr00t-finetune');
+    const nodes = await nodeList();
+
+    await realDrag(
+      { nodeId: idOf(nodes, 'hf-dataset-import'), handleId: 'hf-import' },
+      { nodeId: idOf(nodes, 'gr00t-finetune'), handleId: 'dataset_name' },
+    );
+
+    // A valid connection binds the input (read-only) and shows no rejection toast.
+    await page.getByText('업스트림 연결에서 제공됩니다.').first().waitFor();
+    expect(await kindMismatch().count()).toBe(0);
   }, 30000);
 
   it('saves the composed pipeline as a custom recipe with a YAML the real parser accepts', async () => {
@@ -154,6 +217,39 @@ describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser con
     const spec = parseWorkflowYaml(String(saved.yaml), {}).spec;
     // The edge rewrote a dataset input into a task dependency.
     expect(spec.workflow.tasks.some((t) => (t.inputs ?? []).some((i) => typeof (i as { task?: string }).task === 'string'))).toBe(true);
+  }, 30000);
+
+  it('carries an inspector param edit into the saved recipe and the run draft', async () => {
+    await page.goto(origin);
+    await addNode('gr00t-finetune');
+
+    // Edit a param in the inspector (the node is auto-selected on add).
+    const field = page.getByLabel('사용 권한이 있는 기본 모델');
+    await field.waitFor();
+    await field.fill('my-org/custom-model');
+
+    const saveButton = page.getByRole('button', { name: '레시피로 저장', exact: true });
+    await expect.poll(() => saveButton.isEnabled()).toBe(true);
+
+    // Save → the edited value must ride in the POST body's YAML default-values and params[].default.
+    await saveButton.click();
+    await page.getByLabel('이름', { exact: true }).fill('Edited recipe');
+    await page.getByRole('button', { name: '저장', exact: true }).click();
+    await expect.poll(() => calls.some((c) => c.path === '/api/templates' && c.method === 'POST')).toBe(true);
+    const saved = calls.find((c) => c.path === '/api/templates' && c.method === 'POST')!.body;
+    const savedDefaults = (parse(String(saved.yaml)) as { 'default-values': Record<string, unknown> })['default-values'];
+    const baseKey = Object.keys(savedDefaults).find((k) => k.endsWith('_base_model'))!;
+    expect(savedDefaults[baseKey]).toBe('my-org/custom-model');
+    const savedParams = saved.params as Array<{ name: string; default?: string }>;
+    expect(savedParams.find((p) => p.name.endsWith('_base_model'))?.default).toBe('my-org/custom-model');
+
+    // Run → the compose draft handed to the wizard carries the same edit in its YAML default-values.
+    await page.getByRole('button', { name: '실행', exact: true }).click();
+    await page.waitForFunction(() => (window as unknown as { fixtureDestination?: string }).fixtureDestination === '/workflows/new?draft=1');
+    const draft = JSON.parse((await page.evaluate(() => sessionStorage.getItem('pai-compose-draft')))!) as { yaml: string; params: Array<{ name: string; default?: string }> };
+    const draftDefaults = (parse(draft.yaml) as { 'default-values': Record<string, unknown> })['default-values'];
+    expect(draftDefaults[Object.keys(draftDefaults).find((k) => k.endsWith('_base_model'))!]).toBe('my-org/custom-model');
+    expect(draft.params.find((p) => p.name.endsWith('_base_model'))?.default).toBe('my-org/custom-model');
   }, 30000);
 
   it('writes the compose draft to session storage and navigates to the wizard on run', async () => {

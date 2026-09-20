@@ -54,7 +54,7 @@
 - READY 데이터는 불변입니다. 참조된 데이터 삭제는 거부하고 삭제 자체도 tombstone이며 원격 bytes purge가 아닙니다. 이미 없어진 과거 metadata를 재구성하지는 못합니다.
 - 로그는 저장하지 않습니다. 워크플로·작업 화면의 로그는 Kubernetes API로 Pod에서 직접 읽으며(요청당 최대 5,000줄, SSE 55초 연결 후 타임스탬프로 재접속) Pod가 삭제되면 더 볼 수 없습니다. 주입된 자격증명은 시도별 불변 Secret을 근거로 서버에서 redaction합니다.
 - CLI sync는 파일 단위 전송이며 rsync/block-delta·ranged resume·remote delete가 아닙니다. 일반 private registry, EFS connector, Slurm DAG, 임의 cross-account/region backend, MCP는 지원하지 않습니다.
-- Cosmos(Transfer2.5·Cosmos 3 Edge/Nano)/LeIsaac 선택 이미지 배선은 있으나 해당 이미지 build·GPU closed-loop는 미검증입니다. Cosmos 3 템플릿은 인스턴스 타입을 고정하지 않으며(`cosmos_platform` 비움 = 큐가 주는 GPU 노드), Nano transfer는 48 GB(480p) 또는 80 GB(720p)급 GPU가, Edge는 24 GB에서의 검증이 아직 없습니다. OpenPI/Mimic/SDG/Jetson/HIL의 모델·자산·장비 조건은 별도로 충족해야 합니다.
+- Cosmos(Transfer2.5·Cosmos 3 Edge/Nano)/LeIsaac 선택 이미지 배선은 있으나 해당 이미지 build·GPU closed-loop는 미검증입니다. Cosmos 3 템플릿은 인스턴스 타입을 고정하지 않으며(`cosmos_platform` 비움 = 큐가 주는 GPU 노드; 큐는 VRAM을 보지 않으므로 Nano는 ml.g6e.4xlarge 같은 48 GB 타입을 적어 두는 편이 안전), Nano transfer는 480p 기준 ml.g6e.4xlarge(L40S 48 GB)에서 2026-09-20 검증됐고 720p는 80 GB급 GPU가 필요하며, Edge는 24 GB에서의 검증이 아직 없습니다. 가중치는 프로젝트 FSx 캐시(`cache/hf`)에 내려받고, 가드레일(`guardrails=on`)은 HF 계정이 게이트된 `nvidia/Cosmos-Guardrail1` 약관을 수락해야 합니다. OpenPI/Mimic/SDG/Jetson/HIL의 모델·자산·장비 조건은 별도로 충족해야 합니다.
 
 ## 설치·개발
 

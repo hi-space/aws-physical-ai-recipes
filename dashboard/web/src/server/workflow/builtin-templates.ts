@@ -105,14 +105,18 @@ const sdgTask = (imageParam = 'image'): TaskDefinition => ({ name: 'generate', r
   environment: isaacEnv, outputs: published('replicator-sdg') });
 /** Cosmos 3 adapter task; the runner (cosmos-framework inference CLI) is fixed inside the image, every knob is argv. */
 const cosmos3Platform = () => P('cosmos_platform', "GPU 인스턴스 타입 고정 (선택)", '', 'string',
-  "비워 두면 프로젝트 큐가 제공하는 아무 GPU 노드에서 실행됩니다. 특정 타입(예: ml.g6e.2xlarge)이 필요할 때만 입력하세요.");
+  "비워 두면 프로젝트 큐가 제공하는 아무 GPU 노드에서 실행됩니다. 큐는 GPU 개수만 보고 VRAM은 보지 않으므로, 48 GB가 필요한 Nano는 ml.g6e.4xlarge처럼 맞는 타입을 적어 24 GB 노드 배치를 막는 편이 안전합니다.");
+const cosmos3Guardrails = () => P('guardrails', "콘텍츠 가드레일 (on/off)", 'on', 'string',
+  "cosmos-framework 기본값(on)은 게이트된 nvidia/Cosmos-Guardrail1 체크포인트를 내려받으므로 HF 토큰 계정이 그 저장소 약관을 한 번 수락해야 합니다. off는 업스트림 --no-guardrails로 실행합니다.");
 const cosmos3Resource = { cpu: 8, memory: '64Gi', gpu: 1, shm_size: '16Gi' };
 const cosmos3Task = (mode: 'image2video' | 'transfer', model: string, extra: string[], outputPrefix: string): TaskDefinition => ({
   // Task-level platform accepts '' (resource-level does not): empty = any GPU node the queue offers, non-empty = pin.
+  // No HF_HOME here: the adapter caches checkpoints under the project's FSx root (outside the published output),
+  // not in the container layer on the node's 100 GB root disk.
   name: mode, resource: 'cosmos3', platform: '{{ cosmos_platform }}', image: '{{ cosmos_image }}', command: ['python', '/opt/recipes/cosmos3/generate.py'],
   args: ['--mode', mode, '--model', model, '--input-dir', '{{input:0}}', '--output-dir', '{{output}}', '--seed', '{{ seed }}',
-    '--prompt', '{{ prompt }}', '--resolution', '{{ resolution }}', ...extra],
-  inputs: [{ task: 'generate' }], credentials, environment: { HF_HOME: '/tmp/hf' }, outputs: published(outputPrefix) });
+    '--prompt', '{{ prompt }}', '--resolution', '{{ resolution }}', '--guardrails', '{{ guardrails }}', ...extra],
+  inputs: [{ task: 'generate' }], credentials, outputs: published(outputPrefix) });
 const sceneParams = () => [P('scene', "이미지 안의 USD 장면 경로", '/opt/workshop/src/workshop/robots/usd/so_arm101.usd'),
   P('frames', "모달리티별 프레임 수", '32', 'number'), seed()];
 /** SO-101 key mapping the pinned so101_modality.py expects at <dataset>/meta/modality.json (from e2e-workshop/groot/training/data/configs). */
@@ -410,25 +414,25 @@ export const BUILTIN_TEMPLATES: Template[] = [
     params: [image('ISAACLAB_IMAGE_URI', 'sim_image'), image('COSMOS3_IMAGE_URI', 'cosmos_image'),
       ...sceneParams().map(p => p.name === 'frames' ? { ...p, default: '1' } : p), token(),
       P('prompt', "영상 생성 프롬프트", 'A robot arm reaching on a well-lit table.'),
-      cosmos3Platform(), P('resolution', "출력 해상도 단계 (256/480/720)", '480'), P('num_frames', "생성 프레임 수 (Edge 최대 150)", '93', 'number')],
+      cosmos3Platform(), cosmos3Guardrails(), P('resolution', "출력 해상도 단계 (256/480/720)", '480'), P('num_frames', "생성 프레임 수 (Edge 최대 150)", '93', 'number')],
     resources: { gpu, cosmos3: cosmos3Resource },
     tasks: [sdgTask('sim_image'), cosmos3Task('image2video', 'Cosmos3-Edge', ['--num-frames', '{{ num_frames }}'], 'cosmos3-edge-videos')],
     metadata: { ...gpuMetadata('cosmos3', [source.cosmos3, source.replicator], ['generated/*/vision.mp4', 'controls/', 'dataset-manifest.json'],
       [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS3_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
-        { kind: 'hardware', reason: "Cosmos3-Edge(4B)는 업스트림이 Jetson·H100에서 검증했고 24 GB GPU(ml.g5 A10G, ml.g6 L4)에서의 실행은 미검증입니다. 가중치 약 10 GB를 /tmp/hf에 내려받을 노드 디스크가 필요합니다." }]),
+        { kind: 'hardware', reason: "Cosmos3-Edge(4B)는 업스트림이 Jetson·H100에서 검증했고 24 GB GPU(ml.g5 A10G, ml.g6 L4)에서의 실행은 미검증입니다. 가중치 약 10 GB는 프로젝트 FSx 캐시(cache/hf)에 내려받습니다. 가드레일 on이면 HF 계정이 nvidia/Cosmos-Guardrail1 약관을 수락해야 합니다." }]),
       ports: ports([], [{ name: 'cosmos3-edge-videos', kind: 'video', label: 'Generated videos' }]) } }),
   recipe({ id: 'cosmos3-nano-pipeline', title: "Replicator → Cosmos 3 Nano depth transfer", category: 'data',
     description: "RGB·depth·segmentation을 렌더링하고 제어 영상을 만든 뒤 Cosmos3-Nano(16B)로 depth 제어 transfer를 실행합니다. 결과는 SDG 프레임과 1:1로 정렬된 증강 영상입니다.",
     params: [image('ISAACLAB_IMAGE_URI', 'sim_image'), image('COSMOS3_IMAGE_URI', 'cosmos_image'),
       ...sceneParams().map(p => p.name === 'frames' ? { ...p, default: '93' } : p), token(),
-      cosmos3Platform(), P('prompt', "영상 생성 프롬프트", 'A robot arm reaching on a well-lit table.'),
-      P('resolution', "출력 해상도 단계 (480/720)", '480', 'string', "480p는 48 GB GPU(L40S 등)를 목표로 한 기본값입니다. 720p는 업스트림 기준 피크 약 46 GiB라 80 GB급 GPU가 필요합니다."),
+      cosmos3Platform(), cosmos3Guardrails(), P('prompt', "영상 생성 프롬프트", 'A robot arm reaching on a well-lit table.'),
+      P('resolution', "출력 해상도 단계 (480/720)", '480', 'string', "480p는 ml.g6e.4xlarge(L40S 48 GB)에서 검증된 기본값입니다(2026-09-20, 93프레임, 샘플링 약 2.5분). 720p는 업스트림 기준 피크 약 46 GiB라 80 GB급 GPU가 필요합니다."),
       P('control_guidance', "depth 제어 강도", '1.5', 'number', "업스트림 depth cookbook 기본값 1.5. 높이면 기하를 더 엄격히 따르고 낮추면 프롬프트 자유도가 커집니다.")],
     resources: { gpu, cosmos3: cosmos3Resource },
     tasks: [sdgTask('sim_image'), cosmos3Task('transfer', 'Cosmos3-Nano', ['--control-guidance', '{{ control_guidance }}'], 'cosmos3-nano-videos')],
     metadata: { ...gpuMetadata('cosmos3', [source.cosmos3, source.replicator], ['generated/*/vision.mp4', 'controls/', 'dataset-manifest.json'],
       [imagePrereq('ISAACLAB_IMAGE_URI', 'sim_image'), imagePrereq('COSMOS3_IMAGE_URI', 'cosmos_image'), gpuPrereq, modelPrereq,
-        { kind: 'hardware', reason: "Cosmos3-Nano(16B) transfer는 720p 기준 GPU 메모리 피크 약 46 GiB(업스트림 vLLM-Omni 레시피)입니다. 48 GB GPU(ml.g6e L40S)는 480p 기준으로도 미검증이고, 720p는 80 GB급이 필요합니다. 기존 A10G 24 GB로는 부족하며 가중치 약 33 GB를 내려받을 노드 디스크도 필요합니다." }]),
+        { kind: 'hardware', reason: "Cosmos3-Nano(16B) transfer는 480p·93프레임 기준 ml.g6e.4xlarge(L40S 48 GB)에서 검증됐습니다(모델 적재 약 33 GB VRAM, 가중치 29 GB는 프로젝트 FSx 캐시로 약 4분). 720p는 업스트림 기준 피크 약 46 GiB라 80 GB급 GPU가 필요하고, A10G 24 GB로는 부족합니다. 가드레일 on이면 HF 계정이 nvidia/Cosmos-Guardrail1 약관을 수락해야 합니다." }]),
       ports: ports([], [{ name: 'cosmos3-nano-videos', kind: 'video', label: 'Enhanced videos' }]) } }),
   recipe({ id: 'ros2-transfer', title: "ROS 2 discovery·publisher·subscriber 통신 검증", category: 'simulation',
     description: "세 작업을 동시에 실행합니다. subscriber가 실행 식별자가 붙은 서로 다른 메시지를 받아야 완료되며 discovery와 데이터 전송을 함께 확인합니다.",

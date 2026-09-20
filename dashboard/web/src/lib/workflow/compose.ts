@@ -432,22 +432,30 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
     mergedTasks.push(...(doc.workflow.tasks ?? []));
     if (doc.workflow.groups) mergedGroups.push(...doc.workflow.groups);
 
-    // default-values: carry over everything except params dropped by node→node edges.
+    // default-values: carry over everything except params dropped by node→node edges, then layer the
+    // inspector's per-node param overrides (keyed by unprefixed param name) so edited values reach the
+    // run. Pinned dataset defaults are applied last so a dataset binding still wins over any override.
     for (const [key, value] of Object.entries(doc['default-values'] ?? {})) {
       if (!droppedParams.has(key)) mergedDefaults[key] = value;
     }
+    for (const [name, value] of Object.entries(node.params ?? {})) {
+      const prefixedName = `${paramSlug}_${name}`;
+      if (!droppedParams.has(prefixedName)) mergedDefaults[prefixedName] = value;
+    }
     for (const [key, value] of datasetDefaults) mergedDefaults[key] = value;
 
-    // Params: prefix, relabel, drop bound ones, apply pinned dataset defaults.
+    // Params: prefix, relabel, drop bound ones, apply the node override, then the pinned dataset default.
     for (const param of template.params ?? []) {
       const prefixedName = `${paramSlug}_${param.name}`;
       if (droppedParams.has(prefixedName)) continue;
+      const override = node.params?.[param.name];
       const pinned = datasetDefaults.get(prefixedName);
       mergedParams.push({
         ...param,
         name: prefixedName,
         label: `${node.title} › ${param.label ?? param.name}`,
         ...(param.versionParam ? { versionParam: `${paramSlug}_${param.versionParam}` } : {}),
+        ...(override !== undefined ? { default: override } : {}),
         ...(pinned !== undefined ? { default: String(pinned) } : {}),
       });
     }

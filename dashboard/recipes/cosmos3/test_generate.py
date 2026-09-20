@@ -27,7 +27,7 @@ spec = json.loads(Path(args[args.index("-i") + 1]).read_text())
 out = Path(args[args.index("-o") + 1]) / spec["name"]
 out.mkdir(parents=True, exist_ok=True)
 (out / "vision.mp4").write_bytes(b"\\x00" * 64 if "{fail}" != "yes" else b"")
-(out / "sample_args.json").write_text(json.dumps({"argv": args, "spec": spec}))
+(out / "sample_args.json").write_text(json.dumps({"argv": args, "spec": spec, "hf_home": __import__("os").environ.get("HF_HOME")}))
 '''
 
 
@@ -134,6 +134,24 @@ class Cosmos3Adapter(unittest.TestCase):
         failing.write_text(STUB.replace("{fail}", "yes"))
         with self.assertRaises(ValueError):
             self.run_adapter("--mode", "image2video", "--model", "Cosmos3-Edge", runner=f"{sys.executable} {failing}")
+
+    def test_guardrails_default_on_and_off_passes_upstream_flag(self):
+        _, _, argv, manifest = self.run_adapter("--mode", "image2video", "--model", "Cosmos3-Edge")
+        self.assertNotIn("--no-guardrails", argv)
+        self.assertTrue(manifest["guardrails"])
+        _, _, argv, manifest = self.run_adapter("--mode", "image2video", "--model", "Cosmos3-Edge", "--guardrails", "off")
+        self.assertEqual(argv[0], "--no-guardrails", argv)
+        self.assertFalse(manifest["guardrails"])
+
+    def test_hf_cache_follows_project_run_layout_and_explicit_hf_home_wins(self):
+        run_output = Path("/fsx/checkpoints/projects/workshop/runs/37e29fc0b05f6643/attempts/1/transfer")
+        self.assertEqual(generate.hf_cache_dir(run_output, {}), Path("/fsx/checkpoints/projects/workshop/cache/hf"))
+        self.assertEqual(generate.hf_cache_dir(Path("/tmp/out"), {}), Path("/tmp/hf"))
+        self.assertEqual(generate.hf_cache_dir(run_output, {"HF_HOME": "/somewhere"}), Path("/somewhere"))
+        # The runner subprocess inherits the resolved cache and the manifest records it.
+        _, _, _, manifest = self.run_adapter("--mode", "image2video", "--model", "Cosmos3-Edge")
+        recorded = json.loads(next((self.tmp / "out" / "generated").rglob("sample_args.json")).read_text())
+        self.assertEqual(recorded["hf_home"], manifest["hfCache"])
 
     def test_runner_failure_propagates(self):
         with self.assertRaises(subprocess.CalledProcessError):

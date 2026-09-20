@@ -173,7 +173,9 @@ describe('researcher recipe catalog', () => {
       expect(args[args.indexOf('--model') + 1]).toBe(c.model);
       expect(args[args.indexOf('--input-dir') + 1]).toMatch(/^\{\{input:0\}\}|\/fsx\//);
       expect(task.inputs).toEqual([{ task: 'generate' }]);
-      expect(task.environment).toMatchObject({ HF_HOME: '/tmp/hf' });
+      // The adapter derives the HF cache from the project run layout; a template-level /tmp/hf would land 30 GB in the container layer.
+      expect(task.environment ?? {}).not.toHaveProperty('HF_HOME');
+      expect(args[args.indexOf('--guardrails') + 1]).toBe('on');
       if (c.mode === 'transfer') expect(args).toContain('--control-guidance');
       else expect(args).not.toContain('--control-guidance');
     }

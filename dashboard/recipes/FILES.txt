@@ -31,6 +31,7 @@ dashboard/recipes/provenance.json
 dashboard/recipes/ros2/test_integration.py
 dashboard/recipes/ros2/transfer.py
 dashboard/recipes/sdg/generate.py
+dashboard/recipes/sdg/test_generate.py
 dashboard/recipes/test_pai_live.py
 dashboard/recipes/tracking.py
 dashboard/web/src/server/workflow/builtin-templates.test.ts

@@ -305,6 +305,41 @@ describe('composeWorkflow — composition', () => {
     expect(result.params.map((p) => p.name)).toContain('finetune_dataset_name');
   });
 
+  it('applies inspector per-node param overrides to both default-values and params[].default', () => {
+    const graph: ComposeGraph = {
+      nodes: [{ id: 'n1', templateId: 'gr00t-finetune', title: 'Finetune', params: { max_steps: '2000' } }],
+      datasets: [],
+      edges: [],
+    };
+    const result = composeWorkflow(graph, templates());
+    expect(result.errors).toEqual([]);
+
+    // The composed YAML's default-values carry the edited value under the prefixed name (the run wizard
+    // reads step-2 values straight from here for a composed draft).
+    const doc = YAML.parse(result.yaml) as { 'default-values': Record<string, unknown> };
+    expect(doc['default-values']['finetune_max_steps']).toBe('2000');
+
+    // The composite param exposes the same edited value as its default (the save/composite path reads this).
+    expect(result.params.find((p) => p.name === 'finetune_max_steps')?.default).toBe('2000');
+
+    // A param left unedited keeps the recipe default.
+    expect(result.params.find((p) => p.name === 'finetune_base_model')?.default).toBe('nvidia/GR00T-N1.6-3B');
+  });
+
+  it('lets a dataset-source binding win over an inspector override on the same input', () => {
+    const graph: ComposeGraph = {
+      nodes: [{ id: 'n1', templateId: 'gr00t-finetune', title: 'Finetune', params: { dataset_name: 'typed-by-user' } }],
+      datasets: [{ id: 'ds1', name: 'bound-set', version: 2 }],
+      edges: [{ from: { dataset: 'ds1' }, to: { node: 'n1', param: 'dataset_name' } }],
+    };
+    const result = composeWorkflow(graph, templates());
+    expect(result.errors).toEqual([]);
+
+    const doc = YAML.parse(result.yaml) as { 'default-values': Record<string, unknown> };
+    expect(doc['default-values']['finetune_dataset_name']).toBe('bound-set');
+    expect(result.params.find((p) => p.name === 'finetune_dataset_name')?.default).toBe('bound-set');
+  });
+
   it('composes a grouped recipe standalone and validates', () => {
     const graph: ComposeGraph = {
       nodes: [{ id: 'n1', templateId: 'leisaac-evaluate', title: 'Closed Loop Eval', params: {} }],

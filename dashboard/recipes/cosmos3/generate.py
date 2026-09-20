@@ -8,6 +8,8 @@ Outputs are visual data only: no robot actions or success labels are inferred.
 """
 import argparse
 import json
+import os
+import re
 import shlex
 import subprocess
 import sys
@@ -23,6 +25,22 @@ MAX_FRAMES_PER_CHUNK = 121
 ASPECT_RATIOS = {"16,9": 16 / 9, "4,3": 4 / 3, "1,1": 1.0, "3,4": 3 / 4, "9,16": 9 / 16}
 TRANSFER_MODELS = ("Cosmos3-Nano", "Cosmos3-Super")
 MODES = {"transfer": "video2video", "image2video": "image2video"}
+
+
+PROJECT_RUN_LAYOUT = re.compile(r"^(?P<root>/fsx/checkpoints/projects/[^/]+)/runs/[^/]+/attempts/\d+/[^/]+/?$")
+
+
+def hf_cache_dir(output: Path, environ=os.environ) -> Path:
+    """Where cosmos-framework downloads its ~30 GB checkpoints.
+
+    An explicit HF_HOME wins. Otherwise a dashboard project run (``<root>/runs/<id>/attempts/<n>/<task>``)
+    caches under ``<root>/cache/hf`` on FSx: shared across runs, outside the published output, and off the
+    HyperPod node's 100 GB root disk where a container-layer download evicts the pod. Anything else uses /tmp/hf.
+    """
+    if environ.get("HF_HOME"):
+        return Path(environ["HF_HOME"])
+    match = PROJECT_RUN_LAYOUT.match(str(output))
+    return Path(match.group("root")) / "cache" / "hf" if match else Path("/tmp/hf")
 
 
 def aspect_ratio(width: int, height: int) -> str:
@@ -87,8 +105,11 @@ def build_spec(args, manifest: dict, controls: Path) -> dict:
     return spec
 
 
-def run_inference(runner: str, spec_path: Path, generated: Path, model: str, seed: int) -> None:
-    command = [*shlex.split(runner), "-i", str(spec_path), "-o", str(generated), "--checkpoint-path", model, "--seed", str(seed)]
+def run_inference(runner: str, spec_path: Path, generated: Path, model: str, seed: int, guardrails: bool = True) -> None:
+    # cosmos-framework enables its text/video content guardrails by default, which downloads the gated
+    # nvidia/Cosmos-Guardrail1 checkpoint (the HF token owner must have accepted its license once).
+    command = [*shlex.split(runner), *([] if guardrails else ["--no-guardrails"]),
+               "-i", str(spec_path), "-o", str(generated), "--checkpoint-path", model, "--seed", str(seed)]
     print("Running:", " ".join(shlex.quote(part) for part in command), flush=True)
     subprocess.run(command, check=True)
 
@@ -105,12 +126,17 @@ def main(argv=None):
     parser.add_argument("--num-frames", type=int, default=None,
                         help="image2video output length (default 93); transfer always matches the SDG frame count")
     parser.add_argument("--control-guidance", type=float, default=1.5)
+    parser.add_argument("--guardrails", choices=("on", "off"), default="on",
+                        help="'off' passes --no-guardrails to cosmos-framework (skips the gated nvidia/Cosmos-Guardrail1 download)")
     parser.add_argument("--runner", default=DEFAULT_RUNNER, help="inference command prefix (tests substitute a stub)")
     args = parser.parse_args(argv)
     if args.mode == "transfer" and args.model not in TRANSFER_MODELS:
         raise ValueError(f"{args.model} does not support transfer hints; use one of {TRANSFER_MODELS}")
 
     source, output = Path(args.input_dir), Path(args.output_dir)
+    cache = hf_cache_dir(output)
+    cache.mkdir(parents=True, exist_ok=True)
+    os.environ["HF_HOME"] = str(cache)  # inherited by the cosmos-framework subprocess
     manifest = load_manifest(source)
     controls = output / "controls"
     controls.mkdir(parents=True, exist_ok=True)
@@ -122,7 +148,7 @@ def main(argv=None):
     spec_path = output / "spec.json"
     spec_path.write_text(json.dumps(spec, indent=2))
     generated = output / "generated"
-    run_inference(args.runner, spec_path, generated, args.model, args.seed)
+    run_inference(args.runner, spec_path, generated, args.model, args.seed, guardrails=args.guardrails == "on")
 
     videos = sorted(str(p.relative_to(output)) for p in generated.rglob("vision.mp4") if p.stat().st_size)
     if not videos:
@@ -130,6 +156,7 @@ def main(argv=None):
     result = {
         "schemaVersion": 1, "generator": f"{args.model} {MODES[args.mode]}", "model": args.model, "mode": args.mode,
         "seed": args.seed, "sourceCommit": SOURCE_COMMIT, "spec": spec, "inputManifest": manifest, "videos": videos,
+        "guardrails": args.guardrails == "on", "hfCache": str(cache),
         "limitations": "Visual augmentation only; no inferred robot actions or success labels",
     }
     if args.mode == "transfer":
