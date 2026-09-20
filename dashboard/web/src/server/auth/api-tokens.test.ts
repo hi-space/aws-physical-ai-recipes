@@ -2,18 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { MemoryKV } from '../store/dynamo';
 import type { Project } from './projects';
+import { projectItem } from './projects';
 import type { Session } from './session';
+import { projectFixture, testSession } from './session.test-helpers';
 import type { CurrentUserAuthorization } from '../aws/cognito';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken, type ApiTokenDeps } from './api-tokens';
 
-const principal: Session = { user: 'alice', subject: 'sub-a', email: 'a@example.test', role: 'researcher' };
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q', members: { 'sub-a': 'project-admin' }, credentialRefs: [], createdAt: '', updatedAt: '' };
+const principal: Session = testSession('alice', 'sub-a', 'researcher', ['proj-a-admin']);
+const project: Project = projectFixture('a');
 let kv: MemoryKV, now: number, deps: ApiTokenDeps;
 beforeEach(async () => {
   kv = new MemoryKV(); now = 1_800_000_000_000; let seq = 0;
-  await kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+  await kv.put(projectItem(project));
   deps = { kv, now: () => now, randomId: () => (++seq).toString(16).padStart(32, '0'), randomToken: () => `pai_${Buffer.alloc(32, seq + 1).toString('base64url')}`,
-    currentUser: vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: 'current@example.test', enabled: true, groups: ['researchers'] })) };
+    currentUser: vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: 'current@example.test', enabled: true, groups: ['researchers', 'proj-a-admin'] })) };
 });
 const issue = (scopes: ('workflows:read' | 'workflows:write' | 'metrics:read')[] = ['workflows:read', 'workflows:write']) => createApiToken(principal, project, { name: 'cli', scopes, expiresInDays: 1 }, deps);
 
@@ -45,15 +47,17 @@ describe('project API token authorization', () => {
     await expect(verifyApiToken(token, 'GET', '/api/workflows', deps)).rejects.toMatchObject({ status: 401 });
   });
   it('never delegates platform admin, and honors group and project downgrades', async () => {
-    deps.currentUser = vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['admins'] }));
+    deps.currentUser = vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['admins', 'proj-a-admin'] }));
     const { token } = await issue();
     expect((await verifyApiToken(token, 'POST', '/api/workflows', deps)).role).toBe('researcher');
-    deps.currentUser = vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: [] }));
+    // Still a project member (proj-a), but without a platform researcher/admin group ⇒ downgraded to viewer.
+    deps.currentUser = vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['proj-a'] }));
     await expect(verifyApiToken(token, 'POST', '/api/workflows', deps)).rejects.toMatchObject({ status: 403 });
     const downgraded = await verifyApiToken(token, 'GET', '/api/workflows', deps);
     expect(downgraded.role).toBe('viewer');
     expect(downgraded.scopes).not.toContain('workflows:write');
-    await kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {} });
+    // Member group removed entirely ⇒ no project membership at all.
+    deps.currentUser = vi.fn(async () => ({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['researchers'] }));
     await expect(verifyApiToken(token, 'GET', '/api/workflows', deps)).rejects.toMatchObject({ status: 403 });
   });
   it.each(['disabled', 'recreated', 'unavailable'])('rejects a currently %s Cognito user', async (kind) => {
@@ -76,7 +80,7 @@ describe('project API token authorization', () => {
   });
   it('checks revocation again after an in-flight Cognito lookup', async () => {
     const created = await issue(); let release!: () => void;
-    deps.currentUser = vi.fn(() => new Promise<CurrentUserAuthorization>((resolve) => { release = () => resolve({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['researchers'] }); }));
+    deps.currentUser = vi.fn(() => new Promise<CurrentUserAuthorization>((resolve) => { release = () => resolve({ username: 'alice', subject: 'sub-a', email: '', enabled: true, groups: ['researchers', 'proj-a-admin'] }); }));
     const verifying = verifyApiToken(created.token, 'GET', '/api/workflows', deps);
     await vi.waitFor(() => expect(deps.currentUser).toHaveBeenCalled());
     await revokeApiToken(principal, project, created.metadata.id, deps); release();
@@ -87,7 +91,9 @@ describe('project API token authorization', () => {
     await expect(createApiToken(principal, project, { name: 'admin', scopes: ['admin'] as never }, deps)).rejects.toMatchObject({ status: 400 });
     await expect(createApiToken({ ...principal, authMethod: 'token' }, project, { name: 'chain', scopes: ['workflows:read'] }, deps)).rejects.toMatchObject({ status: 403 });
     const created = await issue();
-    await expect(revokeApiToken({ ...principal, subject: 'sub-b' }, project, created.metadata.id, deps)).rejects.toMatchObject({ status: 403 });
+    // sub-b holds no proj-a group at all (unlike sub-a's proj-a-admin), mirroring the old fixture where
+    // only sub-a was in project.members: this is denied for lack of project membership, same as before.
+    await expect(revokeApiToken({ ...principal, subject: 'sub-b', groups: ['researchers'] }, project, created.metadata.id, deps)).rejects.toMatchObject({ status: 403 });
     expect(await listApiTokens({ ...principal, subject: 'sub-a' }, project, deps)).toHaveLength(1);
   });
 });

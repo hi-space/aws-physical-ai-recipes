@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryKV } from '../store/dynamo';
 import type { Project } from '../auth/projects';
+import { projectItem } from '../auth/projects';
 import type { Session } from '../auth/session';
+import { projectFixture, testSession } from '../auth/session.test-helpers';
 import { assertCredentialUse, createCredential, deleteCredential, listCredentials, registerLegacyCredential, rotateCredential, type CredentialDeps } from './credentials';
 
-const alice: Session = { user: 'alice', subject: 'sub-a', email: '', role: 'researcher' };
-const bob: Session = { user: 'bob', subject: 'sub-b', email: '', role: 'researcher' };
-const admin: Session = { user: 'admin', subject: 'sub-admin', email: '', role: 'admin' };
-const project: Project = { id: 'team-a', name: 'A', namespace: 'hyperpod-ns-team-a', queue: 'q', credentialRefs: [], members: { 'sub-a': 'researcher', 'sub-b': 'project-admin', 'sub-admin': 'project-admin' }, createdAt: '', updatedAt: '' };
+const alice: Session = testSession('alice', 'sub-a', 'researcher', ['proj-team-a']);
+const bob: Session = testSession('bob', 'sub-b', 'researcher', ['proj-team-a-admin']);
+const admin: Session = testSession('admin', 'sub-admin', 'admin');
+const project: Project = projectFixture('team-a');
 let kv: MemoryKV, deps: CredentialDeps;
 beforeEach(async () => {
   kv = new MemoryKV(); let id = 0;
-  await kv.put({ pk: 'PROJECT#team-a', sk: 'META', ...project });
+  await kv.put(projectItem(project));
   deps = { kv, now: () => 1_800_000_000_000, randomId: () => (++id).toString(16).padStart(32, '0'), parameters: { put: vi.fn(async () => 1), delete: vi.fn(async () => {}) } };
 });
 
@@ -40,8 +42,9 @@ describe('project credential ownership and secret storage', () => {
     const shared = await createCredential(bob, project, { name: 'NGC', kind: 'ngc', scope: 'project', value: 'secret' }, deps);
     expect(shared.ref).toContain('/shared/');
     await expect(assertCredentialUse(alice, project, shared.ref, deps)).resolves.toBeUndefined();
-    await kv.put({ pk: 'PROJECT#team-a', sk: 'META', ...project, members: { 'sub-b': 'project-admin' } });
-    await expect(assertCredentialUse(alice, project, shared.ref, deps)).rejects.toMatchObject({ status: 403 });
+    // Member group removed entirely ⇒ no project membership at all.
+    const aliceRemoved: Session = testSession('alice', 'sub-a', 'researcher');
+    await expect(assertCredentialUse(aliceRemoved, project, shared.ref, deps)).rejects.toMatchObject({ status: 403 });
   });
   it('rotates only through an exclusive lifecycle state and leaves no old secret in metadata', async () => {
     const own = await createCredential(alice, project, { name: 'HF', kind: 'hf', value: 'old-value' }, deps);

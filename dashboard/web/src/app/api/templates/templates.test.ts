@@ -2,30 +2,31 @@ import { beforeEach,expect,it,vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Repo,setRepoForTests } from '@/server/store/repo';
 import { MemoryKV } from '@/server/store/dynamo';
-import { createProject } from '@/server/auth/projects';
 import type { Session } from '@/server/auth/session';
 import { SESSION_HEADERS } from '@/server/auth/session';
+import { putProject, testSession } from '@/server/auth/session.test-helpers';
 import { BUILTIN_TEMPLATES } from '@/server/workflow/builtin-templates';
 import { GET as list,POST as save } from './route';
 import { GET as get,DELETE as remove } from './[id]/route';
 import { GET as versions } from './[id]/versions/route';
 let repo:Repo;
-const admin:Session={user:'admin',subject:'admin-sub',email:'',role:'admin'};
-const alice:Session={user:'alice',subject:'alice-sub',email:'',role:'researcher'};
-const bob:Session={user:'bob',subject:'bob-sub',email:'',role:'researcher'};
-const viewer:Session={user:'viewer',subject:'viewer-sub',email:'',role:'researcher'};
-const manager:Session={user:'manager',subject:'manager-sub',email:'',role:'researcher'};
-const outsider:Session={user:'outsider',subject:'outsider-sub',email:'',role:'researcher'};
+const admin:Session=testSession('admin','admin-sub','admin');
+const alice:Session=testSession('alice','alice-sub','researcher',['proj-p']);
+const bob:Session=testSession('bob','bob-sub','researcher',['proj-p']);
+// Platform-viewer + proj-p ⇒ project role viewer, which is below the 'researcher' floor this POST route enforces.
+const viewer:Session=testSession('viewer','viewer-sub','viewer',['proj-p']);
+const manager:Session=testSession('manager','manager-sub','researcher',['proj-p-admin']);
+const outsider:Session=testSession('outsider','outsider-sub','researcher',['proj-q']);
 const yaml='workflow:\n  name: recipe\n  resources: {cpu: {cpu: 1}}\n  tasks: [{name: train, resource: cpu, image: busybox, command: [echo, ok]}]\n';
 const input={id:'personal',title:'Recipe',description:'Initial',category:'custom',yaml,params:[]};
 function request(session:Session,path='/api/templates',method='GET',data?:unknown){
-  return new NextRequest('http://localhost'+path,{method,headers:{[SESSION_HEADERS.user]:session.user,[SESSION_HEADERS.subject]:session.subject!,[SESSION_HEADERS.role]:session.role,origin:'http://localhost','x-pai-project':'p','content-type':'application/json',...(session.tokenProjectId?{[SESSION_HEADERS.authMethod]:'token',[SESSION_HEADERS.tokenProjectId]:session.tokenProjectId}:{})},...(data===undefined?{}:{body:JSON.stringify(data)})});
+  return new NextRequest('http://localhost'+path,{method,headers:{[SESSION_HEADERS.user]:session.user,[SESSION_HEADERS.subject]:session.subject!,[SESSION_HEADERS.role]:session.role,[SESSION_HEADERS.groups]:(session.groups??[]).join(','),origin:'http://localhost','x-pai-project':'p','content-type':'application/json',...(session.tokenProjectId?{[SESSION_HEADERS.authMethod]:'token',[SESSION_HEADERS.tokenProjectId]:session.tokenProjectId}:{})},...(data===undefined?{}:{body:JSON.stringify(data)})});
 }
 const ctx=(id='personal')=>({params:Promise.resolve({id})});
 beforeEach(async()=>{
   repo=new Repo(new MemoryKV());setRepoForTests(repo);
-  await createProject(admin,{id:'p',name:'P',namespace:'hyperpod-ns-p',members:{'alice-sub':'researcher','bob-sub':'researcher','viewer-sub':'viewer','manager-sub':'project-admin'}},repo);
-  await createProject(admin,{id:'q',name:'Q',namespace:'hyperpod-ns-q',members:{'outsider-sub':'researcher'}},repo);
+  await putProject(repo.kv,'p');
+  await putProject(repo.kv,'q');
 });
 it('requires project researcher and prevents peer/builtin overwrites while allowing project administrators',async()=>{
   expect((await save(request(viewer,'/api/templates','POST',input))).status).toBe(403);

@@ -151,6 +151,10 @@ export async function listComputeQuotas(clusterArn?: string) {
   );
 }
 
+export async function describeComputeQuota(id: string) {
+  return sagemaker().send(new DescribeComputeQuotaCommand({ ComputeQuotaId: id }));
+}
+
 export async function listSchedulerConfigs(clusterArn?: string) {
   const out = await sagemaker().send(new ListClusterSchedulerConfigsCommand({ ClusterArn: clusterArn, MaxResults: 50 }));
   const list = out.ClusterSchedulerConfigSummaries ?? [];

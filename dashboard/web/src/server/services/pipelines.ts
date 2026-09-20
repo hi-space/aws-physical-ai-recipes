@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Project } from '../auth/projects';
+import { canWriteIn, isProjectAdmin, type Project } from '../auth/projects';
 import type { Session } from '../auth/session';
 import * as sm from '../aws/sagemaker';
 import { badRequest, HttpError, forbidden, notFound } from '../errors';
@@ -178,7 +178,7 @@ export async function assertPipelineAccess(session: Session, project: Project, a
     throw notFound('pipeline execution');
   }
   if (record.projectId !== project.id) throw forbidden('다른 프로젝트의 실행입니다.');
-  if (write && record.ownerSubject !== subject(session) && session.role !== 'admin' && project.members[subject(session)] !== 'project-admin') throw forbidden('실행 소유자 또는 프로젝트 관리자가 중단할 수 있습니다.');
+  if (write && record.ownerSubject !== subject(session) && session.role !== 'admin' && !isProjectAdmin(session, project)) throw forbidden('실행 소유자 또는 프로젝트 관리자가 중단할 수 있습니다.');
 }
 
 export async function projectExecution(session: Session, project: Project, arn: string, d = deps()) {
@@ -192,8 +192,8 @@ export async function projectExecution(session: Session, project: Project, arn: 
   return { ...execution,
     projectRecorded: Boolean(record),
     canArchive: Boolean(record) && execution.execution.PipelineExecutionStatus === 'Succeeded' &&
-      (session.role === 'admin' || session.role === 'researcher' && ['researcher', 'project-admin'].includes(project.members[subject(session)])),
-    canStop: Boolean(record) && (record?.ownerSubject === subject(session) || session.role === 'admin' || project.members[subject(session)] === 'project-admin') };
+      (session.role === 'admin' || session.role === 'researcher' && canWriteIn(session, project)),
+    canStop: Boolean(record) && (record?.ownerSubject === subject(session) || session.role === 'admin' || isProjectAdmin(session, project)) };
 }
 
 export async function projectPipelineList(session: Session, project: Project, d = deps()) {

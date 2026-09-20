@@ -10,8 +10,9 @@ import { createDataset, createVersion, uploadUrl, refreshSize, finalizePendingVe
 import { MemoryKV } from '../store/dynamo';
 import { Repo, setRepoForTests } from '../store/repo';
 import type { Project } from '../auth/projects';
+import { projectFixture } from '../auth/session.test-helpers';
 let repo: Repo;
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'hyperpod-ns-a-localqueue', members: {}, credentialRefs: [], createdAt: '', updatedAt: '' };
+const project: Project = projectFixture('a');
 beforeEach(async () => {
   vi.stubEnv('DASHBOARD_ARTIFACT_BUCKET', 'archive');
   repo = new Repo(new MemoryKV()); setRepoForTests(repo);

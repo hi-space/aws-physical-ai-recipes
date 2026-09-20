@@ -5,22 +5,25 @@ import { issueLaunchTicket, consumeTicket, authorizeCookie } from './auth';
 import { resolveRoute } from './routing';
 import type { AuthOptions, GatewaySession } from './types';
 import { guardConnection } from './lifetime';
+import { putProject } from '../auth/session.test-helpers';
 
 let repo: Repo, s: GatewaySession, options: AuthOptions, pod: any, user: any;
 const principal = { subject: 'alice-sub', user: 'alice', role: 'admin' as const, authMethod: 'alb' as const };
 const host = 'trusted.apps.physical-ai.hi-yoo.com';
 beforeEach(async () => {
   repo = new Repo(new MemoryKV());
-  s = { id: 'trusted', kind: 'terminal', ownerSubject: principal.subject, authMethod: 'alb', trustedExecution: true,
-    namespace: 'research', projectId: 'p', workflowId: 'w', taskName: 'train', attempt: 2, attemptEpoch: 'epoch2',
+  s = { id: 'trusted', kind: 'terminal', ownerSubject: principal.subject, owner: 'alice', authMethod: 'alb', trustedExecution: true,
+    namespace: 'hyperpod-ns-p', projectId: 'p', workflowId: 'w', taskName: 'train', attempt: 2, attemptEpoch: 'epoch2',
     replicaIndex: 0, podName: 'train-pod', podUid: 'uid1', nodeName: 'node1', container: 'main', expiresAt: '2026-09-16T13:00:00Z' };
   pod = { metadata: { name: s.podName, uid: s.podUid, labels: { 'pai.aws/workflow-id': 'w', 'pai.aws/task': 'train', 'pai.aws/attempt': '2', 'pai.aws/epoch': 'epoch2', 'batch.kubernetes.io/job-completion-index': '0' } },
     spec: { nodeName: 'node1', containers: [{ name: 'main' }] }, status: { phase: 'Running' } };
-  user = { enabled: true, subject: principal.subject, groups: ['admins'] };
+  // currentSession's browser-project guard calls projectRoleFromGroups directly (not memberRole), so even
+  // a platform admin needs an explicit proj-p-admin group here (unlike interactive session routes).
+  user = { enabled: true, subject: principal.subject, groups: ['admins', 'proj-p-admin'] };
   options = { repo, now: () => Date.parse('2026-09-16T12:00:00Z'), currentUser: async () => user,
     validateExecutionProfile: vi.fn(async () => {}), getPod: async () => pod };
-  await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', namespace: 'research', members: { 'alice-sub': 'project-admin' } });
-  await repo.kv.put({ pk: 'WF#w', sk: 'META', id: 'w', namespace: 'research', projectId: 'p', owner: 'alice', ownerSubject: 'alice-sub',
+  await putProject(repo.kv, 'p');
+  await repo.kv.put({ pk: 'WF#w', sk: 'META', id: 'w', namespace: 'hyperpod-ns-p', projectId: 'p', owner: 'alice', ownerSubject: 'alice-sub',
     status: 'RUNNING', spec: { workflow: { tasks: [{ name: 'train', executionProfile: { id: 'trusted', version: 1 } }] } },
     executionProfilePins: { train: { nodes: [{ name: 'node1', uid: 'node-uid' }], policy: { hostNetwork: false } } } });
   await repo.kv.put({ pk: 'WF#w', sk: 'TASK#train', phase: 'RUNNING', attempts: 2, attemptEpoch: 'epoch2' });
@@ -51,8 +54,11 @@ it.each(['disabled', 'subject', 'groups'])('requires current Cognito %s at issua
   if (change === 'subject') user.subject = 'replacement';
   if (change === 'groups') user.groups = ['researcher'];
   await expect(launch()).rejects.toMatchObject({ status: 403 });
-  await expect(consumeTicket(second.ticket, resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 403 });
-  await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 403 });
+  // consumeTicket/authorizeCookie never call authorizeExecutionSession (that's launch()-only); they go
+  // through currentSession's own project-membership guard (added in Task 8), which reports staleness via
+  // the same 401 "session invalid" path used for every other currentSession invalidation, not 403.
+  await expect(consumeTicket(second.ticket, resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 401 });
+  await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options), options)).rejects.toMatchObject({ status: 401 });
 });
 it('rejects token-created sessions and token callers even if Cognito currently reports admin', async () => {
   await expect(issueLaunchTicket(s, { ...principal, authMethod: 'token', tokenId: 't', tokenProjectId: 'p' }, options)).rejects.toBeDefined();

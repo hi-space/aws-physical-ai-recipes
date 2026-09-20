@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { canReadResource, resolveProject } from '../auth/projects';
+import { canReadResource, canWriteIn, isProjectAdmin, resolveProject, type Project } from '../auth/projects';
 import { requireRole, type Session } from '../auth/session';
 import { badRequest, HttpError, notFound } from '../errors';
 import { getRepo, type Repo } from '../store/repo';
@@ -108,8 +108,8 @@ export class ModelsService {
     if (write) requireRole(session, 'researcher');
     return resolveProject(session, projectId, this.deps.repo, write ? 'researcher' : 'viewer');
   }
-  private canWrite(session: Session, members: Record<string, string>) {
-    return session.role === 'admin' || session.role === 'researcher' && ['researcher', 'project-admin'].includes(members[principal(session)]);
+  private canWrite(session: Session, project: Pick<Project, 'id'>) {
+    return session.role === 'admin' || session.role === 'researcher' && canWriteIn(session, project);
   }
   private async model(projectId: string, id: string) {
     validate(identifier, id);
@@ -192,7 +192,7 @@ export class ModelsService {
       }));
       outputs.push(...batch.filter((value): value is PublishedOutput => value !== undefined));
     }
-    return { projectId, canWrite: this.canWrite(session, project.members),
+    return { projectId, canWrite: this.canWrite(session, project),
       models: page.items.filter(i => i.projectId === projectId).map(i => strip<RegisteredModel>(i)),
       outputs, cursor: page.cursor, outputLimitReached: datasets.filter(d => d.projectId === projectId).length > 100 || versions.length > 100 || truncatedVersions,
       defaultPolicy: DEFAULT_POLICY };
@@ -213,8 +213,8 @@ export class ModelsService {
       this.deps.repo.kv.query(modelKey(projectId, id).pk, 'EVALUATION#', { desc: true, limit: 100 }),
       this.deps.repo.kv.query(modelKey(projectId, id).pk, 'GATE#', { desc: true, limit: 100 }),
     ]);
-    return { model, canWrite: this.canWrite(session, project.members),
-      canPropagateRegistry: session.role === 'admin' || project.members[principal(session)] === 'project-admin',
+    return { model, canWrite: this.canWrite(session, project),
+      canPropagateRegistry: session.role === 'admin' || isProjectAdmin(session, project),
       evaluations: evaluations.filter(i => i.projectId === projectId).map(i => strip<ModelEvaluation>(i)),
       gates: gates.map(i => strip<GateRecord>(i)) };
   }

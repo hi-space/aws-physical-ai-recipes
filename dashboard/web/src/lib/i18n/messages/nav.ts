@@ -13,7 +13,7 @@ export const nav = defineMessages({
     webhooks: 'Automation & webhooks', builds: 'Environment builds', backends: 'Backend connections', admin: 'Platform settings',
     resources: 'AWS resources',
     project: 'Research project', allProjects: 'All projects / past runs', selectProject: 'Select a project', projectsLoadFailed: 'Could not load projects.',
-    notConfigured: 'Not configured in this deployment',
+    notConfigured: 'Not configured in this deployment', detached: 'binding lost',
   },
   ko: {
     brand: 'Physical AI', brandSub: 'Dashboard',
@@ -26,6 +26,6 @@ export const nav = defineMessages({
     webhooks: '자동화·웹훅', builds: '환경 빌드', backends: '백엔드 연결', admin: '플랫폼 설정',
     resources: 'AWS 리소스',
     project: '연구 프로젝트', allProjects: '전체 프로젝트 / 이전 실행', selectProject: '프로젝트 선택', projectsLoadFailed: '프로젝트를 불러오지 못했습니다.',
-    notConfigured: '이 배포에서는 구성되지 않았습니다',
+    notConfigured: '이 배포에서는 구성되지 않았습니다', detached: '바인딩 끊김',
   },
 });

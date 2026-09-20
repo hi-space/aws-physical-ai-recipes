@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import type { Project } from '../auth/projects';
+import { projectFixture, testSession } from '../auth/session.test-helpers';
 import { workflowSchema } from '../workflow/schema';
 import { imageProfilesService, type ImageProfileDeps } from './image-profiles';
 
 const uri = '123456789012.dkr.ecr.us-east-1.amazonaws.com/recipes/train:stable';
 const digest = 'sha256:' + 'a'.repeat(64);
 const resolved = uri.replace(':stable', '@' + digest);
-const admin = { user: 'admin', subject: 'admin-sub', email: '', role: 'admin' as const };
-const researcher = { user: 'alice', subject: 'alice-sub', email: '', role: 'researcher' as const };
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a', members: { 'alice-sub': 'researcher' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x' };
+const admin = testSession('admin', 'admin-sub', 'admin');
+const researcher = testSession('alice', 'alice-sub', 'researcher', ['proj-a']);
+const project: Project = projectFixture('a');
 let d: ImageProfileDeps;
 const input = () => ({ id: 'training', name: 'Training image', image: uri, requirements: { minCpu: 2, minMemoryMiB: 4096, minGpu: 1, minGpuMemoryMiB: 16384, platforms: ['g5.8xlarge'] } });
 const spec = (resources: Record<string, unknown> = {}, image = uri) => workflowSchema.parse({ workflow: {
@@ -67,8 +68,11 @@ describe('immutable, project-owned image approval', () => {
   it('requires admin approval and fresh project membership before reads and after probes', async () => {
     await expect(imageProfilesService(researcher, d).approve(input(), project)).rejects.toMatchObject({ status: 403 });
     await imageProfilesService(admin, d).approve(input(), project);
-    await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {} });
-    await expect(imageProfilesService(researcher, d).list(project)).rejects.toMatchObject({ status: 403 });
+    // Member group removed entirely ⇒ no project membership at all. `resolveProject` reads the caller's
+    // own session groups, not a persisted project.members map, so a distinct session (not the shared
+    // `researcher` const) represents the researcher losing access.
+    const researcherRemoved = testSession('alice', 'alice-sub', 'researcher');
+    await expect(imageProfilesService(researcherRemoved, d).list(project)).rejects.toMatchObject({ status: 403 });
     expect(d.inspectImage).toHaveBeenCalledTimes(1);
   });
   it('rejects token project substitution even when the user belongs to both projects', async () => {
@@ -149,11 +153,14 @@ describe('read-only preflight', () => {
   it('rechecks membership after slow inspection before returning pins', async () => {
     await imageProfilesService(admin, d).approve(input(), project);
     const image = await d.inspectImage(uri);
+    // A distinct, mutable session (not the shared `researcher` const): resolveProject reads session
+    // groups, so losing membership mid-call means mutating this same session reference in place.
+    const revocable = testSession('alice', 'alice-sub', 'researcher', ['proj-a']);
     d.inspectImage = async () => {
-      await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {} });
+      revocable.groups = [];
       return image;
     };
-    await expect(imageProfilesService(researcher, d).preflight(spec(), project)).rejects.toMatchObject({ status: 403 });
+    await expect(imageProfilesService(revocable, d).preflight(spec(), project)).rejects.toMatchObject({ status: 403 });
   });
   it('does not return a usable pin if an administrator disables approval during inspection', async () => {
     const adminService = imageProfilesService(admin, d);

@@ -25,10 +25,16 @@ import { parseWorkflowYaml } from '../workflow/template';
 
 let f: Awaited<ReturnType<typeof pipelineFixture>>;
 const archivePath = `/api/pipelines/executions/${encodeURIComponent(executionArn)}/archives`;
+// Membership mirrors the pipelineFixture project setup: alice-sub is project a's admin, peer-sub and
+// bob-sub are plain researcher members of a/b respectively, and reader-sub is a viewer member of a.
+const groupsFor = (subject: string) => ({
+  'alice-sub': 'researchers,proj-a-admin', 'peer-sub': 'researchers,proj-a',
+  'reader-sub': 'viewers,proj-a', 'bob-sub': 'researchers,proj-b',
+} as Record<string, string>)[subject] ?? '';
 function req(path: string, method = 'GET', body?: unknown, subject = 'alice-sub', project = 'a', origin = 'http://localhost') {
   return new NextRequest(`http://localhost${path}`, { method, headers: {
     origin, 'content-type': 'application/json', 'x-pai-user': subject, 'x-pai-subject': subject,
-    'x-pai-role': 'researcher', 'x-pai-project': project,
+    'x-pai-role': 'researcher', 'x-pai-project': project, 'x-pai-groups': groupsFor(subject),
   }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 beforeEach(async () => {

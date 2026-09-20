@@ -22,13 +22,13 @@ let repo: Repo;
 function request(path: string, method = 'GET', json?: unknown, role = 'admin', headers: Record<string, string> = {}) {
   return new NextRequest(origin + '/api/image-profiles' + path, {
     method, headers: { origin, 'content-type': 'application/json', 'x-pai-user': 'alice', 'x-pai-subject': 'sub',
-      'x-pai-role': role, 'x-pai-project': 'a', ...headers }, ...(json === undefined ? {} : { body: JSON.stringify(json) }),
+      'x-pai-role': role, 'x-pai-groups': `${role === 'admin' ? 'admins' : 'researchers'},proj-a`, 'x-pai-project': 'a', ...headers }, ...(json === undefined ? {} : { body: JSON.stringify(json) }),
   });
 }
 beforeEach(async () => {
   vi.clearAllMocks(); vi.stubEnv('AUTH_MODE', 'dev'); vi.stubEnv('ACCOUNT_ID', '123456789012'); vi.stubEnv('AWS_REGION', 'us-east-1'); vi.stubEnv('DASHBOARD_ORIGIN', origin);
   resetConfigForTests(); repo = new Repo(new MemoryKV()); setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a', members: { sub: 'researcher' }, updatedAt: 'x' });
+  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a', updatedAt: 'x' });
   probes.image.mockResolvedValue({ requestedImage: uri, resolvedImage: uri.replace(':stable', '@' + digest), digest, architectures: ['amd64'],
     manifests: [{ digest, configDigest: 'sha256:' + 'b'.repeat(64), architecture: 'amd64', os: 'linux' }], source: 'ecr-manifest-config', inspectedAt: '2026-09-16T12:00:00Z', repository: 'recipes/cpu', accountId: '123456789012', region: 'us-east-1' });
   probes.hardware.mockResolvedValue({ source: 'eks-nodes+ec2-instance-types', checkedAt: '2026-09-16T12:00:00Z', catalogAvailable: true, nodes: [] });
@@ -49,8 +49,8 @@ it('lists project approvals and reads exact immutable revisions', async () => {
 it('enforces fresh membership and cannot read a different project through the selected header', async () => {
   await approve(request('', 'POST', input));
   expect((await list(request('', 'GET', undefined, 'researcher', { 'x-pai-project': 'b' }))).status).toBe(403);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', namespace: 'hyperpod-ns-a', members: {}, updatedAt: 'changed' });
-  expect((await list(request('', 'GET', undefined, 'researcher'))).status).toBe(403);
+  // Member group removed entirely ⇒ no project membership at all.
+  expect((await list(request('', 'GET', undefined, 'researcher', { 'x-pai-groups': 'researchers' }))).status).toBe(403);
 });
 it('preflights without launching work and disabling approval blocks subsequent use', async () => {
   await approve(request('', 'POST', input));

@@ -8,9 +8,11 @@ import { createJob, getJob, getPod, listPods, managedLabels, type Job, type Pod,
 import { getRepo, type Repo } from '../store/repo';
 import type { Session, Workflow } from '../store/types';
 import type { Session as Principal } from '../auth/session';
-import { resolveProject, type Project } from '../auth/projects';
+import { canWriteIn, resolveProject, type Project } from '../auth/projects';
+import { roleFromGroups } from '../auth/rbac';
 import { issueLaunchTicket, sessionHostsConfigured } from '../gateway/auth';
 import type { GatewaySession, AuthOptions } from '../gateway/types';
+import { currentUserAuthorization, type CurrentUserAuthorization } from '../aws/cognito';
 import { assertTokenLaunchPrincipal, assertTokenRequestProject, authorizeDerivedToken, hasTokenBinding, tokenBindingForPrincipal } from '../gateway/token-grants';
 import { currentBackend, runOnBackend, assertBackendReady } from '../backends/context';
 import { backendId } from '../backends/registry';
@@ -111,11 +113,32 @@ function isOwner(s: Session, p: Principal) { return s.ownerSubject ? s.ownerSubj
 export function assertSessionOwner(s: Session, p: Principal, allowAdmin = false) {
   if (!(isOwner(s, p) || allowAdmin && p.role === 'admin')) throw forbidden('Only the session owner may perform this action');
 }
+/**
+ * `refresh()` reconciles a session outside any request's own authenticated principal, so it must
+ * build one itself. A fresh Cognito lookup (mirroring `gateway/auth.ts`'s `currentSession`) is
+ * required rather than trusting the session's stored `owner`/`ownerSubject` alone, since project
+ * membership now lives in Cognito groups and is not persisted on the session. A platform admin is
+ * downgraded to researcher here because an attached/managed session never runs with admin power.
+ */
+async function ownerPrincipal(s: Session, deps: SessionDeps): Promise<Principal | undefined> {
+  if (!s.ownerSubject || !s.owner) return undefined;
+  let user: CurrentUserAuthorization;
+  try { user = await (deps.currentUser ?? currentUserAuthorization)(s.owner); }
+  catch (error) {
+    // A deleted owner is a genuine authorization failure and should close the session, same as
+    // today; any other Cognito failure (5xx, throttling, network) is transient and must not.
+    if ((error as { name?: string })?.name === 'UserNotFoundException') return undefined;
+    throw new HttpError(503, 'Session owner authorization is unavailable; retry', 'session_auth_unavailable');
+  }
+  if (!user.enabled || user.subject !== s.ownerSubject) return undefined;
+  const platform = roleFromGroups(user.groups);
+  return { subject: user.subject, user: user.username, email: user.email, role: platform === 'admin' ? 'researcher' : platform, groups: user.groups };
+}
 async function projectFor(s: Session, p: Principal, deps: SessionDeps) {
   if (!s.projectId) throw new HttpError(409, 'Legacy sessions can only be ended');
   assertTokenRequestProject(p, s.projectId);
   const project = await resolveProject(p, s.projectId, deps.repo, 'researcher');
-  if (project.namespace !== s.namespace || backendId(project.backendId) !== backendId(s.backendId) || project.backendConfigHash !== s.backendConfigHash || !['researcher', 'project-admin'].includes(project.members[subject(p)])) throw forbidden('Current project researcher membership and backend binding are required');
+  if (project.namespace !== s.namespace || backendId(project.backendId) !== backendId(s.backendId) || project.backendConfigHash !== s.backendConfigHash || !canWriteIn(p, project)) throw forbidden('Current project researcher membership and backend binding are required');
   return project;
 }
 function logPath(path: string, projectId: string) {
@@ -241,7 +264,7 @@ export async function createManagedSession(raw: CreateSessionInput, principal: P
   const project = await resolveProject(principal, suppliedProject.id, deps.repo, 'researcher');
   if (currentBackend()?.id !== backendId(project.backendId)) return runOnBackend(project, () => createManagedSession(raw, principal, project, deps), deps.repo);
   assertBackendReady();
-  if (!['researcher', 'project-admin'].includes(project.members[ownerSubject]) || !/^hyperpod-ns-/.test(project.namespace) || !dns.test(project.queue)) throw forbidden('A governed project and researcher membership are required');
+  if (!canWriteIn(principal, project) || !/^hyperpod-ns-/.test(project.namespace) || !dns.test(project.queue)) throw forbidden('A governed project and researcher membership are required');
   assertWritableNamespace(project.namespace);
   const source = await tokenBindingForPrincipal(principal, project.id, { repo: deps.repo, now: deps.now, currentUser: deps.currentUser });
   const id = randomBytes(10).toString('hex'), now = deps.now();
@@ -295,7 +318,7 @@ async function refresh(s: Session, deps: SessionDeps): Promise<Session> {
       // Recover a persisted create intent after API/process failure. A concurrent closer
       // can fence this row; a raced late Job is discovered by its stable session label.
       const current = await read(s.id, deps); if (current.revokedAt || current.status === 'CLOSING') return close(current, deps);
-      const principal: Principal = { subject: s.ownerSubject, user: s.owner, email: '', role: 'researcher' };
+      const principal = await ownerPrincipal(s, deps); if (!principal) throw forbidden();
       const project = await projectFor(s, principal, deps); await deps.k8s.prepare(project);
       try { job = await deps.k8s.createJob(s.namespace, sessionJob(s)); }
       catch (e) { if (!(e instanceof K8sError && e.status === 409)) throw e; job = await deps.k8s.getJob(s.namespace, s.name); }
@@ -319,7 +342,7 @@ async function refresh(s: Session, deps: SessionDeps): Promise<Session> {
     return save(s, changes, deps);
   }
   try {
-    const principal: Principal = { subject: s.ownerSubject, user: s.owner, email: '', role: 'researcher' };
+    const principal = await ownerPrincipal(s, deps); if (!principal) throw forbidden();
     const project = await projectFor(s, principal, deps);
     const { wf, task, pod } = await taskTarget(s.workflowId!, s.taskName!, s.replicaIndex ?? 0, principal, project, deps);
     if (task.attempts !== s.attempt || task.attemptEpoch !== s.attemptEpoch || pod.metadata.uid !== s.podUid || pod.metadata.name !== s.podName) return close(s, deps);

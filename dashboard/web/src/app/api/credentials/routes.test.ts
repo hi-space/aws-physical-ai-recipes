@@ -15,7 +15,7 @@ vi.mock('@/server/config', () => ({ config: () => ({ authMode: 'dev', tableName:
 let kv: MemoryKV;
 beforeEach(async () => {
   vi.clearAllMocks(); kv = new MemoryKV(); setRepoForTests(new Repo(kv));
-  await kv.put({ pk: 'PROJECT#team', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'team', id: 'team', name: 'Team', namespace: 'hyperpod-ns-team', queue: 'q', credentialRefs: [], members: { 'sub-a': 'researcher', 'sub-b': 'researcher' } });
+  await kv.put({ pk: 'PROJECT#team', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'team', id: 'team', name: 'Team', namespace: 'hyperpod-ns-team', queue: 'q', credentialRefs: [] });
   aws.ssm.mockImplementation(async (command) => {
     if (command.constructor.name === 'PutParameterCommand') return { Version: 1 };
     if (command.constructor.name === 'DeleteParameterCommand') return {};
@@ -23,10 +23,10 @@ beforeEach(async () => {
   });
   aws.cognito.mockImplementation(async (command) => command.constructor.name === 'AdminGetUserCommand'
     ? { Username: 'alice', Enabled: true, UserAttributes: [{ Name: 'sub', Value: 'sub-a' }] }
-    : { Groups: [{ GroupName: 'researchers' }] });
+    : { Groups: [{ GroupName: 'researchers' }, { GroupName: 'proj-team' }] });
 });
 function request(path: string, method = 'GET', json?: unknown, extra: Record<string, string> = {}) {
-  return new NextRequest(`https://dashboard.test${path}`, { method, headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'sub-a', 'x-pai-role': 'researcher', 'x-pai-project': 'team', origin: 'https://dashboard.test', 'content-type': 'application/json', ...extra }, ...(json === undefined ? {} : { body: JSON.stringify(json) }) });
+  return new NextRequest(`https://dashboard.test${path}`, { method, headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'sub-a', 'x-pai-role': 'researcher', 'x-pai-groups': 'researchers,proj-team', 'x-pai-project': 'team', origin: 'https://dashboard.test', 'content-type': 'application/json', ...extra }, ...(json === undefined ? {} : { body: JSON.stringify(json) }) });
 }
 
 describe('browser credential and token route contracts', () => {

@@ -47,9 +47,6 @@ export class FakeCloud implements EdgeCloud {
 }
 export async function fixture(approved = true) {
   const base = await modelFixture();
-  const project = (await base.repo.kv.get('PROJECT#a', 'META'))!;
-  project.members = { 'alice-sub': 'project-admin', 'reader-sub': 'viewer' };
-  await base.repo.kv.put(project);
   const wf = (await base.repo.getWorkflow('train-run'))!;
   await base.repo.putWorkflow({ ...wf, id: 'active-run', name: 'active-run', status: 'RUNNING' });
   const models = new ModelsService({ repo: base.repo, objects: base.objects, artifactBucket: 'archive' });

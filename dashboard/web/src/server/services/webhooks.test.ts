@@ -3,13 +3,15 @@ import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import { workflowSchema } from '../workflow/schema';
 import type { Project } from '../auth/projects';
+import { projectItem } from '../auth/projects';
+import { projectFixture, testSession } from '../auth/session.test-helpers';
 import type { Workflow } from '../store/types';
 import { webhooksService, enqueueWorkflowWebhook, reconcileWebhookDeliveries, type WebhookDeps, type WebhookSecret } from './webhooks';
 
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a',
-  members: { admin: 'project-admin', viewer: 'viewer' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x' };
-const admin = { user: 'admin', subject: 'admin', role: 'researcher' as const, email: '' };
-const viewer = { user: 'viewer', subject: 'viewer', role: 'viewer' as const, email: '' };
+const project: Project = projectFixture('a');
+// `admin` here is a project-admin (proj-a-admin), not a platform admin.
+const admin = testSession('admin', 'admin', 'researcher', ['proj-a-admin']);
+const viewer = testSession('viewer', 'viewer', 'viewer', ['proj-a']);
 const endpointUrl = 'https://hooks.example.com/secret-path?key=private';
 const secret = 'private-signing-key-'.repeat(3);
 let d: WebhookDeps, now: number, seq: number, secrets: Map<string, WebhookSecret[]>;
@@ -17,7 +19,7 @@ let workflow: Workflow;
 beforeEach(async () => {
   now = Date.parse('2026-09-16T12:00:00Z'); seq = 0; secrets = new Map();
   const repo = new Repo(new MemoryKV());
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+  await repo.kv.put(projectItem(project));
   workflow = { id: 'run-a', name: 'training', projectId: 'a', namespace: project.namespace, owner: 'owner',
     status: 'SUCCEEDED', spec: workflowSchema.parse({ workflow: { name: 'training', tasks: [{ name: 'run', image: 'image', command: ['true'] }] } }),
     specYaml: 'PRIVATE_YAML', vars: { SECRET: 'PRIVATE_ENV' }, createdAt: new Date(now - 10000).toISOString(),
@@ -55,8 +57,9 @@ describe('project webhook configuration', () => {
     await expect(webhooksService(viewer, d).create({ name: 'x', endpointUrl, secret }, project)).rejects.toMatchObject({ status: 403 });
     await expect(webhooksService({ ...admin, authMethod: 'token', tokenProjectId: 'a' }, d).create({ name: 'x', endpointUrl, secret }, project)).rejects.toMatchObject({ status: 403 });
     const hook = await create();
-    await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {} });
-    await expect(webhooksService(admin, d).rotate(hook.id, { secret }, project)).rejects.toMatchObject({ status: 403 });
+    // Member group removed entirely ⇒ no project membership at all.
+    const adminRemoved = testSession('admin', 'admin', 'researcher');
+    await expect(webhooksService(adminRemoved, d).rotate(hook.id, { secret }, project)).rejects.toMatchObject({ status: 403 });
   });
   it('does not leak provider errors or activate a hook after secret storage fails', async () => {
     d.secrets.put = async () => { throw new Error(endpointUrl + secret); };
@@ -73,11 +76,14 @@ describe('project webhook configuration', () => {
   });
   it('rechecks project administration after endpoint validation before changing configuration', async () => {
     const hook = await create();
+    // A distinct, mutable session (not the shared `admin` const): membership now lives on the caller's
+    // own session groups, so losing it mid-call means mutating this same session reference in place.
+    const revocable = testSession('admin', 'admin', 'researcher', ['proj-a-admin']);
     d.resolve = async () => {
-      await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {} });
+      revocable.groups = [];
       return { hostname: 'hooks.example.com', address: '93.184.216.34', family: 4, path: '/new' };
     };
-    await expect(webhooksService(admin, d).rotate(hook.id, { endpointUrl, secret: 'new-key-'.repeat(5) }, project)).rejects.toMatchObject({ status: 403 });
+    await expect(webhooksService(revocable, d).rotate(hook.id, { endpointUrl, secret: 'new-key-'.repeat(5) }, project)).rejects.toMatchObject({ status: 403 });
     expect(d.secrets.put).toHaveBeenCalledTimes(1);
     expect(await d.repo.kv.get('PROJECT#a', `WEBHOOK#${hook.id}`)).toMatchObject({ state: 'ACTIVE', revision: hook.revision });
   });

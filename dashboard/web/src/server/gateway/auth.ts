@@ -7,6 +7,9 @@ import { backendId } from '../backends/registry';
 import { assertWorkflowBackend } from '../backends/binding';
 import { authorizeExecutionSession } from './execution-session';
 import { cookieAttributes, cookieName, gatewayMode, invalid, labelPattern, launchUrl, type GatewayRoute } from './routing';
+import { projectRoleFromGroups } from '../auth/rbac';
+import { projectFromItem } from '../auth/projects';
+import { currentUserAuthorization } from '../aws/cognito';
 
 // Host-mode routing primitives live in ./routing (the dependency-free leaf module).
 // Re-exported here so existing callers and tests keep importing them from './auth'.
@@ -69,10 +72,14 @@ async function currentSession(repo: Repo, id: string, now: () => number, options
   if (s.kind !== 'dcv') await assertWorkflowBackend(s, repo);
   await authorizeDerivedToken(s, { ...options, repo, now });
   if (s.projectId && !hasTokenBinding(s)) {
-    const project = await repo.kv.get(`PROJECT#${s.projectId}`, 'META');
-    const members = project?.members as Record<string, unknown> | undefined;
-    if (project?.namespace !== s.namespace || !members || !Object.hasOwn(members, s.ownerSubject) ||
-      !['researcher', 'project-admin'].includes(String(members[s.ownerSubject]))) throw invalid();
+    const item = await repo.kv.get(`PROJECT#${s.projectId}`, 'META');
+    const project = item ? projectFromItem(item) : undefined;
+    if (!project || project.namespace !== s.namespace || typeof s.owner !== 'string' || !s.owner) throw invalid();
+    let user;
+    try { user = await (options.currentUser ?? currentUserAuthorization)(s.owner); } catch { throw invalid(); }
+    if (!user.enabled || user.subject !== s.ownerSubject) throw invalid();
+    const role = projectRoleFromGroups(user.groups, s.projectId);
+    if (role !== 'researcher' && role !== 'project-admin') throw invalid();
   }
   if (s.workflowId) {
     const [workflow, cancellation] = await Promise.all([

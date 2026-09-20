@@ -59,8 +59,11 @@ describe('live token-derived connections', () => {
     const closed = once(ws, 'close');
     if (change === 'revoked') await f.revoke();
     if (change === 'cognito-role') f.state.user.groups = ['viewers'];
-    if (change === 'project-role') await f.repo.kv.put({ pk: f.ownerKey.pk, sk: 'META', ...f.project, members: { 'subject-a': 'viewer' } });
-    if (change === 'project-namespace') await f.repo.kv.put({ pk: f.ownerKey.pk, sk: 'META', ...f.project, namespace: 'different' });
+    // Still a proj-team-a member, but the platform group downgrades the composed project role to viewer.
+    if (change === 'project-role') f.state.user.groups = ['viewers', 'proj-team-a'];
+    // Namespace is derived purely from the (immutable) project id now; tamper with the persisted session's
+    // namespace instead to exercise the same sourceAuthorization mismatch guard.
+    if (change === 'project-namespace') await f.repo.kv.put({ pk: 'SESS#derived', sk: 'META', ...f.session, namespace: 'different' });
     if (change === 'token-role') await f.changeToken({ roleCeiling: 'viewer' });
     if (change === 'cognito-unavailable') f.state.failUser = true;
     await closed;

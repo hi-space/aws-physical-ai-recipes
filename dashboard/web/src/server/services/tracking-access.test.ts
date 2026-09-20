@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import type { Session } from '../auth/session';
+import { testSession } from '../auth/session.test-helpers';
 import type { MlExperiment, MlRun } from '../aws/mlflow';
 import { TrackingAccess, type TrackingUpstream } from './tracking-access';
 
-const alice: Session = { user: 'alice', subject: 'alice-sub', email: '', role: 'researcher' };
-const admin: Session = { user: 'admin', subject: 'admin-sub', email: '', role: 'admin' };
+const alice: Session = testSession('alice', 'alice-sub', 'researcher', ['proj-a', 'proj-b']);
+const admin: Session = testSession('admin', 'admin-sub', 'admin');
 const exp = (id: string, name: string): MlExperiment => ({ experiment_id: id, name, lifecycle_stage: 'active' });
 const run = (id: string, experiment: string, project?: string): MlRun => ({
   info: { run_id: id, experiment_id: experiment, status: 'RUNNING', start_time: 1 },
@@ -21,7 +22,6 @@ beforeEach(async () => {
   repo = new Repo(new MemoryKV());
   for (const id of ['a', 'b']) await repo.kv.put({
     pk: `PROJECT#${id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: id, id, name: id,
-    members: { 'alice-sub': 'researcher', ...(id === 'b' ? { 'bob-sub': 'researcher' } : {}) },
   });
   experiments = new Map([
     ['exp-a', exp('exp-a', 'pai/a/training')], ['exp-b', exp('exp-b', 'pai/b/training')],
@@ -51,7 +51,7 @@ describe('MLflow selected-project isolation', () => {
     expect(upstream.searchExperiments).toHaveBeenCalledWith("name LIKE 'pai/a/%'");
   });
   it('checks project membership before any MLflow call', async () => {
-    await expect(service.experiments({ ...alice, subject: 'outsider' }, 'a')).rejects.toMatchObject({ status: 403 });
+    await expect(service.experiments({ ...alice, subject: 'outsider', groups: ['researchers'] }, 'a')).rejects.toMatchObject({ status: 403 });
     expect(upstream.searchExperiments).not.toHaveBeenCalled();
   });
   it('requires both allowed experiment and exactly matching run tag, regardless of the upstream filter response', async () => {

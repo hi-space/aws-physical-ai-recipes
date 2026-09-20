@@ -7,6 +7,7 @@ import { build } from 'esbuild';
 import { startProjectPipeline, type PipelineDeps } from '../../server/services/pipelines';
 import { MemoryKV } from '../../server/store/dynamo';
 import { HttpError } from '../../server/errors';
+import { projectFixture } from '../../server/auth/session.test-helpers';
 
 const pipelineArn = 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot';
 const executionArn = `${pipelineArn}/execution/run1`;
@@ -97,9 +98,9 @@ describe('pipeline browser contracts', () => {
         if (serviceDeps) {
           try {
             const result = await startProjectPipeline(
-              { user: authenticatedUser, subject: authenticatedUser, role, email: '' },
-              { id: call.project!, name: 'Project A', namespace: 'hyperpod-ns-a', queue: 'default', credentialRefs: [],
-                members: { alice: 'researcher', bob: 'researcher' }, createdAt: '', updatedAt: '' },
+              { user: authenticatedUser, subject: authenticatedUser, role, email: '',
+                groups: [role === 'viewer' ? 'viewers' : 'researchers', `proj-${call.project}`] },
+              projectFixture(call.project!, { name: 'Project A' }),
               body, call.key, serviceDeps,
             );
             // Drop the HTTP receipt after the real service has persisted acceptance.

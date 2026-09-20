@@ -229,7 +229,6 @@ export interface AuditEntry {
 }
 export interface Settings {
   notifyOn: ('SUCCEEDED' | 'FAILED' | 'CANCELLED')[];
-  defaultNamespace: string;
   defaultPriority?: string;
 }
 export interface DatasetSnapshot {

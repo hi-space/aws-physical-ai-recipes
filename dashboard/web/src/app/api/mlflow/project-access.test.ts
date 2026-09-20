@@ -16,15 +16,15 @@ const run = (id: string, project: string, experimentId: string): MlRun => ({
   info: { run_id: id, experiment_id: experimentId, status: 'RUNNING', start_time: 1 },
   data: { tags: [{ key: 'pai.project_id', value: project }] },
 });
+// alice-sub is a plain researcher member of both projects (matches the fixture setup below).
 const request = (path: string, role = 'researcher', project = 'a') => new NextRequest(`http://localhost${path}`, {
-  headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'alice-sub', 'x-pai-role': role, 'x-pai-project': project },
+  headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'alice-sub', 'x-pai-role': role, 'x-pai-groups': `${role === 'admin' ? 'admins' : 'researchers'},proj-a,proj-b`, 'x-pai-project': project },
 });
 beforeEach(async () => {
   vi.restoreAllMocks();
   const repo = new Repo(new MemoryKV()); setRepoForTests(repo);
   for (const id of ['a', 'b']) await repo.kv.put({
     pk: `PROJECT#${id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: id, id, name: id,
-    members: { 'alice-sub': 'researcher' },
   });
   const exps = new Map([['exp-a', experiment('exp-a', 'a')], ['exp-b', experiment('exp-b', 'b')]]);
   const records = new Map([['run-a', run('run-a', 'a', 'exp-a')], ['run-b', run('run-b', 'b', 'exp-b')]]);
@@ -59,7 +59,7 @@ describe('MLflow HTTP project boundary', () => {
   });
   it('uses the selected project cookie when the header is absent', async () => {
     const req = new NextRequest('http://localhost/api/mlflow/experiments', {
-      headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'alice-sub', 'x-pai-role': 'researcher', cookie: 'pai-project=b' },
+      headers: { 'x-pai-user': 'alice', 'x-pai-subject': 'alice-sub', 'x-pai-role': 'researcher', 'x-pai-groups': 'researchers,proj-a,proj-b', cookie: 'pai-project=b' },
     });
     expect(await (await experiments(req)).json()).toEqual([experiment('exp-b', 'b')]);
   });

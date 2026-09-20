@@ -11,9 +11,12 @@ import { GET as detail, POST as cancel } from './runs/[id]/route';
 
 let repo: Repo;
 const origin = 'https://builds.example';
-function request(path: string, method = 'GET', json?: unknown, subject = 'admin', project = 'a') {
+// admin ⇒ project-admin, viewer ⇒ project viewer, everyone else (e.g. 'user') ⇒ plain researcher member.
+const groupsFor = (subject: string, project: string) => subject === 'admin' ? `researchers,proj-${project}-admin`
+  : subject === 'viewer' ? `viewers,proj-${project}` : `researchers,proj-${project}`;
+function request(path: string, method = 'GET', json?: unknown, subject = 'admin', project = 'a', groups = groupsFor(subject, project)) {
   return new NextRequest(origin + path, { method, headers: { origin, 'content-type': 'application/json', 'x-pai-user': subject,
-    'x-pai-subject': subject, 'x-pai-role': subject === 'viewer' ? 'viewer' : 'researcher', 'x-pai-project': project,
+    'x-pai-subject': subject, 'x-pai-role': subject === 'viewer' ? 'viewer' : 'researcher', 'x-pai-groups': groups, 'x-pai-project': project,
     'idempotency-key': 'request-key-0001' }, ...(json ? { body: JSON.stringify(json) } : {}) });
 }
 beforeEach(async () => {
@@ -24,8 +27,7 @@ beforeEach(async () => {
     builderImage: '123456789012.dkr.ecr.us-east-1.amazonaws.com/builder@sha256:' + 'a'.repeat(64),
     outputRepositoryName: 'physical-ai/projects/a/images' }]));
   resetConfigForTests(); repo = new Repo(new MemoryKV()); setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a',
-    members: { admin: 'project-admin', user: 'researcher', viewer: 'viewer' }, updatedAt: 'x' });
+  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a', updatedAt: 'x' });
   provider.checkTarget.mockResolvedValue({ configurationHash: 'c'.repeat(64) });
 });
 it('keeps source registration project-admin only and never accepts arbitrary build overrides', async () => {
@@ -55,8 +57,8 @@ it('rechecks membership and hides foreign run IDs before provider calls', async 
   const started = await start(request('/api/builds/runs', 'POST', { sourceId: source.id, commit: 'a'.repeat(40) }, 'user'));
   expect(started.status).toBe(202);
   const run = await started.json();
-  await repo.kv.put({ pk: 'PROJECT#b', sk: 'META', id: 'b', namespace: 'hyperpod-ns-b', members: { user: 'researcher' } });
+  await repo.kv.put({ pk: 'PROJECT#b', sk: 'META', id: 'b', namespace: 'hyperpod-ns-b' });
   expect((await detail(request('/api/builds/runs/' + run.id, 'GET', undefined, 'user', 'b'), { params: Promise.resolve({ id: run.id }) })).status).toBe(404);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', namespace: 'hyperpod-ns-a', members: {}, updatedAt: 'revoked' });
-  expect((await sources(request('/api/builds/sources', 'GET', undefined, 'user'))).status).toBe(403);
+  // Member group removed entirely ⇒ no project membership at all.
+  expect((await sources(request('/api/builds/sources', 'GET', undefined, 'user', 'a', 'researchers'))).status).toBe(403);
 });

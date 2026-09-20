@@ -20,6 +20,7 @@ const body = { name: 'Model through API', dataset: 'weights-run', version: 1, ch
 function request(path: string, session: Session = alice, method = 'GET', payload?: unknown, project = 'a', origin = 'http://localhost') {
   return new NextRequest(`http://localhost${path}`, { method, headers: {
     'x-pai-user': session.user, 'x-pai-subject': session.subject!, 'x-pai-role': session.role,
+    'x-pai-groups': (session.groups ?? []).join(','),
     'x-pai-project': project, origin, 'content-type': 'application/json',
   }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
 }

@@ -17,6 +17,7 @@ import type { Session } from '@/server/auth/session';
 let data: Awaited<ReturnType<typeof fixture>>;
 const request = (path: string, session: Session = alice, method = 'GET', body?: unknown, project = 'a', origin = 'http://localhost') =>
   new NextRequest(`http://localhost${path}`, { method, headers: { 'x-pai-user': session.user, 'x-pai-subject': session.subject!, 'x-pai-role': session.role,
+    'x-pai-groups': (session.groups ?? []).join(','),
     'x-pai-project': project, origin, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 beforeEach(async () => {
   vi.restoreAllMocks(); vi.stubEnv('DASHBOARD_ORIGIN', 'http://localhost'); resetConfigForTests();

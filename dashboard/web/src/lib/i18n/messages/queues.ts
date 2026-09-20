@@ -31,6 +31,7 @@ export const queues = defineMessages({
     selectInstanceType: 'Select instance type',
     noInstanceTypes: 'No instance types available',
     loading: 'Loading…',
+    project: 'Project', adoptLink: 'Adopt', notAdopted: 'Not adopted',
   },
   ko: {
     title: '대기열', description: 'Kueue 및 SageMaker 작업 거버넌스 설정을 확인합니다.',
@@ -62,5 +63,6 @@ export const queues = defineMessages({
     selectInstanceType: '인스턴스 유형 선택',
     noInstanceTypes: '사용 가능한 인스턴스 유형이 없습니다',
     loading: '로드 중…',
+    project: '프로젝트', adoptLink: '채택', notAdopted: '미채택',
   },
 });

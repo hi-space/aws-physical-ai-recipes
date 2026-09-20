@@ -3,13 +3,14 @@ import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import { workflowSchema } from '../workflow/schema';
 import type { Project } from '../auth/projects';
+import { projectItem } from '../auth/projects';
+import { projectFixture } from '../auth/session.test-helpers';
 import { executionProfilesService, validateExecutionProfile, type ExecutionProfileDeps } from './execution-profiles';
 import { approvedOutputNames, executionNodeBinding, executionPolicySchema, TRUSTED_NODE_LABEL, TRUSTED_NODE_TAINT, trustedTaskHash } from '../workflow/execution-profile-policy';
 
 const image = '123456789012.dkr.ecr.us-east-1.amazonaws.com/recipes/device@sha256:' + 'a'.repeat(64);
 const admin = { user: 'admin', subject: 'admin-sub', email: '', role: 'admin' as const };
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a',
-  members: { 'alice-sub': 'researcher' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x' };
+const project: Project = projectFixture('a');
 const spec = () => workflowSchema.parse({ workflow: { name: 'device-check', resources: { default: { cpu: 1, memory: '1Gi' } },
   tasks: [{ name: 'check', image, command: ['python', '/app/diagnose.py'], outputs: [{ dataset: { name: 'result-{{workflow_id}}', path: '{{output}}' } }] }] } });
 const input = () => ({ id: 'device', name: 'Device diagnostic', yaml: JSON.stringify(spec()), taskName: 'check',
@@ -18,7 +19,7 @@ const input = () => ({ id: 'device', name: 'Device diagnostic', yaml: JSON.strin
 let d: ExecutionProfileDeps;
 beforeEach(async () => {
   const repo = new Repo(new MemoryKV());
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+  await repo.kv.put(projectItem(project));
   d = {
     repo, now: () => new Date('2026-09-16T17:00:00Z'),
     currentUser: vi.fn(async () => ({ username: 'admin', subject: 'admin-sub', enabled: true, groups: ['admins'], email: '' })),
@@ -97,7 +98,7 @@ describe('trusted execution profile boundary', () => {
     d.currentUser = async username => ({ ...await enabledUser(username), enabled: false });
     await expect(validateExecutionProfile(wf, workflow.workflow.tasks[0], d)).rejects.toMatchObject({ status: 409 });
     d.currentUser = enabledUser;
-    await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, namespace: 'hyperpod-ns-rebound' });
+    await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, backendId: 'gpu-2' });
     await expect(validateExecutionProfile(wf, workflow.workflow.tasks[0], d)).rejects.toMatchObject({ status: 409 });
   });
   it('rejects mutable dataset inputs, implicit trust acknowledgement and dangerous mount aliases', async () => {

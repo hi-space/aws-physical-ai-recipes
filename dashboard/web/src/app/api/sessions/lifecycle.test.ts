@@ -4,6 +4,8 @@ import { MemoryKV } from '@/server/store/dynamo';
 import { createManagedSession, deleteSession, extendSession, launchSession, cleanupExpiredSessions, cancelRunSessions, listSessionsWithStatus, taskConnectionOptions, type SessionDeps } from '@/server/services/sessions';
 import type { Session, Workflow } from '@/server/store/types';
 import type { Project } from '@/server/auth/projects';
+import { projectItem } from '@/server/auth/projects';
+import { projectFixture, testSession } from '@/server/auth/session.test-helpers';
 import { authorizeCookie, consumeTicket } from '@/server/gateway/auth';
 import { resolveRoute } from '@/server/gateway/routing';
 import { tokenFixture } from '@/server/gateway/token-fixtures.test-helpers';
@@ -11,14 +13,16 @@ import { tokenFixture } from '@/server/gateway/token-fixtures.test-helpers';
 let repo: Repo, deps: SessionDeps;
 let jobs: Map<string, any>, pods: any[], creations: any[], deletions: string[], holdDeletion: boolean, deletionError: boolean;
 let now: number;
-const principal = { subject: 'subject-a', user: 'alice', email: '', role: 'researcher' as const };
-const project: Project = { id: 'team-a', namespace: 'hyperpod-ns-team-a', queue: 'hyperpod-ns-team-a-localqueue', name: 'A',
-  members: { 'subject-a': 'researcher' }, credentialRefs: [], createdAt: 'now', updatedAt: 'now' };
+const principal = testSession('alice', 'subject-a', 'researcher', ['proj-team-a']);
+const project: Project = projectFixture('team-a');
 beforeEach(async () => {
   repo = new Repo(new MemoryKV()); jobs = new Map(); pods = []; creations = []; deletions = []; holdDeletion = false; deletionError = false;
   now = Date.now();
-  await repo.kv.put({ pk: 'PROJECT#team-a', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: project.id, ...project });
+  await repo.kv.put(projectItem(project));
   deps = { repo, now: () => now, image: 'registry/workspace@sha256:' + 'a'.repeat(64), runtimeImage: 'registry/runtime@sha256:' + 'b'.repeat(64),
+    // The gateway's browser-session project guard (Task 8) does its own fresh Cognito lookup by owner
+    // username; default it to match `principal` so launchSession's refresh/currentSession succeeds.
+    currentUser: async () => ({ username: principal.user, subject: principal.subject!, enabled: true, groups: principal.groups!, email: '' }),
     k8s: {
       prepare: async () => undefined,
       getJob: async (_ns, name) => jobs.get(name) ?? null,
@@ -198,8 +202,8 @@ describe('post-completion TensorBoard contract', () => {
     const registered = await ready(s);
     expect(registered).toMatchObject({ status: 'READY', podUid: 'pod-uid', podName: 'session-pod' });
     const url = new URL((await launchSession(s.id, principal, deps)).url);
-    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now });
-    expect((await authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now })).id).toBe(s.id);
+    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now, currentUser: deps.currentUser }), { repo, now: deps.now, currentUser: deps.currentUser });
+    expect((await authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now, currentUser: deps.currentUser }), { repo, now: deps.now, currentUser: deps.currentUser })).id).toBe(s.id);
     expect(await cancelRunSessions(wf, { attempt: 2 }, deps)).toBe(true);
     expect((await repo.getSession(s.id))?.status).toBe('READY');
   });
@@ -212,10 +216,10 @@ describe('post-completion TensorBoard contract', () => {
       : { kind, workflowId: wf.id, taskName: 'train', portName: 'pai-files' };
     const live = await createManagedSession(input, principal, project, deps);
     const url = new URL((await launchSession(live.id, principal, deps)).url);
-    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now });
+    const { cookie } = await consumeTicket(url.searchParams.get('ticket')!, resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now, currentUser: deps.currentUser }), { repo, now: deps.now, currentUser: deps.currentUser });
     await completeWorkflow(wf);
     await expect(createManagedSession(input, principal, project, deps)).rejects.toMatchObject({ status: 409 });
-    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now }), { repo, now: deps.now })).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host: url.host, path: '/' }, { repo, now: deps.now, currentUser: deps.currentUser }), { repo, now: deps.now, currentUser: deps.currentUser })).rejects.toMatchObject({ status: 401 });
   });
 
   it('keeps post-completion TensorBoard subject to its source API-token revocation', async () => {
@@ -238,7 +242,7 @@ describe('task attachments', () => {
     const wf = await workflow();
     await repo.kv.put({ ...(await repo.kv.get(`WF#${wf.id}`, 'META'))!, executionProfilePins: { train: { nodes: [{ name: 'node-b', uid: 'node-uid' }], policy: { hostNetwork: pinHostNetwork } } } });
     const admin = { ...principal, role: 'admin' as const, authMethod: 'alb' as const };
-    deps.currentUser = async () => ({ enabled: true, username: principal.user, email: '', subject: principal.subject, groups: ['admins'] });
+    deps.currentUser = async () => ({ enabled: true, username: principal.user, email: '', subject: principal.subject!, groups: ['admins', 'proj-team-a-admin'] });
     deps.validateExecutionProfile = async () => {};
     await repo.kv.put({ pk: `WF#${wf.id}`, sk: 'RUNTIME#epoch-2#META', released: true });
     await repo.kv.put({ pk: `WF#${wf.id}`, sk: 'RUNTIME#epoch-2#MEMBER#train#0', phase: 'RUNNING', processStarted: true, readyEver: true });
@@ -270,5 +274,22 @@ describe('task attachments', () => {
     expect((await repo.getSession(s.id))?.status).toBe('READY');
     expect(await cancelRunSessions(wf, { groupId: 'group-a', attempt: 2 }, deps)).toBe(true);
     expect((await repo.getSession(s.id))?.status).toBe('CLOSED'); expect(pods).toHaveLength(1); expect(deletions).toHaveLength(0);
+  });
+  it('does not close a READY attachment on a transient Cognito failure, and surfaces it as a 503', async () => {
+    const wf = await workflow();
+    const s = await createManagedSession({ kind: 'terminal', workflowId: wf.id, taskName: 'train' }, principal, project, deps);
+    expect(s.status).toBe('READY');
+    deps.currentUser = async () => { throw new Error('ServiceUnavailable'); };
+    await expect(launchSession(s.id, principal, deps)).rejects.toMatchObject({ status: 503 });
+    const persisted = await repo.getSession(s.id);
+    expect(persisted).toMatchObject({ status: 'READY' });
+    expect(persisted?.closedAt).toBeUndefined(); expect(persisted?.revokedAt).toBeUndefined();
+  });
+  it('closes an attachment whose owner no longer exists in Cognito', async () => {
+    const wf = await workflow();
+    const s = await createManagedSession({ kind: 'terminal', workflowId: wf.id, taskName: 'train' }, principal, project, deps);
+    deps.currentUser = async () => { throw Object.assign(new Error('User does not exist'), { name: 'UserNotFoundException' }); };
+    const [listed] = await listSessionsWithStatus(principal, deps);
+    expect(listed.status).toBe('CLOSED');
   });
 });

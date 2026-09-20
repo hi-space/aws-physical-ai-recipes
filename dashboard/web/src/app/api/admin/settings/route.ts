@@ -10,7 +10,7 @@ export const GET = route('admin', async () => {
   return { config: config(), env, settings: await getRepo().getSettings(), controller: await controllerHealth(), lease: await getRepo().getLease('CONTROLLER') };
 });
 export const PUT = route('admin', async ({ req }) => {
-  const b = await body(req, z.object({ notifyOn: z.array(z.enum(['SUCCEEDED', 'FAILED', 'CANCELLED'])), defaultNamespace: z.string().min(1), defaultPriority: z.string().optional() }));
+  const b = await body(req, z.object({ notifyOn: z.array(z.enum(['SUCCEEDED', 'FAILED', 'CANCELLED'])), defaultPriority: z.string().optional() }));
   await getRepo().putSettings(b);
   return b;
 }, { audit: 'settings.update' });

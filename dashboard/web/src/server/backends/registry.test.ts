@@ -4,7 +4,8 @@ import { MemoryKV } from '../store/dynamo';
 import { resetConfigForTests } from '../config';
 import { backendConfig, currentBackend, runOnBackend } from './context';
 import { registerBackend, inspectBackend, readBackend, refreshBackendChecks } from './registry';
-import { createProject, assertNamespaceAccess } from '../auth/projects';
+import { assertNamespaceAccess } from '../auth/projects';
+import { putProject, testSession } from '../auth/session.test-helpers';
 
 import { admin, profile } from './test-fixtures';
 let repo: Repo;
@@ -88,15 +89,20 @@ describe('registered backends', () => {
     expect(registered.status).toBe('UNREADY'); // Needs probe but no hardcoded region literals
     expect(registered.profile.region).toBe('us-west-2');
   });
-  it('binds duplicate namespace names independently and checks namespace access within the selected backend', async () => {
+  it('checks namespace access within the selected backend', async () => {
+    // Namespace is now derived from the project id (`hyperpod-ns-<id>`), so two adopted projects can no
+    // longer collide on a literal namespace string; this instead verifies assertNamespaceAccess still
+    // scopes membership checks to the backend the caller selected (PROJECT_NAMESPACE ownership itself is
+    // exercised by project-adoption.test.ts, which owns that transaction).
     for (const id of ['alpha', 'beta']) {
       await registerBackend(admin, { id, expectedVersion: 0, enabled: true }, repo, now);
       await inspectBackend(admin, id, 1, repo, probe, now);
     }
-    const a = await createProject(admin, { id: 'a', name: 'A', backendId: 'alpha', namespace: 'hyperpod-ns-team-a', members: { alice: 'researcher' } }, repo);
-    const b = await createProject(admin, { id: 'b', name: 'B', backendId: 'beta', namespace: 'hyperpod-ns-team-a', members: { bob: 'researcher' } }, repo);
+    const a = await putProject(repo.kv, 'a', { backendId: 'alpha' });
+    const b = await putProject(repo.kv, 'b', { backendId: 'beta' });
     expect(a.backendId).toBe('alpha'); expect(b.backendId).toBe('beta');
-    expect(await repo.kv.get('PROJECT_NAMESPACE#alpha#hyperpod-ns-team-a', 'OWNER')).toMatchObject({ projectId: 'a' });
-    await expect(assertNamespaceAccess({ ...admin, role: 'researcher', subject: 'alice' }, b.namespace, false, 'beta', repo)).rejects.toThrow();
+    const alice = testSession('alice', 'alice-sub', 'researcher', ['proj-b']);
+    await expect(assertNamespaceAccess(alice, b.namespace, false, 'alpha', repo)).rejects.toThrow();
+    await expect(assertNamespaceAccess(alice, b.namespace, false, 'beta', repo)).resolves.toBeUndefined();
   });
 });

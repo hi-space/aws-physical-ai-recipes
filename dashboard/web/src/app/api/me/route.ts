@@ -1,6 +1,6 @@
 import { route } from '@/server/api';
 import { config } from '@/server/config';
-import { requestProject } from '@/server/auth/projects';
+import { memberRole, requestProject } from '@/server/auth/projects';
 export const dynamic = 'force-dynamic';
 export const GET = route('viewer', async ({ session, req }) => {
   const c = config();
@@ -35,6 +35,6 @@ export const GET = route('viewer', async ({ session, req }) => {
       workflowServiceAccount: c.workflowServiceAccount,
     },
     defaultNamespace: project?.namespace ?? c.defaultNamespace,
-    project: project ? { id: project.id, name: project.name, role: session.role === 'admin' ? 'project-admin' : project.members[session.subject ?? session.user] } : undefined,
+    project: project ? { id: project.id, name: project.name, role: memberRole(session, project) } : undefined,
   };
 });

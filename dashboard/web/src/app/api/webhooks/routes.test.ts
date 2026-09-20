@@ -15,16 +15,17 @@ const origin = 'https://webhooks.example';
 const secret = 'private-key-'.repeat(4);
 const input = { name: 'Training events', endpointUrl: 'https://hooks.example.com/secret-path?key=hidden', secret };
 let repo: Repo;
+// admin ⇒ project-admin, viewer ⇒ project viewer, researcher ⇒ plain researcher member.
+const groupsFor = (subject: string) => subject === 'admin' ? 'researchers,proj-a-admin' : subject === 'viewer' ? 'viewers,proj-a' : 'researchers,proj-a';
 function request(method = 'GET', json?: unknown, subject = 'admin', headers: Record<string, string> = {}) {
   return new NextRequest(origin + '/api/webhooks', { method, headers: { origin, 'content-type': 'application/json',
-    'x-pai-user': subject, 'x-pai-subject': subject, 'x-pai-role': subject === 'viewer' ? 'viewer' : 'researcher', 'x-pai-project': 'a', ...headers },
+    'x-pai-user': subject, 'x-pai-subject': subject, 'x-pai-role': subject === 'viewer' ? 'viewer' : 'researcher', 'x-pai-groups': groupsFor(subject), 'x-pai-project': 'a', ...headers },
   ...(json === undefined ? {} : { body: JSON.stringify(json) }) });
 }
 beforeEach(async () => {
   vi.clearAllMocks(); vi.stubEnv('AUTH_MODE', 'dev'); vi.stubEnv('DASHBOARD_ORIGIN', origin); resetConfigForTests();
   repo = new Repo(new MemoryKV()); setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a', updatedAt: 'x',
-    members: { admin: 'project-admin', viewer: 'viewer', researcher: 'researcher' } });
+  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a', updatedAt: 'x' });
   ssm.send.mockImplementation(async command => {
     if (command.constructor.name === 'PutParameterCommand') return { Version: 1 };
     throw new Error('Unexpected secret read');
@@ -52,6 +53,6 @@ it('uses SecureString and returns no endpoint, signing key, or SSM reference in 
 it('requires current membership and prevents cross-project identifier access', async () => {
   const hook = await (await POST(request('POST', input))).json();
   expect((await DELETE(request('DELETE', undefined, 'admin', { 'x-pai-project': 'b' }), { params: Promise.resolve({ id: hook.id }) })).status).toBe(403);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', members: {}, namespace: 'hyperpod-ns-a', updatedAt: 'later' });
-  expect((await GET(request())).status).toBe(403);
+  // Member group removed entirely ⇒ no project membership at all.
+  expect((await GET(request('GET', undefined, 'admin', { 'x-pai-groups': 'researchers' }))).status).toBe(403);
 });

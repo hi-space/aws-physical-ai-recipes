@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { requireRole, type Session } from '../auth/session';
-import { resolveProject, type Project, type ProjectRole } from '../auth/projects';
+import { isProjectAdmin, resolveProject, type Project, type ProjectRole } from '../auth/projects';
 import { config } from '../config';
 import { badRequest, forbidden, HttpError, notFound } from '../errors';
 import { getRepo } from '../store/repo';
@@ -154,7 +154,7 @@ export function sourceBuildService(session: Session, d: SourceBuildDeps = source
   }
   async function cancel(id: string, project: Project) {
     const { p, row } = await read(id, project, true);
-    if (row.actor !== session.subject && session.role !== 'admin' && p.members[session.subject!] !== 'project-admin') throw forbidden('Only the requester or project administrator can stop this build');
+    if (row.actor !== session.subject && session.role !== 'admin' && !isProjectAdmin(session, p)) throw forbidden('Only the requester or project administrator can stop this build');
     if (!terminal.has(row.state)) await d.repo.kv.put({ pk: row.pk, sk: 'CANCEL', actor: session.subject!, requestedAt: new Date(d.now()).toISOString() }, 'not_exists');
     return get(id, p);
   }

@@ -21,7 +21,7 @@ const PUBLIC_PATHS = ['/api/health', '/api/logout', '/login', '/api/auth/login',
 /**
  * Next.js 16 request boundary. Turns the ALB's Cognito identity headers into
  * trusted x-pai-* headers for Route Handlers and Server Components. In dev mode
- * (AUTH_MODE=dev) every request is an admin.
+ * (AUTH_MODE=dev) the caller carries DEV_GROUPS (default: admins).
  */
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -51,6 +51,7 @@ export default async function proxy(req: NextRequest) {
       headers.set(SESSION_HEADERS.subject, principal.subject);
       headers.set(SESSION_HEADERS.email, principal.email);
       headers.set(SESSION_HEADERS.role, principal.role);
+      headers.set(SESSION_HEADERS.groups, principal.groups.join(','));
       headers.set(SESSION_HEADERS.authMethod, 'token');
       headers.set(SESSION_HEADERS.tokenProjectId, principal.tokenProjectId);
       headers.set(SESSION_HEADERS.scopes, principal.scopes.join(','));
@@ -71,7 +72,9 @@ export default async function proxy(req: NextRequest) {
     headers.set(SESSION_HEADERS.user, process.env.DEV_USER ?? 'dev');
     headers.set(SESSION_HEADERS.subject, process.env.DEV_USER ?? 'dev');
     headers.set(SESSION_HEADERS.email, 'dev@local');
-    headers.set(SESSION_HEADERS.role, process.env.DEV_ROLE ?? 'admin');
+    const devGroups = (process.env.DEV_GROUPS ?? 'admins').split(',').map((g) => g.trim()).filter(Boolean);
+    headers.set(SESSION_HEADERS.role, roleFromGroups(devGroups));
+    headers.set(SESSION_HEADERS.groups, devGroups.join(','));
     headers.set(SESSION_HEADERS.authMethod, 'alb');
     return NextResponse.next({ request: { headers } });
   }
@@ -109,6 +112,7 @@ export default async function proxy(req: NextRequest) {
     headers.set(SESSION_HEADERS.subject, identity.sub);
     headers.set(SESSION_HEADERS.email, identity.email);
     headers.set(SESSION_HEADERS.role, roleFromGroups(identity.groups));
+    headers.set(SESSION_HEADERS.groups, identity.groups.join(','));
     headers.set(SESSION_HEADERS.authMethod, 'cognito');
     const res = NextResponse.next({ request: { headers } });
     if (setCookie) res.headers.append('set-cookie', setCookie);
@@ -133,6 +137,7 @@ export default async function proxy(req: NextRequest) {
     headers.set(SESSION_HEADERS.subject, id.sub);
     headers.set(SESSION_HEADERS.email, id.email ?? '');
     headers.set(SESSION_HEADERS.role, roleFromGroups(groups));
+    headers.set(SESSION_HEADERS.groups, groups.join(','));
     headers.set(SESSION_HEADERS.authMethod, 'alb');
     return NextResponse.next({ request: { headers } });
   } catch (e) {

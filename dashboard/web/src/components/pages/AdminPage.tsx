@@ -29,7 +29,6 @@ interface UsersData {
 
 interface SettingsData {
   notifyOn: string[];
-  defaultNamespace: string;
   defaultPriority?: string;
 }
 
@@ -408,13 +407,11 @@ function SettingsTab({ setToast }: { setToast: any }) {
   const { ago } = useFormat();
   const { data, isLoading, error, refetch } = useApi<AdminSettings>('/api/admin/settings');
   const [notifyOn, setNotifyOn] = React.useState<string[]>(['SUCCEEDED', 'FAILED']);
-  const [defaultNamespace, setDefaultNamespace] = React.useState('default');
   const [defaultPriority, setDefaultPriority] = React.useState('');
 
   React.useEffect(() => {
     if (data?.settings) {
       setNotifyOn(data.settings.notifyOn || []);
-      setDefaultNamespace(data.settings.defaultNamespace || 'default');
       setDefaultPriority(data.settings.defaultPriority || '');
     }
   }, [data?.settings]);
@@ -427,7 +424,7 @@ function SettingsTab({ setToast }: { setToast: any }) {
   const handleSave = async () => {
     if (!data?.settings || error) return;
     try {
-      await saveMutation.mutateAsync({ notifyOn, defaultNamespace, defaultPriority: defaultPriority || undefined });
+      await saveMutation.mutateAsync({ notifyOn, defaultPriority: defaultPriority || undefined });
       setToast({ message: tc('saved'), tone: 'ok' });
     } catch (e) {
       setToast({ message: (e as Error).message, tone: 'err' });
@@ -466,14 +463,6 @@ function SettingsTab({ setToast }: { setToast: any }) {
 
       <Card title={tc('value')}>
         <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">{t('defaultNamespace')}</label>
-            <Input
-              value={defaultNamespace}
-              onChange={(e) => setDefaultNamespace(e.target.value)}
-              className="mt-1"
-            />
-          </div>
           <div>
             <label className="text-sm font-medium">{t('defaultPriority')}</label>
             <Input

@@ -407,9 +407,9 @@
 
 ![프로젝트·구성원](screenshots/16-projects-members.png)
 
-- 프로젝트 목록(현재 `Physical AI Workshop`, 구성원 1명), 선택 시 구성원 편집기(Cognito 사용자별 역할 none/viewer/researcher/project-admin → `PATCH /api/projects/:id`, project-admin 필요).
-- 관리자: 사용자 목록(`/api/admin/users`), 백엔드 레지스트리(`/api/backends`), 대기열(`/api/queues?backendId=`), **새 프로젝트**(id·이름·네임스페이스 `hyperpod-ns-*`·backendId). 생성 버튼은 준비된 백엔드와 `<ns>-localqueue` LocalQueue가 존재할 때만 활성화되며 서버가 Kueue에서 다시 확인합니다.
-- 저장: DynamoDB `PROJECT#<id>/META`(GSI `TYPE#PROJECT`), 네임스페이스 소유권 `PROJECT_NAMESPACE#<backend>#<ns>/OWNER`를 한 트랜잭션으로. 관리자 첫 접근 시 기본 프로젝트 `workshop`(`hyperpod-ns-team-a`)이 자동 생성됩니다. 프로젝트 선택은 헤더 `x-pai-project` 또는 쿠키 `pai-project`이며 토큰 세션은 토큰의 프로젝트로 고정됩니다.
+- 프로젝트는 HyperPod Task Governance **팀(ComputeQuota)을 채택**한 것입니다. `id`가 곧 팀 이름이고 네임스페이스 `hyperpod-ns-<id>`·큐 `<ns>-localqueue`는 파생되며 저장하지 않습니다. 카드마다 바인딩 배지(ATTACHED / DETACHED / UNKNOWN, `ListComputeQuotas` 60초 캐시)가 붙고 DETACHED는 과거 결과만 열람 가능합니다.
+- 구성원은 Cognito 그룹 `proj-<id>`(멤버)와 `proj-<id>-admin`(프로젝트 관리자)로 관리합니다(`GET/PUT /api/projects/:id/members[/:username]`, project-admin 필요). 조회/실행 구분은 플랫폼 그룹(`researchers`)이 결정하므로 역할 선택은 멤버 / 프로젝트 관리자 / 제외 3택입니다.
+- 관리자: **팀 채택** 폼(백엔드 선택 → 미채택 ComputeQuota 드롭다운 → 표시 이름). 서버가 `DescribeComputeQuota`로 팀 이름·클러스터 ARN을 검증하고 LocalQueue 존재를 Kueue에서 다시 확인한 뒤 Cognito 그룹 2개를 만들고 DynamoDB `PROJECT#<id>/META`(GSI `TYPE#PROJECT`)·`PROJECT_NAMESPACE#<backend>#<ns>/OWNER`·`PROJECT_QUOTA#<quotaId>/OWNER`를 한 트랜잭션으로 씁니다. 프로젝트 삭제는 레코드와 그룹만 지우고 ComputeQuota·산출물은 남깁니다. 프로젝트 선택은 헤더 `x-pai-project` 또는 쿠키 `pai-project`이며 토큰 세션은 토큰의 프로젝트로 고정됩니다. (스크린샷은 채택 모델 이전 화면입니다.)
 
 ---
 
@@ -482,7 +482,7 @@
 
 ![백엔드 연결](screenshots/22-backends.png)
 
-- 관리자 전용. 기본 EKS(`hyperpod-eks-913524902871`, 기존 기본 연결·설정됨)와 `EKS_BACKENDS_JSON` 환경 변수에 선언된 추가 백엔드. 등록/새 버전 등록/활성·비활성(`POST /api/backends`), **연결 확인**(`POST /api/backends/:id/check`), 결과 findings와 리비전 이력, "프로젝트 만들기" 링크.
+- 관리자 전용. 기본 EKS(`hyperpod-eks-913524902871`, 기존 기본 연결·설정됨)와 `EKS_BACKENDS_JSON` 환경 변수에 선언된 추가 백엔드. 등록/새 버전 등록/활성·비활성(`POST /api/backends`), **연결 확인**(`POST /api/backends/:id/check`), 결과 findings와 리비전 이력, "이 backend의 팀 채택" 링크.
 - 프로브: EKS `DescribeCluster`(ACTIVE, private endpoint, `BACKEND_HOME_VPC_ID` 일치) → Kubernetes `/version`, JobSet API, `SelfSubjectAccessReview`(nodes·namespaces·PV·priorityclasses·kueue·jobsets), 네임스페이스별 LocalQueue와 `fsx-pvc` PV(`fsx.csi.aws.com`, volumeHandle=fsxFileSystemId). 체크 유효 15분, `configurationHash` 변경 시 `configuration_changed`, 미준비면 409 `backend_unavailable`.
 - HTTP 요청으로 endpoint/role을 설정할 수 없고 **STS AssumeRole·cross-account는 지원하지 않습니다**. 모든 API 호출은 `withRequestBackend`로 프로젝트의 백엔드에 바인딩됩니다. 추가 백엔드의 실제 검증은 아직 없습니다.
 

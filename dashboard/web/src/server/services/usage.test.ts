@@ -68,12 +68,12 @@ describe('requested resource-hour estimates', () => {
   });
   it('authorizes project/run estimates and aggregates only the requested project, preserving unknown coverage', async () => {
     const repo = new Repo(new MemoryKV()), { workflow, task } = fixture();
-    await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', id: 'p', name: 'P', members: { alice: 'viewer' } });
-    await repo.kv.put({ pk: 'PROJECT#q', sk: 'META', id: 'q', name: 'Q', members: { bob: 'viewer' } });
+    await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', id: 'p', name: 'P' });
+    await repo.kv.put({ pk: 'PROJECT#q', sk: 'META', id: 'q', name: 'Q' });
     await repo.putWorkflow({ ...workflow, id: 'run', projectId: 'p', namespace: 'ns', owner: 'alice', vars: {}, specYaml: '', taskCount: 1, succeededCount: 1, failedCount: 0, updatedAt: end });
     await repo.putTask(task);
     await repo.putWorkflow({ ...workflow, id: 'private', projectId: 'q', namespace: 'other', owner: 'bob', vars: {}, specYaml: '', taskCount: 1, succeededCount: 1, failedCount: 0, updatedAt: end });
-    const alice = { user: 'alice', subject: 'alice', email: '', role: 'viewer' as const };
+    const alice = { user: 'alice', subject: 'alice', email: '', role: 'viewer' as const, groups: ['viewers', 'proj-p'] };
     await expect(runUsage('private', alice, repo, () => new Date(end))).rejects.toMatchObject({ status: 404 });
     await expect(projectUsage('q', alice, repo, () => new Date(end))).rejects.toMatchObject({ status: 403 });
     const result = await projectUsage('p', alice, repo, () => new Date(end));

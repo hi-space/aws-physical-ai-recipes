@@ -4,14 +4,14 @@ import { currentUserAuthorization, type CurrentUserAuthorization } from '../aws/
 import { badRequest, forbidden, HttpError, notFound, unauthorized } from '../errors';
 import { getRepo } from '../store/repo';
 import type { KV, Item } from '../store/dynamo';
-import type { Project, ProjectRole } from './projects';
+import type { Project } from './projects';
 import type { Session } from './session';
-import { roleFromGroups } from './rbac';
+import { projectRoleFromGroups, roleFromGroups, type ProjectRole } from './rbac';
 
 export const API_SCOPES = ['workflows:read', 'workflows:write', 'datasets:read', 'datasets:write', 'sessions:read', 'sessions:write', 'models:read', 'metrics:read'] as const;
 export type ApiScope = typeof API_SCOPES[number];
 export interface TokenSession extends Session {
-  subject: string; role: 'viewer' | 'researcher'; tokenProjectId: string; authMethod: 'token'; scopes: ApiScope[]; tokenId: string;
+  subject: string; role: 'viewer' | 'researcher'; groups: string[]; tokenProjectId: string; authMethod: 'token'; scopes: ApiScope[]; tokenId: string;
 }
 export type TokenPrincipal = Session & { authMethod?: string; tokenProjectId?: string };
 export interface ApiTokenMetadata {
@@ -41,13 +41,14 @@ export function assertBrowserManagementRequest(req: Request): void {
     throw forbidden('이 작업은 브라우저 로그인으로만 사용할 수 있습니다.');
   }
 }
-async function projectMembership(projectId: string, subject: string, deps: ApiTokenDeps): Promise<ProjectRole> {
+function projectMembership(groups: readonly string[] | undefined, projectId: string): ProjectRole {
   if (!/^[a-z][a-z0-9-]{0,39}$/.test(projectId)) throw forbidden();
-  const project = await deps.kv.get(`PROJECT#${projectId}`, 'META');
-  const members = project?.members as Project['members'] | undefined;
-  const role = members && Object.hasOwn(members, subject) ? members[subject] : undefined;
-  if (!role || !['viewer', 'researcher', 'project-admin'].includes(role)) throw forbidden('현재 프로젝트 멤버십이 필요합니다.');
+  const role = projectRoleFromGroups(groups, projectId);
+  if (!role) throw forbidden('현재 프로젝트 멤버십이 필요합니다.');
   return role;
+}
+async function assertProjectExists(projectId: string, deps: ApiTokenDeps) {
+  if (!(await deps.kv.get(`PROJECT#${projectId}`, 'META'))) throw forbidden('현재 프로젝트 멤버십이 필요합니다.');
 }
 async function current(username: string, subject: string, deps: ApiTokenDeps) {
   let user: CurrentUserAuthorization;
@@ -78,8 +79,9 @@ export async function createApiToken(principal: TokenPrincipal, project: Project
   interactive(principal);
   const parsed = apiTokenInputSchema.safeParse(input);
   if (!parsed.success) throw badRequest('토큰 이름, 범위 및 만료 기간(1–30일)을 확인하세요.');
+  await assertProjectExists(project.id, deps);
   const user = await current(principal.user, principal.subject!, deps);
-  const membership = await projectMembership(project.id, principal.subject!, deps);
+  const membership = projectMembership(user.groups, project.id);
   const roleCeiling = effectiveRole(user, membership);
   const scopes = [...new Set(parsed.data.scopes)];
   if (roleCeiling === 'viewer' && scopes.some((scope) => scope.endsWith(':write'))) throw forbidden('현재 권한으로 쓰기 범위 토큰을 만들 수 없습니다.');
@@ -95,12 +97,12 @@ export async function createApiToken(principal: TokenPrincipal, project: Project
   return { token, metadata: publicMetadata(record) };
 }
 export async function listApiTokens(principal: TokenPrincipal, project: Project, deps = defaults()): Promise<ApiTokenMetadata[]> {
-  interactive(principal); await projectMembership(project.id, principal.subject!, deps);
+  interactive(principal); await assertProjectExists(project.id, deps); projectMembership(principal.groups, project.id);
   return (await deps.kv.query(`PROJECT#${project.id}`, `TOKEN#${hash(principal.subject!)}#`))
     .map((item) => item as unknown as StoredToken).filter((record) => record.ownerSubject === principal.subject && record.projectId === project.id).map(publicMetadata);
 }
 export async function revokeApiToken(principal: TokenPrincipal, project: Project, id: string, deps = defaults()): Promise<void> {
-  interactive(principal); await projectMembership(project.id, principal.subject!, deps);
+  interactive(principal); await assertProjectExists(project.id, deps); projectMembership(principal.groups, project.id);
   if (!/^[a-f0-9]{32}$/.test(id)) throw notFound('토큰');
   const owner = ownerKey(project.id, principal.subject!, id);
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -149,8 +151,9 @@ export async function verifyApiToken(token: string, method: string, canonicalApi
     const digest = hash(token), key = tokenKey(digest);
     const record = validateStored(await deps.kv.get(key.pk, key.sk), digest, deps.now());
     if (allowed.scope && !record.scopes.includes(allowed.scope)) throw forbidden('이 API 범위가 없는 토큰입니다.');
+    await assertProjectExists(record.projectId, deps);
     const user = await current(record.ownerUsername, record.ownerSubject, deps);
-    const membership = await projectMembership(record.projectId, record.ownerSubject, deps);
+    const membership = projectMembership(user.groups, record.projectId);
     const role = record.roleCeiling === 'viewer' ? 'viewer' : effectiveRole(user, membership);
     if (allowed.write && role !== 'researcher') throw forbidden('현재 사용자 또는 프로젝트 권한이 읽기 전용입니다.');
     if (allowed.resource) {
@@ -159,7 +162,7 @@ export async function verifyApiToken(token: string, method: string, canonicalApi
       if (!resource || resource.projectId !== record.projectId) throw forbidden('토큰 프로젝트 밖의 리소스입니다.');
     }
     validateStored(await deps.kv.get(key.pk, key.sk), digest, deps.now());
-    return { user: user.username, subject: user.subject, email: user.email, role, tokenProjectId: record.projectId, authMethod: 'token',
+    return { user: user.username, subject: user.subject, email: user.email, role, groups: user.groups, tokenProjectId: record.projectId, authMethod: 'token',
       scopes: record.scopes.filter((scope) => role !== 'viewer' || !scope.endsWith(':write')), tokenId: record.id };
   } catch (error) {
     if (error instanceof HttpError) throw error;

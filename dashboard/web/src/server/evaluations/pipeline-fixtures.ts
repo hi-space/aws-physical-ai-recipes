@@ -9,6 +9,7 @@ import { S3EvidenceStorage } from './s3-storage';
 import { PipelineArchives } from '../services/pipeline-archives';
 import { ModelsService } from '../services/models';
 import type { Session } from '../auth/session';
+import { putProject, testSession } from '../auth/session.test-helpers';
 import { directoryManifest } from './bundles';
 
 export const testTime = '2026-09-16T01:00:00.000Z';
@@ -17,7 +18,7 @@ export const trainingArn = 'arn:aws:sagemaker:us-east-1:123456789012:training-jo
 export const packageArn = 'arn:aws:sagemaker:us-east-1:123456789012:model-package/groot-models/1';
 export const modelUri = 's3://source/output/train-owned/output/model.tar.gz';
 export const reportUri = 's3://source/reports/owned/evaluation.json';
-export const pipelineAdmin: Session = { user: 'alice', subject: 'alice-sub', role: 'researcher', email: '' };
+export const pipelineAdmin: Session = testSession('alice', 'alice-sub', 'researcher', ['proj-a-admin']);
 export const sha = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex');
 const sum = (value: Uint8Array) => createHash('sha256').update(value).digest('base64');
 export const bundleFiles = { 'config.json': '{"model_type":"fixture"}', 'model.safetensors': 'fixture weights, not a trained model', 'processor_config.json': '{}' };
@@ -124,11 +125,8 @@ export class FixtureSageMaker {
 }
 export async function pipelineFixture() {
   const repo = new Repo(new MemoryKV()), storage = new FixtureS3(), aws = new FixtureSageMaker();
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'a', id: 'a', name: 'a',
-    namespace: 'hyperpod-ns-a', queue: 'q', members: { 'alice-sub': 'project-admin', 'reader-sub': 'viewer', 'peer-sub': 'researcher' },
-    credentialRefs: [], createdAt: testTime, updatedAt: testTime });
-  await repo.kv.put({ pk: 'PROJECT#b', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'b', id: 'b', name: 'b',
-    namespace: 'hyperpod-ns-b', queue: 'q', members: { 'bob-sub': 'researcher' }, credentialRefs: [], createdAt: testTime, updatedAt: testTime });
+  await putProject(repo.kv, 'a', { createdAt: testTime, updatedAt: testTime });
+  await putProject(repo.kv, 'b', { createdAt: testTime, updatedAt: testTime });
   await repo.kv.put({ pk: `PIPELINE_EXECUTION#${executionArn}`, sk: 'META', projectId: 'a', ownerSubject: 'alice-sub', owner: 'alice' });
   storage.put('source', 'output/train-owned/output/model.tar.gz', tarFixture(bundleFiles));
   storage.put('source', 'reports/owned/evaluation.json', JSON.stringify({ smoke: { passed: 1, all_finite: 1, action_shape: [16, 7], error: '' } }));

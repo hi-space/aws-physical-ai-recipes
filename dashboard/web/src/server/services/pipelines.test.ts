@@ -2,13 +2,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { MemoryKV } from '../store/dynamo';
 import type { Project } from '../auth/projects';
 import type { Session } from '../auth/session';
+import { projectFixture, testSession } from '../auth/session.test-helpers';
 import { assertPipelineAccess, assertTrainingJobAccess, projectExecution, startProjectPipeline, stopProjectPipeline, reconcilePipelineIntents, type PipelineDeps } from './pipelines';
 
 const arn = 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot/execution/test1';
 const pipelineArn = 'arn:aws:sagemaker:us-east-1:123456789012:pipeline/groot';
-const alice: Session = { user: 'alice', subject: 'alice-sub', email: '', role: 'researcher' };
-const bob: Session = { ...alice, user: 'bob', subject: 'bob-sub' };
-const project: Project = { id: 'lab', name: 'Lab', namespace: 'hyperpod-ns-lab', queue: 'default', credentialRefs: [], members: { 'alice-sub': 'researcher', 'bob-sub': 'researcher' }, createdAt: '', updatedAt: '' };
+const alice: Session = testSession('alice', 'alice-sub', 'researcher', ['proj-lab']);
+const bob: Session = testSession('bob', 'bob-sub', 'researcher', ['proj-lab']);
+const project: Project = projectFixture('lab');
 let d: PipelineDeps;
 beforeEach(() => {
   d = {
@@ -110,7 +111,8 @@ it('denies cross-project reads and peer cancellation while permitting the projec
   await expect(assertPipelineAccess(alice, { ...project, id: 'other' }, arn, false, d)).rejects.toMatchObject({ status: 403 });
   await expect(stopProjectPipeline(bob, project, arn, d)).rejects.toMatchObject({ status: 403 });
   expect(d.aws.stopExecution).not.toHaveBeenCalled();
-  await stopProjectPipeline(bob, { ...project, members: { ...project.members, 'bob-sub': 'project-admin' } }, arn, d);
+  const bobAdmin: Session = testSession('bob', 'bob-sub', 'researcher', ['proj-lab-admin']);
+  await stopProjectPipeline(bobAdmin, project, arn, d);
   expect(d.aws.stopExecution).toHaveBeenCalledWith(arn, expect.any(String));
 });
 it('derives training-job access from backend execution steps', async () => {

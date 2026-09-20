@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backendAvailable, projectQueues, registrationBody, type BackendRegistry } from './backend-ui';
+import { adoptableQuotas, backendAvailable, registrationBody, type BackendRegistry } from './backend-ui';
 
 const registry: BackendRegistry = { default: { id: 'default', configured: true, clusterName: 'home' }, backends: [
   { id: 'alpha', version: 2, enabled: true, status: 'READY', findings: [], profile: { region: 'us-east-1', accountId: '123456789012', vpcId: 'vpc-a', namespaces: ['hyperpod-ns-team'], eks: { eksClusterName: 'alpha' } } },
@@ -15,20 +15,19 @@ describe('backend project form contracts', () => {
     expect(backendAvailable({ ...registry, default: { id: 'default', configured: false } }, 'default')).toBe(false);
     expect(backendAvailable({ ...registry, backends: [{ ...registry.backends[0], enabled: false }] }, 'alpha')).toBe(false);
   });
-  it('uses only reachable governed queues, filters namespace claims by backend, and enforces the profile namespace allowlist', () => {
-    const queues = [
-      { namespace: 'hyperpod-ns-team', name: 'hyperpod-ns-team-localqueue' },
-      { namespace: 'hyperpod-ns-team', name: 'hyperpod-ns-team-localqueue' },
-      { namespace: 'hyperpod-ns-other', name: 'hyperpod-ns-other-localqueue' },
-      { namespace: 'hyperpod-ns-wrong', name: 'different-name' },
-      { namespace: 'kube-system', name: 'kube-system-localqueue' },
+  it('uses only teams matching the naming pattern, filters by backend namespace allowlist, and excludes already-adopted quotas', () => {
+    const quotas = [
+      { ComputeQuotaId: 'q-team', ComputeQuotaTarget: { TeamName: 'team' } },
+      { ComputeQuotaId: 'q-other', ComputeQuotaTarget: { TeamName: 'other' } },
+      { ComputeQuotaId: 'q-wrong', ComputeQuotaTarget: { TeamName: 'Not_Valid' } },
+      { ComputeQuotaId: 'q-noteam', ComputeQuotaTarget: undefined },
     ];
-    const projects = [{ namespace: 'hyperpod-ns-team' }]; // historical default binding
-    expect(projectQueues(registry, 'alpha', queues, projects)).toEqual([queues[0]]);
-    expect(projectQueues(registry, 'default', queues, projects)).toEqual([queues[2]]);
-    expect(projectQueues(registry, 'alpha', queues, [{ namespace: 'hyperpod-ns-team', backendId: 'alpha' }])).toEqual([]);
-    expect(projectQueues(registry, 'alpha', undefined, projects)).toEqual([]);
-    expect(projectQueues(registry, 'beta', queues, projects)).toEqual([]);
+    const projects = [{ computeQuotaId: 'q-adopted', id: 'team' }]; // team already adopted
+    expect(adoptableQuotas(registry, 'alpha', quotas, projects)).toEqual([]);
+    expect(adoptableQuotas(registry, 'default', quotas, projects)).toEqual([quotas[1]]);
+    expect(adoptableQuotas(registry, 'alpha', quotas, [])).toEqual([quotas[0]]);
+    expect(adoptableQuotas(registry, 'alpha', undefined, projects)).toEqual([]);
+    expect(adoptableQuotas(registry, 'beta', quotas, projects)).toEqual([]);
   });
   it('uses the actual revision in registration requests and rejects unsupported metadata-only entries', () => {
     expect(registrationBody(registry.backends[0], false)).toEqual({ id: 'alpha', expectedVersion: 2, enabled: false });

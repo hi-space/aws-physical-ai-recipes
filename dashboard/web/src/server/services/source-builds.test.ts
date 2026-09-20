@@ -2,15 +2,17 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import type { Project } from '../auth/projects';
+import { projectItem } from '../auth/projects';
+import { projectFixture, testSession } from '../auth/session.test-helpers';
 import { sourceBuildService, reconcileSourceBuilds } from './source-builds';
 import { parseBuildTargets, SourceBuildProviderError, type SourceBuildDeps, type BuildObservation } from './source-builds-contract';
 
 const sha = 'a'.repeat(40), accountId = '123456789012';
-const project: Project = { id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a', credentialRefs: [],
-  members: { admin: 'project-admin', user: 'researcher', viewer: 'viewer' }, createdAt: 'x', updatedAt: 'x' };
-const admin = { subject: 'admin', user: 'admin', email: '', role: 'researcher' as const };
-const user = { subject: 'user', user: 'user', email: '', role: 'researcher' as const };
-const viewer = { subject: 'viewer', user: 'viewer', email: '', role: 'viewer' as const };
+const project: Project = projectFixture('a');
+// `admin` here is a project-admin (proj-a-admin), not a platform admin.
+const admin = testSession('admin', 'admin', 'researcher', ['proj-a-admin']);
+const user = testSession('user', 'user', 'researcher', ['proj-a']);
+const viewer = testSession('viewer', 'viewer', 'viewer', ['proj-a']);
 const target = parseBuildTargets(JSON.stringify([{ id: 'a-build', projectId: 'a', codeBuildProjectName: 'pai-source-a',
   sourceType: 'GITHUB', repositoryUrl: 'https://github.com/example/source', builderImage: `${accountId}.dkr.ecr.us-east-1.amazonaws.com/builder@sha256:${'b'.repeat(64)}`,
   serviceRoleArn: `arn:aws:iam::${accountId}:role/source-a`, outputRepositoryName: 'physical-ai/projects/a/images' }]), accountId, 'us-east-1', [])[0];
@@ -19,7 +21,7 @@ const signal = () => new AbortController().signal;
 const tick = async () => { now += 6000; await reconcileSourceBuilds(signal(), d); };
 beforeEach(async () => {
   now = Date.parse('2026-09-16T12:00:00Z'); seq = 0;
-  const repo = new Repo(new MemoryKV()); await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+  const repo = new Repo(new MemoryKV()); await repo.kv.put(projectItem(project));
   observed = { id: 'pai-source-a:12345678-1234-1234-1234-123456789abc',
     arn: `arn:aws:codebuild:us-east-1:${accountId}:build/pai-source-a:12345678-1234-1234-1234-123456789abc`,
     status: 'IN_PROGRESS', phase: 'BUILD', sourceVersion: sha, resolvedSourceVersion: sha, configurationMatches: true,
@@ -43,11 +45,14 @@ it('requires fresh project administration for registration and project researche
   const source = await registration();
   await expect(sourceBuildService(viewer, d).start({ sourceId: source.id, commit: sha }, project, 'request-key-0001', signal())).rejects.toMatchObject({ status: 403 });
   await expect(sourceBuildService({ ...user, tokenProjectId: 'b' }, d).start({ sourceId: source.id, commit: sha }, project, 'request-key-0001', signal())).rejects.toMatchObject({ status: 403 });
+  // Membership now lives on the caller's own session groups (resolveProject reads them directly, not a
+  // persisted project.members map), so a dedicated, mutable session simulates mid-call revocation.
+  const revocable = testSession('user', 'user', 'researcher', ['proj-a']);
   d.provider.checkTarget = async () => {
-    await d.repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project, members: {}, updatedAt: 'revoked' });
+    revocable.groups = [];
     return { configurationHash: 'c'.repeat(64) };
   };
-  await expect(sourceBuildService(user, d).start({ sourceId: source.id, commit: sha }, project, 'request-key-0001', signal())).rejects.toMatchObject({ status: 403 });
+  await expect(sourceBuildService(revocable, d).start({ sourceId: source.id, commit: sha }, project, 'request-key-0001', signal())).rejects.toMatchObject({ status: 403 });
   expect(d.provider.start).not.toHaveBeenCalled();
 });
 it('durably deduplicates intent and rejects reuse of a request key with different source', async () => {
@@ -112,7 +117,10 @@ it('a cancellation before dispatch does not start cloud work and cannot target a
   expect((await sourceBuildService(user, d).get(run.id, project)).state).toBe('CANCELLED');
   expect(d.provider.start).not.toHaveBeenCalled();
   await d.repo.kv.put({ pk: 'PROJECT#b', sk: 'META', ...project, id: 'b' });
-  await expect(sourceBuildService(user, d).get(run.id, { ...project, id: 'b' })).rejects.toMatchObject({ status: 404 });
+  // Member of both projects, so this specifically exercises "not found under project b" rather than
+  // a plain membership 403 for project b.
+  const userOfBoth = testSession('user', 'user', 'researcher', ['proj-a', 'proj-b']);
+  await expect(sourceBuildService(userOfBoth, d).get(run.id, { ...project, id: 'b' })).rejects.toMatchObject({ status: 404 });
 });
 it('S3 provenance pins its source version/hash and never invents a Git commit or pinned managed builder', async () => {
   const snapshot = { bucket: 'source-bucket', key: 'source.zip', versionId: 'version-one', sha256: 'c'.repeat(64), bytes: 100 };

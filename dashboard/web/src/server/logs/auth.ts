@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Session } from '../auth/session';
 import { API_SCOPES } from '../auth/api-tokens';
-import { roleFromGroups } from '../auth/rbac';
+import { projectRoleFromGroups, roleFromGroups } from '../auth/rbac';
+import { projectFromItem } from '../auth/projects';
 import { currentUserAuthorization } from '../aws/cognito';
 import { HttpError } from '../errors';
 import { backendId } from '../backends/registry';
@@ -37,12 +38,12 @@ export async function authorizeLogs(p: Session, workflowId: string, taskName: st
   try { user = await (deps.currentUser ?? currentUserAuthorization)(String(record?.ownerUsername ?? p.user)); }
   catch { throw new HttpError(503, 'Current log authorization is unavailable', 'log_auth_unavailable'); }
   if (!user.enabled || user.subject !== p.subject || !user.username || !Array.isArray(user.groups)) throw fail();
-  const project = await deps.repo.kv.get(`PROJECT#${wf.projectId}`, 'META');
-  const members = project?.members as Record<string, unknown> | undefined;
-  const membership = members && Object.hasOwn(members, p.subject) ? members[p.subject] : undefined;
+  const projectItem = await deps.repo.kv.get(`PROJECT#${wf.projectId}`, 'META');
+  const project = projectItem ? projectFromItem(projectItem) : undefined;
+  const membership = projectRoleFromGroups(user.groups, wf.projectId);
   const actualAdmin = !marked && p.role === 'admin' && roleFromGroups(user.groups) === 'admin';
-  if (!project || project.namespace !== wf.namespace || backendId(project.backendId as string | undefined) !== backendId(wf.backendId) ||
-    project.backendConfigHash !== wf.backendConfigHash || !actualAdmin && !['viewer', 'researcher', 'project-admin'].includes(String(membership))) throw fail();
+  if (!project || project.namespace !== wf.namespace || backendId(project.backendId) !== backendId(wf.backendId) ||
+    project.backendConfigHash !== wf.backendConfigHash || !actualAdmin && !membership) throw fail();
   if (record) {
     const [owner, copy] = await Promise.all([deps.repo.kv.get(`PROJECT#${wf.projectId}`, ownerKey!), deps.repo.kv.get(`API_TOKEN#${record.tokenHash}`, 'META')]);
     if (stamp(token(owner, p, wf.projectId, now())) !== stamp(record) || stamp(token(copy, p, wf.projectId, now())) !== stamp(record)) throw fail();

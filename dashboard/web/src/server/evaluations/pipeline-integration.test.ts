@@ -339,7 +339,7 @@ describe('SageMaker → project model archive (fixture AWS clients, no live trai
     await expect(archived()).rejects.toThrow(/exact model input/);
   });
   it('rejects cross-project access and unregistered legacy imports, including platform admin', async () => {
-    await expect(f.archives.request({ ...pipelineAdmin, subject: 'reader-sub' }, 'a', executionArn, { trainingStep: 'GR00TFinetune' })).rejects.toMatchObject({ status: 403 });
+    await expect(f.archives.request({ ...pipelineAdmin, subject: 'reader-sub', groups: ['viewers', 'proj-a'] }, 'a', executionArn, { trainingStep: 'GR00TFinetune' })).rejects.toMatchObject({ status: 403 });
     await f.repo.kv.del(`PIPELINE_EXECUTION#${executionArn}`, 'META');
     await expect(f.archives.request({ ...pipelineAdmin, role: 'admin' }, 'a', executionArn, { trainingStep: 'GR00TFinetune' })).rejects.toMatchObject({ status: 403 });
     expect(f.aws.commands).toHaveLength(0);
@@ -365,7 +365,7 @@ describe('SageMaker → project model archive (fixture AWS clients, no live trai
   });
   it('does not let a peer cancel an owned archive operation', async () => {
     const request = await f.archives.request(pipelineAdmin, 'a', executionArn, { trainingStep: 'GR00TFinetune' });
-    await expect(f.archives.cancel({ ...pipelineAdmin, subject: 'peer-sub' }, 'a', request.id)).rejects.toMatchObject({ status: 403 });
+    await expect(f.archives.cancel({ ...pipelineAdmin, subject: 'peer-sub', groups: ['researchers', 'proj-a'] }, 'a', request.id)).rejects.toMatchObject({ status: 403 });
   });
   it('retains smoke as smoke; an existing AWS Approved flag cannot grant application quality', async () => {
     const { archive, model } = await registered();
@@ -404,7 +404,7 @@ describe('SageMaker → project model archive (fixture AWS clients, no live trai
   it('requires explicit project-admin propagation and confirms the actual UpdateModelPackage API result', async () => {
     const { model } = await registered(), evaluation = await closedLoop(model);
     const { gate } = await f.models.promote(pipelineAdmin, 'a', model.id, { evaluationId: evaluation.id, approve: true });
-    await expect(f.models.propagateRegistry({ ...pipelineAdmin, subject: 'peer-sub' }, 'a', model.id, { gateId: gate.id, confirm: true })).rejects.toMatchObject({ status: 403 });
+    await expect(f.models.propagateRegistry({ ...pipelineAdmin, subject: 'peer-sub', groups: ['researchers', 'proj-a'] }, 'a', model.id, { gateId: gate.id, confirm: true })).rejects.toMatchObject({ status: 403 });
     await expect(f.models.propagateRegistry(pipelineAdmin, 'a', model.id, { gateId: gate.id, confirm: false })).rejects.toMatchObject({ status: 400 });
     const result = await f.models.propagateRegistry(pipelineAdmin, 'a', model.id, { gateId: gate.id, confirm: true });
     expect(result.registryApproval.status).toBe('CONFIRMED');

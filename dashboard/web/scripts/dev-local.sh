@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Run the Physical AI Dashboard locally (AUTH_MODE=dev → every request is admin, no ALB/Cognito).
+# Run the Physical AI Dashboard locally (AUTH_MODE=dev → every request is authenticated
+# with a fixed identity and Cognito group membership, no ALB/Cognito).
 #
 #   scripts/dev-local.sh                 # aws mode: real data via the deployed ECS web task env
 #   scripts/dev-local.sh --offline       # no AWS calls, in-memory store, UI only
 #   scripts/dev-local.sh --refresh       # re-fetch the ECS env (cached in .env.aws.local)
-#   scripts/dev-local.sh --port 4000 --role researcher --user alice
+#   scripts/dev-local.sh --port 4000 --groups researchers,proj-team-a --user alice
+#
+# DEV_GROUPS is a comma-separated Cognito group list, e.g. admins (default) or
+# researchers,proj-team-a. --role is a deprecated alias (admin/researcher/viewer).
 #
 # aws mode reads/writes the *deployed* DynamoDB table with your local AWS credentials.
 # The workflow controller and log archiver are forced off so the local process never
@@ -16,11 +20,14 @@ ENV_FILE="$WEB_DIR/.env.aws.local"   # matches the repo .gitignore pattern .env*
 
 MODE=""            # aws | offline (auto-detected when empty)
 PORT="${PORT:-3000}"
-DEV_ROLE="${DEV_ROLE:-admin}"
+DEV_GROUPS="${DEV_GROUPS:-admins}"
 DEV_USER="${DEV_USER:-dev}"
 REFRESH=0
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+log() { printf '\033[1;34m[dev-local]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[dev-local]\033[0m %s\n' "$*" >&2; }
+die() { printf '\033[1;31m[dev-local]\033[0m %s\n' "$*" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,17 +35,23 @@ while [[ $# -gt 0 ]]; do
     --offline) MODE=offline ;;
     --refresh) REFRESH=1 ;;
     --port) PORT="$2"; shift ;;
-    --role) DEV_ROLE="$2"; shift ;;
+    --groups) DEV_GROUPS="$2"; shift ;;
+    --role)
+      warn "--role is deprecated; use --groups instead"
+      case "$2" in
+        admin) DEV_GROUPS=admins ;;
+        researcher) DEV_GROUPS=researchers ;;
+        viewer) DEV_GROUPS=viewers ;;
+        *) DEV_GROUPS="$2" ;;
+      esac
+      shift
+      ;;
     --user) DEV_USER="$2"; shift ;;
     -h|--help) usage 0 ;;
     *) echo "unknown option: $1" >&2; usage 1 ;;
   esac
   shift
 done
-
-log() { printf '\033[1;34m[dev-local]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[dev-local]\033[0m %s\n' "$*" >&2; }
-die() { printf '\033[1;31m[dev-local]\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ---- guards -------------------------------------------------------------------
 [[ "${NODE_ENV:-}" == "production" ]] && die "NODE_ENV=production is set; dev auth refuses to run. Unset it first."
@@ -91,14 +104,14 @@ fi
 
 # ---- overrides that must win regardless of mode -----------------------------------
 export AUTH_MODE=dev
-export DEV_USER DEV_ROLE
+export DEV_USER DEV_GROUPS
 export WORKFLOW_CONTROLLER=0        # never run a second controller against the shared table
 export DASHBOARD_ORIGIN="http://localhost:${PORT}"
 
 # ---- banner -------------------------------------------------------------------------
 echo
 log "mode      : $MODE"
-log "identity  : $DEV_USER ($DEV_ROLE) — every request is authenticated as this user"
+log "identity  : $DEV_USER (groups: $DEV_GROUPS) — every request is authenticated as this user"
 if [[ "$MODE" == aws ]]; then
   log "account   : ${ACCOUNT_ID:-?}  region: ${AWS_REGION:-us-east-1}  table: $TABLE_NAME"
   warn "aws mode uses the DEPLOYED DynamoDB/S3. Creating runs, datasets, or policies here is real."

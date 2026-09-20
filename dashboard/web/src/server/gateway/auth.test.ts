@@ -117,18 +117,25 @@ describe('gateway launch credentials', () => {
     await expect(issueLaunchTicket(session, { subject: 'owner-sub' }, options())).rejects.toMatchObject({ status: 401 });
   });
   it('checks current project membership and task attempt after exchange', async () => {
-    session = { ...session, projectId: 'p', workflowId: 'w', taskName: 'train', attempt: 1 };
+    // The browser-session project guard (Task 8) needs a stable owner username plus a fresh Cognito
+    // lookup; namespace is now derived purely from the (immutable) project id, so it must be hyperpod-ns-p.
+    session = { ...session, projectId: 'p', owner: 'owner-user', namespace: 'hyperpod-ns-p', workflowId: 'w', taskName: 'train', attempt: 1 };
     await save(session);
-    await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', namespace: 'research', members: { 'owner-sub': 'researcher' } });
-    await repo.kv.put({ pk: 'WF#w', sk: 'META', status: 'RUNNING', namespace: 'research', projectId: 'p' });
+    const cognito = { user: { username: 'owner-user', enabled: true, subject: 'owner-sub', groups: ['researchers', 'proj-p'], email: '' } };
+    const opts = () => ({ repo, now: () => now, currentUser: async () => cognito.user });
+    await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'p', id: 'p', name: 'p',
+      computeQuotaId: 'quota-p', clusterArn: 'arn:aws:sagemaker:us-east-1:123456789012:cluster/test-cluster',
+      credentialRefs: [], createdAt: '', updatedAt: '' });
+    await repo.kv.put({ pk: 'WF#w', sk: 'META', status: 'RUNNING', namespace: 'hyperpod-ns-p', projectId: 'p' });
     await repo.kv.put({ pk: 'WF#w', sk: 'TASK#train', phase: 'RUNNING', attempts: 1 });
-    const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, options());
-    const { cookie } = await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, options()), options());
+    const launch = await issueLaunchTicket(session, { subject: 'owner-sub' }, opts());
+    const { cookie } = await consumeTicket(launch.ticket, resolveRoute({ host, path: '/' }, opts()), opts());
     await repo.kv.put({ pk: 'WF#w', sk: 'TASK#train', phase: 'RUNNING', attempts: 2 });
-    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options()), options())).rejects.toMatchObject({ status: 401 });
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, opts()), opts())).rejects.toMatchObject({ status: 401 });
     await repo.kv.put({ pk: 'WF#w', sk: 'TASK#train', phase: 'RUNNING', attempts: 1 });
-    await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', namespace: 'research', members: {} });
-    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, options()), options())).rejects.toMatchObject({ status: 401 });
+    // Member group removed entirely ⇒ no project membership at all.
+    cognito.user = { username: 'owner-user', enabled: true, subject: 'owner-sub', groups: ['researchers'], email: '' };
+    await expect(authorizeCookie(cookie.split(';')[0], resolveRoute({ host, path: '/' }, opts()), opts())).rejects.toMatchObject({ status: 401 });
   });
   it('path mode: ticket exchange sets a per-session path cookie and the grant binds to origin+prefix', async () => {
     const principal = { subject: 'owner-sub' };

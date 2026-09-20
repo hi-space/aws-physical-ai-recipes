@@ -35,8 +35,12 @@ describe('derived token gateway grants', () => {
     if (change === 'disabled') f.state.user.enabled = false;
     if (change === 'recreated') f.state.user.subject = 'different-subject';
     if (change === 'cognito-role') f.state.user.groups = ['viewers'];
-    if (change === 'project-role') await f.repo.kv.put({ pk: f.ownerKey.pk, sk: 'META', ...f.project, members: { 'subject-a': 'viewer' } });
-    if (change === 'project-namespace') await f.repo.kv.put({ pk: f.ownerKey.pk, sk: 'META', ...f.project, namespace: 'different-namespace' });
+    // Still a proj-team-a member, but the platform group downgrades the composed project role to viewer.
+    if (change === 'project-role') f.state.user.groups = ['viewers', 'proj-team-a'];
+    // Namespace is now derived purely from the (immutable) project id, so a project's namespace can no
+    // longer drift on its own; tamper with the persisted session's namespace instead to exercise the same
+    // sourceAuthorization mismatch guard (a stale/tampered session no longer matching the live project).
+    if (change === 'project-namespace') await f.repo.kv.put({ pk: 'SESS#derived', sk: 'META', ...f.session, namespace: 'different-namespace' });
     if (change === 'token-project') await f.changeToken({ projectId: 'other' });
     if (change === 'role-ceiling') await f.changeToken({ roleCeiling: 'viewer' });
     if (change === 'scope') await f.changeToken({ scopes: ['sessions:read'] });

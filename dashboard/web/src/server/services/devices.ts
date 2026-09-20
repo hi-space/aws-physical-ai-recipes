@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { canReadResource, resolveProject } from '../auth/projects';
+import { canReadResource, canWriteIn, isProjectAdmin, resolveProject } from '../auth/projects';
 import { requireRole, type Session } from '../auth/session';
 import { badRequest, HttpError, notFound } from '../errors';
 import { getRepo, type Repo } from '../store/repo';
@@ -169,8 +169,8 @@ export class DevicesService {
     const leases = await Promise.all(devices.map(async d => publicLease(await this.leaseRecord(p, d.id))));
     return { projectId: p, devices, leases: leases.filter((lease): lease is PublicLease => !!lease), operations: operations.map(i => clean<EdgeOperation>(i)), models: models.models,
       runs: runs.filter(r => r.projectId === p && ['PENDING', 'RUNNING'].includes(r.status)).map(r => ({ id: r.id, name: r.name })),
-      canWrite: session.role === 'admin' || session.role === 'researcher' && ['researcher', 'project-admin'].includes(project.members[principal(session)]),
-      canRegister: session.role === 'admin' || session.role === 'researcher' && project.members[principal(session)] === 'project-admin' };
+      canWrite: session.role === 'admin' || session.role === 'researcher' && canWriteIn(session, project),
+      canRegister: session.role === 'admin' || session.role === 'researcher' && isProjectAdmin(session, project) };
   }
   async update(session: Session, p: string, id: string, value: unknown) {
     await this.access(session, p, 'project-admin'); const request = parse(deviceUpdateSchema, value); const d = await this.device(p, id);

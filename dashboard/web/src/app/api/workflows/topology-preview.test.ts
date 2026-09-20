@@ -24,9 +24,9 @@ beforeEach(async () => {
   vi.stubEnv('TASK_RUNTIME_IMAGE', 'example/runtime');
   repo = new Repo(new MemoryKV()); setRepoForTests(repo);
   await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', id: 'a', name: 'A', namespace: 'hyperpod-ns-a',
-    queue: 'q-a', backendId: 'default', members: { subject: 'researcher' } });
+    queue: 'hyperpod-ns-a-localqueue', backendId: 'default' });
   inventory.mockReset().mockImplementation(async () => ({
-    namespace: 'hyperpod-ns-a', queue: 'q-a', revision: 'actual-registration', observedAt: new Date().toISOString(),
+    namespace: 'hyperpod-ns-a', queue: 'hyperpod-ns-a-localqueue', revision: 'actual-registration', observedAt: new Date().toISOString(),
     levels: [{ key: 'zone', label: 'topology.k8s.aws/zone-id' }, { key: 'node', label: 'kubernetes.io/hostname' }],
     nodes: [{ name: 'node-a', uid: 'node-uid', labels: { 'topology.k8s.aws/zone-id': 'use1-az4', 'kubernetes.io/hostname': 'node-a', 'sagemaker.amazonaws.com/node-health-status': 'Schedulable' },
       ready: true, taints: [], available: { cpu: 8, memory: 16 * 1024 ** 3, pods: 20 } }],
@@ -34,7 +34,7 @@ beforeEach(async () => {
 });
 async function validate(source: string) {
   return POST(new NextRequest('https://app.example/api/workflows/validate', { method: 'POST',
-    headers: { origin: 'https://app.example', 'content-type': 'application/json', 'x-pai-user': 'user', 'x-pai-subject': 'subject', 'x-pai-role': 'researcher', 'x-pai-project': 'a' },
+    headers: { origin: 'https://app.example', 'content-type': 'application/json', 'x-pai-user': 'user', 'x-pai-subject': 'subject', 'x-pai-role': 'researcher', 'x-pai-groups': 'researchers,proj-a', 'x-pai-project': 'a' },
     body: JSON.stringify({ yaml: source }) }));
 }
 it('previews native placement from registered inventory without persisting a workflow or plan', async () => {

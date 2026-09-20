@@ -119,7 +119,8 @@ export function imageProfilesService(session: Session, d: ImageProfileDeps = def
     };
     const current = await authorize(project, true);
     const saved = await d.repo.kv.transaction([
-      { kind: 'check', pk: `PROJECT#${p.id}`, sk: 'META', condition: { equals: { namespace: current.namespace, updatedAt: current.updatedAt } } },
+      // namespace is derived from the project id and never persisted, so updatedAt is the CAS token.
+      { kind: 'check', pk: `PROJECT#${p.id}`, sk: 'META', condition: { equals: { updatedAt: current.updatedAt } } },
       { kind: 'put', item: { ...versionKey(p.id, value.id, version), ...profile }, condition: { absent: true } },
       { kind: 'put', item: { ...key, id: value.id, projectId: p.id, version, contentHash, enabled: true },
         condition: old ? { equals: { version: old.version, enabled: old.enabled } } : { absent: true } },

@@ -34,7 +34,8 @@ vi.mock('@/server/aws/s3', async (original) => ({
 
 import proxy from '@/proxy';
 import { createApiToken } from '@/server/auth/api-tokens';
-import { canReadResource, type Project } from '@/server/auth/projects';
+import { canReadResource, projectItem, type Project } from '@/server/auth/projects';
+import { projectFixture, putProject } from '@/server/auth/session.test-helpers';
 import { resetConfigForTests } from '@/server/config';
 import { MemoryKV } from '@/server/store/dynamo';
 import { Repo, setRepoForTests } from '@/server/store/repo';
@@ -44,11 +45,8 @@ import { GET as datasets } from './datasets/route';
 import { GET as storage } from './s3/route';
 
 const origin = 'https://project-boundaries.example';
-const project: Project = {
-  id: 'a', name: 'A', namespace: 'hyperpod-ns-a', queue: 'q-a',
-  members: { 'sub-a': 'researcher' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x',
-};
-const principal = { user: 'alice', subject: 'sub-a', email: '', role: 'researcher' as const };
+const project: Project = projectFixture('a');
+const principal = { user: 'alice', subject: 'sub-a', email: '', role: 'researcher' as const, groups: ['researchers', 'proj-a'] };
 let repo: Repo;
 let token: string;
 
@@ -59,6 +57,7 @@ function browserRequest(path: string, role = 'researcher') {
     'x-pai-role': role,
     'x-pai-auth-method': 'alb',
     'x-pai-project': project.id,
+    'x-pai-groups': 'researchers,proj-a',
   } });
 }
 
@@ -88,6 +87,7 @@ async function tokenRequest(path: string, method = 'GET', body?: unknown) {
   expect(headers.get('x-pai-role')).toBe('researcher');
   expect(headers.get('x-pai-project')).toBe('a');
   expect(headers.get('x-pai-token-project')).toBe('a');
+  expect(headers.get('x-pai-groups')).toContain('proj-a');
   expect(headers.has('authorization')).toBe(false);
   return new NextRequest(destination!, {
     method, headers,
@@ -103,13 +103,10 @@ beforeEach(async () => {
   resetConfigForTests();
   repo = new Repo(new MemoryKV());
   setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'a', ...project });
-  await repo.kv.put({
-    pk: 'PROJECT#b', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'b',
-    ...project, id: 'b', namespace: 'hyperpod-ns-b', queue: 'q-b', members: { 'sub-b': 'researcher' },
-  });
+  await repo.kv.put(projectItem(project));
+  await putProject(repo.kv, 'b');
   mocks.currentUser.mockResolvedValue({
-    username: principal.user, subject: principal.subject, enabled: true, groups: ['researchers'], email: '',
+    username: principal.user, subject: principal.subject, enabled: true, groups: ['researchers', 'proj-a'], email: '',
   });
   token = (await createApiToken(principal, project, {
     name: 'boundary-fixture', scopes: ['metrics:read', 'datasets:read'], expiresInDays: 1,
@@ -117,8 +114,8 @@ beforeEach(async () => {
   mocks.queryInstant.mockResolvedValue([{ metric: { namespace: project.namespace, pod: 'own-pod' }, value: [1, 2] }]);
   mocks.queryRange.mockResolvedValue([]);
   mocks.listLocalQueues.mockResolvedValue([
-    { metadata: { name: 'q-a', namespace: project.namespace }, spec: { clusterQueue: 'cq-a' } },
-    { metadata: { name: 'q-b', namespace: 'hyperpod-ns-b' }, spec: { clusterQueue: 'cq-b' } },
+    { metadata: { name: 'hyperpod-ns-a-localqueue', namespace: project.namespace }, spec: { clusterQueue: 'cq-a' } },
+    { metadata: { name: 'hyperpod-ns-b-localqueue', namespace: 'hyperpod-ns-b' }, spec: { clusterQueue: 'cq-b' } },
     { metadata: { name: 'other-q', namespace: project.namespace }, spec: { clusterQueue: 'other-cq' } },
   ]);
   mocks.listClusterQueues.mockResolvedValue(['a', 'b'].map((id) => ({
@@ -132,7 +129,7 @@ beforeEach(async () => {
   mocks.listWorkloads.mockResolvedValue([
     ...['a', 'b'].map((id) => ({
       metadata: { name: `work-${id}`, namespace: `hyperpod-ns-${id}` },
-      spec: { queueName: `q-${id}`, podSets: [{
+      spec: { queueName: `hyperpod-ns-${id}-localqueue`, podSets: [{
         name: 'main', count: 1,
         template: { spec: { containers: [{ name: 'main', env: [{ name: `PRIVATE_${id}`, value: 'fixture' }] }] } },
       }] },
@@ -209,7 +206,7 @@ describe('project queue inventory', () => {
     const result = await response.json();
     expect(mocks.listWorkloads).toHaveBeenCalledWith(project.namespace);
     expect(result.workloads.map((item: { name: string }) => item.name)).toEqual(['work-a']);
-    expect(result.localQueues.map((item: { name: string }) => item.name)).toEqual(['q-a']);
+    expect(result.localQueues.map((item: { name: string }) => item.name)).toEqual(['hyperpod-ns-a-localqueue']);
     expect(result.clusterQueues.map((item: { name: string }) => item.name)).toEqual(['cq-a']);
     expect(result.flavors.map((item: { name: string }) => item.name)).toEqual(['flavor-a']);
     expect(result.workloads[0].podSets).toEqual([{ name: 'main', count: 1 }]);

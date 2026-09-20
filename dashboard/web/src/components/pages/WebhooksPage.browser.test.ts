@@ -8,19 +8,20 @@ import { build } from 'esbuild';
 import { Repo } from '@/server/store/repo';
 import { MemoryKV } from '@/server/store/dynamo';
 import type { Project } from '@/server/auth/projects';
+import { projectItem } from '@/server/auth/projects';
+import { projectFixture } from '@/server/auth/session.test-helpers';
 import type { Workflow } from '@/server/store/types';
 import { workflowSchema } from '@/server/workflow/schema';
 import { webhooksService, enqueueWorkflowWebhook, reconcileWebhookDeliveries, type WebhookDeps, type WebhookSecret } from '@/server/services/webhooks';
 
 let server: Server, browser: Browser, origin: string, d: WebhookDeps;
-const project: Project = { id: 'a', name: 'Webhook fixture', namespace: 'hyperpod-ns-a', queue: 'q-a',
-  members: { sub: 'project-admin' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x' };
-const principal = { user: 'admin', subject: 'sub', role: 'researcher' as const, email: '' };
+const project: Project = projectFixture('a', { name: 'Webhook fixture' });
+const principal = { user: 'admin', subject: 'sub', role: 'researcher' as const, email: '', groups: ['researchers', 'proj-a-admin'] };
 beforeAll(async () => {
   if (!existsSync(chromium.executablePath())) return;
   const repo = new Repo(new MemoryKV()), secrets = new Map<string, WebhookSecret[]>();
   let seq = 0;
-  await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+  await repo.kv.put(projectItem(project));
   d = { repo, now: Date.now, randomId: () => (++seq).toString(16).padStart(32, '0'), maxAttempts: 1,
     secrets: {
       put: async (ref, value) => { const values = secrets.get(ref) ?? []; values.push(value); secrets.set(ref, values); return values.length; },

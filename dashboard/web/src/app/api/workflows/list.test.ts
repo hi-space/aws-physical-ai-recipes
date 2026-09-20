@@ -1,10 +1,10 @@
 import { beforeEach,expect,it } from 'vitest';
 import { NextRequest } from 'next/server';
-import { Repo,setRepoForTests } from '@/server/store/repo';import { MemoryKV } from '@/server/store/dynamo';import { createProject } from '@/server/auth/projects';import type { Workflow } from '@/server/store/types';
+import { Repo,setRepoForTests } from '@/server/store/repo';import { MemoryKV } from '@/server/store/dynamo';import { putProject } from '@/server/auth/session.test-helpers';import type { Workflow } from '@/server/store/types';
 import { GET } from './route';
 let repo:Repo;
-beforeEach(async()=>{repo=new Repo(new MemoryKV());setRepoForTests(repo);await createProject({user:'a',subject:'a',email:'',role:'admin'},{id:'p',name:'P',namespace:'hyperpod-ns-p',members:{a:'viewer'}},repo);});
-const request=(query:string)=>new NextRequest(`http://localhost/api/workflows?${query}`,{headers:{'x-pai-user':'a','x-pai-subject':'a','x-pai-role':'viewer','x-pai-project':'p'}});
+beforeEach(async()=>{repo=new Repo(new MemoryKV());setRepoForTests(repo);await putProject(repo.kv,'p');});
+const request=(query:string)=>new NextRequest(`http://localhost/api/workflows?${query}`,{headers:{'x-pai-user':'a','x-pai-subject':'a','x-pai-role':'viewer','x-pai-groups':'viewers,proj-p','x-pai-project':'p'}});
 async function seed(total:number){for(let i=0;i<total;i++)await repo.putWorkflow({id:`r${i}`,projectId:'p',name:i===0?'target':'other',namespace:'hyperpod-ns-p',owner:'a',status:'RUNNING',spec:{sensitive:'not in summary'} as never,specYaml:'not in summary',vars:{},createdAt:new Date(Date.UTC(2026,0,1)+i*1000).toISOString(),updatedAt:'x',taskCount:1,succeededCount:0,failedCount:0} satisfies Workflow);}
 it('finds older matches across pages while retaining the compact summary response',async()=>{
   await seed(120);const response=await GET(request('page=1&q=target&status=RUNNING&owner=a&namespace=hyperpod-ns-p'));expect(response.status).toBe(200);

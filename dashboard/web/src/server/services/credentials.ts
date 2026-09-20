@@ -5,7 +5,7 @@ import { ssm } from '../aws/clients';
 import { badRequest, forbidden, HttpError, notFound } from '../errors';
 import { getRepo } from '../store/repo';
 import type { KV, Item } from '../store/dynamo';
-import type { Project } from '../auth/projects';
+import { memberRole, type Project } from '../auth/projects';
 import type { Session } from '../auth/session';
 
 export type CredentialPrincipal = Session & { authMethod?: string; tokenProjectId?: string };
@@ -46,10 +46,9 @@ function interactive(principal: CredentialPrincipal) {
 }
 async function membership(principal: CredentialPrincipal, project: Project, deps: CredentialDeps, write = false) {
   if (!principal.subject || !/^[a-z][a-z0-9-]{0,39}$/.test(project.id) || principal.tokenProjectId && principal.tokenProjectId !== project.id) throw forbidden();
-  const current = await deps.kv.get(`PROJECT#${project.id}`, 'META');
-  const members = current?.members as Project['members'] | undefined;
-  const role = members && Object.hasOwn(members, principal.subject) ? members[principal.subject] : undefined;
-  if (!role || !['viewer', 'researcher', 'project-admin'].includes(role) || write && (role === 'viewer' || principal.role === 'viewer')) throw forbidden('현재 프로젝트 권한이 필요합니다.');
+  if (!(await deps.kv.get(`PROJECT#${project.id}`, 'META'))) throw forbidden('현재 프로젝트 권한이 필요합니다.');
+  const role = memberRole(principal, project);
+  if (!role || write && (role === 'viewer' || principal.role === 'viewer')) throw forbidden('현재 프로젝트 권한이 필요합니다.');
   return role;
 }
 function metadata(item: Item): CredentialMetadata {

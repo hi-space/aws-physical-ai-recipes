@@ -5,12 +5,13 @@ import { EventEmitter } from 'node:events';
 import { Repo } from '../store/repo';
 import { MemoryKV } from '../store/dynamo';
 import { config, resetConfigForTests } from '../config';
-import { createProject, type Project } from '../auth/projects';
+import type { Project } from '../auth/projects';
+import { putProject } from '../auth/session.test-helpers';
 import { submitWorkflow, reconcileWorkflow, cancelWorkflow } from '../workflow/controller';
 import { productionControllerDeps } from '../workflow-adapters/dependencies';
 import { k8sJson, clusterInfo } from '../k8s/client';
 import { backendConfig, runOnBackend } from './context';
-import { registerBackend, inspectBackend } from './registry';
+import { registerBackend, inspectBackend, readBackend } from './registry';
 import { admin, profile } from './test-fixtures';
 import { probeBackend } from './probe';
 import { withRequestBackend } from './request';
@@ -30,8 +31,18 @@ import { artifactPublisher, cancelArtifactCollectors } from '../workflow-adapter
 const fake = vi.hoisted(() => ({
   repo: undefined as unknown as Repo,
   send: vi.fn(), fsxSend: vi.fn(), fetch: vi.fn(), sockets: [] as Array<{ url: string; headers: Record<string, string> }>,
+  // Populated once `principal` is declared below; `refresh()` needs a fresh Cognito lookup for
+  // the session owner, and this file has no live Cognito credentials to call.
+  owner: undefined as unknown as { user: string; subject: string; groups: string[] },
 }));
 vi.mock('../store/repo', async original => ({ ...await original<typeof import('../store/repo')>(), getRepo: () => fake.repo }));
+vi.mock('../aws/cognito', async original => ({
+  ...await original<typeof import('../aws/cognito')>(),
+  currentUserAuthorization: async (username: string) => {
+    if (!fake.owner || username !== fake.owner.user) throw new Error('Unknown test user');
+    return { username: fake.owner.user, subject: fake.owner.subject, enabled: true, groups: fake.owner.groups, email: '' };
+  },
+}));
 vi.mock('../aws/clients', async original => {
   const real = await original<typeof import('../aws/clients')>();
   return { ...real, eks: () => ({ send: fake.send }), fsx: () => ({ send: fake.fsxSend }),
@@ -104,11 +115,21 @@ beforeEach(async () => {
     if (path === '/version') return response({ gitVersion: 'v1.33.0' });
     if (path === '/apis/jobset.x-k8s.io/v1alpha2') return response({ resources: [{ name: 'jobsets' }] });
     if (path.endsWith('/selfsubjectaccessreviews')) return response({ status: { allowed: !denied } });
-    if (path === `/api/v1/namespaces/${ns}`) return response({ status: { phase: 'Active' } });
+    // Both the fixed probe canary namespace (`ns`) and the project's own derived namespace (hyperpod-ns-<id>)
+    // are queried against the same mock cluster, so match any governed namespace rather than only `ns`.
+    if (/^\/api\/v1\/namespaces\/hyperpod-ns-[a-z0-9-]+$/.test(path)) return response({ status: { phase: 'Active' } });
     if (path.includes('/localqueues/')) return response({ spec: { clusterQueue: 'team-a' } });
-    if (path.endsWith('/persistentvolumeclaims/fsx-pvc')) return response({ spec: { volumeName: 'fsx-volume' }, status: { phase: 'Bound' } });
-    if (path.includes('/persistentvolumes/')) return response({ spec: { csi: { driver: 'fsx.csi.aws.com', volumeHandle: `fs-${cluster.replace('eks-', '')}`,
-      volumeAttributes: { dnsname: `${cluster.replace('eks-', '')}.fsx.test`, mountname: 'mount' } }, claimRef: { namespace: ns, name: 'fsx-pvc' } } });
+    if (path.endsWith('/persistentvolumeclaims/fsx-pvc')) {
+      // Encode the requested namespace in the volume name so the stateless PV lookup below can echo it back.
+      const requestedNs = /\/namespaces\/([^/]+)\//.exec(path)?.[1] ?? ns;
+      return response({ spec: { volumeName: `fsx-volume-${requestedNs}` }, status: { phase: 'Bound' } });
+    }
+    if (path.includes('/persistentvolumes/')) {
+      const volumeName = decodeURIComponent(path.split('/').pop()!);
+      const claimNamespace = volumeName.startsWith('fsx-volume-') ? volumeName.slice('fsx-volume-'.length) : ns;
+      return response({ spec: { csi: { driver: 'fsx.csi.aws.com', volumeHandle: `fs-${cluster.replace('eks-', '')}`,
+        volumeAttributes: { dnsname: `${cluster.replace('eks-', '')}.fsx.test`, mountname: 'mount' } }, claimRef: { namespace: claimNamespace, name: 'fsx-pvc' } } });
+    }
     if (path.includes('/serviceaccounts/')) return response({ metadata: {} });
     if (path.endsWith('/pods')) return response({ items: pods[cluster] });
     if (/\/pods\/[^/]+\/log$/.test(path)) return new Response(`logs from ${cluster}`);
@@ -143,20 +164,23 @@ beforeEach(async () => {
     await registerBackend(admin, { id, enabled: true, expectedVersion: 0 }, fake.repo);
     const checked = await inspectBackend(admin, id, 1, fake.repo, probeBackend);
     expect(checked.status).toBe('READY');
-    projects.push(await createProject(admin, { id, name: id, backendId: id, namespace: ns, members: { alice: 'researcher' } }, fake.repo));
+    const backend = await readBackend(id, fake.repo);
+    projects.push(await putProject(fake.repo.kv, id, { backendId: id, backendConfigHash: backend.configurationHash }));
   }
   calls = [];
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); resetConfigForTests(); });
-const principal = { user: 'alice', subject: 'alice', email: 'alice@test', role: 'researcher' as const };
+const principal = { user: 'alice', subject: 'alice', email: 'alice@test', role: 'researcher' as const, groups: ['researchers', 'proj-alpha', 'proj-beta'] };
+fake.owner = principal;
 function request(path: string, project: string, method = 'GET', body?: unknown) {
   return new NextRequest(`https://dashboard.test${path}`, { method, headers: {
     'x-pai-user': 'alice', 'x-pai-subject': 'alice', 'x-pai-email': 'alice@test', 'x-pai-role': 'researcher',
+    'x-pai-groups': principal.groups.join(','),
     'x-pai-project': project, origin: 'https://dashboard.test', ...(body ? { 'content-type': 'application/json' } : {}),
   }, ...(body ? { body: JSON.stringify(body) } : {}) });
 }
 async function submitted(project: Project, source = yaml) {
-  return submitWorkflow({ yaml: source, owner: 'alice', ownerSubject: 'alice', projectId: project.id, namespace: ns, queue: project.queue, deferLaunch: true }, productionControllerDeps());
+  return submitWorkflow({ yaml: source, owner: 'alice', ownerSubject: 'alice', projectId: project.id, namespace: project.namespace, queue: project.queue, deferLaunch: true }, productionControllerDeps());
 }
 
 describe('two EKS backends across real application boundaries', () => {
@@ -192,7 +216,7 @@ describe('two EKS backends across real application boundaries', () => {
     await reconcileWorkflow(defaultRun, productionControllerDeps());
     expect(jobs.home.size).toBe(1);
     await expect(withRequestBackend(request('/api/k8s/jobs?backendId=beta', 'alpha'), principal, async () => k8sJson('/version'))).rejects.toThrow();
-    await expect(submitWorkflow({ yaml, owner: 'alice', projectId: 'alpha', namespace: ns, queue: projects[0].queue, backendId: 'beta' }, productionControllerDeps())).rejects.toThrow();
+    await expect(submitWorkflow({ yaml, owner: 'alice', projectId: 'alpha', namespace: projects[0].namespace, queue: projects[0].queue, backendId: 'beta' }, productionControllerDeps())).rejects.toThrow();
     await registerBackend(admin, { id: 'alpha', expectedVersion: 1, enabled: false }, fake.repo);
     const before = calls.length;
     await expect(submitted(projects[0])).rejects.toThrow();

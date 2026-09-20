@@ -1,121 +1,87 @@
 import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../errors';
 import { getRepo, type Repo } from '../store/repo';
-import { requireRole, type Session } from './session';
-import { backendId, DEFAULT_BACKEND, resolveBackend } from '../backends/registry';
+import type { Item } from '../store/dynamo';
+import type { Session } from './session';
+import { PROJECT_ROLE_RANK, projectRoleFromGroups, type ProjectRole } from './rbac';
+import { backendId, DEFAULT_BACKEND } from '../backends/registry';
 import { currentBackend } from '../backends/context';
 
-export const projectInputSchema = z.object({
-  id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/),
-  name: z.string().min(1).max(100),
-  namespace: z.string().regex(/^hyperpod-ns-[a-z0-9][a-z0-9-]*$/, 'A governed HyperPod team namespace is required'),
-  backendId: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/).default(DEFAULT_BACKEND),
-  members: z.record(z.string().min(1), z.enum(['viewer', 'researcher', 'project-admin'])).default({}),
-  credentialRefs: z.array(z.string().startsWith('/')).max(30).default([]),
-  description: z.string().max(1000).optional(),
-});
-export type ProjectRole = 'viewer' | 'researcher' | 'project-admin';
+export type { ProjectRole } from './rbac';
+// Ids ending in "-admin" are forbidden: "proj-<x>-admin" would be ambiguous between the admin
+// group of "<x>" and the member group of "<x>-admin".
+export const projectIdPattern = /^(?!.*-admin$)[a-z][a-z0-9-]{0,39}$/;
+
+/**
+ * A project is a thin adoption of a HyperPod task-governance Team (ComputeQuota). `id` is the TeamName;
+ * `namespace`/`queue` are derived on read and never persisted; membership lives in Cognito groups.
+ */
 export interface Project {
+  id: string;
+  name: string;
+  computeQuotaId: string;
+  clusterArn: string;
   /** Missing on legacy projects means only the original default EKS backend. */
   backendId?: string;
   backendConfigHash?: string;
-  id: string;
-  name: string;
   namespace: string;
   queue: string;
-  members: Record<string, ProjectRole>;
   credentialRefs: string[];
   description?: string;
   createdAt: string;
   updatedAt: string;
 }
+export const namespaceOf = (p: Pick<Project, 'id'>) => `hyperpod-ns-${p.id}`;
+export const queueOf = (p: Pick<Project, 'id'>) => `${namespaceOf(p)}-localqueue`;
+export const projectIdFromNamespace = (namespace: string) => /^hyperpod-ns-((?!.*-admin$)[a-z][a-z0-9-]{0,39})$/.exec(namespace)?.[1];
+
+export function projectFromItem(item: Record<string, unknown>): Project {
+  const { pk: _pk, sk: _sk, gsi1pk: _g1, gsi1sk: _g2, namespace: _ns, queue: _q, members: _m, ...stored } = item;
+  const base = stored as unknown as Omit<Project, 'namespace' | 'queue'>;
+  return { ...base, namespace: namespaceOf(base), queue: queueOf(base) };
+}
+export function projectItem(project: Project): Item {
+  const { namespace: _ns, queue: _q, ...stored } = project;
+  return { pk: `PROJECT#${project.id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: project.id, ...stored };
+}
+
 const principal = (session: Session) => session.subject ?? session.user;
-const projectFromItem = (item: Record<string, unknown>) => {
-  const { pk: _pk, sk: _sk, gsi1pk: _g1, gsi1sk: _g2, ...project } = item;
-  return project as unknown as Project;
-};
 
-export async function listProjects(session: Session, repo: Repo = getRepo()): Promise<Project[]> {
+/** The caller's role in a project. Platform admins act as project-admin; API tokens only see their bound project. */
+export function memberRole(session: Session, project: Pick<Project, 'id'>): ProjectRole | undefined {
+  if (session.tokenProjectId && session.tokenProjectId !== project.id) return undefined;
+  if (session.role === 'admin') return 'project-admin';
+  return projectRoleFromGroups(session.groups, project.id);
+}
+export const isMember = (session: Session, project: Pick<Project, 'id'>) => memberRole(session, project) !== undefined;
+export const canWriteIn = (session: Session, project: Pick<Project, 'id'>) => { const role = memberRole(session, project); return role !== undefined && role !== 'viewer'; };
+export const isProjectAdmin = (session: Session, project: Pick<Project, 'id'>) => memberRole(session, project) === 'project-admin';
+
+export async function getProject(id: string, repo: Repo = getRepo()): Promise<Project | undefined> {
+  if (!projectIdPattern.test(id)) return undefined;
+  const item = await repo.kv.get(`PROJECT#${id}`, 'META');
+  return item ? projectFromItem(item) : undefined;
+}
+export async function listAllProjects(repo: Repo = getRepo()): Promise<Project[]> {
   const indexed = await repo.kv.queryGsi1('TYPE#PROJECT');
-  // GSIs discover projects, but permissions always use the strongly consistent META.
+  // GSIs discover projects, but authorization always uses the strongly consistent META.
   const records = await Promise.all(indexed.map((item) => repo.kv.get(item.pk, 'META')));
-  const projects = records.filter((item) => item !== undefined).map(projectFromItem);
-  const visible = session.role === 'admin' ? projects : projects.filter((p) => Boolean(p.members[principal(session)]));
-  return session.tokenProjectId ? visible.filter((project) => project.id === session.tokenProjectId) : visible;
+  return records.filter((item) => item !== undefined).map(projectFromItem).sort((a, b) => a.id.localeCompare(b.id));
+}
+export async function listProjects(session: Session, repo: Repo = getRepo()): Promise<Project[]> {
+  return (await listAllProjects(repo)).filter((project) => isMember(session, project));
 }
 
-export async function createProject(
-  session: Session,
-  input: z.input<typeof projectInputSchema>,
-  repo: Repo = getRepo(),
-): Promise<Project> {
-  requireRole(session, 'admin');
-  const result = projectInputSchema.safeParse(input);
-  if (!result.success) throw badRequest('Invalid project namespace or membership', { issues: result.error.issues });
-  const data = result.data;
-  const backend = data.backendId === DEFAULT_BACKEND ? undefined : await resolveBackend(data, repo);
-  if (backend && !backend.profile.namespaces.includes(data.namespace)) throw badRequest('namespace is not allowed on this backend');
-  const all = await listProjects(session, repo);
-  if (all.some((p) => backendId(p.backendId) === data.backendId && p.namespace === data.namespace && p.id !== data.id)) throw badRequest('namespace is already assigned to another project on this backend');
-  const now = new Date().toISOString();
-  const project: Project = { ...data, ...(backend ? { backendConfigHash: backend.configurationHash } : {}), queue: `${data.namespace}-localqueue`, createdAt: now, updatedAt: now };
-  const created = await repo.kv.transaction([
-    { kind: 'put', item: { pk: `PROJECT#${project.id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: project.id, ...project }, condition: { absent: true } },
-    { kind: 'put', item: { pk: `PROJECT_NAMESPACE#${data.backendId}#${project.namespace}`, sk: 'OWNER', projectId: project.id, backendId: data.backendId }, condition: { absent: true } },
-    ...(data.backendId === DEFAULT_BACKEND ? [{ kind: 'put' as const, item: { pk: `PROJECT_NAMESPACE#${project.namespace}`, sk: 'OWNER', projectId: project.id }, condition: { absent: true as const } }] : []),
-  ]);
-  if (!created) throw badRequest('project or namespace is already assigned');
-  return project;
-}
-
-export async function updateProjectMembers(session: Session, id: string, members: Record<string, ProjectRole>, repo: Repo = getRepo()) {
-  const project = await resolveProject(session, id, repo, 'project-admin');
-  const valid = projectInputSchema.shape.members.safeParse(members);
-  if (!valid.success) throw badRequest('Invalid project members');
-  const updated = { ...project, members: valid.data, updatedAt: new Date().toISOString() };
-  await repo.kv.put({ pk: `PROJECT#${id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: id, ...updated });
-  return updated;
-}
-
-export async function ensureDefaultProject(session: Session, repo: Repo = getRepo()) {
-  if (session.role !== 'admin') return;
-  if ((await listProjects(session, repo)).length) return;
-  try {
-    await createProject(session, {
-      id: 'workshop', name: 'Physical AI Workshop', namespace: 'hyperpod-ns-team-a',
-      members: { [principal(session)]: 'project-admin' },
-      description: '기존 HyperPod Team A 큐에 연결된 워크숍 프로젝트',
-    }, repo);
-  } catch (error) {
-    if (!(await repo.kv.get('PROJECT#workshop', 'META'))) throw error;
-  }
-}
-
-export async function resolveProject(
-  session: Session,
-  id?: string,
-  repo: Repo = getRepo(),
-  required: ProjectRole = 'viewer',
-): Promise<Project> {
+export async function resolveProject(session: Session, id?: string, repo: Repo = getRepo(), required: ProjectRole = 'viewer'): Promise<Project> {
   if (session.tokenProjectId && id && id !== session.tokenProjectId) throw forbidden('Token is bound to another project');
-  const direct = id ? await repo.kv.get(`PROJECT#${id}`, 'META') : undefined;
-  const projects = direct ? [projectFromItem(direct)] : await listProjects(session, repo);
-  let project = id ? projects.find((p) => p.id === id) : projects[0];
-  if (!project && !id && session.role === 'admin') {
-    const initial = await repo.kv.get('PROJECT#workshop', 'META');
-    if (initial) project = projectFromItem(initial);
-  }
-  if (!project) throw forbidden('No access to the requested project. Ask a project administrator to add your Cognito subject.');
-  if (session.role !== 'admin' && !project.members[principal(session)]) throw forbidden('No access to the requested project');
-  const ranks = { viewer: 0, researcher: 1, 'project-admin': 2 };
-  if (session.role !== 'admin' && ranks[project.members[principal(session)]] < ranks[required]) {
-    throw forbidden(`This project requires ${required} permission`);
-  }
+  const project = id ? await getProject(id, repo) : (await listProjects(session, repo))[0];
+  const role = project ? memberRole(session, project) : undefined;
+  if (!project || !role) throw forbidden('No access to the requested project. Ask a project administrator to add you to its Cognito group.');
+  if (PROJECT_ROLE_RANK[role] < PROJECT_ROLE_RANK[required]) throw forbidden(`This project requires ${required} permission`);
   return project;
 }
 
 export async function requestProject(req: Request, session: Session, required: ProjectRole = 'viewer') {
-  await ensureDefaultProject(session);
   if (session.tokenProjectId) return resolveProject(session, session.tokenProjectId, getRepo(), required);
   const cookie = /(?:^|;\s*)pai-project=([^;]+)/.exec(req.headers.get('cookie') ?? '')?.[1];
   let id = req.headers.get('x-pai-project') ?? undefined;
@@ -125,14 +91,25 @@ export async function requestProject(req: Request, session: Session, required: P
   return resolveProject(session, id, getRepo(), required);
 }
 
+export const projectMetaSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(1000).optional(),
+  credentialRefs: z.array(z.string().startsWith('/')).max(30).optional(),
+}).strict();
+export async function updateProjectMeta(session: Session, id: string, input: unknown, repo: Repo = getRepo()): Promise<Project> {
+  const project = await resolveProject(session, id, repo, 'project-admin');
+  const parsed = projectMetaSchema.safeParse(input);
+  if (!parsed.success) throw badRequest('Invalid project metadata', { issues: parsed.error.issues });
+  const updated: Project = { ...project, ...parsed.data, updatedAt: new Date().toISOString() };
+  await repo.kv.put(projectItem(updated));
+  return updated;
+}
+
 export interface OwnedResource { owner?: string; ownerSubject?: string; projectId?: string }
-export async function canReadResource(session: Session, resource: OwnedResource, repo: Repo = getRepo()) {
+export async function canReadResource(session: Session, resource: OwnedResource, _repo: Repo = getRepo()): Promise<boolean> {
   if (session.tokenProjectId && resource.projectId !== session.tokenProjectId) return false;
   if (session.role === 'admin') return true;
-  if (resource.projectId) {
-    const item = await repo.kv.get(`PROJECT#${resource.projectId}`, 'META');
-    return Boolean(item && projectFromItem(item).members[principal(session)]);
-  }
+  if (resource.projectId) return isMember(session, { id: resource.projectId });
   return resource.ownerSubject ? resource.ownerSubject === principal(session) : resource.owner === session.user;
 }
 export async function assertResourceAccess(session: Session, resource: OwnedResource | undefined, what = 'resource', write = false) {
@@ -140,21 +117,19 @@ export async function assertResourceAccess(session: Session, resource: OwnedReso
   if (write && resource.projectId) await resolveProject(session, resource.projectId, getRepo(), 'researcher');
 }
 export async function filterAccessible<T extends OwnedResource>(session: Session, resources: T[]): Promise<T[]> {
-  if (session.tokenProjectId) resources = resources.filter((resource) => resource.projectId === session.tokenProjectId);
-  if (session.role === 'admin') return resources;
-  const projects = new Set((await listProjects(session)).map((p) => p.id));
-  return resources.filter((r) => r.projectId
-    ? projects.has(r.projectId)
-    : r.ownerSubject ? r.ownerSubject === principal(session) : r.owner === session.user);
+  const results = await Promise.all(resources.map((resource) => canReadResource(session, resource)));
+  return resources.filter((_, index) => results[index]);
 }
 export async function assertNamespaceAccess(session: Session, namespace: string, write = false, selectedBackend = currentBackend()?.id ?? DEFAULT_BACKEND, repo: Repo = getRepo()) {
   if (/^(kube-|aws-|hyperpod-observability$|grafana$|kubeflow$|mpi-operator$)/.test(namespace)) {
     throw forbidden('System namespaces are not a researcher workspace');
   }
   if (session.role === 'admin') return;
-  const project = (await listProjects(session, repo)).find((p) => p.namespace === namespace && backendId(p.backendId) === selectedBackend);
-  if (!project) throw forbidden('No access to this project namespace');
-  if (write && project.members[principal(session)] === 'viewer') throw forbidden('Project is read-only');
+  const id = projectIdFromNamespace(namespace);
+  const role = id ? memberRole(session, { id }) : undefined;
+  const project = id && role ? await getProject(id, repo) : undefined;
+  if (!project || backendId(project.backendId) !== selectedBackend) throw forbidden('No access to this project namespace');
+  if (write && role === 'viewer') throw forbidden('Project is read-only');
 }
 export function assertStorageScope(session: Session, project: Project, key: string) {
   if (key.includes('..') || key.includes('\\') || key.startsWith('/')) throw forbidden('Invalid storage path');

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { resolveProject } from '../auth/projects';
+import { isProjectAdmin, resolveProject } from '../auth/projects';
 import { requireRole, type Session } from '../auth/session';
 import { badRequest, forbidden, HttpError, notFound } from '../errors';
 import { Repo, getRepo } from '../store/repo';
@@ -106,7 +106,7 @@ export class PipelineArchives {
   async retry(session: Session, projectId: string, archiveId: string) {
     const project = await this.access(session, projectId, true);
     const record = await this.get(session, projectId, archiveId);
-    if (record.ownerSubject !== principal(session) && session.role !== 'admin' && project.members[principal(session)] !== 'project-admin') throw forbidden('Only the archive owner or project administrator may retry it');
+    if (record.ownerSubject !== principal(session) && session.role !== 'admin' && !isProjectAdmin(session, project)) throw forbidden('Only the archive owner or project administrator may retry it');
     if (!['FAILED', 'CANCELLED'].includes(record.status)) throw badRequest('Only a failed or cancelled archive can be retried');
     const key = pipelineArchiveKey(projectId, archiveId), holder = randomUUID();
     if (!await this.d.repo.kv.acquireLease(key.pk, 'LEASE', holder, 120)) throw new HttpError(409, 'Archive cleanup is still active; retry after its lease is released');
@@ -124,7 +124,7 @@ export class PipelineArchives {
   async cancel(session: Session, projectId: string, archiveId: string) {
     const project = await this.access(session, projectId, true);
     const record = await this.get(session, projectId, archiveId);
-    if (record.ownerSubject !== principal(session) && session.role !== 'admin' && project.members[principal(session)] !== 'project-admin') throw forbidden('Only the archive owner or project administrator may cancel it');
+    if (record.ownerSubject !== principal(session) && session.role !== 'admin' && !isProjectAdmin(session, project)) throw forbidden('Only the archive owner or project administrator may cancel it');
     if (record.status === 'READY') throw badRequest('Completed archives are immutable');
     await this.d.repo.kv.transaction([{ kind: 'put', item: item({ ...record, status: 'CANCELLED', updatedAt: this.now() }),
       condition: { equals: { status: record.status } } }]);

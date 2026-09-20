@@ -6,6 +6,8 @@ export interface Session {
   subject?: string;
   email: string;
   role: Role;
+  /** Cognito groups of the caller (platform + proj-* groups). Absent in legacy fixtures ⇒ no project membership. */
+  groups?: string[];
   authMethod?: 'alb' | 'cognito' | 'token';
   tokenProjectId?: string;
   scopes?: string[];
@@ -18,11 +20,14 @@ export const SESSION_HEADERS = {
   subject: 'x-pai-subject',
   email: 'x-pai-email',
   role: 'x-pai-role',
+  groups: 'x-pai-groups',
   authMethod: 'x-pai-auth-method',
   tokenProjectId: 'x-pai-token-project',
   scopes: 'x-pai-token-scopes',
   tokenId: 'x-pai-token-id',
 } as const;
+
+export const parseGroupsHeader = (value: string | null) => (value ?? '').split(',').map((g) => g.trim()).filter(Boolean);
 
 export function sessionFromHeaders(h: Headers): Session {
   const user = h.get(SESSION_HEADERS.user);
@@ -32,6 +37,7 @@ export function sessionFromHeaders(h: Headers): Session {
   const authMethod = raw === 'token' ? 'token' : raw === 'cognito' ? 'cognito' : 'alb';
   return {
     user, subject: h.get(SESSION_HEADERS.subject) ?? user, email: h.get(SESSION_HEADERS.email) ?? '', role, authMethod,
+    groups: parseGroupsHeader(h.get(SESSION_HEADERS.groups)),
     ...(authMethod === 'token' ? { tokenProjectId: h.get(SESSION_HEADERS.tokenProjectId) ?? undefined, scopes: (h.get(SESSION_HEADERS.scopes) ?? '').split(',').filter(Boolean), tokenId: h.get(SESSION_HEADERS.tokenId) ?? undefined } : {}),
   };
 }

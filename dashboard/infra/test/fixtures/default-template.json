@@ -4875,7 +4875,10 @@
                 "cognito-idp:AdminCreateUser",
                 "cognito-idp:AdminSetUserPassword",
                 "cognito-idp:AdminAddUserToGroup",
-                "cognito-idp:AdminRemoveUserFromGroup"
+                "cognito-idp:AdminRemoveUserFromGroup",
+                "cognito-idp:CreateGroup",
+                "cognito-idp:DeleteGroup",
+                "cognito-idp:GetGroup"
               ],
               "Effect": "Allow",
               "Resource": {

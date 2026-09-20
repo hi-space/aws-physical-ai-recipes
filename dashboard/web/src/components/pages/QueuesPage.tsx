@@ -90,6 +90,7 @@ export function QueuesPage() {
 
   const { data: queuesData, isLoading: queuesLoading, error: queuesError } = useApi<QueuesData>('/api/queues', { refetch: 8000 });
   const { data: quotasData, isLoading: quotasLoading, error: quotasError } = useApi<QuotasData>('/api/quotas', { refetch: 8000 });
+  const projects = useApi<Array<{ id: string; computeQuotaId: string; name: string }>>('/api/projects');
 
   const { mutate: deleteQuotaMutation } = useApiMutation(
     (item: { id: string; kind: 'quota' | 'policy' }) =>
@@ -422,6 +423,7 @@ export function QueuesPage() {
                     <tr className="border-b border-border">
                       <th className="px-3 py-2 text-left font-medium">{tc('name')}</th>
                       <th className="px-3 py-2 text-left font-medium">{t('team')}</th>
+                      <th className="px-3 py-2 text-left font-medium">{t('project')}</th>
                       <th className="px-3 py-2 text-left font-medium">{t('instances')}</th>
                       <th className="px-3 py-2 text-left font-medium">{t('borrowLimit')}</th>
                       <th className="px-3 py-2 text-left font-medium">{t('preempt')}</th>
@@ -434,6 +436,9 @@ export function QueuesPage() {
                       <tr key={q.ComputeQuotaId} className="hover:bg-bg-elev-2">
                         <td className="px-3 py-2 mono text-fg-muted">{q.Name}</td>
                         <td className="px-3 py-2">{q.ComputeQuotaTarget?.TeamName || '—'}</td>
+                        <td className="px-3 py-2">{(() => { const p = projects.data?.find((x) => x.computeQuotaId === q.ComputeQuotaId); return p
+                          ? <a className="underline" href="/projects">{p.name}</a>
+                          : can(me, 'admin') ? <a className="underline" href={`/projects?quota=${encodeURIComponent(q.ComputeQuotaId)}`}>{t('adoptLink')}</a> : <span className="text-fg-muted">{t('notAdopted')}</span>; })()}</td>
                         <td className="px-3 py-2 text-xs flex flex-wrap gap-1">
                           {q.detail?.ComputeQuotaConfig?.ComputeQuotaResources?.map((r: any) => (
                             <Badge key={r.InstanceType} tone="info">

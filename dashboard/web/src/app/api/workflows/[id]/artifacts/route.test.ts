@@ -14,8 +14,10 @@ import { GET as download } from '../../../datasets/[name]/versions/[v]/download/
 const alice: Session = { user: 'alice', subject: 'alice', role: 'viewer', email: '' };
 const checksum = Buffer.alloc(32).toString('base64');
 let repo: Repo;
+// Only 'alice' is a registered proj-p member; other actors (e.g. 'bob') stay non-members.
 const req = (session: Session, path: string) => new NextRequest('http://localhost' + path, { headers: {
-  [SESSION_HEADERS.user]: session.user, [SESSION_HEADERS.subject]: session.subject!, [SESSION_HEADERS.role]: session.role, 'x-pai-project': 'p',
+  [SESSION_HEADERS.user]: session.user, [SESSION_HEADERS.subject]: session.subject!, [SESSION_HEADERS.role]: session.role,
+  [SESSION_HEADERS.groups]: session.user === 'alice' ? 'viewers,proj-p' : 'viewers', 'x-pai-project': 'p',
 } });
 const object = (path: string, bytes: number) => ({ path, key: `projects/p/runs/w/attempts/1/evaluate/h/${path}`, versionId: 'v-' + path, bytes, checksumSHA256: checksum, checksumType: 'FULL_OBJECT' });
 const manifest = JSON.stringify({ schemaVersion: 1, identity: 'workflow:pub:1', source: { bucket: 'data', prefix: 'x/' }, objects: [
@@ -25,7 +27,7 @@ const manifest = JSON.stringify({ schemaVersion: 1, identity: 'workflow:pub:1', 
 beforeEach(async () => {
   vi.stubEnv('DASHBOARD_ARTIFACT_BUCKET', 'archive');
   repo = new Repo(new MemoryKV()); setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', id: 'p', name: 'P', namespace: 'hyperpod-ns-p', queue: 'q', members: { alice: 'viewer' }, credentialRefs: [], createdAt: '', updatedAt: '' });
+  await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', id: 'p', name: 'P', namespace: 'hyperpod-ns-p', queue: 'q', credentialRefs: [], createdAt: '', updatedAt: '' });
   await repo.putWorkflow({ id: 'w', projectId: 'p', name: 'eval', namespace: 'hyperpod-ns-p', owner: 'owner', status: 'SUCCEEDED', spec: {} as never, specYaml: '', vars: {},
     createdAt: '', updatedAt: '', taskCount: 2, succeededCount: 2, failedCount: 0 } satisfies Workflow);
   await repo.putTask({ workflowId: 'w', name: 'evaluate', phase: 'SUCCEEDED', attempts: 1, replicas: 1, updatedAt: '', outputPath: '/fsx/checkpoints/projects/p/runs/w/attempts/1/evaluate',

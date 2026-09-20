@@ -10,11 +10,13 @@ import {GET as browse} from './[name]/versions/[v]/route';
 const alice:Session={user:'alice',subject:'alice',role:'viewer',email:''};
 let repo:Repo;
 const checksum=Buffer.alloc(32).toString('base64');
-function req(session:Session,path:string) {return new NextRequest('http://localhost'+path,{headers:{[SESSION_HEADERS.user]:session.user,[SESSION_HEADERS.subject]:session.subject!,[SESSION_HEADERS.role]:session.role,'x-pai-project':'p',...(session.tokenProjectId?{[SESSION_HEADERS.authMethod]:'token',[SESSION_HEADERS.tokenProjectId]:session.tokenProjectId}:{})}});}
+// Only 'alice' is a registered proj-p member; other spread actors (e.g. 'other') stay non-members.
+function req(session:Session,path:string) {return new NextRequest('http://localhost'+path,{headers:{[SESSION_HEADERS.user]:session.user,[SESSION_HEADERS.subject]:session.subject!,[SESSION_HEADERS.role]:session.role,[SESSION_HEADERS.groups]:session.user==='alice'?'viewers,proj-p':'',
+  'x-pai-project':'p',...(session.tokenProjectId?{[SESSION_HEADERS.authMethod]:'token',[SESSION_HEADERS.tokenProjectId]:session.tokenProjectId}:{})}});}
 const params=(v='1')=>({params:Promise.resolve({name:'data',v})});
 beforeEach(async()=>{
  vi.stubEnv('DASHBOARD_ARTIFACT_BUCKET','archive');repo=new Repo(new MemoryKV());setRepoForTests(repo);
- await repo.kv.put({pk:'PROJECT#p',sk:'META',id:'p',name:'P',namespace:'hyperpod-ns-p',queue:'q',members:{alice:'viewer'},credentialRefs:[],createdAt:'',updatedAt:''});
+ await repo.kv.put({pk:'PROJECT#p',sk:'META',id:'p',name:'P',namespace:'hyperpod-ns-p',queue:'q',credentialRefs:[],createdAt:'',updatedAt:''});
  await repo.putDataset({name:'data',projectId:'p',owner:'owner',tags:[],latestVersion:1,createdAt:'',updatedAt:''});
  const body=JSON.stringify({schemaVersion:1,identity:'dataset:data:v1',source:{bucket:'source',prefix:'x/'},objects:[{path:'file',key:'projects/p/v1/file',versionId:'old',bytes:1,checksumSHA256:checksum,checksumType:'FULL_OBJECT'}]});
  await repo.putVersion({dataset:'data',version:1,projectId:'p',uri:'s3://archive/projects/p/v1/',manifestUri:'s3://archive/projects/p/v1/manifest.json',manifestHash:createHash('sha256').update(body).digest('hex'),state:'READY',createdAt:'',createdBy:'owner',tags:[]});

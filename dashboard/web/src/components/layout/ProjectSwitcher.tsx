@@ -5,7 +5,7 @@ import { useT } from '@/lib/i18n';
 
 export function ProjectSwitcher() {
   const t = useT('nav');
-  const projects = useApi<Array<{ id: string; name: string }>>('/api/projects');
+  const projects = useApi<Array<{ id: string; name: string; attachment?: string }>>('/api/projects');
   const me = useMe();
   const [selected, setSelected] = React.useState('');
   React.useEffect(() => {
@@ -21,7 +21,7 @@ export function ProjectSwitcher() {
         location.reload();
       }}>
       <option value="">{me.data?.role === 'admin' ? t('allProjects') : t('selectProject')}</option>
-      {projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+      {projects.data?.map((project) => <option key={project.id} value={project.id}>{project.name}{project.attachment === 'DETACHED' ? ` ⚠ ${t('detached')}` : ''}</option>)}
     </select>
     {projects.error && <p className="mt-1 text-xs text-err">{t('projectsLoadFailed')}</p>}
   </div>;

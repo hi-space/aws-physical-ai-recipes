@@ -1,12 +1,13 @@
 import { beforeEach,expect,it,vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { Repo } from '../store/repo';import { MemoryKV } from '../store/dynamo';import { createProject } from '../auth/projects';
+import { Repo } from '../store/repo';import { MemoryKV } from '../store/dynamo';import { putProject, testSession } from '../auth/session.test-helpers';
 import { MultipartUploads,freezeVersionUploads } from './multipart-uploads';
-const alice={user:'alice',subject:'alice',email:'',role:'researcher' as const},admin={...alice,role:'admin' as const};
+const alice=testSession('alice','alice','researcher',['proj-p']),admin=testSession('admin','admin','admin');
+const viewer=testSession('viewer','viewer','viewer',['proj-p']);
 let repo:Repo,service:MultipartUploads,parts:any[],head:any,removed:boolean,calls:any[],loseReply:boolean;
 const sha=(s:string)=>createHash('sha256').update(s).digest('base64');
 beforeEach(async()=>{
-  repo=new Repo(new MemoryKV());await createProject(admin,{id:'p',name:'p',namespace:'hyperpod-ns-p',members:{alice:'researcher',viewer:'viewer'}},repo);
+  repo=new Repo(new MemoryKV());await putProject(repo.kv,'p');
   await repo.putDataset({name:'data',projectId:'p',owner:'alice',ownerSubject:'alice',latestVersion:1,tags:[],createdAt:'x',updatedAt:'x'});
   await repo.putVersion({dataset:'data',version:1,projectId:'p',uri:'s3://archive/projects/p/datasets/data/uploads/draft/',state:'PENDING',tags:[],createdAt:'x',createdBy:'alice'});
   parts=[];head=undefined;removed=false;calls=[];loseReply=false;
@@ -35,7 +36,7 @@ it('reserves filenames, resumes the same selection and blocks version finalizati
 });
 it('requires project writer and dataset owner, pending state, safe filename and bounded part numbers',async()=>{
   for(const filename of ['../a','a/../../b','/root','a\\b','manifest.json','folder/manifest.json'])await expect(service.start(alice,'data',1,{filename,size:1,lastModified:1})).rejects.toMatchObject({status:400});
-  await expect(service.start({...alice,user:'viewer',subject:'viewer'},'data',1,{filename:'a',size:1,lastModified:1})).rejects.toMatchObject({status:403});
+  await expect(service.start(viewer,'data',1,{filename:'a',size:1,lastModified:1})).rejects.toMatchObject({status:403});
   const upload=await service.start(alice,'data',1,{filename:'a',size:1,lastModified:1});
   await expect(service.part(alice,'data',1,upload.id,2,sha('x'))).rejects.toMatchObject({status:400});
   await repo.putVersion({...(await repo.getVersion('data',1))!,state:'READY'});

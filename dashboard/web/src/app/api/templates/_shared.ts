@@ -1,5 +1,5 @@
 import { badRequest, forbidden, notFound } from '@/server/errors';
-import { canReadResource, resolveProject, type Project } from '@/server/auth/projects';
+import { canReadResource, isProjectAdmin, resolveProject, type Project } from '@/server/auth/projects';
 import type { Session } from '@/server/auth/session';
 import { getRepo, type Repo } from '@/server/store/repo';
 import type { Template } from '@/server/store/types';
@@ -19,7 +19,7 @@ export async function assertTemplateWrite(session: Session, template: Template, 
   const project = template.projectId ? await resolveProject(session, template.projectId, repo, 'researcher') : undefined;
   const principal = session.subject ?? session.user;
   const owner = template.ownerSubject ? template.ownerSubject === principal : template.createdBy === session.user;
-  if (!owner && session.role !== 'admin' && project?.members[principal] !== 'project-admin') throw forbidden('Only the template owner or a project/platform administrator can change it');
+  if (!owner && session.role !== 'admin' && !(project && isProjectAdmin(session, project))) throw forbidden('Only the template owner or a project/platform administrator can change it');
   return project;
 }
 export function parseTemplateVersion(raw: string | null): number | undefined {

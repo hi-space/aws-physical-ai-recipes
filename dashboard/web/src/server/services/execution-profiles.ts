@@ -155,7 +155,8 @@ export function executionProfilesService(session: Session, d: ExecutionProfileDe
     await currentAdmin(session, d);
     const current = await resolveProject(session, p.id, d.repo);
     const saved = await d.repo.kv.transaction([
-      { kind: 'check', pk: pk(p.id), sk: 'META', condition: { equals: { namespace: p.namespace, updatedAt: p.updatedAt, backendId: current.backendId } } },
+      // namespace is derived from the project id and never persisted, so updatedAt+backendId is the CAS token.
+      { kind: 'check', pk: pk(p.id), sk: 'META', condition: { equals: { updatedAt: p.updatedAt, backendId: current.backendId } } },
       { kind: 'put', item: { pk: pk(p.id), sk: revSK(value.id, version), ...profile }, condition: { absent: true } },
       { kind: 'put', item: { pk: pk(p.id), sk: headSK(value.id), id: value.id, projectId: p.id, version, contentHash, enabled: true },
         condition: old ? { equals: { version: old.version, enabled: old.enabled } } : { absent: true } },
@@ -229,8 +230,9 @@ export async function executionProfileChecks(workflow: Workflow, task: TaskSpec,
     { kind: 'check', pk: pk(pin.projectId), sk: headSK(pin.id), condition: { equals: {
       enabled: true, version: pin.version, contentHash: pin.contentHash,
     } } },
+    // namespace is derived from the project id and never persisted, so backendId+updatedAt is the CAS token.
     { kind: 'check', pk: pk(pin.projectId), sk: 'META', condition: { equals: {
-      namespace: finalProject.namespace, backendId: finalProject.backendId, updatedAt: finalProject.updatedAt,
+      backendId: finalProject.backendId, updatedAt: finalProject.updatedAt,
     } } },
   ];
 }

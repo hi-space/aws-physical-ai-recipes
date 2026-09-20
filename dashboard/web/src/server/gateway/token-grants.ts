@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { API_SCOPES, type ApiTokenMetadata } from '../auth/api-tokens';
-import { roleFromGroups } from '../auth/rbac';
+import { projectRoleFromGroups, roleFromGroups } from '../auth/rbac';
+import { projectFromItem } from '../auth/projects';
 import { currentUserAuthorization } from '../aws/cognito';
 import { getRepo } from '../store/repo';
 import type { Item } from '../store/dynamo';
@@ -91,11 +92,11 @@ async function sourceAuthorization(
     const user = await (options.currentUser ?? currentUserAuthorization)(owner.ownerUsername);
     if (!user || user.enabled !== true || user.subject !== expected.ownerSubject || user.username !== owner.ownerUsername ||
       !Array.isArray(user.groups) || roleFromGroups(user.groups) === 'viewer') throw invalid();
-    const project = await repo.kv.get(`PROJECT#${expected.projectId}`, 'META');
-    const members = project?.members as Record<string, unknown> | undefined;
+    const item = await repo.kv.get(`PROJECT#${expected.projectId}`, 'META');
+    const project = item ? projectFromItem(item) : undefined;
+    const role = projectRoleFromGroups(user.groups, expected.projectId);
     if (!project || expected.namespace !== undefined && project.namespace !== expected.namespace ||
-      !members || !Object.hasOwn(members, expected.ownerSubject) ||
-      !['researcher', 'project-admin'].includes(String(members[expected.ownerSubject]))) throw invalid();
+      role !== 'researcher' && role !== 'project-admin') throw invalid();
 
     // Revocation may race the external Cognito/group lookup. Check both strongly-read records again.
     const [ownerAfter, sourceAfter] = await Promise.all([

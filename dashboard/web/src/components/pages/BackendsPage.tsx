@@ -87,7 +87,7 @@ export function BackendsPage() {
                   {current.findings.some(finding => finding.code === 'configuration_changed') && <Button disabled={busy || !!registry.error} onClick={() => void change('register')} variant="secondary">{t('registerNewVersion')}</Button>}
                   <Button disabled={busy || !current.enabled || !canRegister || !!registry.error} onClick={() => void change('check')} variant="secondary">{t('checkConnection')}</Button>
                 </>}
-              {current.status === 'READY' && current.enabled && <LinkButton href={`/projects?backendId=${encodeURIComponent(current.id)}`} variant="primary">{t('createProjectBtn')}</LinkButton>}
+              {current.status === 'READY' && current.enabled && <LinkButton href={`/projects?backendId=${encodeURIComponent(current.id)}`} variant="primary">{t('adoptTeamBtn')}</LinkButton>}
             </div>
             {busy && <Spinner label={t('processing')} />}
             <p className="mt-3 text-xs leading-5 text-fg-muted">{t('footerNote')}</p>

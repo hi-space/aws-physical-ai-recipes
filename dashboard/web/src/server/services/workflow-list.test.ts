@@ -1,10 +1,12 @@
 import { beforeEach,expect,it } from 'vitest';
 import { Repo } from '../store/repo';import { MemoryKV } from '../store/dynamo';
-import { createProject } from '../auth/projects';import type { Session } from '../auth/session';import type { Workflow } from '../store/types';
+import { putProject, testSession } from '../auth/session.test-helpers';import type { Session } from '../auth/session';import type { Workflow } from '../store/types';
 import { listMatchingWorkflows } from './workflow-list';
 let repo:Repo;
-const user:Session={user:'alice',subject:'sub-a',email:'',role:'researcher'},admin:Session={...user,role:'admin'};
-beforeEach(async()=>{repo=new Repo(new MemoryKV());await createProject(admin,{id:'p',name:'P',namespace:'hyperpod-ns-p',members:{'sub-a':'viewer'}},repo);await createProject(admin,{id:'q',name:'Q',namespace:'hyperpod-ns-q',members:{}},repo);});
+const user:Session=testSession('alice','sub-a','researcher',['proj-p']),admin:Session={...user,role:'admin'};
+// A session without the proj-p group: equivalent of the old "members: {}" membership removal.
+const userNoAccess:Session=testSession('alice','sub-a','researcher');
+beforeEach(async()=>{repo=new Repo(new MemoryKV());await putProject(repo.kv,'p');await putProject(repo.kv,'q');});
 async function add(index:number,changes:Partial<Workflow>={}){const w:Workflow={id:`run-${String(index).padStart(4,'0')}`,name:'other',projectId:'p',namespace:'hyperpod-ns-p',owner:'alice',status:'SUCCEEDED',spec:{} as never,specYaml:'private yaml',vars:{},taskCount:1,succeededCount:1,failedCount:0,createdAt:new Date(Date.UTC(2026,0,1)+index*1000).toISOString(),updatedAt:'x',...changes};await repo.putWorkflow(w);return w;}
 it('fills 50 matching rows across earlier nonmatching history and resumes without skipped matches',async()=>{
   for(let i=0;i<65;i++)await add(i,{name:'target',status:'RUNNING'});for(let i=65;i<240;i++)await add(i);
@@ -30,8 +32,7 @@ it('uses current workflow metadata and project permission rather than stale GSI 
   const old=await add(1,{name:'stale',status:'SUCCEEDED'});await add(2,{name:'target',projectId:'q',namespace:'hyperpod-ns-q'});
   const page=repo.listWorkflowsPage.bind(repo);repo.listWorkflowsPage=async options=>{const result=await page(options);await repo.putWorkflow({...old,name:'TARGET',status:'RUNNING'});return result;};
   const current=await listMatchingWorkflows(user,{projectId:'p',search:'target',status:'RUNNING'},repo);expect(current.items.map(w=>w.id)).toEqual([old.id]);expect(current.items[0].name).toBe('TARGET');
-  await repo.kv.put({...(await repo.kv.get('PROJECT#p','META'))!,members:{}});
-  await expect(listMatchingWorkflows(user,{projectId:'p'},repo)).rejects.toMatchObject({status:403});
+  await expect(listMatchingWorkflows(userNoAccess,{projectId:'p'},repo)).rejects.toMatchObject({status:403});
 });
 it('rechecks result authorization and drops deleted/moved workflows before returning',async()=>{
   const w=await add(1,{name:'target'});const original=repo.getWorkflow.bind(repo);let reads=0;

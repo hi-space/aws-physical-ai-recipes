@@ -655,10 +655,7 @@ export class Repo {
   // ---- settings / lease
   async getSettings(): Promise<Settings> {
     const i = await this.kv.get('SYS', 'SETTINGS');
-    return i ? strip<Settings>(i) : {
-      notifyOn: ['SUCCEEDED', 'FAILED'],
-      defaultNamespace: config().defaultNamespace
-    };
+    return i ? strip<Settings>(i) : { notifyOn: ['SUCCEEDED', 'FAILED'] };
   }
   async putSettings(s: Settings) {
     await this.kv.put({

@@ -2,14 +2,15 @@ import { MemoryKV } from '../store/dynamo';
 import { Repo } from '../store/repo';
 import { workflowSchema } from '../workflow/schema';
 import type { Session } from '../auth/session';
+import { putProject, testSession } from '../auth/session.test-helpers';
 import type { DatasetVersion, Task, Workflow } from '../store/types';
 import { digest, type ObjectMetadata, type ObjectReference, type ObjectStorage } from './evidence';
 import { createHash } from 'node:crypto';
 
-export const alice: Session = { user: 'alice', subject: 'alice-sub', email: 'alice@example.invalid', role: 'researcher' };
-export const bob: Session = { user: 'bob', subject: 'bob-sub', email: '', role: 'researcher' };
-export const reader: Session = { user: 'reader', subject: 'reader-sub', email: '', role: 'researcher' };
-export const admin: Session = { user: 'admin', subject: 'admin-sub', email: '', role: 'admin' };
+export const alice: Session = testSession('alice', 'alice-sub', 'researcher', ['proj-a-admin']);
+export const bob: Session = testSession('bob', 'bob-sub', 'researcher', ['proj-b']);
+export const reader: Session = testSession('reader', 'reader-sub', 'viewer', ['proj-a']);
+export const admin: Session = testSession('admin', 'admin-sub', 'admin');
 export const now = '2026-09-16T00:00:00.000Z';
 const checksum = (body: Uint8Array) => createHash('sha256').update(body).digest('base64');
 
@@ -45,11 +46,7 @@ export class FakeObjects implements ObjectStorage {
 export async function fixture(options: { episodes?: number; successes?: number; latency?: number | null; composite?: boolean } = {}) {
   const repo = new Repo(new MemoryKV());
   const objects = new FakeObjects();
-  for (const [id, members] of [['a', { 'alice-sub': 'researcher', 'reader-sub': 'viewer' }], ['b', { 'bob-sub': 'researcher' }]] as const) {
-    await repo.kv.put({ pk: `PROJECT#${id}`, sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: id,
-      id, name: id, namespace: `hyperpod-ns-${id}`, queue: `hyperpod-ns-${id}-localqueue`, members,
-      credentialRefs: [], createdAt: now, updatedAt: now });
-  }
+  for (const id of ['a', 'b']) await putProject(repo.kv, id, { createdAt: now, updatedAt: now });
   const modelBody = 'actual-test-checkpoint-bytes';
   const statsBody = 'matching-test-vecnormalize-bytes';
   const simulator = { name: 'MuJoCo', version: '3.3.2', sceneSha256: 'c'.repeat(64) };

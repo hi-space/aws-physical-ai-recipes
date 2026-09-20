@@ -34,7 +34,7 @@ describe('AdminPage browser contracts', () => {
       if (path === '/api/admin/settings' && settingsStatus >= 400) return json(response, { error: 'Settings lookup failed' }, settingsStatus);
       if (path === '/api/admin/settings') return json(response, {
         config: { region: 'us-east-1', eks: { clusterName: 'fixture-cluster' } }, env: {},
-        settings: { notifyOn: ['FAILED'], defaultNamespace: 'fixture-namespace', defaultPriority: 'fixture-priority' },
+        settings: { notifyOn: ['FAILED'], defaultPriority: 'fixture-priority' },
         controller: { running: true, holder: 'fixture-controller', lastTick: '2026-09-18T00:00:00Z', ticks: 7, leased: true },
         lease: { holder: 'fixture-controller', expires: 1789689700 },
       });
@@ -97,8 +97,7 @@ describe('AdminPage browser contracts', () => {
     expect(await page.getByRole('cell', { name: 'User already exists', exact: true }).count()).toBe(1);
     await page.getByRole('button', { name: '설정', exact: true }).click();
     await page.getByText('fixture-controller', { exact: true }).waitFor();
-    expect(await page.locator('input').nth(3).inputValue()).toBe('fixture-namespace');
-    expect(await page.locator('input').nth(4).inputValue()).toBe('fixture-priority');
+    expect(await page.locator('input').nth(3).inputValue()).toBe('fixture-priority');
     expect(await page.locator('input[type=checkbox]').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).checked))).toEqual([false, true, false]);
     expect(await page.getByText('fixture-cluster', { exact: true }).count()).toBe(1);
     await page.getByRole('button', { name: '비용', exact: true }).click();
@@ -148,7 +147,7 @@ describe('AdminPage browser contracts', () => {
     await save.click();
     await page.getByText(/저장했습니다/, { exact: false }).waitFor();
     expect(writes().map(call => call.body)).toEqual([
-      { notifyOn: ['FAILED'], defaultNamespace: 'fixture-namespace', defaultPriority: 'fixture-priority' },
+      { notifyOn: ['FAILED'], defaultPriority: 'fixture-priority' },
     ]);
   });
 
@@ -176,7 +175,7 @@ describe('AdminPage browser contracts', () => {
       create: { username: 'new-user', email: 'new@example.test', password: 'FixturePassword123!', group: 'researchers' },
       role: { action: 'groups', groups: ['viewers'] },
       reset: { action: 'reset', password: 'FixturePassword123!' },
-      settings: { notifyOn: ['FAILED'], defaultNamespace: 'fixture-namespace', defaultPriority: 'fixture-priority' },
+      settings: { notifyOn: ['FAILED'], defaultPriority: 'fixture-priority' },
     };
     expect(writes()[0].body).toEqual(expected[action]);
     expect(writes()[0].method).toBe(action === 'settings' ? 'PUT' : 'POST');

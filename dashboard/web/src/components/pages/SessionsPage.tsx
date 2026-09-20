@@ -14,7 +14,7 @@ interface PublicSession {
   workflowId?: string; taskName?: string; attempt?: number; replicaIndex?: number;
   canOpen: boolean; canExtend: boolean; canEnd: boolean;
 }
-interface Project { id: string; name: string; namespace: string; queue: string; members: Record<string, string> }
+interface Project { id: string; name: string; namespace: string; queue: string; myRole?: 'viewer' | 'researcher' | 'project-admin' }
 interface Workflow { id: string; name: string; projectId?: string; ownerSubject?: string; status: string }
 interface Task { name: string; phase: string; attempts: number }
 interface ConnectionOptions { replicas: Array<{ replicaIndex: number; ports: string[] }> }
@@ -46,7 +46,7 @@ export function SessionsPage() {
   const [toast, setToast] = React.useState<{ message: string; tone: 'ok' | 'err' }>();
   const [clock, setClock] = React.useState(Date.now());
   React.useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  const eligibleProjects = (projects.data ?? []).filter((p) => !!profile?.subject && ['researcher', 'project-admin'].includes(p.members[profile.subject]));
+  const eligibleProjects = (projects.data ?? []).filter((p) => p.myRole === 'researcher' || p.myRole === 'project-admin');
   const project = eligibleProjects.find((p) => p.id === projectId);
   React.useEffect(() => {
     if (!projectId && eligibleProjects.length) {

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Repo, setRepoForTests } from '@/server/store/repo';
 import { MemoryKV } from '@/server/store/dynamo';
+import { projectItem } from '@/server/auth/projects';
+import { projectFixture } from '@/server/auth/session.test-helpers';
 import type { Session } from '@/server/store/types';
 import * as services from '@/server/services/sessions';
 import { POST as create } from './route';
@@ -15,19 +17,19 @@ vi.mock('@/server/services/sessions', async (original) => ({
 }));
 const origin = 'https://physical-ai.hi-yoo.com';
 const row: Session = { id: 'owned', name: 'session-owned', kind: 'jupyter', owner: 'alice', ownerSubject: 'sub', projectId: 'p',
-  namespace: 'hyperpod-ns-team-a', queue: 'registered-queue', status: 'QUEUED', managedJob: true,
+  // Namespace/queue derive from the project id ('p'), so they must match namespaceOf/queueOf('p').
+  namespace: 'hyperpod-ns-p', queue: 'hyperpod-ns-p-localqueue', status: 'QUEUED', managedJob: true,
   createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), ssmTarget: 'must-not-leak' };
 function req(path: string, method: string, json?: unknown, headers: Record<string, string> = {}) {
   return new NextRequest(origin + path, { method, headers: { origin, 'content-type': 'application/json', 'x-pai-user': 'alice',
-    'x-pai-subject': 'sub', 'x-pai-role': 'researcher', 'x-pai-project': 'p', ...headers },
+    'x-pai-subject': 'sub', 'x-pai-role': 'researcher', 'x-pai-groups': 'researchers,proj-p', 'x-pai-project': 'p', ...headers },
     ...(json === undefined ? {} : { body: JSON.stringify(json) }) });
 }
 const context = { params: Promise.resolve({ id: 'owned' }) };
 beforeEach(async () => {
   vi.clearAllMocks();
   const repo = new Repo(new MemoryKV()); setRepoForTests(repo);
-  await repo.kv.put({ pk: 'PROJECT#p', sk: 'META', gsi1pk: 'TYPE#PROJECT', gsi1sk: 'p', id: 'p', name: 'P', namespace: row.namespace,
-    queue: row.queue, members: { sub: 'researcher' }, credentialRefs: [] });
+  await repo.kv.put(projectItem(projectFixture('p')));
   await repo.putSession(row);
   vi.mocked(services.createManagedSession).mockResolvedValue(row);
   vi.mocked(services.extendSession).mockResolvedValue(row);
@@ -39,7 +41,7 @@ describe('session APIs with the actual body/auth wrappers', () => {
     const response = await create(req('/api/sessions', 'POST', { kind: 'jupyter', ttlMinutes: 60 }));
     expect(response.status).toBe(202);
     const data = await response.json(); expect(data.id).toBe('owned'); expect(data).not.toHaveProperty('ssmTarget');
-    expect(services.createManagedSession).toHaveBeenCalledWith({ kind: 'jupyter', ttlMinutes: 60 }, expect.objectContaining({ subject: 'sub' }), expect.objectContaining({ namespace: row.namespace, queue: 'registered-queue' }));
+    expect(services.createManagedSession).toHaveBeenCalledWith({ kind: 'jupyter', ttlMinutes: 60 }, expect.objectContaining({ subject: 'sub' }), expect.objectContaining({ namespace: row.namespace, queue: row.queue }));
   });
   it('rejects unknown target fields and wrong Origin before creation', async () => {
     expect((await create(req('/api/sessions', 'POST', { kind: 'jupyter', namespace: 'kube-system' }))).status).toBe(400);

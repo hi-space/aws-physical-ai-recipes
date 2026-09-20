@@ -19,6 +19,7 @@ export interface GatewaySession {
   backendConfigHash?: string;
   id: string;
   kind: 'terminal' | 'port-forward' | 'tensorboard' | 'jupyter' | 'code-server' | 'dcv';
+  owner?: string;
   ownerSubject: string;
   expiresAt: string;
   namespace: string;

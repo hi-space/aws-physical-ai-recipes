@@ -1,9 +1,10 @@
-import { z } from 'zod';
 import { body, route } from '@/server/api';
-import { resolveProject, updateProjectMembers } from '@/server/auth/projects';
+import { projectMetaSchema, resolveProject, updateProjectMeta } from '@/server/auth/projects';
+import { deleteProject } from '@/server/auth/project-adoption';
+import { projectViews } from '../route';
 export const dynamic = 'force-dynamic';
-export const GET = route<{ id: string }>('viewer', async ({ session, params }) => resolveProject(session, params.id));
-export const PATCH = route<{ id: string }>('researcher', async ({ session, params, req }) => {
-  const input = await body(req, z.object({ members: z.record(z.string(), z.enum(['viewer', 'researcher', 'project-admin'])) }).strict());
-  return updateProjectMembers(session, params.id, input.members);
-}, { audit: 'project.members' });
+export const GET = route<{ id: string }>('viewer', async ({ session, params }) => (await projectViews(session, [await resolveProject(session, params.id)]))[0]);
+export const PATCH = route<{ id: string }>('researcher', async ({ session, params, req }) =>
+  (await projectViews(session, [await updateProjectMeta(session, params.id, await body(req, projectMetaSchema))]))[0],
+{ audit: 'project.update' });
+export const DELETE = route<{ id: string }>('admin', async ({ session, params }) => { await deleteProject(session, params.id); return { ok: true }; }, { audit: 'project.delete' });

@@ -10,11 +10,12 @@ import { Repo } from '@/server/store/repo';
 import { imageProfilesService, type ImageProfileDeps } from '@/server/services/image-profiles';
 import { parseWorkflowYaml } from '@/server/workflow/template';
 import type { Project } from '@/server/auth/projects';
+import { projectItem } from '@/server/auth/projects';
+import { projectFixture } from '@/server/auth/session.test-helpers';
 
 const image = '123456789012.dkr.ecr.us-east-1.amazonaws.com/recipes/cpu:stable';
 const digest = 'sha256:' + 'a'.repeat(64), resolved = image.replace(':stable', '@' + digest);
-const project: Project = { id: 'a', name: 'Browser fixture', namespace: 'hyperpod-ns-a', queue: 'q-a',
-  members: { sub: 'researcher' }, credentialRefs: [], createdAt: 'x', updatedAt: 'x' };
+const project: Project = projectFixture('a', { name: 'Browser fixture' });
 
 describe.skipIf(!existsSync(chromium.executablePath()))('image profile browser contracts', () => {
   let server: Server, browser: Browser, page: Page, origin: string;
@@ -54,7 +55,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('image profile browser c
   beforeEach(async () => {
     admin = true; calls = []; errors = [];
     const repo = new Repo(new MemoryKV());
-    await repo.kv.put({ pk: 'PROJECT#a', sk: 'META', ...project });
+    await repo.kv.put(projectItem(project));
     d = { repo, scope: { accountId: '123456789012', region: 'us-east-1' }, environment: {}, now: () => new Date(),
       inspectImage: async () => ({ requestedImage: image, resolvedImage: resolved, digest, repository: 'recipes/cpu',
         accountId: '123456789012', region: 'us-east-1', architectures: ['amd64'],
