@@ -354,3 +354,35 @@ describe('composeWorkflow — composition', () => {
     expect(result.recipe.ports?.inputs?.some((i) => i.param === 'closed_loop_eval_dataset_name')).toBe(true);
   });
 });
+
+describe('composeWorkflow — default palette titles', () => {
+  // The palette adds a node with the template's display title (ComposePage.addTemplate). Titles are
+  // long, Korean, or both; the compiler must still emit task/group names within schema limits
+  // (task ≤ 40, group ≤ 30, DNS-1123) — otherwise every diagram fails validation on first launch.
+  const composable = BUILTIN_TEMPLATES.filter((t) => getRecipeMetadata(t)?.ports);
+
+  it.each(composable.map((t) => [t.id, t.title] as const))('%s composes as a single node titled "%s"', (id, title) => {
+    const graph: ComposeGraph = { nodes: [{ id: 'n1', templateId: id, title, params: {} }], datasets: [], edges: [] };
+    const result = composeWorkflow(graph, [dto(id)]);
+    expect(result.errors).toEqual([]);
+    const parsed = parseWorkflowYaml(result.yaml, {});
+    for (const task of parsed.spec.workflow.tasks) expect(task.name.length).toBeLessThanOrEqual(40);
+    for (const group of parsed.spec.workflow.groups ?? []) expect(group.name.length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('nodeSlug', () => {
+  it('falls back to the template id when the title has no ASCII', () => {
+    const graph: ComposeGraph = { nodes: [{ id: 'n1', templateId: 'custom', title: '사용자 워크플로', params: {} }], datasets: [], edges: [] };
+    const parsed = parseWorkflowYaml(composeWorkflow(graph, [dto('custom')]).yaml, {});
+    expect(parsed.spec.workflow.tasks.map((t) => t.name)).toEqual(['custom-hello']);
+  });
+
+  it('truncates the title slug so the longest task and group names fit', () => {
+    const graph: ComposeGraph = { nodes: [{ id: 'n1', templateId: 'ros2-transfer', title: 'ROS 2 discovery·publisher·subscriber 통신 검증', params: {} }], datasets: [], edges: [] };
+    const parsed = parseWorkflowYaml(composeWorkflow(graph, [dto('ros2-transfer')]).yaml, {});
+    // group budget: 30 - 1 - len('ros') = 26 → 'ros-2-discoverypublishersu' → trailing chars kept, no dangling hyphen
+    expect(parsed.spec.workflow.groups?.[0]?.name).toBe('ros-2-discoverypublishersu-ros');
+    expect(parsed.spec.workflow.groups?.[0]?.tasks.map((t) => t.name)).toContain('ros-2-discoverypublishersu-discovery');
+  });
+});

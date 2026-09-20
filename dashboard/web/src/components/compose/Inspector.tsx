@@ -83,6 +83,10 @@ export function Inspector({ node, template, dataset, values, bindings, onSetPara
   }
 
   const portKindOf = (paramName: string) => template.recipe?.ports?.inputs.find((p) => p.param === paramName)?.kind;
+  // A dataset param's version is chosen inside its DatasetPicker (latest READY by default), so the raw
+  // `dataset_version` number field is hidden here — the same rule the run wizard applies.
+  const versionParams = new Set((template.params ?? []).flatMap((p) => (p.type === 'dataset' && p.versionParam ? [p.versionParam] : [])));
+  const visibleParams = (template.params ?? []).filter((p) => !versionParams.has(p.name));
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -93,7 +97,7 @@ export function Inspector({ node, template, dataset, values, bindings, onSetPara
 
       <div className="space-y-3 p-3">
         <h3 className="text-[13px] font-semibold text-fg">{t('parameters')}</h3>
-        {(template.params ?? []).map((param) => {
+        {visibleParams.map((param) => {
           const boundLabel = bindings[param.name];
           if (boundLabel !== undefined) {
             return (
@@ -113,7 +117,7 @@ export function Inspector({ node, template, dataset, values, bindings, onSetPara
             />
           );
         })}
-        {(template.params ?? []).length === 0 && <p className="text-[12px] text-fg-faint">—</p>}
+        {visibleParams.length === 0 && <p className="text-[12px] text-fg-faint">—</p>}
       </div>
     </div>
   );

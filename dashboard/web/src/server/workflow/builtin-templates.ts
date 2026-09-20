@@ -9,13 +9,18 @@ import type { PortKind, RecipePorts } from '@/lib/workflow/ports';
 type TaskDefinition = Record<string, unknown> & { name: string };
 const P = (name: string, label: string, value: string, type: TemplateParam['type'] = 'string', help?: string): TemplateParam =>
   ({ name, label, type, default: value, ...(help ? { help } : {}) });
-const image = (env: string, name = 'image'): TemplateParam => P(name, `${env} 실행 이미지 URI`, process.env[env] || `required://${env}`, 'string', "레시피 실행 코드가 포함된 고정 이미지 URI를 입력하세요. 준비되지 않았다면 관리자에게 확인하세요.");
+// Image params render as an approved-profile picker (components/workflows/ImagePicker.tsx). When the deployment
+// variable is unset the default is `required://<ENV>`; the picker maps that back to the seeded `builtin-*` profile.
+const image = (env: string, name = 'image'): TemplateParam => P(name, `${env} 실행 이미지 URI`, process.env[env] || `required://${env}`, 'image', "승인된 이미지 프로파일에서 선택하거나 레시피 실행 코드가 포함된 고정 이미지 URI를 직접 입력하세요.");
 const seed = () => P('seed', "난수 seed", '42', 'number');
 // A dataset input contributes two params: the registered dataset and its version. The task input consumes
 // the version param via a template placeholder; the same param name feeds the ports metadata (versionParam)
 // and a later dataset-picker task.
+// The dataset param must name its versionParam: TemplateParamField only writes the DatasetPicker's chosen
+// version back into that slot, and the wizard/composer hide the raw number field only for a declared slot.
+// Without it the picker's version never reached `dataset_version`, which stayed at its default of 1.
 const dataset = (name = 'dataset_name', value = 'leisaac-pick-orange', versionParam = 'dataset_version'): TemplateParam[] => [
-  P(name, "등록된 입력 데이터셋", value, 'dataset'),
+  { ...P(name, "등록된 입력 데이터셋", value, 'dataset'), versionParam },
   P(versionParam, "데이터셋 버전", '1', 'number'),
 ];
 const ports = (inputs: { param: string; kind: PortKind; label: string; versionParam?: string }[], outputs: { name: string; kind: PortKind; label: string }[]): RecipePorts => ({ inputs, outputs });

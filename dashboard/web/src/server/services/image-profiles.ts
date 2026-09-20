@@ -10,6 +10,7 @@ import type { WorkflowSpec } from '../workflow/schema';
 import { inspectEcrImage, parsePrivateEcrImage, type ImageInspection, type ImageScope } from '../aws/ecr-inspection';
 import { inspectHardware, instanceType, quantity, type HardwareNode, type HardwareSnapshot } from '../aws/hardware-inspection';
 import type { SourceBuildProvenance } from './source-builds-contract';
+import { BUILTIN_IMAGE_ENV } from '@/lib/workflow/builtin-images';
 
 const idSchema = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/);
 export const imageProfileInputSchema = z.object({
@@ -48,11 +49,7 @@ export interface ImageProfileDeps {
   repo: Repo; scope: ImageScope; now(): Date; inspectImage(image: string): Promise<ImageInspection>;
   hardware(): Promise<HardwareSnapshot>; environment: Record<string, string | undefined>;
 }
-const builtins: Record<string, string> = {
-  mujoco: 'MUJOCO_IMAGE_URI', isaaclab: 'ISAACLAB_IMAGE_URI', ros2: 'ROS2_IMAGE_URI',
-  groot: 'GROOT_RUNTIME_IMAGE_URI', openpi: 'OPENPI_IMAGE_URI', cosmos: 'COSMOS_IMAGE_URI', cosmos3: 'COSMOS3_IMAGE_URI',
-  leisaac: 'LEISAAC_IMAGE_URI', workspace: 'WORKSPACE_IMAGE_URI', runtime: 'TASK_RUNTIME_IMAGE',
-};
+const builtins = BUILTIN_IMAGE_ENV;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const headKey = (projectId: string, id: string) => ({ pk: `PROJECT#${projectId}`, sk: `IMAGE_PROFILE#${id}` });
 const versionKey = (projectId: string, id: string, version: number) => ({ pk: `PROJECT#${projectId}`, sk: `IMAGE_PROFILE_REV#${id}#${String(version).padStart(8, '0')}` });

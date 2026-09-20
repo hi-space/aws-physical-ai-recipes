@@ -54,6 +54,12 @@ export const compose = defineMessages({
     portKindSdgFrames: 'SDG frames',
     portKindHdf5Demos: 'HDF5 demos',
     portKindArtifacts: 'Artifacts',
+    // Port legend & palette I/O
+    legendTitle: 'Port kinds',
+    legendHint: 'Only same-kind ports connect. Drag from a port to see where it fits.',
+    paletteInputs: 'Takes',
+    paletteOutputs: 'Gives',
+    paletteNoInputs: 'nothing — starts a pipeline',
   },
   ko: {
     // Page shell
@@ -108,5 +114,11 @@ export const compose = defineMessages({
     portKindSdgFrames: 'SDG 프레임',
     portKindHdf5Demos: 'HDF5 데모',
     portKindArtifacts: '아티팩트',
+    // Port legend & palette I/O
+    legendTitle: '포트 종류',
+    legendHint: '같은 종류의 포트끼리만 연결됩니다. 포트를 끌어보면 연결 가능한 곳이 강조됩니다.',
+    paletteInputs: '받음',
+    paletteOutputs: '내보냄',
+    paletteNoInputs: '없음 · 시작 블록',
   },
 });

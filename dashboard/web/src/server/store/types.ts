@@ -146,7 +146,8 @@ export interface DatasetVersion {
 export interface TemplateParam {
   name: string;
   label: string;
-  type: 'string' | 'number' | 'select' | 'boolean' | 'text' | 'dataset';
+  /** `image`: a container image URI picked from the project's approved image profiles (free text allowed). */
+  type: 'string' | 'number' | 'select' | 'boolean' | 'text' | 'dataset' | 'image';
   default?: string;
   options?: string[];
   help?: string;

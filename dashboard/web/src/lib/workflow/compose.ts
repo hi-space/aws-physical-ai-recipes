@@ -116,6 +116,28 @@ function deepRewriteStrings(value: unknown, fn: (s: string) => string): void {
 // slug with hyphens folded to underscores.
 const paramPrefixOf = (taskSlug: string) => taskSlug.replace(/-/g, '_');
 
+// schema.ts caps prefixed identifiers: task names at 40 and group names at 30 (DNS-1123 labels).
+const TASK_NAME_MAX = 40;
+const GROUP_NAME_MAX = 30;
+
+/**
+ * The slug a node contributes to every task/group/param name of its recipe. The palette seeds node
+ * titles from template display titles, which are long, non-ASCII, or both ("Replicator → Cosmos 3 Edge
+ * image-to-video", "사용자 워크플로"), so the raw `slugify(title)` may be too long to leave room for the
+ * recipe's own task names — or empty. Fall back to the template id when the title has no ASCII, then
+ * truncate so `<slug>-<longest task>` and `<slug>-<longest group>` fit their schema limits.
+ */
+export function nodeSlug(title: string, templateId: string, doc?: RawDoc): string {
+  const base = slugify(title) || slugify(templateId) || 'node';
+  if (!doc) return base;
+  const longest = (names: string[]) => names.reduce((max, n) => Math.max(max, n.length), 0);
+  const taskBudget = TASK_NAME_MAX - 1 - longest(allTasks(doc).map((t) => t.name));
+  const groupBudget = GROUP_NAME_MAX - 1 - longest((doc.workflow.groups ?? []).map((g) => g.name));
+  const budget = Math.min(taskBudget, doc.workflow.groups?.length ? groupBudget : Infinity);
+  if (base.length <= budget) return base;
+  return base.slice(0, Math.max(budget, 1)).replace(/-+$/g, '') || base[0];
+}
+
 // Room reserved for `-{{workflow_id}}` once the placeholder resolves: schema.ts checks the output name
 // with a 16-char run id and caps the result at 60 chars (DNS-1123). `<slug>-<base>-<16-char id>` must fit.
 const OUTPUT_NAME_ID_RESERVE = 18; // 16-char id + the two hyphens joining slug, base and id
@@ -221,19 +243,25 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
   const errors: ComposeError[] = [];
   const templateMap = new Map(templates.map((t) => [t.id, t]));
   const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
-  const slugOf = (nodeId: string) => slugify(nodeMap.get(nodeId)?.title ?? '');
 
-  // 1. Every node references a known template.
+  // 1. Every node references a known template. Parse each known template once; the parsed doc drives
+  //    the node slug budget (below) and is prefixed in Phase A.
+  const parsedDocs = new Map<string, RawDoc>();
   for (const node of graph.nodes) {
-    if (!templateMap.has(node.templateId)) {
+    const template = templateMap.get(node.templateId);
+    if (!template) {
       errors.push({ code: 'unknown_template', message: `템플릿 "${node.templateId}"을(를) 찾을 수 없습니다.`, nodeId: node.id });
+    } else {
+      parsedDocs.set(node.id, YAML.parse(template.yaml) as RawDoc);
     }
   }
+  const slugs = new Map(graph.nodes.map((n) => [n.id, nodeSlug(n.title, n.templateId, parsedDocs.get(n.id))]));
+  const slugOf = (nodeId: string) => slugs.get(nodeId) ?? '';
 
-  // 2. Node title slugs must be unique (they become task-name prefixes).
+  // 2. Node slugs must be unique (they become task-name prefixes).
   const slugOwner = new Map<string, string>();
   for (const node of graph.nodes) {
-    const slug = slugify(node.title);
+    const slug = slugOf(node.id);
     const owner = slugOwner.get(slug);
     if (owner) {
       errors.push({
@@ -331,11 +359,7 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
   // Phase A: prefix each node's document independently.
   // ------------------------------------------------------------------------------------------------
   const prefixed = new Map<string, RawDoc>();
-  for (const node of graph.nodes) {
-    const template = templateMap.get(node.templateId)!;
-    const doc = YAML.parse(template.yaml) as RawDoc;
-    prefixed.set(node.id, prefixDoc(doc, slugify(node.title)));
-  }
+  for (const node of graph.nodes) prefixed.set(node.id, prefixDoc(parsedDocs.get(node.id)!, slugOf(node.id)));
 
   // ------------------------------------------------------------------------------------------------
   // Phase B: apply edges. Node→node edges rewrite the downstream dataset input to a task dependency
@@ -347,7 +371,7 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
   for (const edge of graph.edges) {
     const toNode = nodeMap.get(edge.to.node)!;
     const toTemplate = templateMap.get(toNode.templateId)!;
-    const toParamSlug = paramPrefixOf(slugify(toNode.title));
+    const toParamSlug = paramPrefixOf(slugOf(toNode.id));
     const targetPort = toTemplate.recipe!.ports!.inputs.find((p) => p.param === edge.to.param)!;
     const prefixedParam = `${toParamSlug}_${edge.to.param}`;
     const prefixedVersionParam = targetPort.versionParam ? `${toParamSlug}_${targetPort.versionParam}` : undefined;
@@ -357,7 +381,7 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
     if ('node' in edge.from) {
       const sourceDoc = prefixed.get(edge.from.node)!;
       const fromNode = nodeMap.get(edge.from.node)!;
-      const producer = findProducingTask(sourceDoc, namespacedOutput(slugify(fromNode.title), edge.from.port));
+      const producer = findProducingTask(sourceDoc, namespacedOutput(slugOf(fromNode.id), edge.from.port));
       if (producer) {
         for (const task of allTasks(targetDoc)) {
           if (!task.inputs) continue;
@@ -413,7 +437,7 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
     const node = nodeMap.get(nodeId)!;
     const template = templateMap.get(node.templateId)!;
     const recipe = template.recipe!;
-    const slug = slugify(node.title);
+    const slug = slugOf(nodeId);
     const paramSlug = paramPrefixOf(slug);
     const doc = prefixed.get(nodeId)!;
 
@@ -515,7 +539,7 @@ export function composeWorkflow(graph: ComposeGraph, templates: TemplateDto[]): 
     views: mergedViews,
   };
 
-  const name = (slugify(graph.nodes[0]?.title ?? 'composed') || 'composed').slice(0, 30).replace(/-+$/g, '');
+  const name = (slugOf(graph.nodes[0]?.id ?? '') || 'composed').slice(0, 30).replace(/-+$/g, '');
   const finalDoc: RawDoc = {
     workflow: {
       name,

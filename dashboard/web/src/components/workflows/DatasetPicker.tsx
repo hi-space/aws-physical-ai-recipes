@@ -24,8 +24,13 @@ export function DatasetPicker({ value, version, onChange, kind, disabled }: Data
   const tc = useT('common');
   const { fmtTime } = useFormat();
   const { data: datasets, isLoading: datasetsLoading, error: datasetsError } = useApi<Dataset[]>('/api/datasets');
+  // A template default (e.g. `leisaac-pick-orange`) may name a dataset this project never registered.
+  // Fetching its detail would only 404 as "failed to load versions"; instead say it is unregistered and
+  // leave the select blank so the user picks from what is actually here.
+  const registered = !!value && !!datasets?.some((d) => d.name === value);
+  const unregistered = !!value && !!datasets && !registered;
   const { data: detail, isLoading: versionsLoading, error: versionsError } = useApi<DatasetDetail>(
-    value ? `/api/datasets/${encodeURIComponent(value)}` : null
+    registered ? `/api/datasets/${encodeURIComponent(value)}` : null
   );
 
   // Preference only, never a hard filter: a dataset explicitly tagged `kind:<PortKind>` by its
@@ -98,7 +103,7 @@ export function DatasetPicker({ value, version, onChange, kind, disabled }: Data
     <div className="space-y-3">
       <Field label={t('paramDatasetName')}>
         <Select
-          value={value}
+          value={unregistered ? '' : value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value, undefined)}
         >
@@ -110,9 +115,13 @@ export function DatasetPicker({ value, version, onChange, kind, disabled }: Data
           ))}
         </Select>
       </Field>
-      {value && (
+      {unregistered && <div className="text-sm text-warn">{t('datasetUnregistered', { name: value })}</div>}
+      {registered && (
         <>
           {versionsLoading && <Spinner label={t('datasetLoading')} />}
+          {!versionsLoading && !versionsError && detail && readyVersions.length === 0 && (
+            <div className="text-sm text-warn">{t('datasetNoReadyVersions')}</div>
+          )}
           {versionsError && (
             <div className="space-y-2">
               <div className="text-sm text-err">{t('datasetVersionsLoadError')}</div>

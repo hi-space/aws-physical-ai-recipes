@@ -10,6 +10,7 @@ import type { Dataset, DatasetVersion } from '@/server/store/types';
 const datasets: Dataset[] = [
   { name: 'plain-dataset', owner: 'u', tags: [], latestVersion: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   { name: 'matching-dataset', owner: 'u', tags: ['kind:lerobot-dataset'], latestVersion: 2, createdAt: '2026-01-02T00:00:00Z', updatedAt: '2026-01-03T00:00:00Z' },
+  { name: 'pending-dataset', owner: 'u', tags: [], latestVersion: 1, createdAt: '2026-01-04T00:00:00Z', updatedAt: '2026-01-04T00:00:00Z' },
 ];
 const versionsByDataset: Record<string, DatasetVersion[]> = {
   'plain-dataset': [
@@ -18,6 +19,9 @@ const versionsByDataset: Record<string, DatasetVersion[]> = {
   'matching-dataset': [
     { dataset: 'matching-dataset', version: 1, uri: 's3://b/1', tags: [], createdAt: '', createdBy: 'u', state: 'PENDING' },
     { dataset: 'matching-dataset', version: 2, uri: 's3://b/2', tags: [], createdAt: '', createdBy: 'u', state: 'READY' },
+  ],
+  'pending-dataset': [
+    { dataset: 'pending-dataset', version: 1, uri: 's3://b/1', tags: [], createdAt: '', createdBy: 'u', state: 'PENDING' },
   ],
 };
 
@@ -130,6 +134,7 @@ describe.skipIf(!existsSync(chromium.executablePath()))('DatasetPicker browser c
     // Each label shows name, latestVersion, and the formatted updated time (spec §3.2).
     expect(optionLabels[1]).toMatch(/^matching-dataset · v2 · /);
     expect(optionLabels[2]).toMatch(/^plain-dataset · v1 · /);
+    expect(optionLabels[3]).toMatch(/^pending-dataset · v1 · /);
     await selects.first().selectOption('matching-dataset');
     await selects.nth(1).waitFor();
     const versionLabels = await selects.nth(1).locator('option').allTextContents();
@@ -161,6 +166,27 @@ describe.skipIf(!existsSync(chromium.executablePath()))('DatasetPicker browser c
     failDetail = true;
     await page.goto(origin + '/?value=matching-dataset');
     await page.getByText('Failed to load dataset versions.', { exact: false }).waitFor();
+  });
+
+  it('names an unregistered template default as such instead of fetching its versions', async () => {
+    // A builtin default like `leisaac-pick-orange` that this project never registered used to 404 as
+    // "failed to load dataset versions". Now it is called out and the select is left blank to pick from.
+    await page.goto(origin + '/?value=ghost-dataset');
+    await page.getByText('"ghost-dataset" is not registered in this project', { exact: false }).waitFor();
+    expect(await page.locator('select').first().inputValue()).toBe('');
+    expect(calls.some((call) => call.startsWith('/api/datasets/ghost-dataset'))).toBe(false);
+    expect(await page.getByText('Failed to load dataset versions.', { exact: false }).count()).toBe(0);
+    // Picking a registered dataset recovers normally.
+    await page.locator('select').first().selectOption('plain-dataset');
+    await page.locator('select').nth(1).waitFor();
+    const state = await page.evaluate(() => (window as unknown as { fixtureState: () => { value: string; version?: string } }).fixtureState());
+    expect(state).toEqual({ value: 'plain-dataset', version: '1' });
+  });
+
+  it('says when a registered dataset has no READY version instead of silently hiding the version field', async () => {
+    await page.goto(origin + '/?value=pending-dataset');
+    await page.getByText('This dataset has no READY version yet.', { exact: false }).waitFor();
+    expect(await page.locator('select').count()).toBe(1);
   });
 
   it('disables both selects when disabled is set', async () => {

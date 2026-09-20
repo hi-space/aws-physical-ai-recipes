@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui';
 import { useT } from '@/lib/i18n';
 import type { Template } from '@/server/store/types';
 import type { TemplateDto } from '@/lib/workflow/template-dto';
+import type { PortKind, RecipePorts } from '@/lib/workflow/ports';
+import { portColor, portKindLabel } from './ports-ui';
 
 /** Payload carried by a palette drag; ComposePage reads it in onDrop to place a node. */
 export type PaletteDrag = { kind: 'template'; templateId: string; title: string } | { kind: 'dataset' };
@@ -17,6 +19,43 @@ export interface PaletteProps {
 }
 
 const CATEGORY_ORDER: Template['category'][] = ['data', 'training', 'evaluation', 'simulation', 'setup', 'custom'];
+
+const uniqueKinds = (kinds: PortKind[]): PortKind[] => [...new Set(kinds)];
+
+/** One kind chip: coloured dot + kind label. */
+function KindChip({ kind }: { kind: PortKind }) {
+  const t = useT('compose');
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: portColor(kind) }} aria-hidden />
+      {portKindLabel(kind, t)}
+    </span>
+  );
+}
+
+/**
+ * What a block takes in and gives out, as kind chips — the same colours as the canvas handles. Blocks
+ * with no inputs are labelled as pipeline starts so users know they go first.
+ */
+function PortSummary({ ports }: { ports: RecipePorts }) {
+  const t = useT('compose');
+  const inputs = uniqueKinds(ports.inputs.map((p) => p.kind));
+  const outputs = uniqueKinds(ports.outputs.map((p) => p.kind));
+  return (
+    <dl className="mt-1.5 space-y-0.5 text-[11px] text-fg-faint" data-testid="palette-ports">
+      <div className="flex flex-wrap items-center gap-x-1.5">
+        <dt className="shrink-0 after:content-[':']">{t('paletteInputs')}</dt>
+        {inputs.length === 0 ? <dd>{t('paletteNoInputs')}</dd> : inputs.map((k) => <dd key={k}><KindChip kind={k} /></dd>)}
+      </div>
+      {outputs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-1.5">
+          <dt className="shrink-0 after:content-[':']">{t('paletteOutputs')}</dt>
+          {outputs.map((k) => <dd key={k}><KindChip kind={k} /></dd>)}
+        </div>
+      )}
+    </dl>
+  );
+}
 
 export function Palette({ templates, onAddTemplate, onAddDataset }: PaletteProps) {
   const t = useT('compose');
@@ -78,6 +117,7 @@ export function Palette({ templates, onAddTemplate, onAddDataset }: PaletteProps
                   {tpl.requires?.includes('gpu') && <Badge tone="warn">{t('gpuBadge')}</Badge>}
                 </div>
                 {tpl.description && <div className="mt-0.5 line-clamp-2 text-[12px] text-fg-muted">{tpl.description}</div>}
+                {tpl.recipe?.ports && <PortSummary ports={tpl.recipe.ports} />}
               </button>
             ))}
           </div>

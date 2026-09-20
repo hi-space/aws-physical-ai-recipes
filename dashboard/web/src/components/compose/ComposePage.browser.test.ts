@@ -33,6 +33,8 @@ interface ComposeTestApi {
   datasets: () => { id: string; name: string }[];
 }
 
+const GROOT_IMAGE = '123456789012.dkr.ecr.us-east-1.amazonaws.com/groot:v1';
+
 describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser contracts', () => {
   let browser: Browser, server: Server, origin: string, bundle: string, css: string, page: Page;
   let calls: Array<{ path: string; body: Record<string, unknown>; method: string }> = [];
@@ -77,6 +79,13 @@ describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser con
       if (!url.pathname.startsWith('/api/')) { response.writeHead(200, { 'content-type': 'text/html' }); response.end('<!doctype html><html lang="ko"><head><link rel="stylesheet" href="/bundle.css"></head><body style="margin:0"><div id="root"></div><script src="/bundle.js"></script></body></html>'); return; }
       if (url.pathname === '/api/templates' && request.method !== 'POST') return json(templates);
       if (url.pathname === '/api/datasets') return json([]);
+      // One approved profile seeded from GROOT_RUNTIME_IMAGE_URI; the test environment leaves that variable unset,
+      // so gr00t-finetune's image param defaults to `required://GROOT_RUNTIME_IMAGE_URI` and must resolve through it.
+      if (url.pathname === '/api/image-profiles') return json({ project: { id: 'p', name: 'P' }, capabilities: { canApprove: false, canSeed: false }, profiles: [{
+        id: 'builtin-groot', name: 'groot deployment image', version: 1, projectId: 'p', approved: true, enabled: true, source: 'deployment-env', createdBy: 'admin', createdAt: '2026-01-01T00:00:00Z', contentHash: 'h',
+        requirements: { minCpu: 1, minMemoryMiB: 1024, minGpu: 1, minGpuMemoryMiB: 0, platforms: [] },
+        image: { requestedImage: GROOT_IMAGE, resolvedImage: `${GROOT_IMAGE.split(':')[0]}@sha256:${'0'.repeat(64)}`, digest: `sha256:${'0'.repeat(64)}`, repository: 'groot', architectures: ['amd64'], manifests: [], inspectedAt: '2026-01-01T00:00:00Z', source: 'ecr-manifest-config' },
+      }] });
       if (url.pathname === '/api/workflows/validate') { const invalid = String(body.yaml).includes('--invalid'); setTimeout(() => json({ ok: !invalid, ...(invalid ? { error: 'fixture invalid' } : { tasks: [], order: [] }) }), 15); return; }
       if (url.pathname === '/api/templates' && request.method === 'POST') return json({ ...body, templateVersion: 1 }, 201);
       return json({ error: 'missing fixture API' }, 404);
@@ -250,6 +259,82 @@ describe.skipIf(!existsSync(chromium.executablePath()))('ComposePage browser con
     const draftDefaults = (parse(draft.yaml) as { 'default-values': Record<string, unknown> })['default-values'];
     expect(draftDefaults[Object.keys(draftDefaults).find((k) => k.endsWith('_base_model'))!]).toBe('my-org/custom-model');
     expect(draft.params.find((p) => p.name.endsWith('_base_model'))?.default).toBe('my-org/custom-model');
+  }, 30000);
+
+  it('shows port kinds on the palette, the legend and the nodes, and highlights compatible handles mid-drag', async () => {
+    await page.goto(origin);
+
+    // Palette: every block states what it takes and gives, using the kind names from the legend.
+    const finetuneItem = page.getByTestId('palette-item-gr00t-finetune');
+    await finetuneItem.getByTestId('palette-ports').waitFor();
+    await expect.poll(() => finetuneItem.getByTestId('palette-ports').innerText()).toMatch(/받음\s*LeRobot 데이터셋/);
+    await expect.poll(() => finetuneItem.getByTestId('palette-ports').innerText()).toMatch(/내보냄\s*체크포인트/);
+    await expect.poll(() => page.getByTestId('palette-item-hf-dataset-import').getByTestId('palette-ports').innerText()).toMatch(/받음\s*없음 · 시작 블록/);
+    // Legend on the canvas lists every kind.
+    const legend = page.getByTestId('port-legend');
+    await legend.waitFor();
+    for (const label of ['LeRobot 데이터셋', '체크포인트', '비디오', 'SDG 프레임', 'HDF5 데모', '아티팩트']) expect(await legend.getByText(label, { exact: true }).count()).toBe(1);
+
+    await addNode('hf-dataset-import');
+    await addNode('gr00t-finetune');
+    await addNode('leisaac-evaluate');
+    const nodes = await nodeList();
+    const hf = idOf(nodes, 'hf-dataset-import');
+    const groot = idOf(nodes, 'gr00t-finetune');
+    const leisaac = idOf(nodes, 'leisaac-evaluate');
+
+    // Node captions carry the kind under each port label.
+    const grootNode = page.locator(`.react-flow__node[data-id="${groot}"]`);
+    await expect.poll(() => grootNode.innerText()).toMatch(/Training dataset\s*LeRobot 데이터셋/);
+    await expect.poll(() => grootNode.innerText()).toMatch(/Fine-tuned checkpoint\s*체크포인트/);
+
+    // Start a real drag from the lerobot-dataset output and hold it: the matching input lights up, the
+    // checkpoint input (and its whole node) fades, and the origin node stays neutral.
+    const handleState = (nodeId: string, handleId: string) => page.locator(`.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`).getAttribute('data-handle-state');
+    expect(await handleState(groot, 'dataset_name')).toBe('idle');
+    const a = await handleCentre(hf, 'hf-import');
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 60, a.y + 40, { steps: 6 });
+    await expect.poll(() => handleState(groot, 'dataset_name')).toBe('compatible');
+    expect(await handleState(leisaac, 'dataset_name')).toBe('incompatible');
+    expect(await handleState(hf, 'hf-import')).toBe('origin');
+    expect(await page.locator(`.react-flow__node[data-id="${leisaac}"] [data-drag-dimmed]`).count()).toBe(1);
+    expect(await page.locator(`.react-flow__node[data-id="${groot}"] [data-drag-dimmed]`).count()).toBe(0);
+    mkdirSync('test-results', { recursive: true });
+    await page.screenshot({ path: 'test-results/compose-drag-highlight.png' });
+    await page.mouse.up();
+    // Releasing on empty canvas ends the drag: every handle returns to idle.
+    await expect.poll(() => handleState(groot, 'dataset_name')).toBe('idle');
+    expect(await handleState(leisaac, 'dataset_name')).toBe('idle');
+  }, 30000);
+
+  it('resolves a required:// image from the approved profile in the inspector, hides the raw version field, and saves the resolved image', async () => {
+    await page.goto(origin);
+    await addNode('gr00t-finetune');
+
+    // The inspector renders the image param as a profile picker, already resolved to the approved builtin profile.
+    const picker = page.getByTestId('image-picker');
+    await picker.waitFor();
+    await expect.poll(() => picker.locator('select').inputValue()).toBe('builtin-groot');
+    expect(await page.getByText('배포에 GROOT_RUNTIME_IMAGE_URI가 설정되지 않았습니다', { exact: false }).count()).toBe(0);
+    // The dataset picker owns the version; no separate "데이터셋 버전" number field is shown.
+    expect(await page.getByLabel('데이터셋 버전', { exact: true }).count()).toBe(0);
+    mkdirSync('test-results', { recursive: true });
+    await page.screenshot({ path: 'test-results/compose-inspector-image.png' });
+
+    // The resolved image reaches the saved recipe's default-values instead of the placeholder.
+    const saveButton = page.getByRole('button', { name: '레시피로 저장', exact: true });
+    await expect.poll(() => saveButton.isEnabled()).toBe(true);
+    await saveButton.click();
+    await page.getByLabel('이름', { exact: true }).fill('Resolved image recipe');
+    await page.getByRole('button', { name: '저장', exact: true }).click();
+    await expect.poll(() => calls.some((c) => c.path === '/api/templates' && c.method === 'POST')).toBe(true);
+    const saved = calls.find((c) => c.path === '/api/templates' && c.method === 'POST')!.body;
+    const savedDefaults = (parse(String(saved.yaml)) as { 'default-values': Record<string, unknown> })['default-values'];
+    const imageKey = Object.keys(savedDefaults).find((k) => k.endsWith('_image'))!;
+    expect(savedDefaults[imageKey]).toBe(GROOT_IMAGE);
+    expect(String(saved.yaml)).not.toContain('required://GROOT_RUNTIME_IMAGE_URI');
   }, 30000);
 
   it('writes the compose draft to session storage and navigates to the wizard on run', async () => {

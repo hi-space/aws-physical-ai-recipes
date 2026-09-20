@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import {
   Background,
   Controls,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -37,6 +38,7 @@ import { RecipeNode, RECIPE_NODE_WIDTH, type RecipeFlowNode } from './RecipeNode
 import { DatasetSourceNode, type DatasetFlowNode } from './DatasetSourceNode';
 import { Palette, PALETTE_MIME, type PaletteDrag } from './Palette';
 import { Inspector } from './Inspector';
+import { PortLegend } from './PortLegend';
 import { SaveRecipeDialog } from './SaveRecipeDialog';
 import { portColor } from './ports-ui';
 
@@ -111,16 +113,17 @@ function ComposePageInner() {
   const rfNodes = useMemo<(RecipeFlowNode | DatasetFlowNode)[]>(() => [
     ...state.nodes.map((n): RecipeFlowNode => {
       const tpl = templateById.get(n.templateId);
+      const boundParams = state.edges.filter((e) => e.to.nodeId === n.id).map((e) => e.to.paramName);
       return {
         id: n.id, type: 'recipe', position: n.position,
-        data: { title: n.title, category: tpl?.category ?? '', recipe: tpl?.recipe, selected: state.selectedNodeId === n.id, onDelete: onDeleteNode },
+        data: { title: n.title, category: tpl?.category ?? '', recipe: tpl?.recipe, boundParams, selected: state.selectedNodeId === n.id, onDelete: onDeleteNode },
       };
     }),
     ...state.datasets.map((d): DatasetFlowNode => ({
       id: d.id, type: 'dataset', position: d.position,
       data: { name: d.name, version: d.version, kind: d.kind, selected: state.selectedNodeId === d.id, onDelete: onDeleteDataset },
     })),
-  ], [state.nodes, state.datasets, state.selectedNodeId, templateById, onDeleteNode, onDeleteDataset]);
+  ], [state.nodes, state.datasets, state.edges, state.selectedNodeId, templateById, onDeleteNode, onDeleteDataset]);
 
   const rfEdges = useMemo<Edge[]>(() => state.edges.map((e) => {
     const targetNode = state.nodes.find((n) => n.id === e.to.nodeId);
@@ -348,6 +351,7 @@ function ComposePageInner() {
           >
             <Background color="#232b3b" gap={20} size={1} />
             <Controls showInteractive={false} position="bottom-right" />
+            <Panel position="bottom-left"><PortLegend /></Panel>
           </ReactFlow>
           {state.nodes.length === 0 && state.datasets.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-fg-faint">{t('canvasEmpty')}</div>

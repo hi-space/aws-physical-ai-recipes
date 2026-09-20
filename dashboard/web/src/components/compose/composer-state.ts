@@ -225,3 +225,28 @@ export function connectionReason(
   if (sourcePort.kind !== targetPort.kind) return 'kind_mismatch';
   return null;
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Drag-time handle highlighting. While a connection drag is in progress every node asks, per handle,
+// whether that handle could complete the drag. This mirrors connectionReason's rules (no self-links,
+// one edge per input, kinds must match, an unverified dataset kind matches anything) but works from
+// the two endpoints alone so a node can answer it without the whole graph.
+// ---------------------------------------------------------------------------------------------------
+
+export interface HandleEndpoint {
+  nodeId: string;
+  type: 'source' | 'target';
+  /** `undefined` = unverified kind (dataset source without a `kind:` tag) — matches any kind. */
+  kind?: PortKind;
+  /** Target handles only: already fed by an edge. */
+  bound?: boolean;
+}
+
+/** Whether `candidate` could complete a drag that started at `from`. */
+export function handleCompatible(from: HandleEndpoint, candidate: HandleEndpoint): boolean {
+  if (from.nodeId === candidate.nodeId) return false;
+  if (from.type === candidate.type) return false;
+  const target = from.type === 'target' ? from : candidate;
+  if (target.bound) return false;
+  return from.kind === undefined || candidate.kind === undefined || from.kind === candidate.kind;
+}

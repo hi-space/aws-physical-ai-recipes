@@ -37,7 +37,7 @@ const schema = z.object({
   description: z.string().max(400).default(''),
   category: z.enum(['simulation', 'training', 'evaluation', 'data', 'setup', 'custom']).default('custom'),
   yaml: z.string().min(1).max(240_000),
-  params: z.array(z.object({ name: z.string().min(1).max(100), label: z.string().max(100), type: z.enum(['string', 'number', 'select', 'boolean', 'text', 'dataset']), default: z.string().max(4096).optional(), options: z.array(z.string().max(4096)).max(100).optional(), help: z.string().max(2000).optional(), versionParam: z.string().min(1).max(100).optional() }).strict()).max(100).optional(),
+  params: z.array(z.object({ name: z.string().min(1).max(100), label: z.string().max(100), type: z.enum(['string', 'number', 'select', 'boolean', 'text', 'dataset', 'image']), default: z.string().max(4096).optional(), options: z.array(z.string().max(4096)).max(100).optional(), help: z.string().max(2000).optional(), versionParam: z.string().min(1).max(100).optional() }).strict()).max(100).optional(),
   requires: z.array(z.enum(['gpu', 'fsx', 'mlflow'])).optional(),
   baseVersion: z.number().int().min(0).max(999_999_999_999).optional(),
 }).strict();

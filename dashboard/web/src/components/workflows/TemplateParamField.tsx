@@ -3,6 +3,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui';
 import { useT } from '@/lib/i18n';
 import type { TemplateParam } from '@/server/store/types';
 import { DatasetPicker } from './DatasetPicker';
+import { ImagePicker } from './ImagePicker';
 import type { PortKind } from '@/lib/workflow/ports';
 
 export interface TemplateParamFieldProps {
@@ -61,6 +62,12 @@ export function TemplateParamField({ param, value, values, locked, kind, disable
               <option key={option} value={option}>{option}</option>
             ))}
           </Select>
+        </Field>
+      );
+    case 'image':
+      return (
+        <Field label={param.label} help={param.help}>
+          <ImagePicker value={value} disabled={disabled} onChange={(next) => onChange(param.name, next)} />
         </Field>
       );
     case 'dataset':

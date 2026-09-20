@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   composerReducer,
   connectionReason,
+  handleCompatible,
   boundInputs,
   paramsForNode,
   toComposeGraph,
@@ -207,5 +208,31 @@ describe('SET_DATASET edge pruning', () => {
     const state = composerReducer(build(), { type: 'SET_DATASET', datasetId: 'd1', name: 'set', version: 2, templates });
     expect(state.edges).toHaveLength(2);
     expect(state.datasets[0].kind).toBeUndefined();
+  });
+});
+
+describe('handleCompatible', () => {
+  const out = (nodeId: string, kind?: 'checkpoint' | 'lerobot-dataset'): Parameters<typeof handleCompatible>[0] => ({ nodeId, type: 'source', kind });
+  const inp = (nodeId: string, kind: 'checkpoint' | 'lerobot-dataset', bound = false): Parameters<typeof handleCompatible>[0] => ({ nodeId, type: 'target', kind, bound });
+
+  it('accepts an input of the same kind on another node', () => {
+    expect(handleCompatible(out('a', 'checkpoint'), inp('b', 'checkpoint'))).toBe(true);
+  });
+  it('rejects a kind mismatch, the same node, and same-direction handles', () => {
+    expect(handleCompatible(out('a', 'checkpoint'), inp('b', 'lerobot-dataset'))).toBe(false);
+    expect(handleCompatible(out('a', 'checkpoint'), inp('a', 'checkpoint'))).toBe(false);
+    expect(handleCompatible(out('a', 'checkpoint'), out('b', 'checkpoint'))).toBe(false);
+  });
+  it('rejects an input that is already bound, whichever end the drag started from', () => {
+    expect(handleCompatible(out('a', 'checkpoint'), inp('b', 'checkpoint', true))).toBe(false);
+    expect(handleCompatible(inp('b', 'checkpoint', true), out('a', 'checkpoint'))).toBe(false);
+  });
+  it('treats an unverified dataset kind as matching anything, in both drag directions', () => {
+    expect(handleCompatible(out('ds', undefined), inp('b', 'lerobot-dataset'))).toBe(true);
+    expect(handleCompatible(inp('b', 'lerobot-dataset'), out('ds', undefined))).toBe(true);
+  });
+  it('works when the drag starts from an input handle', () => {
+    expect(handleCompatible(inp('b', 'checkpoint'), out('a', 'checkpoint'))).toBe(true);
+    expect(handleCompatible(inp('b', 'checkpoint'), out('a', 'lerobot-dataset'))).toBe(false);
   });
 });
