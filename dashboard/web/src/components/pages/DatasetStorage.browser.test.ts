@@ -206,3 +206,43 @@ describe('DatasetDetailPage upload availability', () => {
     expect(fixture.calls.some(call => call.url.pathname.endsWith('/uploads'))).toBe(false);
   });
 });
+
+describe('DatasetDetailPage inline file preview', () => {
+  let fixture: Awaited<ReturnType<typeof storageAdminBrowser>>, page: Page;
+  beforeAll(async () => {
+    fixture = await storageAdminBrowser('dataset', (call, response) => {
+      const { pathname, searchParams } = call.url;
+      if (pathname === '/api/me') return json(response, fixtureMe);
+      if (pathname === '/api/datasets/fixture-data') return json(response, dataset([version('READY')]));
+      if (pathname === versionPath && call.method === 'GET') {
+        return json(response, {
+          bucket: 'fixture-bucket', prefix: 'datasets/upload/', immutable: true,
+          entries: [
+            { name: 'notes.txt', key: 'datasets/upload/notes.txt', path: 'notes.txt', size: 13, isPrefix: false },
+            { name: 'weights.bin', key: 'datasets/upload/weights.bin', path: 'weights.bin', size: 999, isPrefix: false },
+          ],
+        });
+      }
+      if (pathname === versionPath + '/download' && call.method === 'GET') {
+        return json(response, { url: fixture.origin + '/upload/preview', size: 13, kind: 'text', expiresIn: 300 });
+      }
+      if (pathname === '/upload/preview') { response.writeHead(200, { 'content-type': 'text/plain' }); return void response.end('hello preview'); }
+      throw new Error(`Missing fixture: ${call.method} ${pathname}`);
+    });
+  }, 30000);
+  beforeEach(async () => { fixture.calls.length = 0; fixture.unexpected.length = 0; page = await fixture.page(); });
+  afterEach(async () => { await page.close(); expect(fixture.unexpected).toEqual([]); });
+  afterAll(async () => fixture.close());
+
+  it('expands an inline text preview when a previewable filename is clicked, leaving binaries plain', async () => {
+    await page.goto(fixture.origin);
+    await page.getByText('notes.txt', { exact: true }).waitFor();
+    // A non-previewable binary is not a clickable preview trigger.
+    expect(await page.getByRole('button', { name: /weights\.bin/ }).count()).toBe(0);
+    // Clicking the previewable filename (kind badge + name) fetches an inline URL and renders the file contents in place.
+    await page.getByRole('button', { name: /notes\.txt/ }).click();
+    await page.getByText('hello preview', { exact: false }).waitFor();
+    const download = fixture.calls.filter(call => call.url.pathname === versionPath + '/download');
+    expect(download.some(call => call.url.searchParams.get('path') === 'notes.txt' && call.url.searchParams.get('inline') === '1')).toBe(true);
+  });
+});

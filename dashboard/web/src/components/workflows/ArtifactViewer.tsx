@@ -1,22 +1,23 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, EmptyState, ErrorBox, Segmented, Spinner } from '@/components/ui';
-import { api, useApi } from '@/lib/api-client';
+import { useApi } from '@/lib/api-client';
 import { fmtBytes } from '@/lib/format';
-import { useT, type Translator } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
+import { Media, TextPreview, signedFileUrl } from '@/components/datasets/FilePreview';
 import type { ArtifactFile, ArtifactVersion, WorkflowArtifacts } from '@/server/services/workflow-artifacts';
 import type { PreviewKind } from '@/server/data/artifact-preview';
 
+export { signedFileUrl } from '@/components/datasets/FilePreview';
+
 /**
  * Stage 1 of "see the simulation from the dashboard": every file a task published (open-loop plots,
- * rollout videos, evaluation.json, model cards) rendered inline from its pinned S3 version. URLs are
- * presigned per file for 5 minutes through the same verified download path the Datasets page uses.
+ * rollout videos, evaluation.json, model cards) rendered inline from its pinned S3 version. The
+ * inline preview components are shared with the Datasets file browser (see FilePreview.tsx).
  */
 interface ArtifactViewerProps { workflowId: string; selectedTask?: string; onSelectTask?: (name?: string) => void; running: boolean }
 interface Selected { version: ArtifactVersion; task: string; file: ArtifactFile }
-interface SignedFile { url: string; size: number; kind: PreviewKind }
 type Filter = 'all' | 'media' | 'reports' | 'other';
-type T = Translator<'artifacts'>;
 
 const FILTERS: { id: Filter; label: 'filterAll' | 'filterMedia' | 'filterReports' | 'filterOther'; match: (kind: PreviewKind) => boolean }[] = [
   { id: 'all', label: 'filterAll', match: () => true },
@@ -27,25 +28,6 @@ const FILTERS: { id: Filter; label: 'filterAll' | 'filterMedia' | 'filterReports
 const GALLERY_PAGE = 12;
 const KIND_TONE: Record<PreviewKind, 'info' | 'accent' | 'ok' | 'neutral'> = { image: 'accent', video: 'accent', json: 'info', text: 'info', other: 'neutral' };
 
-export function signedFileUrl(version: ArtifactVersion, path: string, inline: boolean): Promise<SignedFile> {
-  return api<SignedFile>(`/api/datasets/${encodeURIComponent(version.dataset)}/versions/${version.version}/download?path=${encodeURIComponent(path)}&inline=${inline ? '1' : '0'}`);
-}
-
-/** Presigned URL fetched on mount; a failed load (expired URL) refreshes it once. */
-function useSignedUrl(version: ArtifactVersion, path: string, t: T) {
-  const [state, setState] = useState<{ url?: string; error?: string; attempt: number }>({ attempt: 0 });
-  useEffect(() => {
-    let cancelled = false;
-    setState((s) => ({ attempt: s.attempt }));
-    signedFileUrl(version, path, true)
-      .then((r) => { if (!cancelled) setState((s) => ({ ...s, url: r.url })); })
-      .catch((e) => { if (!cancelled) setState((s) => ({ ...s, error: e instanceof Error ? e.message : t('previewUrlUnavailable') })); });
-    return () => { cancelled = true; };
-  }, [version.dataset, version.version, version.manifestHash, path, state.attempt]);
-  const retry = () => setState((s) => (s.attempt < 1 ? { attempt: s.attempt + 1 } : { ...s, error: t('downloadFailed') }));
-  return { ...state, retry };
-}
-
 /** Gallery tiles crop extreme aspect ratios (tall open-loop plots, wide strips) so they stay legible; the preview shows the full image. */
 export function thumbnailFit(width: number, height: number): string {
   if (!width || !height) return 'object-contain';
@@ -53,41 +35,6 @@ export function thumbnailFit(width: number, height: number): string {
   if (ratio > 2) return 'object-cover object-top';
   if (ratio < 1 / 3) return 'object-cover object-left';
   return 'object-contain';
-}
-
-function Media({ version, path, kind, className, autoPlay, thumbnail }: { version: ArtifactVersion; path: string; kind: PreviewKind; className?: string; autoPlay?: boolean; thumbnail?: boolean }) {
-  const t = useT('artifacts');
-  const { url, error, retry } = useSignedUrl(version, path, t);
-  const [fit, setFit] = useState('object-contain');
-  if (error) return <div className={`flex items-center justify-center bg-bg-elev-2 p-2 text-center text-xs text-fg-muted ${className ?? ''}`}>{error}</div>;
-  if (!url) return <div className={`flex items-center justify-center bg-bg-elev-2 ${className ?? ''}`}><Spinner label={t('previewLoadingUrl')} /></div>;
-  if (kind === 'video') return <video className={className} src={url} controls preload="metadata" autoPlay={autoPlay} muted loop playsInline onError={retry} aria-label={path} />;
-  return <img className={`${className ?? ''} ${thumbnail ? fit : ''}`} src={url} alt={path} loading="lazy" onError={retry}
-    onLoad={(e) => { if (thumbnail) setFit(thumbnailFit(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)); }} />;
-}
-
-function TextPreview({ version, file }: { version: ArtifactVersion; file: ArtifactFile }) {
-  const t = useT('artifacts');
-  const [text, setText] = useState<string>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    let cancelled = false;
-    setText(undefined); setError(undefined);
-    signedFileUrl(version, file.path, true)
-      .then(async (r) => {
-        const res = await fetch(r.url);
-        if (!res.ok) throw new Error(t('downloadFailed'));
-        const raw = await res.text();
-        if (cancelled) return;
-        if (file.kind === 'json') { try { setText(JSON.stringify(JSON.parse(raw), null, 2)); return; } catch { /* fall through: show raw */ } }
-        setText(raw);
-      })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : t('downloadFailed')); });
-    return () => { cancelled = true; };
-  }, [version.dataset, version.version, version.manifestHash, file.path, file.kind]);
-  if (error) return <ErrorBox error={{ message: error }} />;
-  if (text === undefined) return <Spinner label={t('previewLoading')} />;
-  return <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-bg p-3 font-mono text-[13px] leading-5 text-fg">{text}</pre>;
 }
 
 function Preview({ selected }: { selected: Selected }) {
@@ -110,9 +57,9 @@ function Preview({ selected }: { selected: Selected }) {
         </span>
       </div>
       {file.kind === 'image' || file.kind === 'video'
-        ? <Media key={file.path} version={version} path={file.path} kind={file.kind} autoPlay className="max-h-[70vh] w-full rounded-md border border-border bg-black object-contain" />
+        ? <Media key={file.path} refPin={version} path={file.path} kind={file.kind} autoPlay className="max-h-[70vh] w-full rounded-md border border-border bg-black object-contain" />
         : file.previewable
-          ? <TextPreview key={file.path} version={version} file={file} />
+          ? <TextPreview key={file.path} refPin={version} file={file} />
           : <EmptyState title={t('noPreview')} hint={t('downloadHint', { size: fmtBytes(file.bytes) })} />}
     </div>
   );
@@ -165,7 +112,7 @@ export function ArtifactViewer({ workflowId, selectedTask, onSelectTask, running
                 {media.slice(0, galleryLimit).map((e) => (
                   <figure key={`${e.task}:${e.version.dataset}:${e.file.path}`} className="overflow-hidden rounded-md border border-border bg-bg-elev">
                     <button className="block w-full" onClick={() => { setSelected(e); setMode('files'); }} title={t('viewFullSize')}>
-                      <Media version={e.version} path={e.file.path} kind={e.file.kind} thumbnail className="h-48 w-full bg-black" />
+                      <Media refPin={e.version} path={e.file.path} kind={e.file.kind} thumbnail fit={thumbnailFit} className="h-48 w-full bg-black" />
                     </button>
                     <figcaption className="flex items-center gap-2 px-2.5 py-2 text-xs">
                       <Badge tone="neutral">{e.task}</Badge>

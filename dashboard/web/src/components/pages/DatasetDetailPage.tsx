@@ -22,6 +22,10 @@ import { classNames as cx } from '@/lib/format';
 import { api, can, useApi, useApiMutation, useMe } from '@/lib/api-client';
 import { useT, useFormat } from '@/lib/i18n';
 import { datasetRelativePrefix, datasetUploadFilename } from './dataset-paths';
+import { InlineFilePreview } from '@/components/datasets/FilePreview';
+import { inlinePreviewable, previewKind, type PreviewKind } from '@/server/data/artifact-preview';
+
+const PREVIEW_TONE: Record<PreviewKind, 'info' | 'accent' | 'ok' | 'neutral'> = { image: 'accent', video: 'accent', json: 'info', text: 'info', other: 'neutral' };
 import { uploadDatasetFile, abortDatasetUpload, type UploadSession } from '@/lib/multipart-upload';
 
 interface Dataset {
@@ -94,6 +98,7 @@ export function DatasetDetailPage({ name }: { name: string }) {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [fileBrowserPrefix, setFileBrowserPrefix] = React.useState('');
   const [fileBrowserToken, setFileBrowserToken] = React.useState<string | undefined>();
+  const [previewPath, setPreviewPath] = React.useState<string | null>(null);
   const [editTagsOpen, setEditTagsOpen] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState<Record<string, number>>({});
   const [uploading, setUploading] = React.useState(false);
@@ -105,6 +110,9 @@ export function DatasetDetailPage({ name }: { name: string }) {
     setFileBrowserPrefix('');
     setFileBrowserToken(undefined);
   }, [name, currentVersion?.version]);
+
+  // A previewed file belongs to one folder listing; collapse it when the browser navigates elsewhere.
+  React.useEffect(() => { setPreviewPath(null); }, [name, currentVersion?.version, fileBrowserPrefix]);
 
   const listingParams = new URLSearchParams({ prefix: fileBrowserPrefix });
   if (fileBrowserToken) listingParams.set('token', fileBrowserToken);
@@ -531,8 +539,15 @@ export function DatasetDetailPage({ name }: { name: string }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {fileListingQuery.data.entries.map((e) => (
-                          <tr key={e.key} className="border-b border-border hover:bg-bg-elev-1 transition">
+                        {fileListingQuery.data.entries.map((e) => {
+                          const filePath = e.isPrefix ? null : (e.path ?? (() => { try { return datasetRelativePrefix(e.key, currentVersion.uri); } catch { return null; } })());
+                          const kind = previewKind(e.name);
+                          // Preview reuses the immutable download endpoint, so it is gated on the same pinned listing.
+                          const canPreview = !e.isPrefix && !!fileListingQuery.data!.immutable && filePath != null && inlinePreviewable(e.name, e.size ?? 0);
+                          const expanded = canPreview && previewPath === filePath;
+                          return (
+                          <React.Fragment key={e.key}>
+                          <tr className="border-b border-border hover:bg-bg-elev-1 transition">
                             <td className="py-2 px-3">
                               {e.isPrefix ? (
                                 <button
@@ -547,6 +562,16 @@ export function DatasetDetailPage({ name }: { name: string }) {
                                   className="text-blue-400 hover:underline font-mono text-sm"
                                 >
                                   {e.name}/
+                                </button>
+                              ) : canPreview ? (
+                                <button
+                                  onClick={() => setPreviewPath(expanded ? null : filePath)}
+                                  title={t('previewShow')}
+                                  aria-expanded={expanded}
+                                  className="group flex items-center gap-2 text-left"
+                                >
+                                  <Badge tone={PREVIEW_TONE[kind]} className="w-12 shrink-0 justify-center">{kind}</Badge>
+                                  <span className="font-mono text-sm text-blue-400 group-hover:underline">{e.name}</span>
                                 </button>
                               ) : (
                                 <span className="font-mono text-sm">
@@ -577,7 +602,19 @@ export function DatasetDetailPage({ name }: { name: string }) {
                               )}
                             </td>
                           </tr>
-                        ))}
+                          {expanded && filePath && (
+                            <tr className="border-b border-border bg-bg-elev-1">
+                              <td colSpan={4} className="px-3 pb-3">
+                                <InlineFilePreview
+                                  refPin={{ dataset: name, version: currentVersion.version }}
+                                  file={{ path: filePath, kind, bytes: e.size ?? 0, previewable: inlinePreviewable(e.name, e.size ?? 0) }}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
