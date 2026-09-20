@@ -69,7 +69,8 @@ npx cdk deploy \
   -c domainName=physical-ai.example.com \
   -c hostedZoneId=Z0123456789ABC \
   -c hostedZoneName=example.com \
-  -c extendedImages=true
+  -c extendedImages=true \
+  -c sourceBuildProjectId=team-a
 ```
 
 ### 모듈 선택
@@ -81,6 +82,8 @@ npx cdk deploy \
 | `images` | `mujoco,isaaclab,ros2,workspace` | 빌드할 워크로드 이미지. `extendedImages=true`는 `groot,openpi` 추가 |
 | `imageOverrides` | `{}` | 이미 있는 ECR 이미지 재사용. 예 `'{"mujoco":"<acct>.dkr.ecr.us-east-1.amazonaws.com/pai/mujoco@sha256:…"}'` 같은 계정·리전 ECR만. |
 | `sourceBuild` | `true` | 연구자 소스 이미지 CodeBuild + ECR |
+| `sourceBuildProjectId` | (없음, `sourceBuild=true`면 필수) | 소스 빌드 타깃을 붙일 프로젝트 = 대시보드에서 채택한 HyperPod 팀 이름(예 `team-a`). CodeBuild 프로젝트·ECR 저장소·로그 그룹 이름에 들어가므로 바꾸면 세 리소스가 교체됩니다(이전 ECR 저장소는 RETAIN으로 남음) |
+| `workflowNamespaces` | `hyperpod-ns-team-a,hyperpod-ns-team-b` | 워크플로우 Pod Identity(`pai-workflow` SA)를 만들 네임스페이스. 채택할 팀의 `hyperpod-ns-<team>`을 나열 |
 | `edge` | `true` | Greengrass/IoT 권한과 엣지 화면 |
 | `waf` / `alarms` | `true` | WAF 웹 ACL / CloudWatch 알람 5개 |
 | `resourceTagKey` / `resourceTagValue` | `PhysicalAI` / `true` | 모든 리소스에 붙는 태그. 리소스 화면이 이 태그로 조회 |

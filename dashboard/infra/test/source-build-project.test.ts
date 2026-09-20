@@ -6,9 +6,9 @@ import { Template } from 'aws-cdk-lib/assertions';
 import { SourceBuildProject } from '../lib/constructs/source-build-project';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
-test('default workshop build is a bounded source snapshot job with one immutable output repository', () => {
+test('a team build is a bounded source snapshot job with one immutable output repository named after the team', () => {
   const stack = new cdk.Stack(new cdk.App(), 'SourceTest', { env: { account: '123456789012', region: 'us-east-1' } });
-  const source = new SourceBuildProject(stack, 'Source', { repositoryRoot: path.resolve(__dirname, '../../..') });
+  const source = new SourceBuildProject(stack, 'Source', { repositoryRoot: path.resolve(__dirname, '../../..'), projectId: 'team-a' });
   const template = Template.fromStack(stack).toJSON();
   const projects = Object.values(template.Resources).filter((value: any) => value.Type === 'AWS::CodeBuild::Project') as any[];
   assert.equal(projects.length, 1);
@@ -19,7 +19,8 @@ test('default workshop build is a bounded source snapshot job with one immutable
   assert.equal(projects[0].Properties.QueuedTimeoutInMinutes, 5);
   assert.match(projects[0].Properties.Source.BuildSpec, /PAI_SOURCE_SHA256/);
   assert.equal(source.target.sourceType, 'S3');
-  assert.equal(source.target.outputRepositoryName, 'physical-ai/projects/workshop/source-images');
+  assert.equal(source.target.outputRepositoryName, 'physical-ai/projects/team-a/source-images');
+  assert.equal(projects[0].Properties.Name, 'physical-ai-source-team-a-123456789012');
   const policies = JSON.stringify(Object.values(template.Resources).filter((value: any) => value.Type === 'AWS::IAM::Policy'));
   assert.ok(!policies.includes('s3:ListBucket'));
   assert.ok(!policies.includes('iam:PassRole'));
@@ -30,7 +31,7 @@ test('default workshop build is a bounded source snapshot job with one immutable
 });
 test('CodeBuild read and stop grants use the documented project ARN, never build ARNs', () => {
   const stack = new cdk.Stack(new cdk.App(), 'GrantTest', { env: { account: '123456789012', region: 'us-east-1' } });
-  const source = new SourceBuildProject(stack, 'Source', { repositoryRoot: path.resolve(__dirname, '../../..') });
+  const source = new SourceBuildProject(stack, 'Source', { repositoryRoot: path.resolve(__dirname, '../../..'), projectId: 'team-a' });
   const controller = new iam.Role(stack, 'Controller', { assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com') });
   source.grantControlPlane(controller);
   const resources = Object.values(Template.fromStack(stack).toJSON().Resources) as any[];

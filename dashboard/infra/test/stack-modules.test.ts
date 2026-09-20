@@ -23,11 +23,21 @@ test('waf=false removes the web ACL and the WAF alarm; alarms=false removes ever
   synthesize({ modules: modules({ alarms: 'false' }) }).resourceCountIs('AWS::CloudWatch::Alarm', 0);
 });
 test('sourceBuild=false removes the CodeBuild project, ECR repository and build env', () => {
-  const t = synthesize({ modules: modules({ sourceBuild: 'false' }) });
+  const t = synthesize({ modules: modules({ sourceBuild: 'false' }), context: { sourceBuildProjectId: undefined } });
   t.resourceCountIs('AWS::CodeBuild::Project', 0);
   t.resourceCountIs('AWS::ECR::Repository', 0);
   const env = JSON.stringify(t.toJSON());
   assert.ok(env.includes('"SOURCE_BUILD_TARGETS_JSON","Value":"[]"'));
+});
+test('sourceBuild=true names the CodeBuild project, ECR repository and target after -c sourceBuildProjectId (no legacy default)', () => {
+  assert.throws(() => synthesize({ context: { sourceBuildProjectId: undefined } }), /sourceBuildProjectId/);
+  assert.throws(() => synthesize({ context: { sourceBuildProjectId: 'Team A' } }), /sourceBuildProjectId/);
+  assert.throws(() => synthesize({ context: { sourceBuildProjectId: 'team-a-admin' } }), /sourceBuildProjectId/);
+  const t = synthesize({ context: { sourceBuildProjectId: 'team-b' } });
+  const text = JSON.stringify(t.toJSON());
+  assert.ok(text.includes('"RepositoryName":"physical-ai/projects/team-b/source-images"'));
+  assert.ok(text.includes('physical-ai-source-team-b-'));
+  assert.ok(!text.includes('physical-ai/projects/workshop') && !text.includes('physical-ai-source-workshop'));
 });
 test('edge=false omits Greengrass env and IAM', () => {
   const t = synthesize({ modules: modules({ edge: 'false' }) });

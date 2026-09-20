@@ -117,7 +117,7 @@ async function main() {
     buckets,
     eksClusterSecurityGroupId,
     extendedImages: modules.images.build.includes('groot'),
-    workflowNamespaces: ((app.node.tryGetContext('workflowNamespaces') as string | undefined) ?? 'rl,hyperpod-ns-team-a,hyperpod-ns-team-b').split(',').map((value) => value.trim()).filter(Boolean),
+    workflowNamespaces: ((app.node.tryGetContext('workflowNamespaces') as string | undefined) ?? 'hyperpod-ns-team-a,hyperpod-ns-team-b').split(',').map((value) => value.trim()).filter(Boolean),
     mlflowTrackingServerArns: [groot?.MlflowTrackingServerArn, hyperPodEks?.MlflowTrackingArn].filter(Boolean) as string[],
   });
   app.synth();

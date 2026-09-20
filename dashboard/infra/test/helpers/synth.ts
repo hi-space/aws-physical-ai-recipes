@@ -11,7 +11,8 @@ export function synthesize(overrides: Partial<DashboardStackProps> & { context?:
   const outdir = fs.mkdtempSync(path.join(outputRoot, 'module-test-'));
   try {
     const { context, ...props } = overrides;
-    const app = new cdk.App({ outdir, context: { 'aws:cdk:asset-staging': false, ...(context ?? {}) } });
+    // sourceBuildProjectId mirrors the deployed stack's adopted team (the fixtures are generated from this default).
+    const app = new cdk.App({ outdir, context: { 'aws:cdk:asset-staging': false, sourceBuildProjectId: 'team-a', ...(context ?? {}) } });
     const stack = new DashboardStack(app, 'ModuleTest', {
       env: { account: ACCOUNT, region: REGION }, accountId: ACCOUNT, region: REGION,
       discovered: { accountId: ACCOUNT, region: REGION },

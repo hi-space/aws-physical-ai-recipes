@@ -83,8 +83,14 @@ export class DashboardStack extends cdk.Stack {
     });
     const sourceDirectory = this.node.tryGetContext('sourceBuildDirectory');
     if (sourceDirectory !== undefined && typeof sourceDirectory !== 'string') throw new Error('sourceBuildDirectory must be a local source path');
+    // Projects are adopted HyperPod teams at runtime; the CodeBuild/ECR source-build target is still provisioned
+    // per project here, so the operator names the adopted team explicitly instead of a baked-in legacy id.
+    const sourceBuildProjectId = this.node.tryGetContext('sourceBuildProjectId');
+    if (modules.sourceBuild && (typeof sourceBuildProjectId !== 'string' || !/^(?!.*-admin$)[a-z][a-z0-9-]{0,39}$/.test(sourceBuildProjectId))) {
+      throw new Error('sourceBuild module needs -c sourceBuildProjectId=<adopted HyperPod team name> (lowercase, ≤40 chars); pass -c sourceBuild=false to skip the source-build target');
+    }
     const sourceBuild = modules.sourceBuild ? new SourceBuildProject(this, 'ResearcherSourceBuild', {
-      repositoryRoot: path.resolve(props.webAppPath, '..', '..'), projectId: 'workshop',
+      repositoryRoot: path.resolve(props.webAppPath, '..', '..'), projectId: sourceBuildProjectId as string,
       ...(sourceDirectory ? { sourceDirectory: path.resolve(props.webAppPath, '..', '..', sourceDirectory) } : {}),
     }) : undefined;
     const runtimeImage = new ecrAssets.DockerImageAsset(this, 'TaskRuntimeImage', {
@@ -481,7 +487,9 @@ export class DashboardStack extends cdk.Stack {
         resources: [`arn:aws:ssm:${props.region}:${props.accountId}:parameter/groot/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/physical-ai/*`, `arn:aws:ssm:${props.region}:${props.accountId}:parameter/pai/*`],
       }));
       podRole.addToPolicy(new iam.PolicyStatement({ sid: 'KmsForSecureStrings', actions: ['kms:Decrypt'], resources: ['*'], conditions: { StringEquals: { 'kms:ViaService': `ssm.${props.region}.amazonaws.com` } } }));
-      for (const namespace of props.workflowNamespaces ?? ['rl', 'hyperpod-ns-team-a', 'hyperpod-ns-team-b']) {
+      // Workflow pods only run in HyperPod task-governance team namespaces (hyperpod-ns-<team>); the pre-project `rl`
+      // namespace was dropped from the default list on 2026-09-20 (it no longer exists in the cluster).
+      for (const namespace of props.workflowNamespaces ?? ['hyperpod-ns-team-a', 'hyperpod-ns-team-b']) {
         new eks.CfnPodIdentityAssociation(this, `PodIdentity-${namespace}`, { clusterName: d.hyperPodEks.EksClusterName, namespace, serviceAccount: 'pai-workflow', roleArn: podRole.roleArn });
       }
       new cdk.CfnOutput(this, 'WorkflowPodRoleArn', { value: podRole.roleArn, description: 'IAM role assumed by workflow pods via ServiceAccount pai-workflow' });

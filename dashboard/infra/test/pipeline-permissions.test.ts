@@ -28,7 +28,7 @@ function synthesize(groot: DiscoveredOutputs['groot']) {
   fs.mkdirSync(outputRoot, { recursive: true });
   const outdir = fs.mkdtempSync(path.join(outputRoot, 'pipeline-test-'));
   try {
-    const app = new cdk.App({ outdir, context: { 'aws:cdk:asset-staging': false } });
+    const app = new cdk.App({ outdir, context: { 'aws:cdk:asset-staging': false, sourceBuildProjectId: 'team-a' } });
     const stack = new DashboardStack(app, 'PipelinePermissions', {
       env: { account: accountId, region },
       accountId,

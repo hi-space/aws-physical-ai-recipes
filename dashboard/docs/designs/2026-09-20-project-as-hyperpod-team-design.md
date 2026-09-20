@@ -263,13 +263,15 @@ web 태스크 롤에 `cognito-idp:CreateGroup`, `cognito-idp:DeleteGroup`, `cogn
 
 ### 배포 리셋 런북 (`docs/runbooks/2026-09-20-project-reset.md`, 스펙과 함께 작성)
 
-1. 배포 전: 실행 중 워크플로우 없음 확인.
-2. 배포.
-3. DynamoDB에서 `pk=PROJECT#workshop sk=META`, `pk=PROJECT_NAMESPACE#hyperpod-ns-team-a sk=OWNER`,
-   `pk=PROJECT_NAMESPACE#default#hyperpod-ns-team-a sk=OWNER` 삭제(AWS CLI 명령 포함).
+1. 배포 전: 실행 중 워크플로우 없음 확인. **삭제는 배포 뒤에** — 옛 코드의 `ensureDefaultProject`가 admin 요청마다 `workshop`을 재생성한다.
+2. 배포(`-c sourceBuildProjectId=team-a` 필수 — 소스빌드 CodeBuild/ECR 타깃이 채택 팀 이름을 따른다).
+3. `infra/ops/legacy-project-reset.sh`로 `PROJECT#workshop` 파티션·관련 항목을 백업하고 설정 레코드(META, 네임스페이스 OWNER,
+   이미지 프로필/리비전, 토큰, 웹훅, 소스 등록, 자격증명)만 삭제. 실행 이력(PIPELINE·EVALUATION·TRACKING, `projectId` 달린 WF/DS/TPL 등)은 남긴다.
+   실제 환경에는 `PROJECT_NAMESPACE#default#…` 변형이 없었다(비접두 키 1건만 존재).
 4. 관리자 로그인 → `/projects` → default 백엔드 → `team-a` 쿼터 채택.
-5. 기존 사용자를 `proj-team-a` / `proj-team-a-admin`에 추가 → 재로그인(토큰 갱신).
-6. `projects/workshop/` 등 S3/FSx 산출물은 그대로 둔다(admin만 열람 가능). 필요 시 수동 정리.
+5. 이미지 프로필은 프로젝트 단위이므로 `team-a`에서 builtin 프로필 seed → 승인(안 하면 모든 제출이 `image_preflight_blocked`).
+6. 기존 사용자를 `proj-team-a` / `proj-team-a-admin`에 추가 → 재로그인(토큰 갱신).
+7. `projects/workshop/` 등 S3/FSx 산출물은 그대로 둔다(admin만 열람 가능). 필요 시 수동 정리.
 
 ## 7. 테스트
 
@@ -310,4 +312,5 @@ web 태스크 롤에 `cognito-idp:CreateGroup`, `cognito-idp:DeleteGroup`, `cogn
 - `cognito-idp:GetGroup` IAM 권한은 현재 코드가 호출하지 않는다(§6 목록 유지).
 - 사용자당 Cognito 그룹 100개 한도 → 1인당 최대 ~50 프로젝트.
 - `src/server/workflow-adapters/artifact-inventory.test.ts`의 ctime 플레이크는 이 변경과 무관하게 샌드박스 FS에서 실패한다.
+- 레거시 정리(2026-09-20): CDK 소스빌드 타깃의 `projectId: 'workshop'` 하드코딩을 context `sourceBuildProjectId`(필수)로 바꾸고, Pod Identity 기본 네임스페이스 목록에서 클러스터에 존재하지 않는 `rl`을 제외했다. 남은 코드 레거시는 `DEFAULT_NAMESPACE`(`config().defaultNamespace`, 기본 `rl`) — 프로젝트 없는 제출 경로(`submitBoundWorkflow` else 분기, 테스트·재시도)가 아직 쓰므로 유지. 데이터 정리 결과는 런북 §0 표 참조.
 - 이 변경 전부터 떠 있던 `next dev`(Turbopack)는 `projects.ts`의 새 export를 반영하지 못해 `GET /api/projects`가 500(`memberRole is not a function`)을 냈다. 코드 결함이 아니라 HMR 모듈 그래프 stale 문제이며 dev 서버 재시작으로 해소된다. 재시작 직후 로그의 `Export createProject doesn't exist` 오류는 `.next/dev` 영속 캐시 재생이고 첫 컴파일 후 사라진다.

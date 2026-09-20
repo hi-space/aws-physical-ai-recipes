@@ -1454,7 +1454,7 @@
                         {
                           "Ref": "AWS::Partition"
                         },
-                        ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                        ":codebuild:us-east-1:913524902871:project/physical-ai-source-team-a-913524902871"
                       ]
                     ]
                   }
@@ -1585,7 +1585,7 @@
     "ResearcherSourceBuildLogsF8F093C2": {
       "DeletionPolicy": "Retain",
       "Properties": {
-        "LogGroupName": "/aws/codebuild/physical-ai-source-workshop-913524902871",
+        "LogGroupName": "/aws/codebuild/physical-ai-source-team-a-913524902871",
         "RetentionInDays": 30,
         "Tags": [
           {
@@ -1613,7 +1613,7 @@
       "DeletionPolicy": "Retain",
       "Properties": {
         "ImageTagMutability": "IMMUTABLE",
-        "RepositoryName": "physical-ai/projects/workshop/source-images",
+        "RepositoryName": "physical-ai/projects/team-a/source-images",
         "Tags": [
           {
             "Key": "ManagedBy",
@@ -1646,7 +1646,7 @@
           "Type": "NO_CACHE"
         },
         "ConcurrentBuildLimit": 1,
-        "Description": "Project-scoped source image builder for workshop",
+        "Description": "Project-scoped source image builder for team-a",
         "Environment": {
           "ComputeType": "BUILD_GENERAL1_SMALL",
           "EnvironmentVariables": [],
@@ -1666,7 +1666,7 @@
             "Status": "DISABLED"
           }
         },
-        "Name": "physical-ai-source-workshop-913524902871",
+        "Name": "physical-ai-source-team-a-913524902871",
         "QueuedTimeoutInMinutes": 5,
         "ServiceRole": {
           "Fn::GetAtt": [
@@ -1686,7 +1686,7 @@
           },
           {
             "Key": "pai:project",
-            "Value": "workshop"
+            "Value": "team-a"
           },
           {
             "Key": "pai:purpose",
@@ -2675,7 +2675,7 @@
                     {
                       "Ref": "AWS::Partition"
                     },
-                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-team-a-913524902871"
                   ]
                 ]
               }
@@ -3216,14 +3216,14 @@
                   "Fn::Join": [
                     "",
                     [
-                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      "[{\"id\":\"team-a\",\"projectId\":\"team-a\",\"codeBuildProjectName\":\"physical-ai-source-team-a-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
                       {
                         "Fn::GetAtt": [
                           "ResearcherSourceBuildBuilderRole9D4FFFC4",
                           "Arn"
                         ]
                       },
-                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/team-a/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
                     ]
                   ]
                 }
@@ -3675,14 +3675,14 @@
                   "Fn::Join": [
                     "",
                     [
-                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      "[{\"id\":\"team-a\",\"projectId\":\"team-a\",\"codeBuildProjectName\":\"physical-ai-source-team-a-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
                       {
                         "Fn::GetAtt": [
                           "ResearcherSourceBuildBuilderRole9D4FFFC4",
                           "Arn"
                         ]
                       },
-                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/team-a/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
                     ]
                   ]
                 }
@@ -4183,14 +4183,14 @@
                   "Fn::Join": [
                     "",
                     [
-                      "[{\"id\":\"workshop\",\"projectId\":\"workshop\",\"codeBuildProjectName\":\"physical-ai-source-workshop-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
+                      "[{\"id\":\"team-a\",\"projectId\":\"team-a\",\"codeBuildProjectName\":\"physical-ai-source-team-a-913524902871\",\"sourceType\":\"S3\",\"snapshotLocation\":{\"bucket\":\"cdk-hnb659fds-assets-913524902871-us-east-1\",\"key\":\"<HASH>.zip\"},\"serviceRoleArn\":\"",
                       {
                         "Fn::GetAtt": [
                           "ResearcherSourceBuildBuilderRole9D4FFFC4",
                           "Arn"
                         ]
                       },
-                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/workshop/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
+                      "\",\"builderImage\":\"aws/codebuild/standard:7.0\",\"outputRepositoryName\":\"physical-ai/projects/team-a/source-images\",\"dockerfile\":\"Dockerfile\",\"context\":\".\",\"timeoutMinutes\":20,\"queuedTimeoutMinutes\":5,\"computeType\":\"BUILD_GENERAL1_SMALL\"}]"
                     ]
                   ]
                 }
@@ -4540,7 +4540,7 @@
                     {
                       "Ref": "AWS::Partition"
                     },
-                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-workshop-913524902871"
+                    ":codebuild:us-east-1:913524902871:project/physical-ai-source-team-a-913524902871"
                   ]
                 ]
               }

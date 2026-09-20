@@ -10,7 +10,8 @@ import { Construct } from 'constructs';
 
 export interface SourceBuildProjectProps {
   repositoryRoot: string;
-  projectId?: string;
+  /** Dashboard project id = adopted HyperPod team name. Names the CodeBuild project, ECR repository and log group. */
+  projectId: string;
   projectName?: string;
   /** Explicit local source directory; omitted uses the tiny no-base-pull smoke snapshot. */
   sourceDirectory?: string;
@@ -30,7 +31,7 @@ export class SourceBuildProject extends Construct {
   };
   constructor(scope: Construct, id: string, props: SourceBuildProjectProps) {
     super(scope, id);
-    const stack = cdk.Stack.of(this), projectId = props.projectId ?? 'workshop';
+    const stack = cdk.Stack.of(this), projectId = props.projectId;
     if (!/^[a-z][a-z0-9-]{0,39}$/.test(projectId) || stack.region !== 'us-east-1') throw new Error('Source build project requires a valid project ID and us-east-1');
     const name = props.projectName ?? `physical-ai-source-${projectId}-${stack.account}`;
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,99}$/.test(name)) throw new Error('Invalid registered source build job name');
