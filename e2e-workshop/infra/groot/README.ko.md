@@ -12,7 +12,7 @@ NVIDIA GR00T VLA 모델을 AWS에서 fine-tuning하기 위한 인프라를 한 �
 
 | 스택 | 리소스 |
 |------|--------|
-| **GrootFinetune-`<ACCOUNT_ID>`** | ECR 레포지토리 2개(GR00T 런타임 `groot-runtime` + SageMaker 학습 `groot-sm-training`), 컨테이너 이미지를 빌드하는 CodeBuild 프로젝트 2개(`groot-runtime-build`, `groot-sm-training-build`), SageMaker Studio Domain + UserProfile, S3 아티팩트 버킷(`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), 그 버킷 위의 S3 Files 파일시스템 + 마운트 타깃(NFS 2049 SG, 서비스 역할 `GR00TS3FilesRole-*`), (옵션) 공유 FSx DRA, IAM 역할들, MLflow tracking server |
+| **GrootFinetune-`<ACCOUNT_ID>`** | ECR 레포지토리 2개(GR00T 런타임 `groot-runtime` + SageMaker 학습 `groot-sm-training`), SageMaker 학습 이미지를 빌드하는 CodeBuild 프로젝트(`groot-sm-training-build`), SageMaker Studio Domain + UserProfile, S3 아티팩트 버킷(`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), 그 버킷 위의 S3 Files 파일시스템 + 마운트 타깃(NFS 2049 SG, 서비스 역할 `GR00TS3FilesRole-*`), (옵션) 공유 FSx DRA, IAM 역할들, MLflow tracking server |
 
 ## Prerequisites
 
@@ -27,7 +27,9 @@ npm install
 npm run deploy
 ```
 
-스택을 배포하면 GR00T 런타임 컨테이너 이미지(약 27GB, `groot-runtime-build`)와 SageMaker 학습 컨테이너 이미지(`groot-sm-training-build`)가 CodeBuild에서 자동으로 빌드됩니다. 각각 약 30~40분 소요. 런타임 빌드가 배포 시 시작되고 학습 빌드는 그 뒤에 이어서 시작됩니다(동시에 시작하면 새 계정의 CodeBuild 큐 한도 1에 걸립니다). 두 프로젝트 모두 소스 디렉터리(`assets/`, `../../groot/training/container/`)를 S3 asset 으로 올리므로 그 안의 파일이 바뀌면 다음 `cdk deploy` 때 다시 빌드됩니다. 학습 Dockerfile 을 고친 뒤 배포 없이 재빌드하려면 `../../groot/training/scripts/trigger_build.py`를 씁니다.
+스택을 배포하면 SageMaker 학습 컨테이너 이미지(`groot-sm-training-build`)가 CodeBuild에서 자동으로 빌드됩니다(약 30~40분). 스택이 배포 시 시작하는 빌드는 이것 하나입니다(새 계정의 CodeBuild 큐 한도가 1이라 둘을 동시에 시작하면 스택이 롤백됩니다). 프로젝트는 `../../groot/training/container/`를 S3 asset 으로 올리므로 그 안의 파일이 바뀌면 다음 `cdk deploy` 때 다시 빌드됩니다. 학습 Dockerfile 을 고친 뒤 배포 없이 재빌드하려면 `../../groot/training/scripts/trigger_build.py`를 씁니다.
+
+GR00T 런타임 이미지(`groot-runtime`, 약 27GB; 모듈 2/3/5/6의 Policy Server 이미지)는 CodeBuild가 빌드하지 않습니다. GPU 워크스테이션(personal 프로필)에서 `assets/build_runtime_image.sh`로 빌드해 스택이 만든 ECR `groot-runtime`에 푸시합니다(멱등, `--force`로 재빌드, `GROOT_VERSION=n1.7`로 다른 버전). workshop-studio 프로필의 CPU 워크스테이션은 이 이미지를 쓰는 모듈을 모두 건너뛰므로 빌드가 필요 없습니다.
 
 배포가 끝나면 GR00T 학습/추론 코드(`../../groot/`)가 사용하는 `config.yaml`을 갱신합니다:
 
@@ -44,8 +46,6 @@ npx ts-node bin/update-config.ts --region us-east-1
 | 키 | 기본값 | 설명 |
 |----|--------|------|
 | `region` | `us-east-1` | 배포 리전 |
-| `grootVersion` | `n1.6` | `n1.6` 또는 `n1.7`. CodeBuild가 빌드할 GR00T 버전 |
-| `useStableGroot` | `true` | 검증된 릴리스 커밋 사용 (`false`면 최신) |
 | `bucketName` | `groot-sm-artifacts-<ACCOUNT_ID>` | SageMaker 아티팩트 버킷 이름 |
 | `mlflowSize` | `Small` | MLflow tracking server 사이즈 |
 | `enableS3Files` | `true` | 아티팩트 버킷을 S3 Files 파일시스템으로 노출하고 부모 프라이빗 서브넷에 마운트 타깃을 만든다. Output `S3FilesFileSystemId`, `S3FilesMountCommand` 제공. `false`면 생략(체크포인트는 `aws s3 sync`) |

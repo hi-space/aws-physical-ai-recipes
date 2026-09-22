@@ -35,7 +35,7 @@ npm install
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 npx cdk bootstrap aws://${ACCOUNT_ID}/us-east-1
 
-# 4) 배포 (~15분 + 런타임 이미지 CodeBuild ~30~40분, 이어서 학습 이미지 ~30~40분이 백그라운드로 진행)
+# 4) 배포 (~15분 + 학습 이미지 CodeBuild ~30~40분이 백그라운드로 진행)
 npm run deploy -- -c region=us-east-1
 
 # 5) 학습/추론 코드가 읽는 config.yaml 갱신
@@ -43,15 +43,24 @@ npx ts-node bin/update-config.ts --region us-east-1
 ```
 
 배포되는 스택 이름은 `GrootFinetune-<ACCOUNT_ID>` 하나입니다. 배포 직후 CodeBuild
-`groot-runtime-build`가 GR00T 런타임 이미지(~27GB)를 ECR `groot-runtime`에,
 `groot-sm-training-build`가 SageMaker 학습 이미지를 ECR `groot-sm-training`에 자동으로
-빌드·푸시합니다(각 약 30~40분, 런타임 → 학습 순차; 동시에 시작하면 새 계정의 CodeBuild 큐 한도에 걸림). 빌드 상태 확인:
+빌드·푸시합니다(약 30~40분). 스택이 배포 시 시작하는 CodeBuild 빌드는 이것 하나입니다
+(새 계정의 CodeBuild 큐 한도가 1이라 둘 이상 동시에 시작하면 스택이 롤백됩니다). 빌드 상태 확인:
 
 ```bash
-aws codebuild list-builds-for-project --project-name groot-runtime-build --max-items 1
 aws codebuild list-builds-for-project --project-name groot-sm-training-build --max-items 1
-aws ecr describe-images --repository-name groot-runtime --query 'imageDetails[].imageTags'
 aws ecr describe-images --repository-name groot-sm-training --query 'imageDetails[].imageTags'
+```
+
+GR00T 런타임 이미지(`groot-runtime`, ~27GB; 모듈 2/3/5/6의 Policy Server)는 CodeBuild가 아니라
+GPU 워크스테이션(personal 프로필)에서 직접 빌드해 스택이 만든 ECR `groot-runtime`에 푸시합니다.
+CPU 워크스테이션(workshop-studio)은 이 이미지를 쓰는 모듈을 건너뛰므로 빌드하지 않습니다:
+
+```bash
+cd ~/aws-physical-ai-recipes/e2e-workshop/infra/groot/assets
+nohup ./build_runtime_image.sh > ~/groot-runtime-build.log 2>&1 &    # 약 30분, 백그라운드
+tail -f ~/groot-runtime-build.log
+aws ecr describe-images --repository-name groot-runtime --query 'imageDetails[].imageTags'
 ```
 
 ## 파라미터
@@ -60,9 +69,6 @@ aws ecr describe-images --repository-name groot-sm-training --query 'imageDetail
 대표적으로:
 
 ```bash
-# GR00T N1.7 런타임 이미지로 빌드
-npm run deploy -- -c grootVersion=n1.7
-
 # 부모 스택 자동 탐색을 건너뛰고 네트워크를 직접 지정
 npm run deploy -- -c vpcId=vpc-xxxx -c privateSubnetId=subnet-xxxx \
   -c availabilityZone=us-east-1a -c fsxFileSystemId=fs-xxxx

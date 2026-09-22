@@ -49,10 +49,10 @@ if aws ecr describe-images --repository-name "$ECR_REPO" --image-ids imageTag=la
   exit 0
 fi
 
-# Base = the GR00T runtime image built by Module 3 (GrootFinetune CDK -> groot-runtime-build)
+# Base = the GR00T runtime image built on this workstation in Module 1/2 (infra/groot/assets/build_runtime_image.sh)
 docker pull "$RUNTIME_BASE" || {
   echo "   ERROR: base image not found: $RUNTIME_BASE"
-  echo "   Run Module 3 first to build the groot-runtime image."
+  echo "   Build it first: ~/aws-physical-ai-recipes/e2e-workshop/infra/groot/assets/build_runtime_image.sh"
   exit 1
 }
 

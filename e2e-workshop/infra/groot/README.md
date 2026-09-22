@@ -12,7 +12,7 @@ This is a **single stack**, built on the assumption of one account per person.
 
 | Stack | Resources |
 |------|--------|
-| **GrootFinetune-`<ACCOUNT_ID>`** | 2 ECR repositories (GR00T runtime `groot-runtime` + SageMaker training `groot-sm-training`), 2 CodeBuild projects that build the container images (`groot-runtime-build`, `groot-sm-training-build`), a SageMaker Studio Domain + UserProfile, an S3 artifact bucket (`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), an S3 Files file system + mount target over that bucket (NFS 2049 SG, service role `GR00TS3FilesRole-*`), an optional shared FSx DRA, IAM roles, and an MLflow tracking server |
+| **GrootFinetune-`<ACCOUNT_ID>`** | 2 ECR repositories (GR00T runtime `groot-runtime` + SageMaker training `groot-sm-training`), a CodeBuild project that builds the SageMaker training image (`groot-sm-training-build`), a SageMaker Studio Domain + UserProfile, an S3 artifact bucket (`groot-sm-artifacts-<ACCOUNT_ID>-<REGION>`), an S3 Files file system + mount target over that bucket (NFS 2049 SG, service role `GR00TS3FilesRole-*`), an optional shared FSx DRA, IAM roles, and an MLflow tracking server |
 
 ## Prerequisites
 
@@ -27,7 +27,9 @@ npm install
 npm run deploy
 ```
 
-Once the stack is deployed, CodeBuild automatically builds both the GR00T runtime container image (about 27GB, `groot-runtime-build`) and the SageMaker training container image (`groot-sm-training-build`). Each takes about 30-40 minutes; the runtime build starts at deploy and the training build is chained after it (starting both at once fails in fresh accounts, whose CodeBuild queue limit is 1). Both projects take their source directory (`assets/`, `../../groot/training/container/`) as an S3 asset, so changing a file there triggers a rebuild on the next `cdk deploy`. To rebuild the training image after editing its Dockerfile without redeploying, use `../../groot/training/scripts/trigger_build.py`.
+Once the stack is deployed, CodeBuild automatically builds the SageMaker training container image (`groot-sm-training-build`, about 30-40 minutes). That is the only build the stack starts at deploy time (fresh accounts have a CodeBuild queue limit of 1, so starting two would roll the stack back). The project takes `../../groot/training/container/` as an S3 asset, so changing a file there triggers a rebuild on the next `cdk deploy`. To rebuild the training image after editing its Dockerfile without redeploying, use `../../groot/training/scripts/trigger_build.py`.
+
+The GR00T runtime image (`groot-runtime`, about 27GB; the Policy Server image for modules 2, 3, 5 and 6) is not built by CodeBuild. Build it on the GPU workstation (personal profile) and push it to the stack's `groot-runtime` ECR repository with `assets/build_runtime_image.sh` (idempotent, `--force` to rebuild, `GROOT_VERSION=n1.7` for another version). The CPU workstation of the workshop-studio profile skips every module that uses it, so it never needs the image.
 
 After the deployment finishes, update the `config.yaml` used by the GR00T training/inference code (`../../groot/`):
 
@@ -44,8 +46,6 @@ Pass values via `cdk deploy -c key=value` or through `cdk.context.json`.
 | Key | Default | Description |
 |----|--------|------|
 | `region` | `us-east-1` | Deployment region |
-| `grootVersion` | `n1.6` | `n1.6` or `n1.7`. The GR00T version CodeBuild builds |
-| `useStableGroot` | `true` | Use a verified release commit (`false` uses the latest) |
 | `bucketName` | `groot-sm-artifacts-<ACCOUNT_ID>` | SageMaker artifact bucket name |
 | `mlflowSize` | `Small` | MLflow tracking server size |
 | `enableS3Files` | `true` | Expose the artifacts bucket as an S3 Files file system with a mount target in the parent private subnet. Emits the `S3FilesFileSystemId` and `S3FilesMountCommand` Outputs. `false` skips it (checkpoints via `aws s3 sync`) |

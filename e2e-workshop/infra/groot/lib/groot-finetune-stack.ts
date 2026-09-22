@@ -6,7 +6,6 @@ import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
 import { Construct } from 'constructs';
 
 import { EcrRepo } from './constructs/ecr-repo';
-import { CodeBuildInfra } from './constructs/codebuild-infra';
 import { TrainingEcr } from './constructs/sm-ecr-repos';
 import { SmCodeBuildServiceRole } from './constructs/sm-codebuild-role';
 import { SmContainerBuildProjects } from './constructs/sm-codebuild-projects';
@@ -20,8 +19,6 @@ import { DeploymentProfile } from './deployment-profile';
 export const STUDIO_DOMAIN_ID_PARAMETER = '/groot-finetune/studio-domain-id';
 export const SM_TRAINING_REPO_NAME = 'groot-sm-training';
 export const SM_TRAINING_BUILD_PROJECT = 'groot-sm-training-build';
-/** codebuild-infra.ts 의 projectName 과 같아야 한다 (트리거 역할 ARN 계산용). */
-export const RUNTIME_BUILD_PROJECT = 'groot-runtime-build';
 
 export interface GrootFinetuneStackProps extends cdk.StackProps {
   /** 배포 대상 계정 ID (리소스 이름 접미사, 1인 1계정 전제). */
@@ -49,8 +46,6 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
   enableS3Files?: boolean;
   /** 부모 VPC CIDR (S3 Files 마운트 타깃 SG 의 NFS 2049 인바운드 소스). 기본 10.0.0.0/16. */
   vpcCidr?: string;
-  useStableGroot?: boolean;
-  grootVersion?: string;
   /** SageMaker CodeBuild GitHub source. 비워두면 NO_SOURCE. */
   repositoryUrl?: string;
   /** 배포 프로필 (기본 personal). update-config.ts가 이 출력을 읽어 config.yaml을 조정한다. */
@@ -63,10 +58,12 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
  * 이전의 GrootFinetuneShared(계정 공용) + GrootFinetuneSagemaker-<userId>(사용자별)
  * 2-스택 구성을 1인 1계정 전제로 단일 스택으로 통합했다.
  *
- *   - GR00T 런타임 ECR + CodeBuild (배포 시 자동 트리거; 모듈 2/3/5 Policy Server 이미지)
- *   - SageMaker training ECR + CodeBuild (런타임 빌드가 끝나면 이어서 자동 빌드; 모듈 4 Training Job
- *     이미지. 계정의 CodeBuild 큐 한도 때문에 동시에 시작하지 않는다. Dockerfile 을 고친 뒤
- *     재빌드할 때만 trigger_build.py 로 zip 업로드 후 빌드)
+ *   - GR00T 런타임 ECR (모듈 2/3/5/6 Policy Server 이미지 groot-runtime 의 푸시 대상. 이미지 자체는
+ *     GPU 워크스테이션에서 assets/build_runtime_image.sh 로 빌드한다 — CPU 프로필에서는 쓰지 않는
+ *     27GB 이미지를 CodeBuild 로 30~40분 빌드할 이유가 없다)
+ *   - SageMaker training ECR + CodeBuild (배포 시 자동 빌드; 모듈 4 Training Job 이미지. 이 스택이
+ *     배포 시 시작하는 CodeBuild 빌드는 이것 하나다. Dockerfile 을 고친 뒤 재빌드할 때만
+ *     trigger_build.py 로 zip 업로드 후 빌드)
  *   - SageMaker Studio Domain + UserProfile (실행 역할은 단일 Notebook role)
  *   - S3 아티팩트 버킷 (+ 부모 FSx가 있을 때만 DRA /groot ↔ s3://<bucket>)
  *   - S3 Files 파일시스템 + 마운트 타깃 (기본 on; DCV 가 /mnt/s3/groot 로 NFS 마운트)
@@ -76,7 +73,7 @@ export interface GrootFinetuneStackProps extends cdk.StackProps {
 export class GrootFinetuneStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GrootFinetuneStackProps) {
     super(scope, id, {
-      description: 'GR00T fine-tuning infrastructure (runtime/SageMaker ECR+CodeBuild, Studio, S3, MLflow)',
+      description: 'GR00T fine-tuning infrastructure (runtime ECR, SageMaker ECR+CodeBuild, Studio, S3, MLflow)',
       ...props,
     });
 
@@ -90,11 +87,11 @@ export class GrootFinetuneStack extends cdk.Stack {
     cdk.Tags.of(this).add('ManagedBy', 'CDK');
 
     // ---------- [0] CodeBuild 자동 트리거(startBuild) Lambda 의 역할 ----------
-    // 배포 시 StartBuild 는 런타임 빌드 하나만 한다. 학습 빌드는 런타임 빌드가 끝날 때 이어서 시작한다
-    // (codebuild-infra.ts `nextBuild`). 두 빌드를 동시에 시작하면 새 계정(Workshop Studio 이벤트 계정)의
-    // CodeBuild 한도 "Cannot have more than 1 builds in queue for the account" 에 걸려 스택이 롤백된다.
+    // 배포 시 StartBuild 는 학습 이미지 빌드 하나만 한다. 새 계정(Workshop Studio 이벤트 계정)의
+    // CodeBuild 한도는 "Cannot have more than 1 builds in queue for the account" 라서 둘 이상을
+    // 동시에 시작하면 스택이 롤백된다 — 런타임 이미지를 CodeBuild 에서 빼낸 이유 중 하나.
     // 권한은 inlinePolicies 로 넣는다 — 별도 AWS::IAM::Policy 는 전파 전에 Lambda 가 호출될 수 있다
-    // (codebuild-infra.ts 주석 참고). 프로젝트 이름은 고정 문자열이라 ARN 을 먼저 만들 수 있다.
+    // (sm-codebuild-projects.ts 주석 참고). 프로젝트 이름은 고정 문자열이라 ARN 을 먼저 만들 수 있다.
     const buildTriggerRole = new iam.Role(this, 'BuildTriggerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -106,7 +103,7 @@ export class GrootFinetuneStack extends cdk.Stack {
             new iam.PolicyStatement({
               actions: ['codebuild:StartBuild'],
               resources: [
-                this.formatArn({ service: 'codebuild', resource: 'project', resourceName: RUNTIME_BUILD_PROJECT }),
+                this.formatArn({ service: 'codebuild', resource: 'project', resourceName: SM_TRAINING_BUILD_PROJECT }),
               ],
             }),
           ],
@@ -115,9 +112,8 @@ export class GrootFinetuneStack extends cdk.Stack {
     });
 
     // ---------- [1] SageMaker training ECR + CodeBuild ----------
-    // 모듈 4 SageMaker Training Job 이 쓰는 groot-sm-training 이미지. 런타임 빌드가 끝나면 이어서
-    // 빌드되어(~30~40분) 참가자가 모듈 3 §3.4 에서 상태만 확인하면 된다. 런타임 construct 가 이
-    // 프로젝트를 참조하므로 먼저 만든다.
+    // 모듈 4 SageMaker Training Job 이 쓰는 groot-sm-training 이미지. 배포 시 자동으로 빌드되어
+    // (~30~40분) 참가자가 모듈 3 §3.4 에서 상태만 확인하면 된다.
     const smEcr = new TrainingEcr(this, 'SmEcr', {
       trainingRepoName: SM_TRAINING_REPO_NAME,
     });
@@ -131,20 +127,14 @@ export class GrootFinetuneStack extends cdk.Stack {
       role: smCodeBuildRole.role,
       trainingRepository: smEcr.trainingRepository,
       repositoryUrl: props.repositoryUrl ?? '',
+      triggerRole: buildTriggerRole,
     });
     smCodeBuild.node.addDependency(smEcr);
 
-    // ---------- [2] GR00T 런타임 ECR + CodeBuild (배포 시 자동 시작 → 학습 빌드로 체인) ----------
-    // 모듈 2의 Greengrass 추론과 모듈 3/5의 Policy Server가 공유하는 groot-runtime 이미지.
+    // ---------- [2] GR00T 런타임 ECR ----------
+    // 모듈 2의 Greengrass 추론과 모듈 3/5/6의 Policy Server가 공유하는 groot-runtime 이미지의 푸시 대상.
+    // 이미지는 GPU 워크스테이션(personal 프로필)에서 assets/build_runtime_image.sh 가 빌드해 푸시한다.
     const runtimeEcr = new EcrRepo(this, 'BatchEcr');
-    const runtimeCodeBuild = new CodeBuildInfra(this, 'BatchCodeBuild', {
-      repository: runtimeEcr.repository,
-      useStableGroot: props.useStableGroot,
-      grootVersion: props.grootVersion,
-      triggerRole: buildTriggerRole,
-      nextBuild: { project: smCodeBuild.trainingProject, assetHash: smCodeBuild.sourceAsset?.assetHash },
-    });
-    runtimeCodeBuild.node.addDependency(runtimeEcr);
 
     // ---------- [3] S3 아티팩트 버킷 ----------
     const artifactsBucket = new ArtifactsBucket(this, 'ArtifactsBucket', {
@@ -242,10 +232,6 @@ export class GrootFinetuneStack extends cdk.Stack {
       value: runtimeEcr.repository.repositoryName,
       description: 'GR00T runtime ECR repository name',
       exportName: `${this.stackName}-RuntimeEcrName`,
-    });
-    new cdk.CfnOutput(this, 'RuntimeCodeBuildProjectName', {
-      value: runtimeCodeBuild.project.projectName,
-      description: 'GR00T runtime CodeBuild project name',
     });
     new cdk.CfnOutput(this, 'SmTrainingEcrName', {
       value: smEcr.trainingRepository.repositoryName,

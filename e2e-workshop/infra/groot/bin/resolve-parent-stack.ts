@@ -115,7 +115,6 @@ if (require.main === module) {
         ...required,
         ...(fsxFileSystemId ? { fsxFileSystemId } : {}),
         region,
-        useStableGroot: 'true',
       });
       console.log('Resolved parameters:');
       console.log(`  vpcId:              ${params.vpcId}`);

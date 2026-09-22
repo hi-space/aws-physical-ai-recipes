@@ -236,8 +236,8 @@ if [ "$ECR_EXISTS" = "yes" ]; then
   echo "   Image already in ECR: $ECR_IMAGE (skipping)"
 else
   echo "   Building groot-runtime-trt (FROM groot-runtime + thin TRT/onnx layer)..."
-  # Base = the GR00T runtime image built by Module 3 (GrootFinetune CDK -> groot-runtime-build).
-  docker pull "$RUNTIME_BASE" || { echo "   ERROR: base image not found: $RUNTIME_BASE"; echo "   Run Module 3 first to build the groot-runtime image."; exit 1; }
+  # Base = the GR00T runtime image built on this workstation in Module 1/2 (infra/groot/assets/build_runtime_image.sh).
+  docker pull "$RUNTIME_BASE" || { echo "   ERROR: base image not found: $RUNTIME_BASE"; echo "   Build it first: ~/aws-physical-ai-recipes/e2e-workshop/infra/groot/assets/build_runtime_image.sh"; exit 1; }
 
   BUILD_DIR="/tmp/groot-runtime-trt-build"
   rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"

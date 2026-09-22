@@ -10,7 +10,6 @@
  *
  * 사용 예시:
  *   npm run deploy                        # GrootFinetune-<ACCOUNT_ID> 배포
- *   npx cdk deploy -c grootVersion=n1.7   # GR00T N1.7 런타임 이미지
  *   npx cdk deploy -c profile=workshop-studio   # Workshop Studio 계정
  *   npx cdk deploy -c enableS3Files=false       # 아티팩트 버킷 S3 Files 마운트 생략
  */
@@ -33,8 +32,6 @@ async function main() {
     throw new Error('계정 ID를 확정할 수 없습니다. AWS 자격증명을 설정하세요.');
   }
 
-  const useStableGroot = (app.node.tryGetContext('useStableGroot') ?? 'true') === 'true';
-  const grootVersion = app.node.tryGetContext('grootVersion') ?? 'n1.6';
   const repositoryUrl = app.node.tryGetContext('repositoryUrl') ?? '';
   const profile = parseDeploymentProfile(app.node.tryGetContext('profile'));
   // 아티팩트 버킷 S3 Files 파일시스템 (기본 on). DCV 가 /mnt/s3/groot 로 마운트한다.
@@ -78,8 +75,6 @@ async function main() {
     fsxFileSystemId,
     enableS3Files,
     vpcCidr,
-    useStableGroot,
-    grootVersion,
     repositoryUrl,
     profile,
   });

@@ -1,7 +1,9 @@
 version: 0.2
 
-# Build specification for GR00T fine-tuning container
-# This buildspec is used by AWS CodeBuild to build and push the Docker image to ECR
+# Build specification for the GR00T runtime container (groot-runtime).
+# Kept for building this image in AWS CodeBuild by hand (the workshop stack no longer creates a
+# CodeBuild project for it). The workshop path builds the image on the GPU workstation with
+# build_runtime_image.sh instead.
 
 phases:
   pre_build:
@@ -77,12 +79,6 @@ phases:
       # Write image URI to file for easy retrieval
       - echo $IMAGE_URI > image_uri.txt
       - echo "Build completed on $(date)"
-
-      # Chain the next build (the SageMaker training image, groot-sm-training-build).
-      # NEXT_BUILD_PROJECT is only set by the stack's deploy-time trigger (environmentVariablesOverride),
-      # so manual re-runs of this project do not start it. Starting both builds at deploy time fails in
-      # new accounts ("Cannot have more than 1 builds in queue for the account"), so they run back to back.
-      - 'if [ -n "${NEXT_BUILD_PROJECT:-}" ]; then echo "Starting next build: ${NEXT_BUILD_PROJECT}"; aws codebuild start-build --project-name "${NEXT_BUILD_PROJECT}" --region "${AWS_DEFAULT_REGION}" --query "build.id" --output text; fi'
 
 # Artifacts to export (optional, for reference)
 artifacts:
