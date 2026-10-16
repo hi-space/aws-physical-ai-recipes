@@ -112,6 +112,18 @@ if ! which kubectl > /dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
+# 1.8. Helm 설치
+#      hyperpod-training/scripts/eks/install-observability.sh 가 Grafana 차트를
+#      `helm upgrade --install` 로 올린다(기본 self-hosted 모드). 공식 설치 스크립트는
+#      최신 안정판을 /usr/local/bin 에 넣는다. 실패해도 부팅은 멈추지 않는다.
+# -----------------------------------------------------------------------------
+if ! which helm > /dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o /tmp/get-helm-3 \
+    && chmod 700 /tmp/get-helm-3 && /tmp/get-helm-3 > /dev/null 2>&1; rm -f /tmp/get-helm-3
+  echo "Helm 설치: $(helm version --short 2>/dev/null || echo '실패 — install-observability.sh 전에 수동 설치 필요')"
+fi
+
+# -----------------------------------------------------------------------------
 # 2. 패키지 인덱스 갱신
 #    전체 upgrade는 하지 않는다 — DLAMI는 이미 최신에 가깝고, 전체 업그레이드는
 #    5~15분을 소모하는 데 비해 워크샵 수명(수 시간) 동안 얻는 것이 없다.

@@ -3,11 +3,12 @@
 # grafana-user.sh — IAM Identity Center 사용자에게 HyperPod Grafana 워크스페이스 ADMIN 권한 부여 (모듈 8 amg 옵션 / 모듈 11)
 #
 # 사용법:
-#   ./scripts/eks/grafana-user.sh <identity-center-username> [--role ADMIN|EDITOR|VIEWER] [--region <region>]
+#   ./scripts/eks/grafana-user.sh <identity-center-username> [--role ADMIN|EDITOR|VIEWER]
+#                                 [--region <region>] [--cluster <eks-cluster-name>]
 #
-# Amazon Managed Grafana 는 IAM 자격증명이 아니라 IAM Identity Center 사용자로 로그인한다. CDK 가 만든
-# 워크스페이스(HyperPodEks-<ACCOUNT_ID>)에는 아직 아무 사용자도 없으므로, 본인 Identity Center 사용자를
-# 여기서 한 번 할당한 뒤 스택 Output GrafanaUrl 로 로그인한다.
+# Amazon Managed Grafana 는 IAM 자격증명이 아니라 IAM Identity Center 사용자로 로그인한다.
+# `install-observability.sh --grafana amg` 가 만든 워크스페이스(이름 = EKS 클러스터 이름)에는 아직 아무
+# 사용자도 없으므로, 본인 Identity Center 사용자를 여기서 한 번 할당한 뒤 출력된 URL 로 로그인한다.
 # =============================================================================
 set -euo pipefail
 
@@ -16,28 +17,34 @@ USERNAME="${1:-}"
 shift || true
 ROLE="ADMIN"
 REGION=""
+CLUSTER_NAME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --role) ROLE="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
+    --cluster) CLUSTER_NAME="$2"; shift 2 ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 1 ;;
   esac
 done
 if [[ -z "$USERNAME" ]]; then
-  echo "사용법: $0 <identity-center-username> [--role ADMIN|EDITOR|VIEWER] [--region <region>]" >&2
+  echo "사용법: $0 <identity-center-username> [--role ADMIN|EDITOR|VIEWER] [--region <region>] [--cluster <name>]" >&2
   exit 1
 fi
 if [[ -z "$REGION" ]]; then
   REGION="${WORKSHOP_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
 fi
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
+[[ -n "$CLUSTER_NAME" ]] || CLUSTER_NAME="hyperpod-eks-${ACCOUNT_ID}"
 
-WORKSPACE_ID="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='GrafanaWorkspaceId'].OutputValue" --output text)"
-GRAFANA_URL="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='GrafanaUrl'].OutputValue" --output text)"
-[[ -n "$WORKSPACE_ID" && "$WORKSPACE_ID" != "None" ]] || { echo "스택 ${STACK} 에 GrafanaWorkspaceId Output 이 없습니다 (enableObservability=false?)." >&2; exit 1; }
+WORKSPACE_ID="$(aws grafana list-workspaces --region "$REGION" \
+  --query "workspaces[?name=='${CLUSTER_NAME}'].id | [0]" --output text 2>/dev/null || true)"
+[[ -n "$WORKSPACE_ID" && "$WORKSPACE_ID" != "None" ]] || {
+  echo "Grafana 워크스페이스 '${CLUSTER_NAME}' 을 ${REGION} 에서 찾지 못했습니다." >&2
+  echo "먼저 ./scripts/eks/install-observability.sh --grafana amg 를 실행하세요." >&2
+  exit 1
+}
+GRAFANA_URL="https://$(aws grafana describe-workspace --region "$REGION" --workspace-id "$WORKSPACE_ID" \
+  --query workspace.endpoint --output text)"
 
 # Identity Center 인스턴스는 계정당 하나이며 리전이 다를 수 있다(홈 리전). 모든 리전을 뒤지지 않고
 # sso-admin 이 어디에 있든 list-instances 는 글로벌 결과를 돌려준다.

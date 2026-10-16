@@ -3,7 +3,6 @@ import { execSync } from 'child_process';
 import * as cdk from 'aws-cdk-lib';
 import { HyperPodStack } from '../lib/hyperpod-stack';
 import { HyperPodEksStack } from '../lib/hyperpod-eks-stack';
-import { GRAFANA_MODES, GrafanaMode } from '../lib/constructs/observability';
 import { DEFAULT_EKS_VERSION, SUPPORTED_EKS_VERSIONS } from '../lib/constructs/eks-control-plane';
 import { parseDeploymentProfile } from '../lib/config/deployment-profile';
 
@@ -95,17 +94,12 @@ const accountSuffix = accountId ? `-${accountId}` : '';
 if (orchestrator === 'eks') {
   // 두 프로필 모두 배포한다. workshop-studio 이벤트 계정은 GPU cluster 쿼터가 0이므로 GPU 그룹은 0대로 두고
   // 상시 시스템 노드(ml.c5.4xlarge)에서 MuJoCo CPU 경로(모듈 9~10)로 학습·검증하고, 모듈 11에서 2대로 올려 거버넌스·관측 실습을 진행한다.
-  // Grafana 는 self-hosted 기본값을 유지한다(AMG 는 IAM Identity Center 조직 인스턴스가 필요해 이벤트 계정에서 만들 수 없다).
+  // 관측(AMP + Grafana + observability 애드온)은 리전마다 애드온 제공 여부가 달라 이 스택에 넣지 않고
+  // 배포 후 scripts/eks/install-observability.sh 로 추가 설치한다.
   const eksVersion = String(app.node.tryGetContext('eksVersion') ?? DEFAULT_EKS_VERSION);
   const systemNodeCount = parseInt(app.node.tryGetContext('systemNodeCount') ?? '1', 10);
-  const enableObservability = (app.node.tryGetContext('enableObservability') ?? 'true') === 'true';
   const enableTaskGovernance = (app.node.tryGetContext('enableTaskGovernance') ?? 'true') === 'true';
   const deepHealthChecks = (app.node.tryGetContext('deepHealthChecks') ?? 'false') === 'true';
-  // Grafana: self-hosted(기본, port-forward) | amg(IAM Identity Center 조직 인스턴스 필요) | none
-  const grafanaMode = (app.node.tryGetContext('grafanaMode') ?? 'self-hosted') as GrafanaMode;
-  if (!GRAFANA_MODES.includes(grafanaMode)) {
-    throw new Error(`grafanaMode는 ${GRAFANA_MODES.join(' | ')} 중 하나여야 합니다: '${grafanaMode}'`);
-  }
   const extraAdmins = String(app.node.tryGetContext('eksAdminArns') ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   const caller = resolveCallerPrincipalArn();
@@ -132,9 +126,7 @@ if (orchestrator === 'eks') {
     gpuCount,
     systemNodeCount,
     fsxCapacityGiB,
-    enableObservability,
     enableTaskGovernance,
-    grafanaMode,
     deepHealthChecks,
   });
 } else {

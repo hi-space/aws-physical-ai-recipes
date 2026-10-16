@@ -194,9 +194,10 @@ sbatch slurm-templates/debug/dcv_session_cpu.sbatch  # SSM 포트포워딩 + 뷰
 넘어간 두 운영 축을 실제로 쓴다.
 
 - **Observability** — EKS 애드온 `amazon-sagemaker-hyperpod-observability` + Amazon Managed Service for
-  Prometheus(AMP) + Grafana. CDK가 AMP 워크스페이스·애드온·Grafana(기본: 클러스터 안 Helm 설치, AMP를 SigV4로
-  읽음)를 만들어 GPU·노드·Kueue 대시보드가 바로 보인다. IAM Identity Center 조직 인스턴스가 있는 계정은
-  `-c grafanaMode=amg`로 Amazon Managed Grafana를 대신 쓸 수 있다.
+  Prometheus(AMP) + Grafana. 이 애드온은 리전마다 제공 여부가 달라 CDK 스택에 넣지 않고, 배포 후
+  `./scripts/eks/install-observability.sh`로 AMP 워크스페이스·애드온·Grafana(기본: 클러스터 안 Helm 설치,
+  AMP를 SigV4로 읽음)를 한 번에 추가 설치한다. IAM Identity Center 조직 인스턴스가 있는 계정은
+  `--grafana amg`로 Amazon Managed Grafana를 대신 쓸 수 있다.
 - **Task governance** — EKS 애드온 `amazon-sagemaker-hyperpod-taskgovernance`(Kueue). cluster policy(우선순위
   클래스)와 팀별 compute quota를 CLI로 만들면 팀 네임스페이스·LocalQueue가 자동 생성되고, Job은 큐를 거쳐
   할당량·우선순위에 따라 실행·대기·선점된다.
@@ -207,14 +208,15 @@ sbatch slurm-templates/debug/dcv_session_cpu.sbatch  # SSM 포트포워딩 + 뷰
 │   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin,    │
 │   Kubeflow training/MPI operator                                   │
 │   애드온: pod-identity-agent, aws-fsx-csi-driver,                  │
-│           hyperpod-observability, hyperpod-taskgovernance(Kueue)   │
+│           hyperpod-taskgovernance(Kueue)                           │
+│           (+ hyperpod-observability: install-observability.sh)     │
 ├────────────────────────────────────────────────────────────────────┤
 │ HyperPod 인스턴스 그룹 (NodeProvisioningMode: Continuous)          │
 │  ├─ cpu-c5-4x  (ml.c5.4xlarge) ×1 상시 — 애드온 파드 + MuJoCo CPU  │
 │  └─ gpu-g5-8x  (ml.g5.8xlarge) ×0 — Isaac Lab RL (scale-cluster.sh)│
 ├────────────────────────────────────────────────────────────────────┤
 │ FSx for Lustre (/fsx, CSI 정적 PV) ↔ S3 hyperpod-eks-data-…        │
-│ AMP 워크스페이스 → Grafana (in-cluster, port-forward | AMG 옵션)   │
+│ AMP 워크스페이스 → Grafana (추가 설치, port-forward | AMG 옵션)    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -236,24 +238,43 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `eksVersion` | `1.35` | Kubernetes 버전(`1.34` 또는 `1.35`). 상한은 EKS가 아니라 HyperPod EKS AMI가 정한다 — AMI 1.3.x는 1.30~1.35용으로만 빌드되어 1.36+ 클러스터에는 노드가 조인하지 못한다. 하한은 task governance 애드온의 Kueue 0.19가 요구하는 `resource.k8s.io/v1`(1.34+)이다 |
 | `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
-| `enableObservability` | true | AMP + Grafana + observability 애드온 |
-| `grafanaMode` | `self-hosted` | `self-hosted` = 클러스터 안 Grafana(Helm, `kubectl port-forward`, 서브패스 `/absproxy/3000/` = code-server absproxy 경로), `amg` = Amazon Managed Grafana(IAM Identity Center **조직** 인스턴스 필요 — 계정 인스턴스는 "SSO is not enabled" 로 실패), `none` |
-| `enableTaskGovernance` | true | task governance 애드온 |
+| `enableTaskGovernance` | true | task governance 애드온. observability 는 스택이 아니라 `scripts/eks/install-observability.sh` 로 추가 설치한다 |
 | `deepHealthChecks` | false | GPU 그룹 `OnStartDeepHealthChecks`(InstanceStress, InstanceConnectivity). 켜면 노드 기동이 길어진다 |
+| `enableMlflow` | false | (옵션) 관리형 MLflow 실험 추적 서버. 켜면 학습 파드용 pod identity(네임스페이스 `rl`, `hyperpod-ns-team-a/b` 의 `default` ServiceAccount)와 `MlflowTrackingUri` Output 까지 함께 만든다. 서버는 상시 과금이다 |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Slurm과 동일 | |
 
-주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `AmpWorkspaceId`, `GrafanaAccess`(self-hosted) 또는
-`GrafanaUrl`/`GrafanaWorkspaceId`(amg), `S3BucketName`, `FsxFileSystemId`/`FsxDnsName`/`FsxMountName`.
+주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `S3BucketName`,
+`FsxFileSystemId`/`FsxDnsName`/`FsxMountName`,
+`MlflowTrackingUri`/`MlflowPresignedUrlCommand`(`enableMlflow=true` 일 때).
+
+`enableMlflow=true` 로 배포하면 `render.sh` 가 `MlflowTrackingUri` Output 을 읽어
+`rl/isaaclab-train-job.yaml` 의 `MLFLOW_TRACKING_URI` 를 자동으로 채운다. Slurm 경로와 달리 EKS
+파드는 노드 execution role 을 물려받지 못하고 인스턴스 메타데이터 서비스(IMDS)도 막혀 있어 pod
+identity 가 유일한 자격증명 경로다. MLflow 패키지도 컨테이너에 없으므로 Job 시작 시
+`mlflow-skinny` + `sagemaker-mlflow` 를 설치한다(전체 `mlflow` 는 numpy 2 를 끌어와 Isaac Sim 의
+numpy 1.26 빌드를 깬다). MLflow UI 는 `MlflowPresignedUrlCommand` Output 의 명령으로 presigned URL
+을 만들어 연다.
 
 ### 배포 후
 
 ```bash
 cd hyperpod-training
 ./scripts/eks/kubeconfig.sh                       # kubectl 컨텍스트 hyperpod-eks + 노드/애드온 확인
+./scripts/eks/install-observability.sh            # AMP + observability 애드온 + Grafana (~5분)
 kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → https://<CodeServerUrl>/absproxy/3000/ 또는 http://localhost:3000/absproxy/3000/ (admin / Secret grafana 의 admin-password)
 kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
-# grafanaMode=amg 인 경우: ./scripts/eks/grafana-user.sh <IdC-username>  → Output GrafanaUrl 로 로그인
+# Amazon Managed Grafana 를 쓰려면: ./scripts/eks/install-observability.sh --grafana amg
+#                                   ./scripts/eks/grafana-user.sh <IdC-username>  → 출력된 URL 로 로그인
 ```
+
+`install-observability.sh` 는 애드온이 그 리전에 있는지(`aws eks describe-addon-versions`) 먼저 확인하고
+없으면 대안(`kubectl top`, CloudWatch Container Insights)을 안내하며 종료한다. 2026-10-16 실측으로
+`amazon-sagemaker-hyperpod-observability` 는 us-east-1 / us-east-2 / us-west-2 / eu-west-1 /
+eu-central-1 / ap-northeast-1 / ap-southeast-1 / ap-southeast-2 / ap-south-1 에 있고 ap-northeast-2(서울)에는
+없다. task governance(Kueue) 애드온은 모든 리전에 있어 영향이 없다. 관측을 CDK 스택에서 분리한 이유는,
+미지원 리전에서 `CreateAddon` 이 거부되면 CloudFormation 이 스택 전체를 롤백해 VPC·FSx·HyperPod
+클러스터까지 함께 되돌리기 때문이다(에러 문구는 Kubernetes 버전을 가리키지만 실제 원인은 리전이라
+`eksVersion` 을 낮춰도 똑같이 실패한다).
 
 ### Job 제출 (k8s-templates)
 
@@ -295,6 +316,8 @@ kubectl get workloads -A
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (train_mujoco.sbatch 대응), 정책 검증 영상 (play_mujoco.sbatch 대응) |
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana(AMG) 사용자 · 정책 생성/삭제 |
+| `scripts/eks/install-observability.sh` · `delete-observability.sh` | AMP + observability 애드온 + Grafana 추가 설치/삭제 (리전 지원 여부를 먼저 확인). CDK 밖이므로 `cdk destroy` 로는 지워지지 않는다 |
+| `eks/grafana-values.yaml` | in-cluster Grafana Helm values 템플릿 (`install-observability.sh` 가 envsubst 로 채운다) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
 | `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle. CPU 노드는 진단 로그만(kubelet/plugin은 HyperPod·Helm이 처리). GPU 노드는 `setup_nvidia_driver.sh`(Isaac Sim 렌더링용 580 드라이버) + `setup_dcv_al2023.sh`(AL2023 GNOME + DCV, 세션 `workspace`, ec2-user/hyperpod)를 추가 실행 (모듈 10 §10.7 방법 B) |
 | `lifecycle-scripts/setup_dcv_al2023.sh` | Amazon Linux 2023(EKS AMI)용 DCV 설치. Slurm AMI(Ubuntu)의 `setup_dcv.sh`에 해당하며 Docker 는 설치하지 않는다 |
@@ -306,6 +329,7 @@ kubectl get workloads -A
 
 ```bash
 ./scripts/eks/delete-governance.sh                                   # compute quota → cluster policy (남아 있으면 클러스터 삭제가 막힌다)
+./scripts/eks/delete-observability.sh                                # AMP·Grafana·애드온 (CDK 밖이라 destroy 로 안 지워진다. AMP 는 비어 있어도 과금)
 ./scripts/scale-cluster.sh gpu-g5-8x 0 --cluster hyperpod-eks-<ACCOUNT_ID>
 aws s3 rm s3://hyperpod-eks-data-<ACCOUNT_ID>-<REGION> --recursive
 cd infra && npx cdk destroy -c orchestrator=eks -c region=${REGION} --force   # ~25분

@@ -38,18 +38,23 @@ spec:
         - name: train
           image: nvcr.io/nvidia/isaac-lab:2.3.0
           imagePullPolicy: IfNotPresent
-          command: ["/isaac-sim/python.sh"]
+          command: ["bash", "-ceu"]
           args:
-            - /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/train_isaaclab.py
-            - --task
-            - "${TASK}"
-            - --num_envs
-            - "${NUM_ENVS}"
-            - --max_iterations
-            - "${MAX_ITERATIONS}"
-            - --log_dir
-            - /fsx/checkpoints/rl
-            - --headless
+            - |
+              # MLFLOW_TRACKING_URI 가 채워져 있으면 추적 패키지를 먼저 설치한다. isaac-lab 이미지에는
+              # isaaclab / isaaclab_rl / rsl_rl 만 있고 mlflow 는 없다. 전체 mlflow 대신 mlflow-skinny 를
+              # 쓰는 이유는 전체 패키지가 numpy/pandas 를 끌어올려 Isaac Sim 의 numpy 1.26 빌드를 깨기 때문이다.
+              if [ -n "${MLFLOW_TRACKING_URI:-}" ]; then
+                /isaac-sim/python.sh -c 'import mlflow, sagemaker_mlflow' 2>/dev/null ||
+                  /isaac-sim/python.sh -m pip install --no-cache-dir -q mlflow-skinny sagemaker-mlflow
+              fi
+              exec /isaac-sim/python.sh \
+                /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/train_isaaclab.py \
+                --task "${TASK}" \
+                --num_envs "${NUM_ENVS}" \
+                --max_iterations "${MAX_ITERATIONS}" \
+                --log_dir /fsx/checkpoints/rl \
+                --headless
           env:
             - name: ACCEPT_EULA
               value: "Y"
@@ -65,9 +70,11 @@ spec:
               value: "1"
             - name: GIT_PYTHON_REFRESH
               value: quiet
-            # SageMaker 관리형 MLflow 를 쓰려면 tracking server ARN 을 넣는다 (비우면 비활성).
+            # SageMaker 관리형 MLflow 의 tracking server ARN. render.sh 가 HyperPodEks 스택의
+            # MlflowTrackingUri Output 에서 읽어 채우고, Output 이 없으면(enableMlflow=false)
+            # 빈 값으로 남아 MLflow 추적이 비활성화된다.
             - name: MLFLOW_TRACKING_URI
-              value: ""
+              value: "${MLFLOW_TRACKING_URI}"
             - name: MLFLOW_EXPERIMENT_NAME
               value: isaaclab-rl
           resources:

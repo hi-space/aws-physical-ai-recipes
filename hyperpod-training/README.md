@@ -194,9 +194,10 @@ stack `HyperPodEks-<ACCOUNT_ID>` (cluster `hyperpod-eks-<ACCOUNT_ID>`) alongside
 actual use the two operational pillars that the Slurm path only introduced.
 
 - **Observability** — the EKS add-on `amazon-sagemaker-hyperpod-observability` plus Amazon Managed Service for
-  Prometheus (AMP) and Grafana. CDK creates the AMP workspace, the add-on, and Grafana (default: in-cluster Helm
-  install, reading AMP via SigV4), so GPU/node/Kueue dashboards are immediately available. Accounts with an
-  IAM Identity Center organization instance can use `-c grafanaMode=amg` to use Amazon Managed Grafana instead.
+  Prometheus (AMP) and Grafana. Add-on availability varies by region, so this is not part of the CDK stack:
+  run `./scripts/eks/install-observability.sh` after deployment to create the AMP workspace, the add-on, and
+  Grafana (default: in-cluster Helm install, reading AMP via SigV4) in one go. Accounts with an IAM Identity
+  Center organization instance can pass `--grafana amg` to use Amazon Managed Grafana instead.
 - **Task governance** — the EKS add-on `amazon-sagemaker-hyperpod-taskgovernance` (Kueue). Once you create a
   cluster policy (priority classes) and per-team compute quotas via CLI, team namespaces and LocalQueues are
   created automatically, and Jobs pass through the queue to run, wait, or get preempted according to quota and priority.
@@ -207,14 +208,15 @@ actual use the two operational pillars that the Slurm path only introduced.
 │   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin,       │
 │   Kubeflow training/MPI operator                                      │
 │   Add-ons: pod-identity-agent, aws-fsx-csi-driver,                    │
-│           hyperpod-observability, hyperpod-taskgovernance(Kueue)      │
+│           hyperpod-taskgovernance(Kueue)                              │
+│           (+ hyperpod-observability: install-observability.sh)        │
 ├───────────────────────────────────────────────────────────────────────┤
 │ HyperPod instance groups (NodeProvisioningMode: Continuous)           │
 │  ├─ cpu-c5-4x  (ml.c5.4xlarge) ×1 always on — add-on pods + MuJoCo CPU│
 │  └─ gpu-g5-8x  (ml.g5.8xlarge) ×0 — Isaac Lab RL (scale-cluster.sh)   │
 ├───────────────────────────────────────────────────────────────────────┤
 │ FSx for Lustre (/fsx, static PV via CSI) ↔ S3 hyperpod-eks-data-…     │
-│ AMP workspace → Grafana (in-cluster, port-forward | AMG option)       │
+│ AMP workspace → Grafana (added separately, port-forward | AMG option) │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -236,24 +238,45 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `eksVersion` | `1.35` | Kubernetes version (`1.34` or `1.35`). The upper bound comes from the HyperPod EKS AMI, not EKS: AMI 1.3.x is only built for 1.30-1.35, so nodes cannot join a 1.36+ cluster. The lower bound is the task governance add-on's Kueue 0.19, which requires `resource.k8s.io/v1` (1.34+) |
 | `eksAdminArns` | (deployer) | Comma-separated IAM principal ARNs to grant additional cluster admin access entries. The deployer is auto-included via `aws sts get-caller-identity` |
 | `systemNodeCount` | 1 | Number of always-on system nodes (cpu-c5-4x). Add-ons only install once at least one node (4xlarge or larger) exists |
-| `enableObservability` | true | AMP + Grafana + observability add-on |
-| `grafanaMode` | `self-hosted` | `self-hosted` = in-cluster Grafana (Helm, `kubectl port-forward`, subpath `/absproxy/3000/` = the code-server absproxy path), `amg` = Amazon Managed Grafana (requires an IAM Identity Center **organization** instance — account instances fail with "SSO is not enabled"), `none` |
-| `enableTaskGovernance` | true | task governance add-on |
+| `enableTaskGovernance` | true | task governance add-on. Observability is not part of the stack — install it with `scripts/eks/install-observability.sh` |
 | `deepHealthChecks` | false | `OnStartDeepHealthChecks` for the GPU group (InstanceStress, InstanceConnectivity). Turning it on lengthens node startup |
+| `enableMlflow` | false | (optional) Managed MLflow tracking server. Also creates pod identity for training pods (the `default` ServiceAccount in namespaces `rl` and `hyperpod-ns-team-a/b`) and the `MlflowTrackingUri` output. The server bills continuously |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Same as Slurm | |
 
-Key outputs: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `AmpWorkspaceId`, `GrafanaAccess`(self-hosted) or
-`GrafanaUrl`/`GrafanaWorkspaceId`(amg), `S3BucketName`, `FsxFileSystemId`/`FsxDnsName`/`FsxMountName`.
+Key outputs: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `S3BucketName`,
+`FsxFileSystemId`/`FsxDnsName`/`FsxMountName`,
+and `MlflowTrackingUri`/`MlflowPresignedUrlCommand` when `enableMlflow=true`.
+
+With `enableMlflow=true`, `render.sh` reads the `MlflowTrackingUri` output and fills in
+`MLFLOW_TRACKING_URI` in `rl/isaaclab-train-job.yaml`. Unlike the Slurm path, EKS pods do not inherit
+the node execution role and the Instance Metadata Service (IMDS) is blocked, so pod identity is the
+only credential path. The MLflow packages are also absent from the container, so the Job installs
+`mlflow-skinny` + `sagemaker-mlflow` at startup (the full `mlflow` pulls in numpy 2, which breaks
+Isaac Sim's numpy 1.26 build). Open the MLflow UI with the command in the
+`MlflowPresignedUrlCommand` output.
 
 ### After Deployment
 
 ```bash
 cd hyperpod-training
 ./scripts/eks/kubeconfig.sh                       # sets kubectl context to hyperpod-eks + checks nodes/add-ons
+./scripts/eks/install-observability.sh            # AMP + observability add-on + Grafana (~5 min)
 kubectl port-forward -n grafana svc/grafana 3000:80 &   # Grafana → https://<CodeServerUrl>/absproxy/3000/ or http://localhost:3000/absproxy/3000/ (admin / the admin-password in the grafana Secret)
 kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
-# For grafanaMode=amg: ./scripts/eks/grafana-user.sh <IdC-username>  → log in with the GrafanaUrl output
+# To use Amazon Managed Grafana: ./scripts/eks/install-observability.sh --grafana amg
+#                                ./scripts/eks/grafana-user.sh <IdC-username>  → log in with the printed URL
 ```
+
+`install-observability.sh` first checks whether the add-on exists in the region
+(`aws eks describe-addon-versions`); if it does not, the script points at the alternatives
+(`kubectl top`, CloudWatch Container Insights) and exits. As measured on 2026-10-16,
+`amazon-sagemaker-hyperpod-observability` is available in us-east-1 / us-east-2 / us-west-2 /
+eu-west-1 / eu-central-1 / ap-northeast-1 / ap-southeast-1 / ap-southeast-2 / ap-south-1, and is
+missing in ap-northeast-2 (Seoul). The task governance (Kueue) add-on is available in every region, so
+it is unaffected. Observability was split out of the CDK stack because when `CreateAddon` is rejected in
+an unsupported region, CloudFormation rolls back the entire stack — taking the VPC, FSx, and the
+HyperPod cluster with it (the error text points at the Kubernetes version, but the real cause is the
+region, so lowering `eksVersion` fails the same way).
 
 ### Submitting Jobs (k8s-templates)
 
@@ -295,6 +318,8 @@ kubectl get workloads -A
 | `k8s-templates/rl/mujoco-setup-job.yaml`, `mujoco-train-job.yaml`, `mujoco-render-job.yaml` | `/fsx/envs/mujoco` venv + SB3 PPO on ml.c5.4xlarge (corresponds to train_mujoco.sbatch), policy verification video (corresponds to play_mujoco.sbatch) |
 | `k8s-templates/governance/*.json` | Inputs for cluster policy, team-a/team-b compute quota |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | Access · Grafana(AMG) user · policy create/delete |
+| `scripts/eks/install-observability.sh` · `delete-observability.sh` | Installs/removes AMP + the observability add-on + Grafana after deployment (checking region support first). Outside CDK, so `cdk destroy` does not remove it |
+| `eks/grafana-values.yaml` | Helm values template for the in-cluster Grafana (`install-observability.sh` fills it in with envsubst) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Dashboards for Kueue waiting/running/preemption, ClusterQueue allocation/borrowing, DCGM GPU utilization (provisioned into self-hosted Grafana) |
 | `lifecycle-scripts/on_create_eks.sh` | EKS node lifecycle. CPU nodes: diagnostic logging only (kubelet/plugins are handled by HyperPod/Helm). GPU nodes additionally run `setup_nvidia_driver.sh` (580 driver for Isaac Sim rendering) and `setup_dcv_al2023.sh` (AL2023 GNOME + DCV, session `workspace`, ec2-user/hyperpod) for workshop module 10 §10.7 method B |
 | `lifecycle-scripts/setup_dcv_al2023.sh` | DCV install for Amazon Linux 2023 (the EKS AMI). Counterpart of the Slurm AMI's Ubuntu `setup_dcv.sh`; installs no Docker |
@@ -306,6 +331,7 @@ kubectl get workloads -A
 
 ```bash
 ./scripts/eks/delete-governance.sh                                   # compute quota → cluster policy (leaving these blocks cluster deletion)
+./scripts/eks/delete-observability.sh                                # AMP · Grafana · add-on (outside CDK, so destroy misses it; AMP bills even when empty)
 ./scripts/scale-cluster.sh gpu-g5-8x 0 --cluster hyperpod-eks-<ACCOUNT_ID>
 aws s3 rm s3://hyperpod-eks-data-<ACCOUNT_ID>-<REGION> --recursive
 cd infra && npx cdk destroy -c orchestrator=eks -c region=${REGION} --force   # ~25 min

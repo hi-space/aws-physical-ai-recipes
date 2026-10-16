@@ -4,8 +4,9 @@ import { Construct } from 'constructs';
 import { EksControlPlaneConstruct } from './constructs/eks-control-plane';
 import { HyperPodEksClusterConstruct } from './constructs/hyperpod-eks-cluster';
 import { FsxCsiConstruct } from './constructs/fsx-csi';
-import { GrafanaMode, ObservabilityConstruct } from './constructs/observability';
+import { MlflowConstruct } from './constructs/mlflow';
 import { StorageConstruct } from './constructs/storage';
+import { TaskGovernanceConstruct } from './constructs/task-governance';
 import {
   buildGpuGroups,
   CPU_TRAIN_INSTANCE_TYPE,
@@ -32,15 +33,22 @@ export interface HyperPodEksStackProps extends cdk.StackProps {
    */
   systemNodeCount: number;
   fsxCapacityGiB: number;
-  enableObservability: boolean;
   enableTaskGovernance: boolean;
-  /** self-hosted(기본) | amg | none — constructs/observability.ts GrafanaMode 참고. */
-  grafanaMode: GrafanaMode;
   deepHealthChecks: boolean;
 }
 
 /** 상시 시스템 노드 그룹 이름 (Slurm 경로의 cpu-c5-4x 와 같은 타입·이름). */
 export const SYSTEM_GROUP_NAME = 'cpu-c5-4x';
+
+/**
+ * MLflow pod identity 를 붙이는 네임스페이스.
+ *
+ * `rl` 은 k8s-templates/render.sh 의 NAMESPACE 기본값이고, hyperpod-ns-team-{a,b} 는
+ * task governance 가 compute quota 생성 시 만드는 팀 네임스페이스(scripts/eks/create-governance.sh,
+ * 모듈 11)다. 팀 네임스페이스는 배포 시점에 아직 없지만 association 은 네임스페이스 존재를
+ * 검증하지 않으므로 미리 만들어 둘 수 있다.
+ */
+const MLFLOW_NAMESPACES = ['rl', 'hyperpod-ns-team-a', 'hyperpod-ns-team-b'];
 
 /**
  * HyperPodEks-<ACCOUNT_ID>: EKS 오케스트레이션 HyperPod 스택 (RL 트랙 모듈 8–11).
@@ -115,31 +123,39 @@ export class HyperPodEksStack extends cdk.Stack {
     // 4. FSx CSI + 정적 PV
     new FsxCsiConstruct(this, 'FsxCsi', { eksCluster: controlPlane.cluster, podIdentityAgent });
 
-    // 5. Observability (AMP + AMG + 애드온) / Task governance 애드온
-    const observability = new ObservabilityConstruct(this, 'Observability', {
-      namePrefix,
-      eksCluster: controlPlane.cluster,
-      hyperpodCluster: hyperpod.clusterResource,
-      podIdentityAgent,
-      enableObservability: props.enableObservability,
-      enableTaskGovernance: props.enableTaskGovernance,
-      grafanaMode: props.grafanaMode,
-    });
+    // 5. Task governance 애드온 (Kueue). 관측(AMP + Grafana)은 리전 제공 여부가 달라 스택에 넣지 않고
+    //    배포 후 scripts/eks/install-observability.sh 로 추가 설치한다.
+    if (props.enableTaskGovernance) {
+      new TaskGovernanceConstruct(this, 'TaskGovernance', {
+        eksCluster: controlPlane.cluster,
+        hyperpodCluster: hyperpod.clusterResource,
+      });
+    }
+
+    // 6. MLflow (opt-in) — 기본은 FSx 의 TensorBoard 로그로 추적한다. `-c enableMlflow=true` 를 주면
+    //    관리형 tracking server 를 띄우고 학습 파드가 쓸 pod identity 까지 함께 만든다.
+    //    tracking server 는 상시 과금(Small ~$0.10/h)이므로 opt-in 으로 둔다.
+    const enableMlflow = (this.node.tryGetContext('enableMlflow') ?? 'false') === 'true';
+    if (enableMlflow) {
+      const mlflow = new MlflowConstruct(this, 'MLflow', {
+        namePrefix,
+        artifactBucket: storage.bucket,
+        podIdentity: {
+          clusterName: controlPlane.cluster.clusterName,
+          podIdentityAgent,
+          namespaces: MLFLOW_NAMESPACES,
+        },
+      });
+      // render.sh 가 이 Output 을 읽어 Job 템플릿의 MLFLOW_TRACKING_URI 를 채운다.
+      const uriOut = new cdk.CfnOutput(this, 'MlflowTrackingUri', {
+        value: mlflow.trackingUri,
+        description: 'MLflow tracking URI for training pods (k8s-templates/render.sh reads this)',
+      });
+      uriOut.overrideLogicalId('MlflowTrackingUri');
+    }
 
     new cdk.CfnOutput(this, 'EksClusterName', { value: controlPlane.cluster.clusterName, description: 'EKS cluster name' });
     new cdk.CfnOutput(this, 'KubeconfigCommand', { value: controlPlane.kubeconfigCommand, description: 'Configure kubectl for the HyperPod EKS cluster' });
-    if (observability.ampWorkspace) {
-      new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: observability.ampWorkspace.attrWorkspaceId, description: 'Amazon Managed Service for Prometheus workspace ID' });
-      new cdk.CfnOutput(this, 'AmpEndpoint', { value: observability.ampWorkspace.attrPrometheusEndpoint, description: 'AMP query/remote-write endpoint' });
-    }
-    new cdk.CfnOutput(this, 'GrafanaMode', { value: props.grafanaMode, description: 'self-hosted | amg | none' });
-    if (observability.grafanaWorkspace && observability.grafanaUrl) {
-      new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: observability.grafanaWorkspace.attrId, description: 'Amazon Managed Grafana workspace ID' });
-      new cdk.CfnOutput(this, 'GrafanaUrl', { value: observability.grafanaUrl, description: 'Grafana URL (sign in with an IAM Identity Center user assigned via scripts/eks/grafana-user.sh)' });
-    }
-    if (observability.grafanaAccessCommand) {
-      new cdk.CfnOutput(this, 'GrafanaAccess', { value: observability.grafanaAccessCommand, description: 'In-cluster Grafana: port-forward and admin password' });
-    }
     new cdk.CfnOutput(this, 'ClusterName', { value: hyperpod.clusterName, description: 'HyperPod cluster name (EKS orchestrated)' });
     new cdk.CfnOutput(this, 'ClusterArn', { value: hyperpod.clusterArn, description: 'HyperPod cluster ARN (task governance policies need it)' });
     new cdk.CfnOutput(this, 'S3BucketName', { value: storage.bucket.ref, description: 'Data S3 bucket (FSx DRA: datasets/, checkpoints/, enroot/)' });

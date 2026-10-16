@@ -1,0 +1,98 @@
+# =============================================================================
+# grafana-values.yaml — in-cluster Grafana (Helm) values template.
+#
+# scripts/eks/install-observability.sh fills ${...} with envsubst and pipes the result into
+# `helm upgrade --install grafana grafana/grafana`. Keep every substitution in the ${VAR} form
+# listed in that script's GRAFANA_VARS, otherwise envsubst leaves it unexpanded.
+#
+#   AMP_ENDPOINT          Amazon Managed Service for Prometheus query endpoint (SigV4 data source)
+#   REGION                region for the SigV4 signature
+#   SYSTEM_INSTANCE_TYPE  instance type of the always-on HyperPod system group
+#   DASHBOARD_CONFIGMAP   ConfigMap holding eks/grafana-dashboards/*.json
+# =============================================================================
+serviceAccount:
+  create: true
+  # The pod identity association created by install-observability.sh targets this name.
+  name: grafana
+
+# Keep Grafana on the always-on system group next to the add-on pods; never on a GPU node.
+nodeSelector:
+  node.kubernetes.io/instance-type: ${SYSTEM_INSTANCE_TYPE}
+
+env:
+  GF_AUTH_SIGV4_AUTH_ENABLED: "true"
+
+# Served under the subpath /absproxy/3000/ so that `kubectl port-forward 3000:80` from the
+# code-server terminal is reachable at https://<CodeServerUrl>/absproxy/3000/ — code-server's
+# /absproxy/<port>/ passes the path through unchanged, so Grafana has to know the subpath for
+# redirects and static assets to resolve (/proxy/<port>/ strips it and Grafana then reports
+# "failed to load its application files"). The same URL works for a local port-forward.
+grafana.ini:
+  server:
+    root_url: "%(protocol)s://%(domain)s/absproxy/3000/"
+    serve_from_sub_path: true
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: AMP
+        uid: amp
+        type: prometheus
+        access: proxy
+        isDefault: true
+        url: ${AMP_ENDPOINT}
+        jsonData:
+          sigV4Auth: true
+          sigV4AuthType: default
+          sigV4Region: ${REGION}
+          httpMethod: POST
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      # hyperpod: mounted from DASHBOARD_CONFIGMAP. community: downloaded from grafana.com by the
+      # chart's init container. They need separate providers because a provider directory is backed
+      # by either a ConfigMap volume or the chart's own dashboard ConfigMap, not both.
+      - name: hyperpod
+        orgId: 1
+        folder: HyperPod
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/hyperpod
+      - name: community
+        orgId: 1
+        folder: HyperPod
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/community
+
+dashboardsConfigMaps:
+  hyperpod: ${DASHBOARD_CONFIGMAP}
+
+dashboards:
+  community:
+    nvidia-dcgm:
+      gnetId: 12239
+      revision: 2
+      datasource: AMP
+    node-exporter-full:
+      gnetId: 1860
+      revision: 45
+      datasource: AMP
+    kubernetes-views-global:
+      gnetId: 15757
+      revision: 43
+      datasource: AMP

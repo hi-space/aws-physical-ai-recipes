@@ -34,6 +34,8 @@
 #   EPISODES        mujoco-render-job 에피소드 수 (기본 5, 각 10초)
 #   JOB_SUFFIX      Job 이름 접미어. 기본 현재 시각(MMDDHHMM) — 같은 이름의 Job 충돌을 피한다
 #   FSX_ID / FSX_DNS / FSX_MOUNT / FSX_GIB   fsx-pvc.yaml 용. 비어 있으면 HyperPodEks 스택 Output 에서 읽는다
+#   MLFLOW_TRACKING_URI  isaaclab-train-job 용. 비어 있으면 HyperPodEks 스택의 MlflowTrackingUri Output 에서
+#                   읽고, Output 이 없으면(enableMlflow=false 로 배포) 빈 값 = MLflow 추적 비활성
 #   RECIPES_REF     workshop-setup-job 이 clone 할 브랜치 (기본 feat/e2e-workshop)
 # =============================================================================
 set -euo pipefail
@@ -83,10 +85,23 @@ case "$TEMPLATE" in
   *)        export TASK="${TASK:-Workshop-SO101-Reach-v0}" ;;
 esac
 
+# MLflow tracking URI 는 isaaclab-train-job 에만 필요하다. `-c enableMlflow=true` 로 배포했을 때만
+# Output 이 존재하므로, 없으면 빈 값으로 둔다 (examples/rl/mlflow_isaaclab.py 가 no-op 으로 동작).
+if [[ "$TEMPLATE" == *isaaclab-train* && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
+  REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
+  ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
+  STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
+  MLFLOW_TRACKING_URI="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='MlflowTrackingUri'].OutputValue | [0]" --output text 2>/dev/null || true)"
+  [[ "$MLFLOW_TRACKING_URI" == "None" ]] && MLFLOW_TRACKING_URI=""
+  [[ -n "$MLFLOW_TRACKING_URI" ]] && echo "MLflow 추적 활성화: ${MLFLOW_TRACKING_URI}" >&2
+fi
+export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
+
 # FSx 값은 fsx-pvc.yaml 에만 필요하다. 스택 Output 에서 읽는다 (1인 1계정: HyperPodEks-<ACCOUNT_ID>).
 if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z "${FSX_MOUNT:-}" ) ]]; then
   REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
-  ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+  ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
   STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
   OUT="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
         --query "Stacks[0].Outputs[?OutputKey=='FsxFileSystemId' || OutputKey=='FsxDnsName' || OutputKey=='FsxMountName'].[OutputKey,OutputValue]" \
@@ -98,7 +113,7 @@ if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z 
 fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
-VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB}'
+VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB} ${MLFLOW_TRACKING_URI}'
 
 render() {
   if [[ -n "$QUEUE" ]]; then

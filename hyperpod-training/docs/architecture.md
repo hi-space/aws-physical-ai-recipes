@@ -720,7 +720,8 @@ Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOU
 │                            │ Helm: HyperPodHelmChart (HMA, device plugins,   │  │
 │                            │       training/MPI operator, deep health check)  │  │
 │                            │ 애드온: pod-identity-agent, aws-fsx-csi-driver, │  │
-│                            │   hyperpod-observability, hyperpod-taskgovernance│  │
+│                            │   hyperpod-taskgovernance                       │  │
+│                            │   (+ hyperpod-observability: 스크립트로 추가)   │  │
 │                            └──────────────────────────────────────────────────┘  │
 │                            HyperPod 클러스터 hyperpod-eks-<acct> (Continuous)   │
 │                              cpu-c5-4x ×1 (상시: 애드온·Grafana·MuJoCo)        │
@@ -730,7 +731,7 @@ Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOU
         │ remote-write (OTel collector, pod identity)         ▲ SigV4 query
         ▼                                                     │
    AMP 워크스페이스  ─────────────────────────────►  Grafana (in-cluster Helm, port-forward)
-                                                      또는 Amazon Managed Grafana (grafanaMode=amg)
+                                                      또는 Amazon Managed Grafana (--grafana amg)
 ```
 
 | 구성 | 파일 | 비고 |
@@ -738,7 +739,8 @@ Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOU
 | VPC + EKS + 액세스 엔트리 | `infra/lib/constructs/eks-control-plane.ts` | 컨트롤 플레인 추가 SG = HyperPod VpcConfig SG (자기참조 all-traffic) |
 | HyperPod 클러스터 + 실행 롤 + Helm | `infra/lib/constructs/hyperpod-eks-cluster.ts` | 클러스터는 Helm 릴리스·액세스 엔트리에 의존. `NodeProvisioningMode: Continuous` |
 | FSx CSI + StorageClass | `infra/lib/constructs/fsx-csi.ts` | PV/PVC 는 네임스페이스마다 `k8s-templates/fsx-pvc.yaml` |
-| AMP / Grafana / 애드온 | `infra/lib/constructs/observability.ts` | 애드온은 HyperPod 클러스터(노드 1대) 이후 생성 |
+| Task governance 애드온 | `infra/lib/constructs/task-governance.ts` | 애드온은 HyperPod 클러스터(노드 1대) 이후 생성 |
+| AMP / Grafana / observability 애드온 | `scripts/eks/install-observability.sh`, `eks/grafana-values.yaml` | 애드온 제공 리전이 달라 CDK 밖. 미지원 리전(ap-northeast-2 등)에서 `CreateAddon` 이 거부되면 스택 전체가 롤백되므로 분리했다 |
 | 스토리지 | `infra/lib/constructs/storage.ts` (공용) | `bucketPrefix=hyperpod-eks-data`, `vpcCidr` |
 | Job 템플릿·정책 | `k8s-templates/` | Kueue 라벨은 Job 과 Pod template 양쪽 (admission policy) |
 
