@@ -11,7 +11,7 @@ Deploy an AWS SageMaker HyperPod based Physical AI (VLA/RL) distributed training
 │ HyperPod Cluster (SLURM Managed)                                              │
 │  ├─ head   (ml.m5.xlarge) — controller, always on                             │
 │  ├─ gpu-g5-8x (ml.g5.8xlarge) — RL training (from 0, same type as debug)      │
-│  │     -c gpuGroups=extended: adds g6e/g6/p4d/p5 groups                       │
+│  │     -c gpuGroups=extended: adds g6e/g6/g7e/p4d/p5 groups                   │
 │  │     (all start from node count 0)                                          │
 │  ├─ cpu-c5-4x / cpu-c5-9x / cpu-m5-4x — MuJoCo RL (CPU, cpu partition, from 0)│
 │  └─ debug  (ml.g5.8xlarge)    — debugging/visualization (from 0)              │
@@ -60,11 +60,11 @@ CDK context parameters read by `bin/app.ts`.
 
 | Parameter | Default | Description |
 |---------|--------|------|
-| `region` | `CDK_DEFAULT_REGION` | Deployment region |
+| `region` | `CDK_DEFAULT_REGION` | Deployment region. The `personal` profile has no region restriction; us-east-1, us-west-2 and ap-northeast-2 (Seoul) are validated. `workshop-studio` allows us-east-1/us-west-2 only |
 | `createVpc` | true | Create a new VPC (false to use an existing VPC) |
 | `vpcCidr` | 10.0.0.0/16 | CIDR of the VPC to create |
 | `gpuMaxCount` | 4 | Max node count per GPU instance type group |
-| `gpuGroups` | core | GPU group profile. `core` = a single gpu-g5-8x (compatible with the Workshop Studio SageMaker allow list), `extended` = adds g6e/g6/p4d/p5 groups |
+| `gpuGroups` | core | GPU group profile. `core` = a single gpu-g5-8x (compatible with the Workshop Studio SageMaker allow list), `extended` = adds g6e/g6/g7e/p4d/p5 groups |
 | `profile` | personal | Deployment profile. `workshop-studio` = Workshop Studio event account (us-east-1/us-west-2 only). The head node is `ml.m5.xlarge` under both profiles — the measured WS account cluster usage quota was m5.xlarge 10, g5.* 0 |
 | `gpuCount` | 0 | Node count to start in the default training group (gpu-g5-8x, ml.g5.8xlarge) (after deployment, prefer `scripts/scale-cluster.sh`) |
 | `cpuMaxCount` | 2 | Max node count for each CPU group (cpu-c5-4x / cpu-c5-9x / cpu-m5-4x) |
@@ -85,7 +85,7 @@ npx cdk deploy \
 ```
 
 > **Check the GPU quota first.** GPU instance groups are created one per type according to the
-> profile (`core`: g5-8x / `extended`: + g6e/g6/p4d/p5) in `lib/config/cluster-config.ts`, and the
+> profile (`core`: g5-8x / `extended`: + g6e/g6/g7e/p4d/p5) in `lib/config/cluster-config.ts`, and the
 > initial node count is always 0. If a type's quota is 0, jobs on it stay `PENDING` forever, so check before deploying.
 >
 > ```bash
@@ -203,7 +203,7 @@ actual use the two operational pillars that the Slurm path only introduced.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ EKS control plane (hyperpod-eks-<ACCOUNT_ID>, K8s 1.34)               │
+│ EKS control plane (hyperpod-eks-<ACCOUNT_ID>, K8s 1.35)               │
 │   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin,       │
 │   Kubeflow training/MPI operator                                      │
 │   Add-ons: pod-identity-agent, aws-fsx-csi-driver,                    │
@@ -233,7 +233,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | Parameter | Default | Description |
 |---------|--------|------|
 | `orchestrator` | `slurm` | Set to `eks` |
-| `eksVersion` | `1.34` | Kubernetes version. The task governance add-on's Kueue 0.19 requires `resource.k8s.io/v1` (1.34+) |
+| `eksVersion` | `1.35` | Kubernetes version (`1.34` or `1.35`). The upper bound comes from the HyperPod EKS AMI, not EKS: AMI 1.3.x is only built for 1.30-1.35, so nodes cannot join a 1.36+ cluster. The lower bound is the task governance add-on's Kueue 0.19, which requires `resource.k8s.io/v1` (1.34+) |
 | `eksAdminArns` | (deployer) | Comma-separated IAM principal ARNs to grant additional cluster admin access entries. The deployer is auto-included via `aws sts get-caller-identity` |
 | `systemNodeCount` | 1 | Number of always-on system nodes (cpu-c5-4x). Add-ons only install once at least one node (4xlarge or larger) exists |
 | `enableObservability` | true | AMP + Grafana + observability add-on |

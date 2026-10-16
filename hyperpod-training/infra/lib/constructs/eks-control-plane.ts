@@ -4,21 +4,29 @@ import * as eks from 'aws-cdk-lib/aws-eks';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { KubectlV33Layer } from '@aws-cdk/lambda-layer-kubectl-v33';
 import { KubectlV34Layer } from '@aws-cdk/lambda-layer-kubectl-v34';
+import { KubectlV35Layer } from '@aws-cdk/lambda-layer-kubectl-v35';
 import { Construct } from 'constructs';
 
 /**
  * 지원하는 Kubernetes 버전과 kubectl Lambda 레이어.
- * 기본 1.34: task governance 애드온(Kueue 0.19)이 요구하는 resource.k8s.io/v1(DRA) API 가 1.34 부터 제공되고,
- * 1.33 은 EKS 확장 지원(추가 과금) 단계다. 1.33 은 Kueue 가 DeviceClass 캐시 동기화에 실패해 크래시 루프에 빠진다.
+ *
+ * 상한은 EKS 가 아니라 HyperPod EKS AMI 가 정한다. EKS 자체는 1.37 까지 제공하지만 최신 AMI
+ * 1.3.x 는 1.30~1.35 용으로만 빌드되어, 1.36+ 로 만들면 노드가 클러스터에 조인하지 못한다.
+ * 하한은 task governance 애드온(Kueue 0.19)이 요구하는 resource.k8s.io/v1(DRA) API 로 1.34 부터
+ * 제공된다 — 1.33 은 Kueue 가 DeviceClass 캐시 동기화에 실패해 크래시 루프에 빠지고 EKS 확장
+ * 지원(추가 과금) 단계다. 따라서 실사용 범위는 1.34~1.35 이고 기본값은 그 최신인 1.35 다.
+ *
+ * @see https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-ami-support-policy.html
  */
-export const SUPPORTED_EKS_VERSIONS = ['1.34'] as const;
+export const SUPPORTED_EKS_VERSIONS = ['1.34', '1.35'] as const;
 export type SupportedEksVersion = (typeof SUPPORTED_EKS_VERSIONS)[number];
-export const DEFAULT_EKS_VERSION: SupportedEksVersion = '1.34';
+export const DEFAULT_EKS_VERSION: SupportedEksVersion = '1.35';
 
 function kubectlLayerFor(scope: Construct, version: string): lambda.ILayerVersion {
   switch (version) {
     case '1.33': return new KubectlV33Layer(scope, 'KubectlLayer');
     case '1.34': return new KubectlV34Layer(scope, 'KubectlLayer');
+    case '1.35': return new KubectlV35Layer(scope, 'KubectlLayer');
     default: throw new Error(`지원하지 않는 EKS 버전: ${version} (지원: ${SUPPORTED_EKS_VERSIONS.join(', ')})`);
   }
 }
@@ -28,7 +36,7 @@ export interface EksControlPlaneProps {
   /** EKS/HyperPod 클러스터 이름 (소문자). */
   clusterName: string;
   vpcCidr: string;
-  /** Kubernetes 버전 문자열 ('1.34'). */
+  /** Kubernetes 버전 문자열 ('1.35'). */
   version: string;
   /**
    * 클러스터 admin(AmazonEKSClusterAdminPolicy) 액세스 엔트리를 받을 IAM principal ARN.

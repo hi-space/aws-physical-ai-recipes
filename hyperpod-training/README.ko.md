@@ -11,7 +11,7 @@ AWS SageMaker HyperPod 기반 Physical AI (VLA/RL) 분산 학습 환경을 배�
 │ HyperPod Cluster (SLURM Managed)                                          │
 │  ├─ head   (ml.m5.xlarge) — 컨트롤러, 상시 운영                           │
 │  ├─ gpu-g5-8x (ml.g5.8xlarge) — RL 학습 (0에서, debug 와 같은 타입)       │
-│  │     -c gpuGroups=extended: g6e/g6/p4d/p5 그룹 추가                     │
+│  │     -c gpuGroups=extended: g6e/g6/g7e/p4d/p5 그룹 추가                 │
 │  │     (전부 노드 0에서 시작)                                             │
 │  ├─ cpu-c5-4x / cpu-c5-9x / cpu-m5-4x — MuJoCo RL (CPU, 파티션 cpu, 0에서)│
 │  └─ debug  (ml.g5.8xlarge)    — 디버깅/시각화 (0에서)                     │
@@ -60,11 +60,11 @@ npx cdk deploy -c region=us-east-1 --require-approval never
 
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
-| `region` | `CDK_DEFAULT_REGION` | 배포 리전 |
+| `region` | `CDK_DEFAULT_REGION` | 배포 리전. `personal` 프로필은 리전 제약이 없고 us-east-1 / us-west-2 / ap-northeast-2(서울)에서 배포를 검증했다. `workshop-studio`는 us-east-1/us-west-2만 허용 |
 | `createVpc` | true | VPC를 새로 생성 (false면 기존 VPC 사용) |
 | `vpcCidr` | 10.0.0.0/16 | 생성할 VPC의 CIDR |
 | `gpuMaxCount` | 4 | GPU 인스턴스 타입별 그룹의 최대 노드 수 |
-| `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-8x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/p4d/p5 그룹 추가 |
+| `gpuGroups` | core | GPU 그룹 프로필. `core` = gpu-g5-8x 하나(Workshop Studio SageMaker 허용 목록 호환), `extended` = g6e/g6/g7e/p4d/p5 그룹 추가 |
 | `profile` | personal | 배포 프로필. `workshop-studio` = Workshop Studio 이벤트 계정(us-east-1/us-west-2에서만). head 노드는 두 프로필 모두 `ml.m5.xlarge` — 실측한 WS 계정 cluster usage 쿼터가 m5.xlarge 10, g5.* 0이었다 |
 | `gpuCount` | 0 | 기본 학습 그룹(gpu-g5-8x, ml.g5.8xlarge)에서 기동할 노드 수 (배포 후에는 `scripts/scale-cluster.sh` 사용 권장) |
 | `cpuMaxCount` | 2 | CPU 그룹(cpu-c5-4x / cpu-c5-9x / cpu-m5-4x) 각각의 최대 노드 수 |
@@ -85,7 +85,7 @@ npx cdk deploy \
 ```
 
 > **GPU 쿼터 확인 필수.** GPU 인스턴스 그룹은 `lib/config/cluster-config.ts`의
-> 프로필(`core`: g5-8x / `extended`: + g6e/g6/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
+> 프로필(`core`: g5-8x / `extended`: + g6e/g6/g7e/p4d/p5)대로 타입별로 하나씩 생성되며, 초기 노드 수는
 > 모두 0입니다. 쿼터가 0인 타입은 job이 영구히 `PENDING`에 머무르므로 배포 전에 확인하세요.
 >
 > ```bash
@@ -203,7 +203,7 @@ sbatch slurm-templates/debug/dcv_session_cpu.sbatch  # SSM 포트포워딩 + 뷰
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ EKS 컨트롤 플레인 (hyperpod-eks-<ACCOUNT_ID>, K8s 1.34)            │
+│ EKS 컨트롤 플레인 (hyperpod-eks-<ACCOUNT_ID>, K8s 1.35)            │
 │   HyperPodHelmChart: HMA, deep health check, nvidia/EFA plugin,    │
 │   Kubeflow training/MPI operator                                   │
 │   애드온: pod-identity-agent, aws-fsx-csi-driver,                  │
@@ -233,7 +233,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | 파라미터 | 기본값 | 설명 |
 |---------|--------|------|
 | `orchestrator` | `slurm` | `eks`로 지정 |
-| `eksVersion` | `1.34` | Kubernetes 버전. task governance 애드온의 Kueue 0.19가 `resource.k8s.io/v1`(1.34+)을 요구한다 |
+| `eksVersion` | `1.35` | Kubernetes 버전(`1.34` 또는 `1.35`). 상한은 EKS가 아니라 HyperPod EKS AMI가 정한다 — AMI 1.3.x는 1.30~1.35용으로만 빌드되어 1.36+ 클러스터에는 노드가 조인하지 못한다. 하한은 task governance 애드온의 Kueue 0.19가 요구하는 `resource.k8s.io/v1`(1.34+)이다 |
 | `eksAdminArns` | (배포자) | 클러스터 admin 액세스 엔트리를 추가로 줄 IAM principal ARN, 쉼표 구분. 배포자는 `aws sts get-caller-identity`로 자동 포함 |
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
 | `enableObservability` | true | AMP + Grafana + observability 애드온 |

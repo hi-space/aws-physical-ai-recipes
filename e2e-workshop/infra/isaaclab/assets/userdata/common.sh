@@ -97,12 +97,18 @@ fi
 # -----------------------------------------------------------------------------
 # 1.7. kubectl 설치
 #      모듈 8B/9C(HyperPod EKS 경로)에서 code-server 터미널로 EKS 클러스터에 접속할 때 필요.
-#      버전은 EKS 기본 버전(1.34)에 맞춘다(kubectl 은 ±1 마이너 버전 호환).
+#      마이너 버전은 EKS 기본 버전(1.35 — hyperpod-training/infra 의 DEFAULT_EKS_VERSION)에
+#      맞추고 패치 버전은 stable-1.35.txt 로 그때의 최신을 받는다(kubectl 은 ±1 마이너 호환).
+#      조회가 실패하면 부팅을 멈추지 않고 고정 버전으로 떨어진다.
 # -----------------------------------------------------------------------------
 if ! which kubectl > /dev/null 2>&1; then
-  curl -fsSL "https://dl.k8s.io/release/v1.34.0/bin/linux/amd64/kubectl" -o /tmp/kubectl \
+  kubectl_minor="1.35"
+  kubectl_version=$(curl -fsSL "https://dl.k8s.io/release/stable-${kubectl_minor}.txt" 2>/dev/null || true)
+  [ -n "$kubectl_version" ] || kubectl_version="v${kubectl_minor}.9"
+  curl -fsSL "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl" -o /tmp/kubectl \
     && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl && rm -f /tmp/kubectl
   echo "kubectl 설치 완료: $(kubectl version --client 2>/dev/null | head -1 || true)"
+  unset kubectl_minor kubectl_version
 fi
 
 # -----------------------------------------------------------------------------

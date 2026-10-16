@@ -57,22 +57,29 @@ export const DEFAULT_AMI_UPDATE_SCHEDULE = 'cron(00 18 ? * 1#2 *)';
  *              안의 타입만 쓴다. 단, 2026-09-05 실측한 이벤트 계정에서는 이 타입들의
  *              "for cluster usage" 적용 쿼터가 0이었다(HEAD_INSTANCE_BY_PROFILE 주석 참고) —
  *              WS 계정에서 GPU 그룹 scale-up이 되는지는 이벤트마다 확인이 필요하다.
- * - extended : core + g6e/g6/p4d/p5 그룹. 쿼터가 있는 개인 계정에서 더 큰 모델·
+ * - extended : core + g6e/g6/g7e/p4d/p5 그룹. 쿼터가 있는 개인 계정에서 더 큰 모델·
  *              더 빠른 GPU로 옮겨갈 때 `-c gpuGroups=extended`로 배포한다.
  *              (모든 그룹은 노드 0으로 생성되므로 정의만으로는 비용이 없다.)
+ *              core 와 마찬가지로 그룹 생성과 scale-up 은 별개다: 2026-10-16 실측한 개인 계정
+ *              (ap-northeast-2, us-west-2)에서 g6/g6e/g7e/p4d 의 "for cluster usage" 적용 쿼터는
+ *              모두 0 이었고 0 이 아닌 GPU 타입은 g5(1) 뿐이었다. 그룹은 만들어지지만 노드를
+ *              올리려면 타입별 쿼터 증설이 필요하다.
  *
- * | 인스턴스           | GPU              | VRAM  | 프로필    | 용도                    |
- * |-------------------|-----------------|-------|----------|------------------------|
- * | ml.g5.8xlarge     | 1× A10G (24GB)  | 24GB  | core     | 기본 학습 (debug 와 동일)  |
- * | ml.g5.12xlarge    | 4× A10G (24GB)  | 96GB  | extended | 멀티 GPU 학습            |
- * | ml.g6e.12xlarge   | 4× L40S (48GB)  | 192GB | extended | 더 빠른 학습 (g6e 쿼터 필요) |
- * | ml.g6e.24xlarge   | 4× L40S (48GB)  | 192GB | extended | 더 많은 CPU/RAM          |
- * | ml.g6e.48xlarge   | 8× L40S (48GB)  | 384GB | extended | 대규모 학습              |
- * | ml.g6.12xlarge    | 4× L4 (24GB)    | 96GB  | extended | 추론/경량 학습           |
- * | ml.g6.24xlarge    | 4× L4 (24GB)    | 96GB  | extended | 더 많은 CPU/RAM          |
- * | ml.g6.48xlarge    | 8× L4 (24GB)    | 192GB | extended | 대규모 L4                |
- * | ml.p4d.24xlarge   | 8× A100 (40GB)  | 320GB | extended | 대규모 학습 (NVLink)     |
- * | ml.p5.48xlarge    | 8× H100 (80GB)  | 640GB | extended | 최대 성능 (NVLink)       |
+ * | 인스턴스           | GPU                      | VRAM  | 프로필    | 용도                    |
+ * |-------------------|-------------------------|-------|----------|------------------------|
+ * | ml.g5.8xlarge     | 1× A10G (24GB)          | 24GB  | core     | 기본 학습 (debug 와 동일)  |
+ * | ml.g5.12xlarge    | 4× A10G (24GB)          | 96GB  | extended | 멀티 GPU 학습            |
+ * | ml.g6e.12xlarge   | 4× L40S (48GB)          | 192GB | extended | 더 빠른 학습 (g6e 쿼터 필요) |
+ * | ml.g6e.24xlarge   | 4× L40S (48GB)          | 192GB | extended | 더 많은 CPU/RAM          |
+ * | ml.g6e.48xlarge   | 8× L40S (48GB)          | 384GB | extended | 대규모 학습              |
+ * | ml.g6.12xlarge    | 4× L4 (24GB)            | 96GB  | extended | 추론/경량 학습           |
+ * | ml.g6.24xlarge    | 4× L4 (24GB)            | 96GB  | extended | 더 많은 CPU/RAM          |
+ * | ml.g6.48xlarge    | 8× L4 (24GB)            | 192GB | extended | 대규모 L4                |
+ * | ml.g7e.12xlarge   | 2× RTX PRO 6000 (96GB)  | 192GB | extended | Blackwell, 큰 VRAM      |
+ * | ml.g7e.24xlarge   | 4× RTX PRO 6000 (96GB)  | 384GB | extended | 멀티 GPU Blackwell      |
+ * | ml.g7e.48xlarge   | 8× RTX PRO 6000 (96GB)  | 768GB | extended | 대규모 Blackwell        |
+ * | ml.p4d.24xlarge   | 8× A100 (40GB)          | 320GB | extended | 대규모 학습 (NVLink)     |
+ * | ml.p5.48xlarge    | 8× H100 (80GB)          | 640GB | extended | 최대 성능 (NVLink)       |
  */
 export type GpuGroupProfile = 'core' | 'extended';
 
@@ -89,6 +96,9 @@ export const EXTENDED_GPU_INSTANCES: { type: string; shortName: string }[] = [
   { type: 'ml.g6.12xlarge', shortName: 'g6-12x' },
   { type: 'ml.g6.24xlarge', shortName: 'g6-24x' },
   { type: 'ml.g6.48xlarge', shortName: 'g6-48x' },
+  { type: 'ml.g7e.12xlarge', shortName: 'g7e-12x' },
+  { type: 'ml.g7e.24xlarge', shortName: 'g7e-24x' },
+  { type: 'ml.g7e.48xlarge', shortName: 'g7e-48x' },
   { type: 'ml.p4d.24xlarge', shortName: 'p4d' },
   { type: 'ml.p5.48xlarge', shortName: 'p5' },
 ];

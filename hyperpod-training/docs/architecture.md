@@ -41,6 +41,9 @@
 | **gpu-g6-12x** | ml.g6.12xlarge | 4× L4 (24GB) | 0 / `gpuMaxCount` | No |
 | **gpu-g6-24x** | ml.g6.24xlarge | 4× L4 (24GB) | 0 / `gpuMaxCount` | No |
 | **gpu-g6-48x** | ml.g6.48xlarge | 8× L4 (24GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g7e-12x** | ml.g7e.12xlarge | 2× RTX PRO 6000 (96GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g7e-24x** | ml.g7e.24xlarge | 4× RTX PRO 6000 (96GB) | 0 / `gpuMaxCount` | No |
+| **gpu-g7e-48x** | ml.g7e.48xlarge | 8× RTX PRO 6000 (96GB) | 0 / `gpuMaxCount` | No |
 | **gpu-p4d** | ml.p4d.24xlarge | 8× A100 (40GB) | 0 / `gpuMaxCount` | No |
 | **gpu-p5** | ml.p5.48xlarge | 8× H100 (80GB) | 0 / `gpuMaxCount` | No |
 
@@ -712,7 +715,7 @@ Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOU
 ```
 ┌ VPC (2 AZ, 10.0.0.0/16) ─────────────────────────────────────────────────────┐
 │  Public ×2 (NAT 1)         Private ×2 (/20)                                    │
-│                            ┌ EKS 컨트롤 플레인 (1.34, API auth mode) ──────┐  │
+│                            ┌ EKS 컨트롤 플레인 (1.35, API auth mode) ──────┐  │
 │                            │ 액세스 엔트리: 배포자(admin), 실행 롤(HYPERPOD_LINUX)│  │
 │                            │ Helm: HyperPodHelmChart (HMA, device plugins,   │  │
 │                            │       training/MPI operator, deep health check)  │  │
@@ -739,4 +742,4 @@ Slurm 스택(`HyperPod-<ACCOUNT_ID>`)과 독립적인 스택 `HyperPodEks-<ACCOU
 | 스토리지 | `infra/lib/constructs/storage.ts` (공용) | `bucketPrefix=hyperpod-eks-data`, `vpcCidr` |
 | Job 템플릿·정책 | `k8s-templates/` | Kueue 라벨은 Job 과 Pod template 양쪽 (admission policy) |
 
-제약: Kueue 0.19(task governance v1.6.0)는 `resource.k8s.io/v1` API 가 필요해 EKS 1.34 이상만 지원한다. Amazon Managed Grafana 는 IAM Identity Center 조직 인스턴스가 있어야 만들어진다.
+제약: Kueue 0.19(task governance v1.6.0)는 `resource.k8s.io/v1` API 가 필요해 EKS 1.34 이상만 지원하고, 상한은 HyperPod EKS AMI 1.3.x 가 1.30~1.35 용으로만 빌드되어 1.35 다(기본값 1.35). Amazon Managed Grafana 는 IAM Identity Center 조직 인스턴스가 있어야 만들어진다.

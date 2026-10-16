@@ -17,7 +17,7 @@ import {
 export interface HyperPodEksStackProps extends cdk.StackProps {
   accountId: string;
   vpcCidr: string;
-  /** Kubernetes 버전 문자열. 기본 1.34 (constructs/eks-control-plane.ts SUPPORTED_EKS_VERSIONS). */
+  /** Kubernetes 버전 문자열. 기본 1.35 (constructs/eks-control-plane.ts SUPPORTED_EKS_VERSIONS). */
   eksVersion: string;
   /** 클러스터 admin 액세스 엔트리를 받을 principal ARN(배포자 + -c eksAdminArns). */
   eksAdminArns: string[];
