@@ -85,16 +85,25 @@ case "$TEMPLATE" in
   *)        export TASK="${TASK:-Workshop-SO101-Reach-v0}" ;;
 esac
 
-# MLflow tracking URI 는 isaaclab-train-job 에만 필요하다. `-c enableMlflow=true` 로 배포했을 때만
-# Output 이 존재하므로, 없으면 빈 값으로 둔다 (examples/rl/mlflow_isaaclab.py 가 no-op 으로 동작).
+# MLflow tracking URI 는 isaaclab-train-job 에만 필요하다. 둘 중 하나가 쓰인다.
+#   1. 클러스터 안의 자체 호스팅 MLflow (scripts/eks/install-mlflow-selfhosted.sh). Service 가 있으면 이걸 쓴다.
+#      basic auth 자격증명은 mlflow 네임스페이스의 mlflow-credentials Secret 에 있고, 템플릿이
+#      MLFLOW_TRACKING_USERNAME / _PASSWORD 를 secretKeyRef 로 읽는다. presigned URL 이 필요 없다.
+#   2. SageMaker 관리형 MLflow. `-c enableMlflow=true` 로 배포했을 때만 Output 이 존재한다.
+# 둘 다 없으면 빈 값으로 둔다 (examples/rl/mlflow_isaaclab.py 가 no-op 으로 동작).
 if [[ "$TEMPLATE" == *isaaclab-train* && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
-  REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
-  ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
-  STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
-  MLFLOW_TRACKING_URI="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
-        --query "Stacks[0].Outputs[?OutputKey=='MlflowTrackingUri'].OutputValue | [0]" --output text 2>/dev/null || true)"
-  [[ "$MLFLOW_TRACKING_URI" == "None" ]] && MLFLOW_TRACKING_URI=""
-  [[ -n "$MLFLOW_TRACKING_URI" ]] && echo "MLflow 추적 활성화: ${MLFLOW_TRACKING_URI}" >&2
+  if kubectl get service mlflow -n mlflow >/dev/null 2>&1; then
+    MLFLOW_TRACKING_URI="http://mlflow.mlflow.svc.cluster.local/mlflow"
+    echo "MLflow 추적 활성화 (자체 호스팅): ${MLFLOW_TRACKING_URI}" >&2
+  else
+    REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
+    ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
+    STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
+    MLFLOW_TRACKING_URI="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+          --query "Stacks[0].Outputs[?OutputKey=='MlflowTrackingUri'].OutputValue | [0]" --output text 2>/dev/null || true)"
+    [[ "$MLFLOW_TRACKING_URI" == "None" ]] && MLFLOW_TRACKING_URI=""
+    [[ -n "$MLFLOW_TRACKING_URI" ]] && echo "MLflow 추적 활성화 (관리형): ${MLFLOW_TRACKING_URI}" >&2
+  fi
 fi
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
 
@@ -129,6 +138,15 @@ if [[ "$APPLY" == true ]]; then
       hyperpod-ns-*) echo "네임스페이스 ${NAMESPACE} 가 없습니다. 먼저 scripts/eks/create-governance.sh 로 compute quota 를 만드세요 (모듈 11)." >&2; exit 1 ;;
       *) kubectl create namespace "$NAMESPACE" ;;
     esac
+  fi
+  # 자체 호스팅 MLflow 를 쓰면 basic auth 자격증명이 Job 네임스페이스에도 있어야 한다.
+  # Secret 은 네임스페이스를 넘지 못하므로 mlflow 네임스페이스의 원본을 복사한다.
+  if [[ "$MLFLOW_TRACKING_URI" == http*mlflow.mlflow.svc* ]] \
+     && ! kubectl get secret mlflow-credentials -n "$NAMESPACE" >/dev/null 2>&1; then
+    kubectl get secret mlflow-credentials -n mlflow -o json \
+      | jq 'del(.metadata.namespace, .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp, .metadata.managedFields, .metadata.annotations)' \
+      | kubectl apply -n "$NAMESPACE" -f - >/dev/null
+    echo "mlflow-credentials Secret 을 ${NAMESPACE} 로 복사했습니다." >&2
   fi
   render | kubectl apply -f -
 else

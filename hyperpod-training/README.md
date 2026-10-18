@@ -240,7 +240,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `systemNodeCount` | 1 | Number of always-on system nodes (cpu-c5-4x). Add-ons only install once at least one node (4xlarge or larger) exists |
 | `enableTaskGovernance` | true | task governance add-on. Observability is not part of the stack — install it with `scripts/eks/install-observability.sh` |
 | `deepHealthChecks` | false | `OnStartDeepHealthChecks` for the GPU group (InstanceStress, InstanceConnectivity). Turning it on lengthens node startup |
-| `enableMlflow` | false | (optional) Managed MLflow tracking server. Also creates pod identity for training pods (the `default` ServiceAccount in namespaces `rl` and `hyperpod-ns-team-a/b`) and the `MlflowTrackingUri` output. The server bills continuously |
+| `enableMlflow` | false | (optional) SageMaker Managed MLflow tracking server. Also creates pod identity for training pods (the `default` ServiceAccount in namespaces `rl` and `hyperpod-ns-team-a/b`) and the `MlflowTrackingUri` output. The server bills continuously. Not offered in ap-northeast-2 — use `scripts/eks/install-mlflow-selfhosted.sh` there instead |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Same as Slurm | |
 
 Key outputs: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `S3BucketName`,
@@ -255,6 +255,13 @@ only credential path. The MLflow packages are also absent from the container, so
 Isaac Sim's numpy 1.26 build). Open the MLflow UI with the command in the
 `MlflowPresignedUrlCommand` output.
 
+There is a second option: an in-cluster MLflow server installed by
+`scripts/eks/install-mlflow-selfhosted.sh` (Postgres backend on a gp3 PVC, artifacts in the stack's
+S3 bucket, basic auth). `render.sh` prefers it whenever `svc/mlflow` exists in the `mlflow`
+namespace and falls back to the stack output otherwise, so no template edits are needed to switch.
+The self-hosted server is the only option in ap-northeast-2, where SageMaker Managed MLflow is not
+offered.
+
 ### After Deployment
 
 ```bash
@@ -266,6 +273,91 @@ kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | bas
 # To use Amazon Managed Grafana: ./scripts/eks/install-observability.sh --grafana amg
 #                                ./scripts/eks/grafana-user.sh <IdC-username>  → log in with the printed URL
 ```
+
+In regions where the observability add-on is unavailable (ap-northeast-2), there is a second path
+that runs the whole dashboard stack inside the cluster and publishes it on one CloudFront URL:
+
+```bash
+./scripts/eks/install-dashboard-public.sh         # kube-prometheus-stack + Grafana + ALB + WAF + CloudFront (~25 min)
+./scripts/eks/install-mlflow-selfhosted.sh        # MLflow + Postgres + TensorBoard on the same ALB (~10 min)
+./scripts/eks/install-unified-dashboard.sh        # one landing page in front of all three (~3 min, no new cost)
+./scripts/eks/install-dashboard-hardening.sh      # (optional) persist metrics + send alerts (~10 min, ~$5/month)
+./scripts/eks/install-job-portal.sh               # (optional) submit jobs from the browser (~8 min, no new cost)
+./scripts/eks/install-logs.sh                     # (optional) keep finished-Job logs in S3 (~8 min, ~$2/month)
+# → https://<cloudfront-domain>/            Grafana   (admin / the admin-password in the grafana Secret)
+#   https://<cloudfront-domain>/mlflow      MLflow    (basic auth, printed by the installer)
+#   https://<cloudfront-domain>/tensorboard TensorBoard reading /fsx run directories
+#   https://<cloudfront-domain>/argo        Argo Workflows UI (login token printed by the installer)
+./scripts/eks/delete-logs.sh                      # remove in reverse order
+./scripts/eks/delete-job-portal.sh
+./scripts/eks/delete-dashboard-hardening.sh
+./scripts/eks/delete-unified-dashboard.sh
+./scripts/eks/delete-mlflow-selfhosted.sh
+./scripts/eks/delete-dashboard-public.sh          # the ALB survives while any Ingress in the group remains
+```
+
+Both scripts attach their Ingress to the same `hyperpod-dashboard` IngressGroup, so one ALB and one
+CloudFront distribution serve all three UIs. `install-unified-dashboard.sh` then makes the root URL a
+landing page: it provisions the `HyperPod Physical AI — Training Console` dashboard, sets it as the
+Grafana home dashboard, and adds a read-only Postgres datasource (role `grafana_ro`) pointed at the
+MLflow backend database so recent runs and mean reward render next to the cluster and GPU panels. It
+reads MLflow through Postgres rather than the REST API because the Postgres datasource ships with
+Grafana and needs no plugin; the tradeoff is a dependency on the MLflow schema, so new panels should
+be checked against the `runs` / `metrics` / `experiments` tables. The ALB security group allows inbound 80 only from the
+CloudFront origin-facing prefix list, so the ALB DNS name is unreachable directly. Standing cost is
+roughly $18/month for the ALB plus $7/month for the WAF Web ACL and its managed rules, so delete both
+when the dashboards are no longer needed. This path uses an in-cluster kube-prometheus-stack rather
+than Amazon Managed Prometheus, so the panels differ from the ones `install-observability.sh`
+produces; prefer `install-observability.sh` wherever the add-on exists.
+
+`install-dashboard-hardening.sh` is the optional last step and does two things the PoC stack leaves
+out. First it moves Prometheus and Grafana onto gp3 PVCs (50Gi at 15d retention, 10Gi) — the earlier
+scripts use `emptyDir` with 6h retention because the gp3 StorageClass does not exist until
+`install-mlflow-selfhosted.sh` installs the EBS CSI add-on, so persistence has to be a separate pass.
+Grafana also switches to the `Recreate` deployment strategy, since two pods cannot share one
+ReadWriteOnce volume and a RollingUpdate would hang on a Pending pod. Second it creates an SNS topic
+`<cluster>-alerts`, gives Grafana a pod identity scoped to `sns:Publish` on that topic alone, and
+provisions four alert rules from `eks/grafana-alerting/hyperpod-alerts.yaml`: `TrainingPodFailed`
+(5m), `KueueBacklog` (30m), `NodeNotReady` (10m), and `GPUIdleWhileAllocated` (GPU allocated but
+under 5% utilization for 30m — the rule that catches money leaking). Persistence comes first because
+Grafana keeps alert state in its own database; with `emptyDir` every pod restart replays the same
+alerts. No subscription is created, so no address lands in a script or shell history — the installer
+prints the `aws sns subscribe` command to run by hand. Two of the four rules stay silent until their
+prerequisites exist (`KueueBacklog` needs a ClusterQueue from `create-governance.sh`,
+`GPUIdleWhileAllocated` needs at least one GPU node for DCGM metrics); every query is wrapped in
+`or vector(0)` and `noDataState` is `OK` so a missing metric never pages anyone. Added cost is about
+$5/month of gp3 plus per-notification SNS charges.
+
+`install-job-portal.sh` puts job submission in the browser so a workshop participant never has to
+open a terminal. It installs Argo Workflows into the `argo` namespace, converts the `k8s-templates`
+into five WorkflowTemplates (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`,
+`isaaclab-play`), and attaches the UI to the same IngressGroup at `/argo`
+(group.order 30). Each template's submit step runs the same `render.sh` the CLI path uses, so the
+rendered Job is byte-identical whether it came from the portal or the shell — there is no second
+source of truth to drift. The submit step holds a `trap` that deletes the Job when the Workflow is
+interrupted, which is what keeps a cancelled Workflow from leaving a GPU Job running. Login is a
+ServiceAccount token the installer prints; the UI's RBAC is scoped to a ClusterRole that can submit
+and read Jobs in the training namespaces and nothing else. The portal adds no AWS cost since it
+reuses the existing ALB and CloudFront distribution.
+
+`install-logs.sh` solves the problem that `ttlSecondsAfterFinished` deletes the pod, and with it the
+only copy of the training log — `kubectl logs` and the portal's Logs tab both go blank. It runs Loki
+in SingleBinary mode with chunks and index in `s3://<data-bucket>/loki/` (30d retention, adjustable
+with `--retention-days`) and a Grafana Alloy DaemonSet reading `/var/log/pods` directly, then
+registers a `Loki` datasource so Grafana Explore can query with LogQL
+(`{namespace="rl", job_name="mujoco-rl-10172204"}`). Only four labels are indexed — namespace,
+job_name, container, cluster — and the pod name is pushed down to structured metadata, because Loki
+creates one stream per label combination and pod names change every run. Loki is ClusterIP only and
+never joins the IngressGroup, so the logs are reachable only through Grafana. It shares the stack's
+S3 bucket under a key prefix rather than creating its own, and the IAM policy is scoped to
+`loki/*` so `mlflow-artifacts/` in the same bucket is unreachable. `delete-logs.sh` keeps the S3
+logs by default (reinstalling reads them back) and needs `--purge-s3` to remove them. Standing cost
+is the 20Gi gp3 WAL volume, about $1.8/month, plus cents of S3 for training logs.
+
+One operational note: both scripts add pods to the always-on `ml.c5.4xlarge` system node, which has
+a 29-pod limit. With the full dashboard stack plus the portal and Loki installed, the node runs at
+29/29 and a newly submitted Workflow sits `Pending` with `Too many pods`. Add a second CPU node
+(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`) before running jobs through the portal.
 
 `install-observability.sh` first checks whether the add-on exists in the region
 (`aws eks describe-addon-versions`); if it does not, the script points at the alternatives
@@ -319,8 +411,16 @@ kubectl get workloads -A
 | `k8s-templates/governance/*.json` | Inputs for cluster policy, team-a/team-b compute quota |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | Access · Grafana(AMG) user · policy create/delete |
 | `scripts/eks/install-observability.sh` · `delete-observability.sh` | Installs/removes AMP + the observability add-on + Grafana after deployment (checking region support first). Outside CDK, so `cdk destroy` does not remove it |
+| `scripts/eks/install-dashboard-public.sh` · `delete-dashboard-public.sh` | In-cluster kube-prometheus-stack + Grafana published through ALB + WAF + CloudFront. The path for regions without the observability add-on |
+| `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | In-cluster MLflow + Postgres + TensorBoard on the same ALB. Also installs the EBS CSI add-on and the gp3 StorageClass the other scripts depend on |
+| `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Makes the Training Console the Grafana home dashboard and adds the read-only MLflow Postgres datasource |
+| `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Moves Prometheus/Grafana onto gp3 PVCs (15d retention) and provisions the SNS topic, pod identity, and four alert rules |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | Argo Workflows + five WorkflowTemplates on the same ALB at `/argo`, so jobs can be submitted from the browser. Each submit step calls the same `render.sh` as the CLI path |
+| `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki (SingleBinary, chunks in `s3://<data-bucket>/loki/`) + Alloy DaemonSet + a Grafana `Loki` datasource, so a finished Job's logs survive the pod being reaped |
 | `eks/grafana-values.yaml` | Helm values template for the in-cluster Grafana (`install-observability.sh` fills it in with envsubst) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Dashboards for Kueue waiting/running/preemption, ClusterQueue allocation/borrowing, DCGM GPU utilization (provisioned into self-hosted Grafana) |
+| `eks/grafana-dashboards/hyperpod-training-console.json` | Landing dashboard combining cluster, GPU, and MLflow run panels (`install-unified-dashboard.sh` sets it as the Grafana home) |
+| `eks/grafana-alerting/hyperpod-alerts.yaml` | Grafana alert provisioning — SNS contact point plus `TrainingPodFailed`, `KueueBacklog`, `NodeNotReady`, `GPUIdleWhileAllocated` (`install-dashboard-hardening.sh` fills in topic ARN and region with envsubst) |
 | `lifecycle-scripts/on_create_eks.sh` | EKS node lifecycle. CPU nodes: diagnostic logging only (kubelet/plugins are handled by HyperPod/Helm). GPU nodes additionally run `setup_nvidia_driver.sh` (580 driver for Isaac Sim rendering) and `setup_dcv_al2023.sh` (AL2023 GNOME + DCV, session `workspace`, ec2-user/hyperpod) for workshop module 10 §10.7 method B |
 | `lifecycle-scripts/setup_dcv_al2023.sh` | DCV install for Amazon Linux 2023 (the EKS AMI). Counterpart of the Slurm AMI's Ubuntu `setup_dcv.sh`; installs no Docker |
 | `k8s-templates/rl/isaaclab-play-job.yaml` | Replay Job that opens the Isaac Sim window on the GPU node's DCV session (hostPath `/tmp/.X11-unix`, `X_DISPLAY` auto-selected) |
@@ -332,6 +432,12 @@ kubectl get workloads -A
 ```bash
 ./scripts/eks/delete-governance.sh                                   # compute quota → cluster policy (leaving these blocks cluster deletion)
 ./scripts/eks/delete-observability.sh                                # AMP · Grafana · add-on (outside CDK, so destroy misses it; AMP bills even when empty)
+./scripts/eks/delete-logs.sh                                         # if the in-cluster dashboard path was used: reverse order, the ALB and WAF bill continuously
+./scripts/eks/delete-job-portal.sh                                   # add --purge-s3 / --purge-jobs to also remove retained logs / training Jobs
+./scripts/eks/delete-dashboard-hardening.sh
+./scripts/eks/delete-unified-dashboard.sh
+./scripts/eks/delete-mlflow-selfhosted.sh
+./scripts/eks/delete-dashboard-public.sh
 ./scripts/scale-cluster.sh gpu-g5-8x 0 --cluster hyperpod-eks-<ACCOUNT_ID>
 aws s3 rm s3://hyperpod-eks-data-<ACCOUNT_ID>-<REGION> --recursive
 cd infra && npx cdk destroy -c orchestrator=eks -c region=${REGION} --force   # ~25 min

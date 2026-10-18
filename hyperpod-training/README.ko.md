@@ -240,7 +240,7 @@ npx cdk deploy -c orchestrator=eks -c region=${REGION} --require-approval never 
 | `systemNodeCount` | 1 | 상시 시스템 노드(cpu-c5-4x) 수. 애드온은 노드가 1대 이상(4xlarge 이상) 있어야 설치된다 |
 | `enableTaskGovernance` | true | task governance 애드온. observability 는 스택이 아니라 `scripts/eks/install-observability.sh` 로 추가 설치한다 |
 | `deepHealthChecks` | false | GPU 그룹 `OnStartDeepHealthChecks`(InstanceStress, InstanceConnectivity). 켜면 노드 기동이 길어진다 |
-| `enableMlflow` | false | (옵션) 관리형 MLflow 실험 추적 서버. 켜면 학습 파드용 pod identity(네임스페이스 `rl`, `hyperpod-ns-team-a/b` 의 `default` ServiceAccount)와 `MlflowTrackingUri` Output 까지 함께 만든다. 서버는 상시 과금이다 |
+| `enableMlflow` | false | (옵션) SageMaker 관리형 MLflow 실험 추적 서버. 켜면 학습 파드용 pod identity(네임스페이스 `rl`, `hyperpod-ns-team-a/b` 의 `default` ServiceAccount)와 `MlflowTrackingUri` Output 까지 함께 만든다. 서버는 상시 과금이다. ap-northeast-2 에는 없으므로 그 리전에서는 `scripts/eks/install-mlflow-selfhosted.sh` 를 쓴다 |
 | `gpuGroups`, `gpuMaxCount`, `gpuCount`, `gpuUseSpot`, `fsxCapacityGiB`, `vpcCidr` | Slurm과 동일 | |
 
 주요 Output: `KubeconfigCommand`, `ClusterName`, `ClusterArn`, `S3BucketName`,
@@ -255,6 +255,12 @@ identity 가 유일한 자격증명 경로다. MLflow 패키지도 컨테이너�
 numpy 1.26 빌드를 깬다). MLflow UI 는 `MlflowPresignedUrlCommand` Output 의 명령으로 presigned URL
 을 만들어 연다.
 
+선택지가 하나 더 있다. `scripts/eks/install-mlflow-selfhosted.sh` 는 클러스터 안에 MLflow 서버를
+직접 띄운다(백엔드는 gp3 PVC 의 Postgres, 아티팩트는 스택의 S3 버킷, 접근은 basic auth). `render.sh`
+는 `mlflow` 네임스페이스에 `svc/mlflow` 가 있으면 그쪽을 우선 쓰고 없으면 스택 Output 으로
+되돌아가므로, 서버를 바꿀 때 템플릿을 고칠 필요는 없다. SageMaker 관리형 MLflow 가 없는
+ap-northeast-2 에서는 이 자체 호스팅 쪽이 유일한 방법이다.
+
 ### 배포 후
 
 ```bash
@@ -266,6 +272,89 @@ kubectl get secret -n grafana grafana -o jsonpath='{.data.admin-password}' | bas
 # Amazon Managed Grafana 를 쓰려면: ./scripts/eks/install-observability.sh --grafana amg
 #                                   ./scripts/eks/grafana-user.sh <IdC-username>  → 출력된 URL 로 로그인
 ```
+
+observability 애드온이 없는 리전(ap-northeast-2)에는 대시보드 스택 전체를 클러스터 안에 올리고
+CloudFront URL 하나로 공개하는 두 번째 경로가 있다.
+
+```bash
+./scripts/eks/install-dashboard-public.sh         # kube-prometheus-stack + Grafana + ALB + WAF + CloudFront (~25분)
+./scripts/eks/install-mlflow-selfhosted.sh        # 같은 ALB 에 MLflow + Postgres + TensorBoard (~10분)
+./scripts/eks/install-unified-dashboard.sh        # 세 UI 앞에 랜딩 페이지 하나 (~3분, 새 비용 없음)
+./scripts/eks/install-dashboard-hardening.sh      # (옵션) 지표 보존 + 알림 (~10분, 약 \$5/월)
+./scripts/eks/install-job-portal.sh               # (옵션) 브라우저에서 Job 제출 (~8분, 새 비용 없음)
+./scripts/eks/install-logs.sh                     # (옵션) 끝난 Job 의 로그를 S3 에 보관 (~8분, 약 \$2/월)
+# → https://<cloudfront-도메인>/            Grafana   (admin / Secret grafana 의 admin-password)
+#   https://<cloudfront-도메인>/mlflow      MLflow    (basic auth, 설치 스크립트가 출력)
+#   https://<cloudfront-도메인>/tensorboard TensorBoard — /fsx 의 run 디렉터리를 읽는다
+#   https://<cloudfront-도메인>/argo        Argo Workflows UI (로그인 토큰은 설치 스크립트가 출력)
+./scripts/eks/delete-logs.sh                      # 삭제는 설치의 역순
+./scripts/eks/delete-job-portal.sh
+./scripts/eks/delete-dashboard-hardening.sh
+./scripts/eks/delete-unified-dashboard.sh
+./scripts/eks/delete-mlflow-selfhosted.sh
+./scripts/eks/delete-dashboard-public.sh          # 같은 그룹에 Ingress 가 남아 있으면 ALB 가 유지된다
+```
+
+두 스크립트는 Ingress 를 같은 `hyperpod-dashboard` IngressGroup 에 붙이므로 ALB 하나와 CloudFront
+배포 하나가 세 UI 를 모두 서비스한다. 그다음 `install-unified-dashboard.sh` 가 루트 URL 을 랜딩
+페이지로 만든다. `HyperPod Physical AI — Training Console` 대시보드를 프로비저닝해 Grafana 홈으로
+지정하고, MLflow 백엔드 데이터베이스를 가리키는 읽기 전용 Postgres 데이터소스(역할 `grafana_ro`)를
+더해 최근 run 과 평균 보상이 클러스터·GPU 패널 옆에 함께 보이게 한다. REST API 가 아니라 Postgres
+로 MLflow 를 읽는 이유는 Postgres 데이터소스가 Grafana 에 기본 포함되어 플러그인이 필요 없기
+때문이다. 대신 MLflow 스키마에 의존하므로 패널을 새로 만들 때는 `runs` / `metrics` / `experiments`
+테이블을 확인해야 한다. ALB 보안그룹의 inbound 80 은 CloudFront origin-facing prefix
+list 만 허용하므로 ALB DNS 이름으로는 직접 닿지 않는다. 상시 비용은 ALB 약 \$18/월 + WAF Web ACL 과
+관리형 룰 약 \$7/월이므로 대시보드를 더 안 볼 거면 둘 다 지운다. 이 경로는 Amazon Managed Prometheus
+가 아니라 클러스터 안의 kube-prometheus-stack 을 쓰므로 패널 구성이 `install-observability.sh` 쪽과
+다르다. 애드온이 있는 리전에서는 `install-observability.sh` 를 쓰는 편이 낫다.
+
+`install-dashboard-hardening.sh` 는 선택적인 마지막 단계로, PoC 스택이 빠뜨린 두 가지를 채운다.
+먼저 Prometheus 와 Grafana 를 gp3 PVC 로 옮긴다(50Gi·retention 15d, 10Gi). 앞선 스크립트들이
+`emptyDir` + 6h retention 을 쓰는 이유는 `install-mlflow-selfhosted.sh` 가 EBS CSI 애드온을 깔기
+전까지 gp3 StorageClass 가 없기 때문이다. 그래서 영속화가 별도 단계로 분리됐다. Grafana 는
+배포 전략도 `Recreate` 로 바꾼다. ReadWriteOnce 볼륨을 두 파드가 나눠 가질 수 없어 RollingUpdate
+로 두면 새 파드가 Pending 에 걸려 배포가 끝나지 않는다. 다음으로 SNS 토픽 `<cluster>-alerts` 를
+만들고, 그 토픽 하나에 대한 `sns:Publish` 로만 제한된 pod identity 를 Grafana 에 붙이고,
+`eks/grafana-alerting/hyperpod-alerts.yaml` 에서 알림 규칙 4개를 프로비저닝한다. `TrainingPodFailed`
+(5분), `KueueBacklog`(30분), `NodeNotReady`(10분), 그리고 `GPUIdleWhileAllocated`(GPU 를 할당받고도
+30분간 사용률 5% 미만 — 돈이 새는 걸 잡는 규칙)다. 영속화가 먼저인 이유는 Grafana 가 알림 상태를
+자체 데이터베이스에 두기 때문이다. `emptyDir` 상태로 알림만 켜면 파드가 재시작할 때마다 같은 알림이
+다시 온다. 구독은 만들지 않는다. 주소가 스크립트나 셸 히스토리에 남지 않도록 설치 스크립트가
+`aws sns subscribe` 명령만 출력하고 실행은 사람이 한다. 4개 중 둘은 전제가 갖춰질 때까지 조용하다
+(`KueueBacklog` 는 `create-governance.sh` 가 만드는 ClusterQueue 가, `GPUIdleWhileAllocated` 는 DCGM
+지표를 내는 GPU 노드가 최소 1대 필요하다). 모든 쿼리를 `or vector(0)` 로 감싸고 `noDataState` 를
+`OK` 로 두어 지표가 없다는 이유로 알림이 가는 일은 없다. 추가 비용은 gp3 약 \$5/월과 SNS 알림 건당
+과금이다.
+
+`install-job-portal.sh` 는 Job 제출을 브라우저로 옮겨 워크샵 참가자가 터미널을 열지 않아도 되게
+한다. `argo` 네임스페이스에 Argo Workflows 를 설치하고, `k8s-templates` 를 WorkflowTemplate 5개
+(`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`, `isaaclab-play`)로 바꾸고,
+UI 를 같은 IngressGroup 의 `/argo` 에 붙인다(group.order 30). 각 템플릿의 submit 단계는 CLI 경로와
+똑같은 `render.sh` 를 돌리므로, 포탈로 제출했든 셸에서 제출했든 만들어지는 Job 이 바이트 단위로
+같다. 진실의 출처가 둘로 갈라져 어긋날 여지가 없다. submit 단계는 `trap` 을 걸어 두고, Workflow 가
+중단되면 Job 을 지운다. 취소한 Workflow 가 GPU Job 을 물고 남지 않는 것이 이 덕분이다. 로그인은
+설치 스크립트가 출력하는 ServiceAccount 토큰이고, UI 의 RBAC 은 학습 네임스페이스의 Job 을 제출·조회
+하는 ClusterRole 로만 좁혀 둔다. 이미 있는 ALB 와 CloudFront 배포를 재사용하므로 AWS 비용은 늘지
+않는다.
+
+`install-logs.sh` 는 `ttlSecondsAfterFinished` 가 파드를 지우면서 학습 로그의 유일한 사본까지 함께
+사라지는 문제를 푼다. 파드가 없으면 `kubectl logs` 도 포탈의 Logs 탭도 빈 화면이다. Loki 를
+SingleBinary 모드로 올려 chunk 와 index 를 `s3://<데이터 버킷>/loki/` 에 두고(보관 30일,
+`--retention-days` 로 조절), Grafana Alloy DaemonSet 이 `/var/log/pods` 를 직접 읽는다. 그리고
+`Loki` 데이터소스를 등록해 Grafana Explore 에서 LogQL 로 조회한다
+(`{namespace="rl", job_name="mujoco-rl-10172204"}`). 인덱스로 올리는 라벨은 namespace, job_name,
+container, cluster 네 개뿐이고 파드 이름은 structured metadata 로 내린다. Loki 는 라벨 조합마다
+스트림을 하나씩 만들고 파드 이름은 매 실행마다 달라지기 때문이다. Loki 는 ClusterIP 이고
+IngressGroup 에 붙이지 않으므로 로그는 Grafana 를 통해서만 닿는다. 버킷을 새로 만들지 않고 스택이
+만든 버킷을 키 접두어로 갈라 쓰며, IAM 정책을 `loki/*` 로 좁혀 같은 버킷의 `mlflow-artifacts/` 에는
+닿지 못한다. `delete-logs.sh` 는 기본적으로 S3 의 로그를 남기므로(다시 설치하면 그대로 읽힌다)
+완전히 지우려면 `--purge-s3` 가 필요하다. 상시 비용은 WAL 용 gp3 20Gi 약 \$1.8/월에 학습 로그
+분량의 S3 저장료(센트 단위)다.
+
+운영상 주의가 하나 있다. 두 스크립트 모두 상시 가동하는 `ml.c5.4xlarge` 시스템 노드에 파드를
+더하는데, 이 노드의 파드 상한이 29개다. 대시보드 스택 전체에 포탈과 Loki 까지 설치하면 29/29 가
+되어 새로 제출한 Workflow 가 `Too many pods` 로 `Pending` 에 걸린다. 포탈로 학습을 돌리기 전에 CPU
+노드를 한 대 더 붙이는 것이 좋다(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`).
 
 `install-observability.sh` 는 애드온이 그 리전에 있는지(`aws eks describe-addon-versions`) 먼저 확인하고
 없으면 대안(`kubectl top`, CloudWatch Container Insights)을 안내하며 종료한다. 2026-10-16 실측으로
@@ -317,8 +406,16 @@ kubectl get workloads -A
 | `k8s-templates/governance/*.json` | cluster policy, team-a/team-b compute quota 입력 |
 | `scripts/eks/kubeconfig.sh` · `grafana-user.sh` · `create-governance.sh` · `delete-governance.sh` | 접속 · Grafana(AMG) 사용자 · 정책 생성/삭제 |
 | `scripts/eks/install-observability.sh` · `delete-observability.sh` | AMP + observability 애드온 + Grafana 추가 설치/삭제 (리전 지원 여부를 먼저 확인). CDK 밖이므로 `cdk destroy` 로는 지워지지 않는다 |
+| `scripts/eks/install-dashboard-public.sh` · `delete-dashboard-public.sh` | 클러스터 안의 kube-prometheus-stack + Grafana 를 ALB + WAF + CloudFront 로 공개. observability 애드온이 없는 리전용 경로 |
+| `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | 같은 ALB 에 클러스터 내부 MLflow + Postgres + TensorBoard. 다른 스크립트들이 의존하는 EBS CSI 애드온과 gp3 StorageClass 도 여기서 만든다 |
+| `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Training Console 을 Grafana 홈 대시보드로 지정하고 읽기 전용 MLflow Postgres 데이터소스를 추가 |
+| `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Prometheus·Grafana 를 gp3 PVC(retention 15d)로 옮기고 SNS 토픽·pod identity·알림 규칙 4개를 프로비저닝 |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | 같은 ALB 의 `/argo` 에 Argo Workflows + WorkflowTemplate 5개. 브라우저에서 Job 을 제출한다. 각 submit 단계는 CLI 경로와 똑같은 `render.sh` 를 호출 |
+| `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki(SingleBinary, chunk 는 `s3://<데이터 버킷>/loki/`) + Alloy DaemonSet + Grafana `Loki` 데이터소스. 끝난 Job 의 파드가 수거된 뒤에도 로그가 남는다 |
 | `eks/grafana-values.yaml` | in-cluster Grafana Helm values 템플릿 (`install-observability.sh` 가 envsubst 로 채운다) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
+| `eks/grafana-dashboards/hyperpod-training-console.json` | 클러스터·GPU·MLflow run 패널을 한 화면에 모은 랜딩 대시보드 (`install-unified-dashboard.sh` 가 Grafana 홈으로 지정) |
+| `eks/grafana-alerting/hyperpod-alerts.yaml` | Grafana 알림 프로비저닝 — SNS 연락 지점과 `TrainingPodFailed`, `KueueBacklog`, `NodeNotReady`, `GPUIdleWhileAllocated` (`install-dashboard-hardening.sh` 가 토픽 ARN 과 리전을 envsubst 로 채운다) |
 | `lifecycle-scripts/on_create_eks.sh` | EKS 노드 lifecycle. CPU 노드는 진단 로그만(kubelet/plugin은 HyperPod·Helm이 처리). GPU 노드는 `setup_nvidia_driver.sh`(Isaac Sim 렌더링용 580 드라이버) + `setup_dcv_al2023.sh`(AL2023 GNOME + DCV, 세션 `workspace`, ec2-user/hyperpod)를 추가 실행 (모듈 10 §10.7 방법 B) |
 | `lifecycle-scripts/setup_dcv_al2023.sh` | Amazon Linux 2023(EKS AMI)용 DCV 설치. Slurm AMI(Ubuntu)의 `setup_dcv.sh`에 해당하며 Docker 는 설치하지 않는다 |
 | `k8s-templates/rl/isaaclab-play-job.yaml` | GPU 노드 DCV 세션에 Isaac Sim 창을 띄우는 재생 Job (hostPath `/tmp/.X11-unix`, `X_DISPLAY` 자동 선택) |
@@ -330,6 +427,12 @@ kubectl get workloads -A
 ```bash
 ./scripts/eks/delete-governance.sh                                   # compute quota → cluster policy (남아 있으면 클러스터 삭제가 막힌다)
 ./scripts/eks/delete-observability.sh                                # AMP·Grafana·애드온 (CDK 밖이라 destroy 로 안 지워진다. AMP 는 비어 있어도 과금)
+./scripts/eks/delete-logs.sh                                         # 클러스터 내부 대시보드 경로를 썼다면 역순으로. ALB·WAF 는 상시 과금이다
+./scripts/eks/delete-job-portal.sh                                   # 보관된 로그·학습 Job 까지 지우려면 --purge-s3 / --purge-jobs
+./scripts/eks/delete-dashboard-hardening.sh
+./scripts/eks/delete-unified-dashboard.sh
+./scripts/eks/delete-mlflow-selfhosted.sh
+./scripts/eks/delete-dashboard-public.sh
 ./scripts/scale-cluster.sh gpu-g5-8x 0 --cluster hyperpod-eks-<ACCOUNT_ID>
 aws s3 rm s3://hyperpod-eks-data-<ACCOUNT_ID>-<REGION> --recursive
 cd infra && npx cdk destroy -c orchestrator=eks -c region=${REGION} --force   # ~25분

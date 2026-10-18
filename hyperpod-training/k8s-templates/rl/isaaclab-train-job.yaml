@@ -44,9 +44,15 @@ spec:
               # MLFLOW_TRACKING_URI 가 채워져 있으면 추적 패키지를 먼저 설치한다. isaac-lab 이미지에는
               # isaaclab / isaaclab_rl / rsl_rl 만 있고 mlflow 는 없다. 전체 mlflow 대신 mlflow-skinny 를
               # 쓰는 이유는 전체 패키지가 numpy/pandas 를 끌어올려 Isaac Sim 의 numpy 1.26 빌드를 깨기 때문이다.
+              # 자체 호스팅(http://...) 은 basic auth 라 추가 플러그인이 필요 없다. 관리형 서버의
+              # ARN(arn:aws:sagemaker:...) 일 때만 SigV4 서명을 붙이는 sagemaker-mlflow 를 함께 설치한다.
               if [ -n "${MLFLOW_TRACKING_URI:-}" ]; then
-                /isaac-sim/python.sh -c 'import mlflow, sagemaker_mlflow' 2>/dev/null ||
-                  /isaac-sim/python.sh -m pip install --no-cache-dir -q mlflow-skinny sagemaker-mlflow
+                case "${MLFLOW_TRACKING_URI}" in
+                  arn:aws:sagemaker:*) MLFLOW_PKGS="mlflow-skinny sagemaker-mlflow" ;;
+                  *)                   MLFLOW_PKGS="mlflow-skinny" ;;
+                esac
+                /isaac-sim/python.sh -c 'import mlflow' 2>/dev/null ||
+                  /isaac-sim/python.sh -m pip install --no-cache-dir -q ${MLFLOW_PKGS}
               fi
               exec /isaac-sim/python.sh \
                 /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/rl/train_isaaclab.py \
@@ -70,13 +76,28 @@ spec:
               value: "1"
             - name: GIT_PYTHON_REFRESH
               value: quiet
-            # SageMaker 관리형 MLflow 의 tracking server ARN. render.sh 가 HyperPodEks 스택의
-            # MlflowTrackingUri Output 에서 읽어 채우고, Output 이 없으면(enableMlflow=false)
+            # render.sh 가 채운다. 클러스터 안에 자체 호스팅 MLflow 가 있으면 그 Service URL,
+            # 없으면 HyperPodEks 스택의 MlflowTrackingUri Output(관리형 서버 ARN), 둘 다 없으면
             # 빈 값으로 남아 MLflow 추적이 비활성화된다.
             - name: MLFLOW_TRACKING_URI
               value: "${MLFLOW_TRACKING_URI}"
             - name: MLFLOW_EXPERIMENT_NAME
               value: isaaclab-rl
+            # 자체 호스팅 MLflow 의 basic auth 자격증명. render.sh 가 mlflow 네임스페이스에서
+            # 이 네임스페이스로 Secret 을 복사한다. 관리형 서버를 쓰면 Secret 이 없으므로
+            # optional: true 로 두어 두 경로가 같은 템플릿을 공유한다.
+            - name: MLFLOW_TRACKING_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: username
+                  optional: true
+            - name: MLFLOW_TRACKING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: password
+                  optional: true
           resources:
             requests:
               cpu: "12"

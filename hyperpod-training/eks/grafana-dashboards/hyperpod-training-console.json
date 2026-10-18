@@ -1,0 +1,153 @@
+{
+  "title": "HyperPod Physical AI — Training Console",
+  "uid": "hyperpod-training-console",
+  "tags": ["hyperpod", "console"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "html",
+        "content": "<div style=\"display:flex;gap:12px;align-items:stretch;font-family:Inter,system-ui,sans-serif\">\n  <a href=\"/d/hyperpod-task-governance/\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">Grafana</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Cluster &amp; GPU</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Nodes, Kueue queues, DCGM GPU metrics</div>\n  </a>\n  <a href=\"/mlflow\" target=\"_blank\" rel=\"noopener\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">MLflow &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Experiment tracking</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Compare runs, params, checkpoints</div>\n  </a>\n  <a href=\"/tensorboard\" target=\"_blank\" rel=\"noopener\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">TensorBoard &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Training curves</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Live scalars from /fsx run directories</div>\n  </a>\n</div>"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Nodes Ready",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 5 },
+      "targets": [
+        { "refId": "A", "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})" }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "GPUs in cluster",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 5 },
+      "targets": [
+        { "refId": "A", "expr": "sum(kube_node_status_allocatable{resource=\"nvidia_com_gpu\"}) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "Training pods running",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 5 },
+      "targets": [
+        { "refId": "A", "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=~\"rl|hyperpod-ns-.*\"} == 1) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "Kueue pending workloads",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 5 },
+      "targets": [
+        { "refId": "A", "expr": "sum(kueue_pending_workloads) or vector(0)" }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "MLflow runs (total)",
+      "description": "Read straight from the MLflow backend database, counting active runs only.",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"runs\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active';"
+        }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "MLflow runs active now",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"running\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.status = 'RUNNING' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active';"
+        }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+    },
+    {
+      "type": "table",
+      "title": "Recent MLflow runs",
+      "description": "The 10 most recently started runs, straight from the MLflow backend database.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(r.start_time / 1000) AS \"started\", e.name AS \"experiment\", r.name AS \"run\", r.status AS \"status\", round((coalesce(r.end_time, (extract(epoch from now()) * 1000)::bigint) - r.start_time) / 60000.0, 1) AS \"minutes\", (SELECT count(DISTINCT m.key) FROM metrics m WHERE m.run_uuid = r.run_uuid) AS \"metrics\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY r.start_time DESC LIMIT 10;"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true }
+    },
+    {
+      "type": "timeseries",
+      "title": "MLflow — mean reward by run",
+      "description": "The MLflow hook rewrites '/' to '_' in metric keys, so Isaac Lab's Train/mean_reward arrives as Train_mean_reward. The time filter uses $__unixEpochFilter because metrics.timestamp is epoch milliseconds, and because $__timeFilter() truncates its argument at the first ')' — a nested to_timestamp() call would compare a bigint against an RFC 3339 string.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key IN ('Train_mean_reward', 'rollout_ep_rew_mean') AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "GPU utilization per node (DCGM)",
+      "description": "Empty while the GPU instance group is scaled to 0.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "targets": [
+        { "refId": "A", "expr": "avg by (hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "{{hostname}} gpu{{gpu}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU requested by training pods (vCPU)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\",namespace=~\"rl|hyperpod-ns-.*\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}

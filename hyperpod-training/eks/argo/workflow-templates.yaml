@@ -1,0 +1,576 @@
+# =============================================================================
+# workflow-templates.yaml — Argo Workflows UI 에서 제출할 수 있게 k8s-templates 의
+#                           Job 들을 감싼 래퍼. install-job-portal.sh 가 적용한다.
+#
+#   왜 래퍼인가
+#     k8s-templates/*.yaml 과 render.sh 는 모듈 9~11 가이드가 그대로 가리키는 자산이다.
+#     Argo 가 쓸 수 있게 고치면 CLI 경로와 UI 경로가 갈라진다. 그래서 여기서는
+#     한 줄도 고치지 않고, 두 단계 워크플로로 감싼다.
+#
+#       1. render  — k8s-templates 사본(ConfigMap job-templates)을 마운트하고
+#                    render.sh 를 그대로 실행해 Job YAML 을 stdout 으로 뽑는다.
+#                    envsubst 치환, Kueue 라벨 제거, MLflow URI 자동 탐지가
+#                    전부 render.sh 안에서 일어난다.
+#       2. submit  — 1 단계 출력(result)을 그대로 kubectl create 하고, Job 이 끝날
+#                    때까지 로그를 흘려보내며 기다린다.
+#
+#     즉 UI 에서 누른 값은 환경변수로 render.sh 에 들어가고, 실제 Job 스펙은
+#     여전히 k8s-templates 가 결정한다. 가이드의 CLI 명령과 UI 제출이 같은 결과를 낸다.
+#
+#   UI 에서 보이는 것
+#     Submit new workflow 에서 템플릿을 고르면 아래 parameters 가 입력 폼이 된다.
+#     enum 이 붙은 파라미터는 드롭다운, 나머지는 기본값이 채워진 텍스트 상자다.
+#     로그는 Logs 탭에서 바로 보이고, Stop 으로 중단할 수 있다.
+#
+#   Job 의 성공·실패와 중단
+#     submit 단계가 Job 의 status.succeeded / status.failed 를 직접 본다. Job 은
+#     backoffLimit 0 (재시도 없음)이므로 failed 가 1 이면 바로 실패로 끊는다.
+#     Stop/Terminate 를 누르면 submit 파드의 trap 이 Job 을 지워 GPU 를 돌려준다.
+#     소유 참조(setOwnerReference)를 쓰지 않는 이유는 submit 템플릿 주석에 있다.
+#
+#   플레이스홀더 (install-job-portal.sh 가 envsubst 로 채운다)
+#     ARGO_NAMESPACE  WorkflowTemplate 이 들어갈 네임스페이스
+#     WORKFLOW_SA     워크플로 파드가 쓸 ServiceAccount
+#     RENDER_IMAGE    render 단계 이미지 (alpine — 기동 시 필요한 도구를 apk 로 깐다)
+# =============================================================================
+---
+# -----------------------------------------------------------------------------
+# isaaclab-train — 다른 템플릿들이 이 안의 render / submit 를 templateRef 로 재사용한다.
+# ClusterWorkflowTemplate 이 아니라 네임스페이스 WorkflowTemplate 인 이유는
+# UI 의 WorkflowTemplates 목록이 네임스페이스 단위로 뜨는 쪽이 찾기 쉬워서다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: isaaclab-train
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "Isaac Lab RL training (GPU)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/isaaclab-train-job.yaml. Uses one GPU on
+      ml.g5.8xlarge and writes checkpoints to /fsx/checkpoints/rl. MLflow
+      tracking turns on automatically when the tracking server is reachable.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  # Job 이 끝나도 워크플로 기록은 일주일 남는다. 로그는 Argo 아티팩트가 아니라 Job
+  # 파드에 붙어 있으므로, 파드가 ttlSecondsAfterFinished 로 사라지면 Logs 탭도 빈다.
+  # install-logs.sh 를 설치하면 Loki 에서 계속 검색된다.
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+        description: "Target namespace. hyperpod-ns-* routes the Job through the task governance queue."
+      - name: task
+        value: Workshop-SO101-Reach-v0
+        enum:
+          - Workshop-SO101-Reach-v0
+      - name: num-envs
+        value: "2048"
+        description: "Parallel environments"
+      - name: max-iterations
+        value: "300"
+        description: "PPO iterations (300 takes roughly 15-20 minutes)"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+        description: "WorkloadPriorityClass. Only used in team namespaces."
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/isaaclab-train-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    TASK={{workflow.parameters.task}}
+                    NUM_ENVS={{workflow.parameters.num-envs}}
+                    MAX_ITERATIONS={{workflow.parameters.max-iterations}}
+        - - name: submit
+            template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+
+    # -------------------------------------------------------------------------
+    # render — ConfigMap 에 담긴 k8s-templates 사본에서 render.sh 를 돌린다.
+    #
+    #   ConfigMap 은 하위 디렉터리를 만들 수 없으므로 install-job-portal.sh 가
+    #   파일명을 'rl_isaaclab-train-job.yaml' 처럼 평탄화해서 넣는다. 여기서
+    #   원래 경로로 되살려야 render.sh 의 case 문(*isaaclab-train*, *mujoco*,
+    #   *fsx-pvc*)이 템플릿을 알아본다.
+    #
+    #   stdout 이 그대로 다음 단계의 manifest 가 되므로 render.sh 의 진단 메시지는
+    #   stderr 로 가야 한다. render.sh 는 이미 그렇게 쓰여 있다(>&2).
+    # -------------------------------------------------------------------------
+    - name: render
+      inputs:
+        parameters:
+          - name: template
+          - name: env
+      script:
+        image: ${RENDER_IMAGE}
+        command: [sh, -ceu]
+        source: |
+          apk add --no-cache bash gettext kubectl aws-cli >/dev/null 2>&1
+
+          WORK=/tmp/k8s-templates
+          mkdir -p "$WORK/rl" "$WORK/setup"
+          for f in /templates/*; do
+            base="$(basename "$f")"
+            case "$base" in
+              rl_*)    cp "$f" "$WORK/rl/${base#rl_}" ;;
+              setup_*) cp "$f" "$WORK/setup/${base#setup_}" ;;
+              *)       cp "$f" "$WORK/$base" ;;
+            esac
+          done
+          chmod +x "$WORK/render.sh"
+
+          # UI 입력을 환경변수로 옮긴다. 값에 '=' 가 들어갈 수 있으므로 첫 '=' 만 끊는다.
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            export "${line%%=*}=${line#*=}"
+          done <<'ENVEOF'
+          {{inputs.parameters.env}}
+          ENVEOF
+
+          # --apply 를 붙이지 않으면 render.sh 는 렌더 결과만 stdout 으로 낸다.
+          # 하지만 네임스페이스 생성과 mlflow-credentials 복사는 --apply 경로에만
+          # 있으므로 여기서 같은 일을 먼저 한다 (render.sh 를 고치지 않기 위해).
+          kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || \
+            kubectl create namespace "$NAMESPACE" >/dev/null
+          if kubectl get secret mlflow-credentials -n mlflow >/dev/null 2>&1 \
+             && ! kubectl get secret mlflow-credentials -n "$NAMESPACE" >/dev/null 2>&1; then
+            kubectl get secret mlflow-credentials -n mlflow -o yaml \
+              | grep -vE '^\s*(namespace|uid|resourceVersion|creationTimestamp):' \
+              | kubectl apply -n "$NAMESPACE" -f - >/dev/null
+          fi
+
+          cd "$WORK"
+          exec ./render.sh "{{inputs.parameters.template}}"
+        volumeMounts:
+          - name: templates
+            mountPath: /templates
+            readOnly: true
+      volumes:
+        - name: templates
+          configMap:
+            name: job-templates
+
+    # -------------------------------------------------------------------------
+    # submit — 렌더 결과로 Job 을 만들고, 끝날 때까지 로그를 흘려보내며 기다린다.
+    #
+    #   왜 resource 템플릿이 아닌가
+    #     resource 템플릿의 setOwnerReference 는 생성한 Job 에 "argo 네임스페이스의
+    #     Workflow" 를 소유자로 박는다. 그런데 Job 은 rl 같은 다른 네임스페이스에
+    #     만들어지므로 소유자 참조가 네임스페이스를 넘는다. 쿠버네티스는 이를 허용하지
+    #     않고 즉시 수거한다. 실제로 그렇게 깨졌다.
+    #       Warning OwnerRefInvalidNamespace  ownerRef [...] does not exist in namespace "rl"
+    #       Error (exit code 64): The resource has been deleted while its status
+    #                             was still being checked
+    #     setOwnerReference 를 빼면 수거는 멈추지만 Stop 을 눌러도 Job 이 계속 돌아
+    #     GPU 가 묶인다. 그래서 생성·대기·정리를 이 스크립트가 직접 한다.
+    #
+    #   Stop/Terminate 를 누르면 Argo 가 이 파드에 SIGTERM 을 보낸다. trap 이 그때
+    #   Job 을 지우므로 GPU 가 풀린다. 다만 셸의 trap 은 포그라운드 명령이 끝난 뒤에
+    #   실행되므로, 로그 추적은 백그라운드로 돌리고 상태 확인만 포그라운드에서 한다.
+    #   그러지 않으면 kubectl logs -f 가 Job 이 끝날 때까지 블록해 trap 이 늦는다.
+    #
+    #   로그를 여기서 흘려보내므로 Logs 탭에 학습 출력이 그대로 보인다.
+    # -------------------------------------------------------------------------
+    - name: submit
+      inputs:
+        parameters:
+          - name: manifest
+      script:
+        image: ${RENDER_IMAGE}
+        command: [sh, -ceu]
+        source: |
+          apk add --no-cache kubectl >/dev/null 2>&1
+
+          cat >/tmp/job.yaml <<'MANIFESTEOF'
+          {{inputs.parameters.manifest}}
+          MANIFESTEOF
+
+          # Job 의 네임스페이스·이름은 render.sh 가 manifest 에 이미 박아 두었다.
+          # 생성 결과에서 바로 읽어 오면 이름 규칙을 여기서 또 알 필요가 없다.
+          REF="$(kubectl create -f /tmp/job.yaml \
+                 -o jsonpath='{.metadata.namespace} {.metadata.name}')"
+          NS="${REF% *}"
+          NAME="${REF#* }"
+          echo "created job ${NS}/${NAME}" >&2
+
+          # 성공·실패로 끝난 Job 은 남겨 둔다 (ttlSecondsAfterFinished 가 치운다).
+          # 중단된 경우에만 지운다.
+          trap 'echo "interrupted - deleting job ${NS}/${NAME}" >&2
+                kubectl delete job "$NAME" -n "$NS" --wait=false >/dev/null 2>&1 || true
+                exit 1' TERM INT
+
+          # 파드가 뜰 때까지 기다린다. 가장 흔한 막힘은 fsx-pvc 가 없는 것이고
+          # (workshop-setup 을 안 돌린 경우), 그 다음은 노드 대기다. 이유를 그대로
+          # 보여 주고, PENDING_LIMIT 을 넘기면 영원히 기다리지 않고 실패로 끊는다.
+          PENDING_LIMIT=600
+          WAITED=0
+          POD=""
+          while [ -z "$POD" ]; do
+            POD="$(kubectl get pod -n "$NS" -l job-name="$NAME" \
+                   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            PHASE=""
+            [ -z "$POD" ] || PHASE="$(kubectl get pod "$POD" -n "$NS" \
+                                      -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+            if [ -n "$POD" ] && [ "$PHASE" != "Pending" ]; then
+              break
+            fi
+
+            if [ -n "$POD" ]; then
+              kubectl get event -n "$NS" --field-selector "involvedObject.name=${POD}" \
+                -o jsonpath='{range .items[?(@.type=="Warning")]}{.message}{"\n"}{end}' \
+                2>/dev/null | sort -u | sed 's/^/  pending: /' >&2 || true
+            fi
+
+            if [ "$WAITED" -ge "$PENDING_LIMIT" ]; then
+              echo "job ${NS}/${NAME} stayed pending for ${PENDING_LIMIT}s - giving up." >&2
+              echo "fsx-pvc 가 없다면 workshop-setup 템플릿을 먼저 제출하세요." >&2
+              kubectl delete job "$NAME" -n "$NS" --wait=false >/dev/null 2>&1 || true
+              exit 1
+            fi
+            POD=""
+            WAITED=$((WAITED + 5))
+            sleep 5
+          done
+
+          kubectl logs -f "$POD" -n "$NS" --all-containers --tail=-1 2>/dev/null &
+          LOG_PID=$!
+
+          while :; do
+            SUCCEEDED="$(kubectl get job "$NAME" -n "$NS" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+            FAILED="$(kubectl get job "$NAME" -n "$NS" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+            if [ "${SUCCEEDED:-0}" -gt 0 ]; then
+              wait "$LOG_PID" 2>/dev/null || true
+              echo "job ${NS}/${NAME} succeeded" >&2
+              exit 0
+            fi
+            if [ "${FAILED:-0}" -gt 0 ]; then
+              wait "$LOG_PID" 2>/dev/null || true
+              echo "job ${NS}/${NAME} failed" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: mujoco-train
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "MuJoCo RL training (CPU)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/mujoco-train-job.yaml. Runs on ml.c5.4xlarge with
+      no GPU and finishes in about five minutes. Requires /fsx/envs/mujoco,
+      which the workshop-setup template creates.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: task
+        value: Workshop-SO101-Reach-MuJoCo-v0
+        enum:
+          - Workshop-SO101-Reach-MuJoCo-v0
+      - name: total-steps
+        value: "1000000"
+        description: "Total environment steps (1000000 takes about five minutes)"
+      - name: log-dir
+        value: /fsx/checkpoints/rl
+        description: >-
+          Checkpoint root. The default is exported to S3. When several teams run
+          at once, split them under /fsx/scratch/governance-demo/<team> so they
+          do not overwrite each other.
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/mujoco-train-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    TASK={{workflow.parameters.task}}
+                    TOTAL_STEPS={{workflow.parameters.total-steps}}
+                    LOG_DIR={{workflow.parameters.log-dir}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: mujoco-render
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "MuJoCo policy check + video (CPU)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/mujoco-render-job.yaml. Replays a trained policy
+      for a few episodes to measure success rate and writes mp4/gif next to the
+      checkpoint under videos/. Pass untrained to compare against an untrained policy.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: checkpoint
+        value: /fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip
+        description: "Checkpoint to replay. Pass untrained to run the untrained policy."
+      - name: episodes
+        value: "5"
+        description: "Episode count (about ten seconds each)"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/mujoco-render-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    CHECKPOINT={{workflow.parameters.checkpoint}}
+                    EPISODES={{workflow.parameters.episodes}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: isaaclab-play
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "Isaac Lab policy replay (GPU, DCV desktop)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/isaaclab-play-job.yaml. Draws an Isaac Sim window
+      on the GPU node's DCV desktop, so run `xhost +si:localuser:root` in that
+      desktop's terminal first. View the result with a DCV client.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: checkpoint
+        value: /fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt
+      - name: play-envs
+        value: "4"
+        description: "Environments to draw at once"
+      - name: x-display
+        value: ""
+        description: "Leave empty to pick the node's DCV virtual session automatically."
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/isaaclab-play-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    CHECKPOINT={{workflow.parameters.checkpoint}}
+                    PLAY_ENVS={{workflow.parameters.play-envs}}
+                    X_DISPLAY={{workflow.parameters.x-display}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: workshop-setup
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "One-time prep - FSx claim, code clone, MuJoCo venv"
+    workflows.argoproj.io/description: >-
+      Applies fsx-pvc.yaml then submits setup/workshop-setup-job.yaml and
+      rl/mujoco-setup-job.yaml in order. Clones the recipes into /fsx and builds
+      /fsx/envs/mujoco. Run once per namespace. Takes about ten minutes.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: recipes-ref
+        value: feat/e2e-workshop
+        description: "Branch to clone"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    # fsx-pvc 가 없으면 Job 이 영원히 Pending 이므로 제일 먼저 만든다.
+    # render.sh 가 FSX_* 를 HyperPodEks 스택 Output 에서 읽으므로 render 단계에
+    # AWS 호출 권한이 필요하다 (install-job-portal.sh 가 pod identity 를 붙인다).
+    - name: main
+      steps:
+        - - name: render-pvc
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: fsx-pvc.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+        - - name: apply-pvc
+            template: apply
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render-pvc.outputs.result}}"
+        - - name: render-clone
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: setup/workshop-setup-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    RECIPES_REF={{workflow.parameters.recipes-ref}}
+        - - name: clone
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render-clone.outputs.result}}"
+        - - name: render-venv
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/mujoco-setup-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+        - - name: venv
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render-venv.outputs.result}}"
+
+    # fsx-pvc.yaml 은 PV + PVC 두 개를 담고 있고 이미 있으면 create 가 실패한다.
+    # resource 템플릿은 리소스 하나만 다루므로 kubectl apply 를 직접 쓴다.
+    - name: apply
+      inputs:
+        parameters:
+          - name: manifest
+      script:
+        image: ${RENDER_IMAGE}
+        command: [sh, -ceu]
+        source: |
+          apk add --no-cache kubectl >/dev/null 2>&1
+          cat >/tmp/manifest.yaml <<'MANIFESTEOF'
+          {{inputs.parameters.manifest}}
+          MANIFESTEOF
+          kubectl apply -f /tmp/manifest.yaml

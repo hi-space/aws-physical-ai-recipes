@@ -1,0 +1,193 @@
+# =============================================================================
+# hyperpod-alerts.yaml — Grafana 알림 프로비저닝 (install-dashboard-hardening.sh 가 넣는다)
+#
+#   Grafana 가 이 파일을 /etc/grafana/provisioning/alerting/ 에서 읽는다. UI 에서
+#   만든 규칙과 달리 git 에 남아 재설치 때 그대로 복원된다. 대신 UI 에서는 읽기 전용이다.
+#
+#   SNS 토픽 ARN 과 리전은 설치 스크립트가 envsubst 로 채운다. 아래 contactPoints
+#   안의 두 플레이스홀더가 그 자리다. 주석에 같은 표기를 쓰면 여기도 치환된다.
+#
+#   규칙 4개 모두 Prometheus 지표만 쓴다. 각 쿼리를 `or vector(0)` 로 감싸 지표가
+#   없을 때 0 이 나오게 했다. 전제가 덜 갖춰진 상태(ClusterQueue 미생성 → kueue_*
+#   시계열 없음, GPU 노드 0대 → DCGM 시계열 없음)에서 NoData 가 경보로 올라가면
+#   아무도 알림을 믿지 않게 되므로, noDataState 는 전부 OK 로 둔다.
+# =============================================================================
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: hyperpod-sns
+    receivers:
+      - uid: hyperpod-sns
+        type: sns
+        settings:
+          # 키 이름은 Grafana 내부 구조체 태그를 그대로 따른다. UI 레이블("SNS topic
+          # ARN")이나 문서의 camelCase 와 다르다. topic 이나 topicArn 으로 쓰면
+          # 프로비저닝이 "must specify topicArn, targetArn, or phone number" 로
+          # 실패하고 Grafana 가 기동하지 못한다. sigv4 하위 키만 대문자로 시작한다.
+          api_url: https://sns.${REGION}.amazonaws.com
+          topic_arn: ${ALERT_TOPIC_ARN}
+          sigv4:
+            Region: ${REGION}
+
+policies:
+  - orgId: 1
+    receiver: hyperpod-sns
+    group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 5m
+    # 같은 경보를 4시간마다 다시 보낸다. 더 짧으면 주말에 메일이 쌓인다.
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: hyperpod-training
+    folder: HyperPod
+    interval: 1m
+    rules:
+      # ---------------------------------------------------------------------
+      # 학습 파드가 Failed 로 끝났다. OOM·이미지 오류·코드 예외가 모두 여기로 온다.
+      # Job 의 backoffLimit 재시도 중에도 Failed 파드가 남으므로 5분을 기다린다.
+      # ---------------------------------------------------------------------
+      - uid: hyperpod-training-pod-failed
+        title: TrainingPodFailed
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: 학습 네임스페이스에 Failed 파드가 있습니다.
+          description: kubectl get pods -n rl --field-selector status.phase=Failed
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: count(kube_pod_status_phase{phase="Failed",namespace=~"rl|hyperpod-ns-.*"} == 1) or vector(0)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # ---------------------------------------------------------------------
+      # Kueue 큐에 워크로드가 30분 넘게 묶여 있다. 쿼터 부족이거나 GPU 노드가 없다.
+      # ClusterQueue 를 만들지 않으면(create-governance.sh 미실행) 이 지표는 아예
+      # 없다. 그때는 vector(0) 이 되어 조용하다.
+      # ---------------------------------------------------------------------
+      - uid: hyperpod-kueue-backlog
+        title: KueueBacklog
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: Kueue 대기 워크로드가 30분 넘게 남아 있습니다.
+          description: kubectl get workloads -A 로 어느 ClusterQueue 가 막혔는지 확인하세요.
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: sum(kueue_pending_workloads) or vector(0)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # ---------------------------------------------------------------------
+      # 노드가 Ready 를 잃었다. HyperPod 가 자동 복구하기도 하지만 10분을 넘기면
+      # 사람이 봐야 한다.
+      # ---------------------------------------------------------------------
+      - uid: hyperpod-node-not-ready
+        title: NodeNotReady
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: Ready 가 아닌 노드가 있습니다.
+          description: kubectl get nodes 로 확인하고 HyperPod 콘솔의 인스턴스 상태를 보세요.
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: count(kube_node_status_condition{condition="Ready",status="true"} == 0) or vector(0)
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # ---------------------------------------------------------------------
+      # GPU 를 요청한 파드가 있는데 실제 사용률이 30분째 5% 미만이다. 돈이 새는
+      # 신호다(데이터 로딩 병목, 학습이 멈췄는데 파드는 살아 있는 경우).
+      # DCGM 시계열이 없으면 B 가 NoData 가 되고 noDataState=OK 로 조용하다.
+      # GPU 노드가 0대인 동안이 그 상태다.
+      # ---------------------------------------------------------------------
+      - uid: hyperpod-gpu-idle
+        title: GPUIdleWhileAllocated
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: GPU 를 할당받은 파드가 30분 동안 GPU 를 거의 쓰지 않았습니다.
+          description: 학습이 멈췄거나 데이터 파이프라인이 병목입니다. 로그와 TensorBoard 를 확인하세요.
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # GPU 요청이 있을 때만 1, 없으면 0. 뒤의 math 에서 게이트로 쓴다.
+              expr: clamp_max(sum(kube_pod_container_resource_requests{resource="nvidia_com_gpu"}) or vector(0), 1)
+          - refId: B
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: B
+              instant: true
+              editorMode: code
+              # 30분 내내 5% 미만이어야 한다. 순간값으로 보면 체크포인트 저장 중에도 뜬다.
+              expr: max(min_over_time(DCGM_FI_DEV_GPU_UTIL[30m]))
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: math
+              expression: ($A > 0) && ($B < 5)

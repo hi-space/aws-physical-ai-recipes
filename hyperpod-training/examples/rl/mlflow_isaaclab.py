@@ -1,11 +1,18 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Mirror Isaac Lab TensorBoard scalars to SageMaker Managed MLflow in real time.
+"""Mirror Isaac Lab TensorBoard scalars to an MLflow tracking server in real time.
 
 Activated by calling install() before argparse.parse_args() runs (see
-train_isaaclab.py). No-op when MLFLOW_TRACKING_URI is unset — the RL track's
-MLflow server is provisioned by Module 7's CDK stack (MlflowConstruct), but
-is optional (enableMlflow=false disables it).
+train_isaaclab.py). No-op when MLFLOW_TRACKING_URI is unset, which is the
+default — tracking is opt-in, and the RL track has two server options:
+  - SageMaker Managed MLflow, provisioned by Module 7's CDK stack
+    (MlflowConstruct) when deployed with enableMlflow=true. The URI is a
+    SageMaker ARN and needs the sagemaker-mlflow plugin for SigV4 signing.
+  - Self-hosted in-cluster MLflow, installed by
+    scripts/eks/install-mlflow-selfhosted.sh. The URI is a Service URL and
+    authenticates with basic auth from MLFLOW_TRACKING_USERNAME/_PASSWORD.
+Either way k8s-templates/render.sh fills the env vars in, preferring the
+self-hosted server when its Service exists.
 
 Two monkey-patches:
   - argparse.ArgumentParser.parse_args / parse_known_args -> on the first
