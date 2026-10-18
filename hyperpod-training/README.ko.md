@@ -283,10 +283,10 @@ CloudFront URL 하나로 공개하는 두 번째 경로가 있다.
 ./scripts/eks/install-dashboard-hardening.sh      # (옵션) 지표 보존 + 알림 (~10분, 약 \$5/월)
 ./scripts/eks/install-job-portal.sh               # (옵션) 브라우저에서 Job 제출 (~8분, 새 비용 없음)
 ./scripts/eks/install-logs.sh                     # (옵션) 끝난 Job 의 로그를 S3 에 보관 (~8분, 약 \$2/월)
-# → https://<cloudfront-도메인>/            Grafana   (admin / Secret grafana 의 admin-password)
-#   https://<cloudfront-도메인>/mlflow      MLflow    (basic auth, 설치 스크립트가 출력)
-#   https://<cloudfront-도메인>/tensorboard TensorBoard — /fsx 의 run 디렉터리를 읽는다
-#   https://<cloudfront-도메인>/argo        Argo Workflows UI (로그인 토큰은 설치 스크립트가 출력)
+# → https://<cloudfront-도메인>/            Grafana     클러스터 상태 + 입구 (admin / Secret grafana 의 admin-password)
+#   https://<cloudfront-도메인>/mlflow      MLflow      학습 지표 — run 은 여기서 읽는다 (basic auth, 설치 스크립트가 출력)
+#   https://<cloudfront-도메인>/tensorboard TensorBoard 폴백 — /fsx tfevents, MLflow 에 없는 run 용
+#   https://<cloudfront-도메인>/argo        Argo        Job 제출·진행 확인 (로그인 토큰은 설치 스크립트가 출력)
 ./scripts/eks/delete-logs.sh                      # 삭제는 설치의 역순
 ./scripts/eks/delete-job-portal.sh
 ./scripts/eks/delete-dashboard-hardening.sh
@@ -353,8 +353,99 @@ IngressGroup 에 붙이지 않으므로 로그는 Grafana 를 통해서만 닿�
 
 운영상 주의가 하나 있다. 두 스크립트 모두 상시 가동하는 `ml.c5.4xlarge` 시스템 노드에 파드를
 더하는데, 이 노드의 파드 상한이 29개다. 대시보드 스택 전체에 포탈과 Loki 까지 설치하면 29/29 가
-되어 새로 제출한 Workflow 가 `Too many pods` 로 `Pending` 에 걸린다. 포탈로 학습을 돌리기 전에 CPU
-노드를 한 대 더 붙이는 것이 좋다(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`).
+되어 새로 제출한 Workflow 가 `Too many pods` 로 `Pending` 에 걸린다. 걸리는 것은 학습만이 아니다.
+`install-job-portal.sh` 를 다시 실행하면 Argo 차트의 pre-upgrade 훅조차 자리를 못 잡아 `timed out
+waiting for the condition` 으로 1단계에서 멈추고, Deployment 의 롤링 업데이트도 새 파드가 뜰 자리가
+없어 교착한다.
+
+상한 자체는 노드 크기에 따라 붙는 ENI 수에서 나오므로 `ml.c5.4xlarge` 에서는 29 가 고정이다. 비용을
+더하지 않는 해법이 먼저 있다. 시스템 노드가 1대인데 컨트롤러 3개가 기본값 때문에 레플리카 2로 떠
+있고, 같은 노드에 두 파드가 올라가니 가용성 이득은 없이 자리만 3칸을 쓴다. 그래서
+`aws-load-balancer-controller` 와 `fsx-csi-controller` 는 설치 시점에 레플리카 1로 고정했고(앞의
+Helm 값과 FSx CSI 애드온 `configurationValues`), 클러스터 기본으로 깔리는 `coredns` 는 직접 줄인다.
+`coredns` 는 레플리카가 1이면 기본 롤링 업데이트(`maxUnavailable: 1`)가 기존 파드를 먼저 죽여 DNS 가
+잠깐 끊기므로 surge 방식으로 바꿔서 줄인다.
+
+```bash
+kubectl patch deploy coredns -n kube-system \
+  -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":0,"maxSurge":1}}}}'
+kubectl scale deploy coredns -n kube-system --replicas=1
+```
+
+`ebs-csi-controller` 는 건드리지 않는다. EKS 애드온이 관리하므로(`app.kubernetes.io/managed-by:
+EKS`) 수동으로 줄여도 리컨실러가 2로 되돌린다. 줄이려면 애드온의 `configurationValues` 에
+`controller.replicaCount` 를 넣어야 한다.
+
+이렇게 26/29 가 되면 롤링 업데이트와 Argo 차트의 pre-upgrade 훅이 쓸 자리가 생긴다. 학습 파드를
+여러 개 동시에 돌릴 생각이면 그때는 노드를 더하는 쪽이 맞다
+(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`).
+
+### 각 포탈 화면
+
+URL 은 4개지만 외울 것은 하나다. 루트가 Grafana 랜딩 페이지이고 나머지 UI 는 거기서 링크로 간다.
+역할은 한 곳만 빼고 겹치지 않으니 분명히 해 두는 편이 낫다 — Job 제출과 진행 확인은 Argo,
+클러스터 상태 판단은 Grafana, 학습 지표 읽기는 MLflow 다. TensorBoard 는 두 번째로 볼 곳이 아니라
+폴백이다. `/fsx` 의 tfevents 파일을 직접 읽으므로, run 의 MLflow 로깅이 실패했거나 프레임워크가
+tfevents 만 쓰고 MLflow 에 연결되지 않은 경우(Isaac Lab 의 rsl_rl 같은) 남는 유일한 창이다. MLflow 에
+run 이 보이면 거기서 읽을 것.
+
+`/argo` 의 Argo Workflows — Job 제출. `Workflow Templates` 에는 `install-job-portal.sh` 가
+`k8s-templates` 에서 만든 템플릿 5개가 있고, 각 행에 어떤 매니페스트를 렌더링하는지 설명이 붙어
+있어 참가자가 YAML 을 읽지 않고도 템플릿을 고를 수 있다.
+
+![Argo Workflows — Workflow Templates](docs/img/argo-workflow-templates.png)
+
+템플릿을 열면 생성될 매니페스트가 보인다. `submit` 단계는 CLI 경로와 같은 `render.sh` 를 부르므로,
+여기서 만든 Job 이 셸에서 만든 것과 바이트 단위로 같다.
+
+![Argo Workflows — WorkflowTemplate 매니페스트](docs/img/argo-workflow-template-manifest.png)
+
+`Workflows` 는 실행 목록이다. 제출한 Workflow 가 phase 와 소요 시간과 함께 나타나고, 왼쪽 요약
+패널이 running / pending / succeeded / failed / error 개수를 센다.
+
+![Argo Workflows — Workflow 목록](docs/img/argo-workflow-list.png)
+
+행을 펼치면 조건, 리소스 사용 시간, 어느 템플릿에서 왔는지, 나중에 필터에 쓰는
+`workflows.argoproj.io/*` 라벨이 보인다.
+
+![Argo Workflows — Workflow 상세](docs/img/argo-workflow-details.png)
+
+`Logs` 탭은 Job 이 도는 동안 학습 컨테이너의 stdout 을 흘려 준다. 아래쪽 경고를 눈여겨볼 것 —
+`ttlSecondsAfterFinished` 가 파드를 지우면 `install-logs.sh` 로 Loki 에 보내 두지 않은 한 이 로그는
+사라진다.
+
+![Argo Workflows — Workflow 로그](docs/img/argo-workflow-logs.png)
+
+`/` 의 Grafana — 클러스터 상태, 그리고 입구. `install-unified-dashboard.sh` 가 프로비저닝하는
+`HyperPod Physical AI — Training Console` 랜딩 대시보드다. 위쪽에 나머지 UI 로 가는 링크가 있고,
+아래에 노드·GPU·Kueue 패널과 Postgres 데이터소스로 읽는 MLflow run 패널 몇 개가 놓인다.
+"클러스터가 정상인가, 내 Job 이 스케줄됐나" 를 보는 곳이고 학습 곡선을 읽는 곳은 아니다.
+
+![Grafana — Training Console](docs/img/grafana-training-console.png)
+
+`/mlflow` 의 MLflow — 학습 지표를 읽는 곳. 학습 네임스페이스마다 자기 experiment 에 기록한다.
+
+![MLflow — experiment 목록](docs/img/mlflow-experiment-list.png)
+
+run 의 `Overview` 탭에는 최종 지표값과 템플릿이 넘긴 하이퍼파라미터가 있다. 나중에 두 run 을
+비교할 수 있는 근거가 여기다.
+
+![MLflow — run 개요](docs/img/mlflow-run-overview.png)
+
+`Model metrics` 는 같은 지표를 스텝별로 그린다. `Auto-refresh` 가 Job 이 도는 동안 차트를 갱신해
+주므로, run 을 지켜보는 기본 창은 TensorBoard 가 아니라 여기다.
+
+![MLflow — run 지표](docs/img/mlflow-run-metrics.png)
+
+`Artifacts` 에는 스택 S3 버킷의 `mlflow-artifacts/` 아래로 쓰인 체크포인트가 담긴다.
+
+![MLflow — run 아티팩트](docs/img/mlflow-run-artifacts.png)
+
+`/tensorboard` 의 TensorBoard — 폴백. `/fsx` 의 tfevents 파일을 직접 읽으므로 MLflow 서버에도,
+학습 스크립트의 로깅 코드에도 의존하지 않는다. 아래 곡선은 위 MLflow 스크린샷과 같은 run 의 같은
+스칼라 3개다. 그게 요점이다 — MLflow 에 run 이 없을 때만 여기를 열면 된다.
+
+![TensorBoard — 학습 곡선](docs/img/tensorboard-training-curves.png)
 
 `install-observability.sh` 는 애드온이 그 리전에 있는지(`aws eks describe-addon-versions`) 먼저 확인하고
 없으면 대안(`kubectl top`, CloudWatch Container Insights)을 안내하며 종료한다. 2026-10-16 실측으로

@@ -284,10 +284,10 @@ that runs the whole dashboard stack inside the cluster and publishes it on one C
 ./scripts/eks/install-dashboard-hardening.sh      # (optional) persist metrics + send alerts (~10 min, ~$5/month)
 ./scripts/eks/install-job-portal.sh               # (optional) submit jobs from the browser (~8 min, no new cost)
 ./scripts/eks/install-logs.sh                     # (optional) keep finished-Job logs in S3 (~8 min, ~$2/month)
-# → https://<cloudfront-domain>/            Grafana   (admin / the admin-password in the grafana Secret)
-#   https://<cloudfront-domain>/mlflow      MLflow    (basic auth, printed by the installer)
-#   https://<cloudfront-domain>/tensorboard TensorBoard reading /fsx run directories
-#   https://<cloudfront-domain>/argo        Argo Workflows UI (login token printed by the installer)
+# → https://<cloudfront-domain>/            Grafana     cluster health + entry point (admin / the admin-password in the grafana Secret)
+#   https://<cloudfront-domain>/mlflow      MLflow      training metrics — read runs here (basic auth, printed by the installer)
+#   https://<cloudfront-domain>/tensorboard TensorBoard fallback — /fsx tfevents, for runs missing from MLflow
+#   https://<cloudfront-domain>/argo        Argo        submit and watch jobs (login token printed by the installer)
 ./scripts/eks/delete-logs.sh                      # remove in reverse order
 ./scripts/eks/delete-job-portal.sh
 ./scripts/eks/delete-dashboard-hardening.sh
@@ -356,8 +356,105 @@ is the 20Gi gp3 WAL volume, about $1.8/month, plus cents of S3 for training logs
 
 One operational note: both scripts add pods to the always-on `ml.c5.4xlarge` system node, which has
 a 29-pod limit. With the full dashboard stack plus the portal and Loki installed, the node runs at
-29/29 and a newly submitted Workflow sits `Pending` with `Too many pods`. Add a second CPU node
-(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`) before running jobs through the portal.
+29/29 and a newly submitted Workflow sits `Pending` with `Too many pods`. Training jobs are not the
+only casualty: re-running `install-job-portal.sh` stalls at step 1 with `timed out waiting for the
+condition` because the Argo chart's pre-upgrade hook cannot be scheduled either, and Deployment
+rolling updates deadlock since the new pod has nowhere to land.
+
+The limit itself comes from the ENI count attached to the instance size, so 29 is fixed on
+`ml.c5.4xlarge`. There is a fix that costs nothing first. The cluster has a single system node, yet
+three controllers run two replicas each because that is the chart default — both pods land on the
+same node, so there is no availability gain and three slots are spent for nothing.
+`aws-load-balancer-controller` and `fsx-csi-controller` are therefore pinned to one replica at
+install time (the Helm value and the FSx CSI addon `configurationValues` above), and `coredns`,
+which ships with the cluster, is scaled down by hand. At one replica the default rolling update
+(`maxUnavailable: 1`) would kill the existing coredns pod first and blip cluster DNS, so switch it
+to surge first:
+
+```bash
+kubectl patch deploy coredns -n kube-system \
+  -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":0,"maxSurge":1}}}}'
+kubectl scale deploy coredns -n kube-system --replicas=1
+```
+
+Leave `ebs-csi-controller` alone. It is managed by the EKS addon
+(`app.kubernetes.io/managed-by: EKS`), so a manual scale is reconciled back to 2. Reducing it
+requires `controller.replicaCount` in the addon's `configurationValues`.
+
+At 26/29 there is room for rolling updates and for the Argo chart's pre-upgrade hook. Adding a node
+(`./scripts/scale-cluster.sh cpu-c5-4x 2 --wait`) is the right answer once you want several training
+pods running at the same time.
+
+### What the portals look like
+
+Four URLs, but only one to remember: the root is the Grafana landing page and every other UI is a
+link from it. Their roles do not overlap except in one place, so it is worth being explicit — submit
+and watch jobs in Argo, judge the cluster in Grafana, and read training metrics in MLflow.
+TensorBoard is a fallback, not a second place to look: it reads the tfevents files under `/fsx`
+directly, which is the only view left when a run's MLflow logging failed or when a framework writes
+tfevents but was never wired to MLflow (rsl_rl under Isaac Lab, for instance). If a run shows up in
+MLflow, read it there.
+
+Argo Workflows at `/argo` — job submission. `Workflow Templates` lists the five templates
+`install-job-portal.sh` generates from `k8s-templates`; each row carries the description of the
+manifest it renders, so a participant picks a template without reading YAML.
+
+![Argo Workflows — Workflow Templates](docs/img/argo-workflow-templates.png)
+
+Opening a template shows the generated manifest. The `submit` step is the same `render.sh` the CLI
+path calls, which is why a Job created here is byte-identical to one created from a shell.
+
+![Argo Workflows — WorkflowTemplate manifest](docs/img/argo-workflow-template-manifest.png)
+
+`Workflows` is the run list. A submitted Workflow appears here with its phase and duration; the
+summary panel on the left counts running, pending, succeeded, failed, and errored runs.
+
+![Argo Workflows — Workflow list](docs/img/argo-workflow-list.png)
+
+Expanding a row gives the run's conditions, resource duration, the template it came from, and the
+`workflows.argoproj.io/*` labels used to filter later.
+
+![Argo Workflows — Workflow details](docs/img/argo-workflow-details.png)
+
+The `Logs` tab streams the training container's stdout while the Job runs. Note the warning at the
+bottom: once `ttlSecondsAfterFinished` deletes the pod these logs are gone unless `install-logs.sh`
+is shipping them to Loki.
+
+![Argo Workflows — Workflow logs](docs/img/argo-workflow-logs.png)
+
+Grafana at `/` — cluster health, and the entry point. This is the
+`HyperPod Physical AI — Training Console` landing dashboard that `install-unified-dashboard.sh`
+provisions: links to the other UIs across the top, then node, GPU, and Kueue panels plus a few
+MLflow run panels read through the Postgres datasource. Use it to answer "is the cluster healthy and
+is my job scheduled", not to read training curves.
+
+![Grafana — Training Console](docs/img/grafana-training-console.png)
+
+MLflow at `/mlflow` — the place to read training metrics. Each training namespace writes into its own
+experiment.
+
+![MLflow — experiment list](docs/img/mlflow-experiment-list.png)
+
+A run's `Overview` tab holds the final metric values and the hyperparameters the template passed in,
+which is what makes two runs comparable after the fact.
+
+![MLflow — run overview](docs/img/mlflow-run-overview.png)
+
+`Model metrics` plots the same metrics per step, and `Auto-refresh` keeps the charts current while
+the Job is still running — which is why this, not TensorBoard, is the default place to watch a run.
+
+![MLflow — run metrics](docs/img/mlflow-run-metrics.png)
+
+`Artifacts` holds the checkpoints written to the stack's S3 bucket under `mlflow-artifacts/`.
+
+![MLflow — run artifacts](docs/img/mlflow-run-artifacts.png)
+
+TensorBoard at `/tensorboard` — the fallback. It reads the tfevents files under `/fsx` directly, with
+no dependency on the MLflow server or on logging calls in the training script. The curves below are
+the same three scalars as the MLflow screenshot above, from the same run, which is the point: reach
+for this only when a run is missing from MLflow.
+
+![TensorBoard — training curves](docs/img/tensorboard-training-curves.png)
 
 `install-observability.sh` first checks whether the add-on exists in the region
 (`aws eks describe-addon-versions`); if it does not, the script points at the alternatives

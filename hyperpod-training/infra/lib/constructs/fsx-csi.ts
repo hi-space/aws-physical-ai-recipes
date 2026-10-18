@@ -32,6 +32,9 @@ export class FsxCsiConstruct extends Construct {
       addonName: 'aws-fsx-csi-driver',
       resolveConflicts: 'OVERWRITE',
       podIdentityAssociations: [{ roleArn: csiRole.roleArn, serviceAccount: 'fsx-csi-controller-sa' }],
+      // 시스템 노드가 1대뿐이라 기본 replicaCount=2 는 두 파드를 같은 노드에 올린다.
+      // 가용성 이득 없이 노드 파드 상한(ENI 기반)만 소모하므로 1로 줄인다.
+      configurationValues: JSON.stringify({ controller: { replicaCount: 1 } }),
     });
     addon.addDependency(props.podIdentityAgent);
 

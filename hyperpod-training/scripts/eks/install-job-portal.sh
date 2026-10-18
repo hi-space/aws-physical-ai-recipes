@@ -360,7 +360,10 @@ echo "  로그인 계정: ${NAMESPACE}/${ADMIN_SA} (ClusterRole ${SERVER_CLUSTER
 #
 #    /argo 와 /argo/ 를 모두 받아야 한다. 접두어만 입력하면 nginx 는 location 과
 #    정확히 같은 '/argo' 를 받는데, 그때는 뒤에 뗄 슬래시가 없다. 그래서 그 한 건만
-#    /argo/ 로 리다이렉트한다.
+#    /argo/ 로 리다이렉트한다. 이때 absolute_redirect 를 꺼야 한다 — 켜져 있으면
+#    nginx 가 상대 경로를 자기 listen 기준으로 펼쳐 http://<호스트>:8080/argo/ 를
+#    내보내고, CloudFront 가 받지 않는 포트라 브라우저가 거기서 멈춘다. 뒤에 슬래시를
+#    붙여 들어오면 정상이라 curl 로는 쉽게 지나친다.
 #
 #    로그 스트리밍(Logs 탭)은 서버가 응답을 흘려보내는 방식이므로 버퍼링을 끈다.
 #    끄지 않으면 Job 이 끝날 때까지 로그가 한 번에 몰려 나온다.
@@ -369,6 +372,11 @@ echo "[6/7] argo-proxy (/argo 접두어 제거)"
 PROXY_CONF="$(cat <<EOF
 server {
   listen 8080;
+
+  # 리다이렉트를 상대 경로로 내보낸다. 기본값(on)이면 nginx 가 'Location: /argo/' 를
+  # 자기 listen 기준 절대 URL 로 다시 써서 'http://<호스트>:8080/argo/' 가 나간다.
+  # CloudFront 는 8080/http 를 받지 않으므로 브라우저가 그 주소에서 멈춘다.
+  absolute_redirect off;
 
   # ALB 헬스체크. 업스트림을 깨우지 않고 바로 답한다.
   location = /healthz {
@@ -389,6 +397,17 @@ server {
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header Upgrade           \$http_upgrade;
     proxy_set_header Connection        "upgrade";
+
+    # 로그인 쿠키를 Authorization 헤더로 올려 보낸다. 브라우저가 이미 보낸
+    # Authorization 헤더는 이 값으로 덮인다.
+    #
+    # /mlflow 의 basic auth 와 같은 호스트를 쓰기 때문이다. MLflow 에 한 번
+    # 로그인하면 브라우저가 'Authorization: Basic ...' 을 같은 오리진의 /argo
+    # 요청에도 자동으로 붙인다. Argo 서버는 Authorization 헤더가 있으면 쿠키를
+    # 보지 않고 그 헤더를 토큰으로 해석하므로, Basic 이 섞인 순간 로그인 토큰이
+    # 맞아도 'token not valid: Unauthorized' 로 떨어진다. 쿠키는 정상인데
+    # 브라우저만 401 이 되어 원인을 찾기 어렵다 (curl 은 Basic 을 안 붙여 통과한다).
+    proxy_set_header Authorization     \$cookie_authorization;
 
     # 로그 스트리밍이 실시간으로 흐르도록 버퍼링을 끈다.
     proxy_buffering off;

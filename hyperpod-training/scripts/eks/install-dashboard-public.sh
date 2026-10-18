@@ -169,6 +169,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
   --set region="$REGION" \
   --set vpcId="$VPC_ID" \
   --set "nodeSelector.node\.kubernetes\.io/instance-type=${SYSTEM_INSTANCE_TYPE}" \
+  --set replicaCount=1 \
   --wait --timeout 10m
 
 # -----------------------------------------------------------------------------
