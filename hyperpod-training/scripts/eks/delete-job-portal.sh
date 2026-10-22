@@ -62,7 +62,7 @@ cat <<EOF
 삭제 대상 (${CLUSTER_NAME}, ${REGION}):
   Ingress ${NAMESPACE}/argo-server (IngressGroup ${INGRESS_GROUP} 의 /argo 규칙)
   Deployment·Service·ConfigMap argo-proxy (${NAMESPACE})
-  WorkflowTemplate 5개 + ConfigMap job-templates (${NAMESPACE})
+  WorkflowTemplate 8개 + ConfigMap job-templates (${NAMESPACE})
   ServiceAccount ${ADMIN_SA} + 로그인 토큰 Secret
   ClusterRole/Binding ${CLUSTER_NAME}-argo-job-submit, ${CLUSTER_NAME}-argo-ui
   pod identity ${NAMESPACE}/${WORKFLOW_SA} + IAM 역할 ${RENDER_ROLE}

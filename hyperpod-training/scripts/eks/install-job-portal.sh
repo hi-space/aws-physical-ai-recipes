@@ -130,7 +130,7 @@ cat <<EOF
 대상       : ${CLUSTER_NAME} (${REGION})
 붙는 곳    : https://${CF_DOMAIN}/argo
 생성 대상  : argo-workflows 차트 ${ARGO_CHART_VERSION} (v4.1.5) — namespace ${NAMESPACE}
-             WorkflowTemplate 5개 (준비·학습·검증·재생)
+             WorkflowTemplate 8개 (준비·학습·검증·재생·VLA 파인튜닝·VLA 평가)
              ConfigMap job-templates — k8s-templates 사본 (원본은 수정하지 않는다)
              ServiceAccount ${ADMIN_SA} + 만료 없는 로그인 토큰 Secret
              IAM 역할 ${RENDER_ROLE} + pod identity (${NAMESPACE}/${WORKFLOW_SA})
@@ -221,6 +221,14 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "patch", "update"]
+  # render.sh 가 자체 호스팅 MLflow 를 kubectl get service mlflow -n mlflow 로
+  # 찾는다. 이 권한이 없으면 조회가 조용히 실패해, 설치돼 있어도 못 찾고 관리형
+  # MLflow(스택 Output)로 폴백하거나 추적이 아예 꺼진다. 실패가 2>/dev/null 에
+  # 묻히므로 증상은 "Grafana 패널이 비어 있다" 로만 나타난다.
+  # (이 heredoc 은 따옴표가 없어 치환이 일어난다. 백틱을 쓰면 안 된다.)
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "patch", "update"]
@@ -574,6 +582,9 @@ Job 제출: Workflow Templates 메뉴에서 템플릿을 고르고 Submit 을 �
   mujoco-render    정책 검증 + 영상
   isaaclab-train   GPU 학습 (약 15~20분)
   isaaclab-play    GPU 노드 DCV 화면에 Isaac Sim 재생
+  vla-groot-setup    최초 1회 — GR00T venv + repo + SO-101 데이터셋 (GPU, 25~40분)
+  vla-groot-finetune GR00T 파인튜닝 (GPU, 2000 step 약 40분)
+  vla-openloop-eval  GR00T 체크포인트 open-loop 평가 (GPU, 약 4분)
 
 제출하면 render 단계가 k8s-templates/render.sh 로 Job YAML 을 만들고 submit 단계가
 그 Job 을 띄웁니다. 템플릿 원본은 수정되지 않으므로 가이드의 CLI 명령도 그대로 동작합니다.

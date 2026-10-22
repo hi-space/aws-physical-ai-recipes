@@ -148,6 +148,65 @@
       ],
       "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "table",
+      "title": "Open-loop eval — latest MSE per checkpoint",
+      "description": "One row per checkpoint, keeping only its most recent open-loop evaluation (DISTINCT ON). Answers 'which checkpoint on FSx is currently best'. MSE is behaviour-cloning fidelity against recorded trajectories, not task success rate — a low MSE does not imply the policy recovers out of distribution, so do not use it alone as a promotion gate. Populated by examples/vla/eval_closed_loop.py when MLFLOW_TRACKING_URI is set.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (ckpt.value) ckpt.value AS \"checkpoint\", round(m.value::numeric, 6) AS \"mse\", to_timestamp(r.start_time / 1000) AS \"evaluated\", r.name AS \"run\" FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id JOIN params ckpt ON ckpt.run_uuid = r.run_uuid AND ckpt.key = 'checkpoint' WHERE m.key = 'openloop_mse_mean' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY ckpt.value, r.start_time DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.1 }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "mse" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }] }
+        ]
+      },
+      "options": { "showHeader": true }
+    },
+    {
+      "type": "timeseries",
+      "title": "Open-loop MSE by eval run",
+      "description": "Mean MSE per evaluation run over time — shows whether more training actually lowers the error. Flattening between consecutive checkpoints is the signal to stop spending GPU hours. Uses $__unixEpochFilter because metrics.timestamp is epoch milliseconds, same as the mean-reward panel above.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key = 'openloop_mse_mean' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 4, "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "always", "pointSize": 6 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "bargauge",
+      "title": "Open-loop MSE per episode (latest eval)",
+      "description": "Per-episode breakdown of the most recent open-loop run; metrics.step holds the episode index. Surfaces failure modes the mean hides — a couple of bad episodes among otherwise good ones means the policy loses the trajectory under specific conditions. Follow up by replaying those recordings.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 35 },
+      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT m.step AS \"episode\", m.value AS \"mse\" FROM metrics m WHERE m.key = 'openloop_mse' AND m.run_uuid = (SELECT r.run_uuid FROM runs r JOIN params p ON p.run_uuid = r.run_uuid AND p.key = 'eval_type' AND p.value = 'open_loop' WHERE r.lifecycle_stage = 'active' ORDER BY r.start_time DESC LIMIT 1) ORDER BY m.step;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "decimals": 4, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.1 }] } },
+        "overrides": []
+      },
+      "options": { "orientation": "vertical", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^mse$/", "values": true } }
     }
   ]
 }

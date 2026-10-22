@@ -9,7 +9,7 @@
 #               ├─ /mlflow      → MLflow 3.16 (basic auth)
 #               │                   ├─ backend store : Postgres 17 (StatefulSet, gp3 EBS 20Gi)
 #               │                   └─ artifact store: s3://<데이터 버킷>/mlflow-artifacts
-#               ├─ /tensorboard → TensorBoard (FSx /fsx/checkpoints/rl 읽기 전용)
+#               ├─ /tensorboard → TensorBoard (FSx /fsx/checkpoints 읽기 전용)
 #               └─ /            → Grafana (install-dashboard-public.sh 가 설치)
 #
 #   SageMaker 관리형 MLflow(`-c enableMlflow=true`) 대신 이걸 쓰는 이유:
@@ -53,7 +53,10 @@ TENSORBOARD_VERSION="2.21.0"
 SYSTEM_INSTANCE_TYPE="ml.c5.4xlarge"
 CF_PREFIX_LIST="pl-22a6434b"           # com.amazonaws.global.cloudfront.origin-facing (ap-northeast-2)
 INGRESS_GROUP="hyperpod-dashboard"     # install-dashboard-public.sh 가 만든 그룹에 합류한다
-TRAINING_LOG_DIR="/fsx/checkpoints/rl" # isaaclab-train-job 의 --log_dir 과 같아야 한다
+# rl 과 vla 를 모두 담는 공통 상위 디렉터리다. isaaclab-train-job 의 --log_dir
+# (/fsx/checkpoints/rl) 만 가리키면 GR00T 파인튜닝 산출물
+# (/fsx/checkpoints/vla/groot-*) 이 범위 밖이라 TensorBoard 에 나타나지 않는다.
+TRAINING_LOG_DIR="/fsx/checkpoints"
 
 CLUSTER_NAME=""
 ASSUME_YES="false"
