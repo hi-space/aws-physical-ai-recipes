@@ -1,0 +1,130 @@
+# 최초 1회: GR00T venv + Isaac-GR00T 체크아웃 + SO-101 데이터셋을 /fsx 에 만든다 (모듈 10, VLA 경로).
+#
+# Slurm 경로는 head node 에서 scripts/setup_groot_env.sh 를 직접 돌리지만, EKS 경로에는
+# 대응 자산이 없어 /fsx/envs/gr00t 를 만들 방법이 없었다. 이 Job 이 그 구멍을 메운다.
+# 두 경로가 같은 스크립트를 쓰므로 환경 구성이 갈라지지 않는다.
+#
+# CPU 노드가 아니라 GPU 노드를 쓴다. 설치 자체는 CPU 로도 되지만(flash-attn 은 미리
+# 빌드된 휠이다) 마지막 검증 단계가 `import gr00t, torch` 로 CUDA 런타임까지 확인한다.
+# 여기서 걸러야 파인튜닝 Job 이 GPU 를 잡은 뒤 import 에서 죽는 일이 없다.
+# mujoco-setup-job 이 ml.c5.4xlarge 인 것과 다른 점이다.
+#
+# 세 단계가 순서대로 돈다. 뒤 단계가 앞 단계의 산출물을 요구하므로 한 Job 에 묶었다.
+#   1. setup_groot_env.sh       /fsx/envs/gr00t + /fsx/scratch/Isaac-GR00T (n1.6-release 태그 고정)
+#   2. prepare_groot_dataset.sh /fsx/datasets/groot/${DATASET} + meta/modality.json
+#   3. 검증                      파인튜닝이 실제로 읽는 경로가 다 있는지 확인
+#
+# 전제: workshop-setup-job 이 먼저 끝나 /fsx/scratch/aws-physical-ai-recipes 가 있어야 한다.
+#
+# 소요: 약 25~40분 (flash-attn 빌드가 대부분, 데이터셋 1.5 GB 다운로드 포함).
+# 이미 만들어져 있으면 각 스크립트가 건너뛰므로 재실행은 몇 분이면 끝난다.
+#
+# 렌더: ./render.sh setup/groot-setup-job.yaml --apply
+#       GROOT_VERSION=n1.7 ./render.sh setup/groot-setup-job.yaml --apply   # n1.7 은 HF 토큰 필요
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: groot-setup-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  labels:
+    app: groot-setup
+    # task governance 의 admission policy 가 모든 Job 에 queue-name 라벨을 요구한다.
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  # 네트워크 때문에 실패하면 한 번은 다시 해볼 만하다. 스크립트가 멱등이라
+  # 재시도가 이미 만들어진 것을 깨지 않는다.
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: groot-setup
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.g5.8xlarge
+        sagemaker.amazonaws.com/node-health-status: Schedulable
+      containers:
+        - name: setup
+          # 다른 setup Job 과 같은 가벼운 python 이미지로 충분하다. GR00T 릴리스의
+          # pyproject.toml 이 flash-attn 을 [tool.uv.sources] 에서 cp310/cu12/torch2.7
+          # 미리 빌드 휠 URL 로 고정하므로 `uv pip install -e .` 이 컴파일 없이 받아온다.
+          # nvcc 가 있는 9 GB CUDA 이미지는 필요 없다. venv 는 uv 가 가져오는 Python
+          # 3.10 으로 만들어지므로 이미지의 python 버전과도 무관하다.
+          image: public.ecr.aws/docker/library/python:3.11
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              WORKSHOP_DIR=/fsx/scratch/aws-physical-ai-recipes/hyperpod-training
+              [ -d "$WORKSHOP_DIR" ] || {
+                echo "ERROR: workshop code not found at $WORKSHOP_DIR"
+                echo "  Run this first: ./render.sh setup/workshop-setup-job.yaml --apply"
+                exit 1; }
+
+              echo "### [1/3] GR00T venv + Isaac-GR00T checkout ###"
+              bash "$WORKSHOP_DIR/scripts/setup_groot_env.sh"
+
+              echo "### [2/3] SO-101 dataset ###"
+              bash "$WORKSHOP_DIR/scripts/prepare_groot_dataset.sh"
+
+              echo "### [3/3] Verifying what the fine-tune actually reads ###"
+              # 파인튜닝 Job 이 참조하는 경로만 확인한다. 여기서 걸러야 GPU 를 잡고
+              # 20분 뒤에 ImportError 로 죽는 일이 없다.
+              FAIL=0
+              for p in /fsx/envs/gr00t/bin/python \
+                       /fsx/scratch/Isaac-GR00T/gr00t \
+                       "/fsx/datasets/groot/${DATASET}/meta/modality.json" \
+                       "$WORKSHOP_DIR/configs/so101_modality.py" \
+                       "$WORKSHOP_DIR/scripts/patch_groot_repo.py"; do
+                if [ -e "$p" ]; then echo "  ok      $p"
+                else echo "  MISSING $p"; FAIL=1; fi
+              done
+              /fsx/envs/gr00t/bin/python -c 'import gr00t, torch; print(f"  gr00t import OK, torch {torch.__version__}")' || FAIL=1
+              [ "$FAIL" = 0 ] || { echo "ERROR: setup incomplete"; exit 1; }
+
+              echo ""
+              echo "Setup complete. Next:"
+              echo "  ./render.sh rl/groot-finetune-job.yaml --apply"
+          env:
+            - name: GROOT_VERSION
+              value: "${GROOT_VERSION}"
+            - name: DATASET
+              value: "${DATASET}"
+            - name: HF_HOME
+              value: /fsx/scratch/.cache/huggingface
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # n1.7 은 gated 모델이라 토큰이 필요하다. n1.6(기본)은 공개 모델이므로
+            # Secret 이 없어도 되게 optional: true 로 둔다.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+              # flash-attn 빌드와 마지막 import 확인에 GPU 가 필요하다.
+              nvidia.com/gpu: 1
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
