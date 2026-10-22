@@ -137,6 +137,17 @@ def _start_run(args_namespace):
         print(f"[MLflow] run_id={_state['run_id']} run_name={run_name}", flush=True)
     except Exception as e:
         print(f"[WARN] MLflow start_run failed: {e}. Training continues without tracking.")
+        if "Permission denied" in str(e) or "403" in str(e):
+            # A 403 means the credentials authenticated but hold no write access to
+            # the experiment. The server's default_permission is READ and only an
+            # experiment's creator gets MANAGE, so an experiment created by another
+            # account rejects this one's runs. Without this hint the job still
+            # succeeds and the absent run looks like a sync problem between the
+            # orchestrator and the tracking server.
+            exp = os.environ.get("MLFLOW_EXPERIMENT_NAME", "isaaclab-rl")
+            user = os.environ.get("MLFLOW_TRACKING_USERNAME", "?")
+            print(f"[WARN]   {user} has no write access to experiment '{exp}'."
+                  " Re-run scripts/eks/install-mlflow-selfhosted.sh to grant it.")
 
 
 def _patch_simulation_app_close():

@@ -52,6 +52,10 @@ TENSORBOARD_IMAGE="public.ecr.aws/docker/library/python:3.12-slim"
 TENSORBOARD_VERSION="2.21.0"
 SYSTEM_INSTANCE_TYPE="ml.c5.4xlarge"
 CF_PREFIX_LIST="pl-22a6434b"           # com.amazonaws.global.cloudfront.origin-facing (ap-northeast-2)
+# 학습 Job 이 쓰는 실험 이름. Job 템플릿의 MLFLOW_EXPERIMENT_NAME 과
+# examples/{rl/mlflow_isaaclab.py,vla/eval_closed_loop.py,vla/register_groot_model.py}
+# 의 기본값을 합친 집합이며, 아래 [4/6] 에서 미리 만들어 trainer 에게 쓰기를 준다.
+MLFLOW_EXPERIMENTS="isaaclab-rl vla-finetune vla-eval"
 INGRESS_GROUP="hyperpod-dashboard"     # install-dashboard-public.sh 가 만든 그룹에 합류한다
 # rl 과 vla 를 모두 담는 공통 상위 디렉터리다. isaaclab-train-job 의 --log_dir
 # (/fsx/checkpoints/rl) 만 가리키면 GR00T 파인튜닝 산출물
@@ -465,33 +469,79 @@ ADMIN_PASS="$(kubectl get secret mlflow-admin -n "$NAMESPACE" -o jsonpath='{.dat
 TRAINER_USER="$(kubectl get secret mlflow-credentials -n "$NAMESPACE" -o jsonpath='{.data.username}' | base64 -d)"
 TRAINER_PASS="$(kubectl get secret mlflow-credentials -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)"
 kubectl exec -n "$NAMESPACE" deploy/mlflow -- env \
-  AU="$ADMIN_USER" AP="$ADMIN_PASS" TU="$TRAINER_USER" TP="$TRAINER_PASS" python - <<'PY'
+  AU="$ADMIN_USER" AP="$ADMIN_PASS" TU="$TRAINER_USER" TP="$TRAINER_PASS" \
+  EXPERIMENTS="$MLFLOW_EXPERIMENTS" python - <<'PY'
 import base64, json, os, urllib.error, urllib.request
 
-base = "http://localhost:5000/mlflow/api/2.0/mlflow/users"
+host = "http://localhost:5000/mlflow"
 auth = base64.b64encode(f"{os.environ['AU']}:{os.environ['AP']}".encode()).decode()
-body = {"username": os.environ["TU"], "password": os.environ["TP"]}
+trainer = os.environ["TU"]
 
 
-def post(path):
+def call(path, body=None, method="GET"):
     req = urllib.request.Request(
-        base + path, data=json.dumps(body).encode(),
+        host + path, data=json.dumps(body).encode() if body else None,
         headers={"Content-Type": "application/json", "Authorization": "Basic " + auth},
-        method="POST")
+        method=method)
     try:
-        urllib.request.urlopen(req, timeout=30).read()
-        return None
+        return 200, json.loads(urllib.request.urlopen(req, timeout=30).read() or "{}")
     except urllib.error.HTTPError as e:
-        return e.code
+        return e.code, e.read()[:200].decode(errors="replace")
 
 
-err = post("/create")
-if err is None:
-    print(f"  {os.environ['TU']} 계정 생성")
+users = "/api/2.0/mlflow/users"
+code, _ = call(users + "/create", {"username": trainer, "password": os.environ["TP"]}, "POST")
+if code == 200:
+    print(f"  {trainer} 계정 생성")
 else:
     # 이미 있으면 비밀번호를 Secret 값으로 되돌린다.
-    post("/update-password")
-    print(f"  {os.environ['TU']} 계정 기존 사용 (비밀번호 동기화)")
+    call(users + "/update-password", {"username": trainer, "password": os.environ["TP"]}, "POST")
+    print(f"  {trainer} 계정 기존 사용 (비밀번호 동기화)")
+
+# basic_auth.ini 의 default_permission 은 READ 다. 실험을 만든 사용자만 그 실험에
+# MANAGE 를 자동으로 받으므로, admin 이 UI 에서 먼저 만든 실험에는 trainer 가 run 을
+# 못 만들고 runs/create 가 403 Permission denied 로 떨어진다. 학습 Job 은 그 403 을
+# 경고로 삼키고 추적 없이 계속 돌기 때문에, Argo 에서는 성공인데 MLflow 에만 run 이
+# 없는 상태가 된다. 실험을 여기서 미리 만들고 trainer 에게 EDIT 를 명시적으로 주어
+# 누가 먼저 만들었는지에 결과가 달라지지 않게 한다.
+#
+# EDIT 는 run 생성/기록까지다 — 실험 삭제와 권한 변경은 admin 에게 남겨둔다.
+# 권한 API 는 3.x 에서 role 기반으로 바뀌었다: /api/3.0/mlflow/users/permissions/grant
+# 가 resource_type + resource_id 를 받고, 2.x 의 experiments/permissions/* 는 없다.
+perms = "/api/3.0/mlflow/users/permissions"
+
+
+def ensure_edit(exp_id: str) -> str:
+    """trainer 가 이 실험에 쓰기 권한을 갖도록 맞춘다.
+
+    grant 는 이미 권한이 있으면 RESOURCE_ALREADY_EXISTS 로 거절하고 갱신용
+    엔드포인트는 없다. 그래서 먼저 현재 권한을 읽고, 쓰기에 못 미칠 때만
+    revoke 후 다시 grant 한다. 재실행이 기존 MANAGE 를 EDIT 로 깎지 않는다.
+    """
+    code, body = call(f"{perms}/get?username={trainer}"
+                      f"&resource_type=experiment&resource_id={exp_id}")
+    current = body.get("permission") if code == 200 else None
+    if current in ("EDIT", "MANAGE"):
+        return current
+    if current:
+        call(f"{perms}/revoke", {"username": trainer, "resource_type": "experiment",
+                                 "resource_id": exp_id}, "POST")
+    code, body = call(f"{perms}/grant", {"username": trainer, "resource_type": "experiment",
+                                         "resource_id": exp_id, "permission": "EDIT"}, "POST")
+    return "EDIT" if code == 200 else f"실패 {code} {body}"
+
+
+for name in os.environ["EXPERIMENTS"].split():
+    code, body = call("/api/2.0/mlflow/experiments/create", {"name": name}, "POST")
+    if code == 200:
+        exp_id = body["experiment_id"]
+    else:
+        code, body = call(f"/api/2.0/mlflow/experiments/get-by-name?experiment_name={name}")
+        if code != 200:
+            print(f"  [WARN] 실험 {name} 확인 실패: {body}")
+            continue
+        exp_id = body["experiment"]["experiment_id"]
+    print(f"  실험 {name} (id {exp_id}): {trainer} {ensure_edit(str(exp_id))}")
 PY
 
 # -----------------------------------------------------------------------------

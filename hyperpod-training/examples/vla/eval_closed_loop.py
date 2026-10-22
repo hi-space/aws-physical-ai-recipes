@@ -343,6 +343,15 @@ def _mlflow_log_eval(results, args):
         print(f"[MLflow] logged {len(results)} episodes as run '{run_name}'", flush=True)
     except Exception as e:
         print(f"[WARN] MLflow logging failed: {e}. Evaluation results are unaffected.")
+        if "Permission denied" in str(e) or "403" in str(e):
+            # Authenticated but without write access to the experiment: the server's
+            # default_permission is READ and only an experiment's creator gets
+            # MANAGE. Say so explicitly, or the job succeeds with its metrics
+            # missing from the Grafana panels and nothing points at the cause.
+            exp = os.environ.get("MLFLOW_EXPERIMENT_NAME", "vla-eval")
+            user = os.environ.get("MLFLOW_TRACKING_USERNAME", "?")
+            print(f"[WARN]   {user} has no write access to experiment '{exp}'."
+                  " Re-run scripts/eks/install-mlflow-selfhosted.sh to grant it.")
 
 
 def main():
