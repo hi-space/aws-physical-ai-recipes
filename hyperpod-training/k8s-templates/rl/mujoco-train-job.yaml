@@ -15,6 +15,11 @@ kind: Job
 metadata:
   name: mujoco-rl-${JOB_SUFFIX}
   namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
+    # LOG_DIR 가 /fsx/scratch 로 바뀌는 모듈 11 은 익스포트 대상이 아니므로
+    # submit 이 안내를 건너뛴다.
+    workshop/artifact-dir: "${LOG_DIR}/reach-mujoco/SO101_Reach"
   labels:
     app: mujoco-rl
     kueue.x-k8s.io/queue-name: ${QUEUE}

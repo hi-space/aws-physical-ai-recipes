@@ -330,8 +330,9 @@ $5/month of gp3 plus per-notification SNS charges.
 
 `install-job-portal.sh` puts job submission in the browser so a workshop participant never has to
 open a terminal. It installs Argo Workflows into the `argo` namespace, converts the `k8s-templates`
-into five WorkflowTemplates (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`,
-`isaaclab-play`), and attaches the UI to the same IngressGroup at `/argo`
+into eight WorkflowTemplates (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`,
+`isaaclab-play`, `vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`), and attaches the UI
+to the same IngressGroup at `/argo`
 (group.order 30). Each template's submit step runs the same `render.sh` the CLI path uses, so the
 rendered Job is byte-identical whether it came from the portal or the shell — there is no second
 source of truth to drift. The submit step holds a `trap` that deletes the Job when the Workflow is
@@ -512,7 +513,7 @@ kubectl get workloads -A
 | `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | In-cluster MLflow + Postgres + TensorBoard on the same ALB. Also installs the EBS CSI add-on and the gp3 StorageClass the other scripts depend on |
 | `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Makes the Training Console the Grafana home dashboard and adds the read-only MLflow Postgres datasource |
 | `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Moves Prometheus/Grafana onto gp3 PVCs (15d retention) and provisions the SNS topic, pod identity, and four alert rules |
-| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | Argo Workflows + five WorkflowTemplates on the same ALB at `/argo`, so jobs can be submitted from the browser. Each submit step calls the same `render.sh` as the CLI path |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | Argo Workflows + eight WorkflowTemplates on the same ALB at `/argo`, so jobs can be submitted from the browser. Each submit step calls the same `render.sh` as the CLI path |
 | `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki (SingleBinary, chunks in `s3://<data-bucket>/loki/`) + Alloy DaemonSet + a Grafana `Loki` datasource, so a finished Job's logs survive the pod being reaped |
 | `eks/grafana-values.yaml` | Helm values template for the in-cluster Grafana (`install-observability.sh` fills it in with envsubst) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Dashboards for Kueue waiting/running/preemption, ClusterQueue allocation/borrowing, DCGM GPU utilization (provisioned into self-hosted Grafana) |
@@ -729,49 +730,67 @@ ls /fsx/datasets/groot/my-robot/
 
 ## Step 6: Run VLA Training (GR00T Fine-tuning)
 
-### Submitting a SLURM Job
+Both orchestration paths share the same assets on FSx, so the environment cannot diverge between
+them: the venv at `/fsx/envs/gr00t`, the Isaac-GR00T checkout at `/fsx/scratch/Isaac-GR00T` pinned to
+a release tag, the fine-tuning patch set in `scripts/patch_groot_repo.py`, the dataset at
+`/fsx/datasets/groot/<DATASET>`, and checkpoints at
+`/fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>`. That last path is what the open-loop
+evaluation reads by default, so a checkpoint produced on either path can be scored by either path.
+
+### One-time setup
 
 ```bash
-# run on the head node
-cd /fsx/scratch
+# Slurm: run on the head node
+bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/setup_groot_env.sh
+bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/prepare_groot_dataset.sh
 
-# copy the training script (auto-synced from S3, or copy it directly)
-cp /path/to/examples/vla/train_groot.py .
-
-# submit via the SLURM template
-/path/to/slurm-templates/vla/run_vla.sh \
-  --model groot \
-  --dataset /fsx/datasets/groot/aloha \
-  --epochs 50 \
-  --nodes 1
+# EKS: one Job runs both of the scripts above, then verifies what the fine-tune reads
+cd hyperpod-training/k8s-templates && ./render.sh setup/groot-setup-job.yaml --apply
 ```
 
-### Submitting sbatch Directly
+Takes 25-40 minutes and is idempotent, so a re-run after a network failure only costs the remaining
+work. `GROOT_VERSION=n1.6` (default) is an open model; `n1.7` is gated and needs a HuggingFace token
+(`HF_TOKEN` on Slurm, an `hf-token` Secret on EKS).
+
+### Submitting the fine-tune
 
 ```bash
-sbatch --partition=dev --gres=gpu:4 --nodes=1 <<'EOF'
-#!/bin/bash
-#SBATCH --job-name=groot-finetune
-#SBATCH --output=/fsx/scratch/logs/groot-%j.out
+# Slurm — venv mode. Use this on HyperPod: the container variant needs the Pyxis
+# plugin, which managed HyperPod does not ship.
+cd /fsx/scratch/aws-physical-ai-recipes/hyperpod-training
+DATASET=so101-place-orange MAX_STEPS=2000 sbatch slurm-templates/vla/finetune_groot_venv.sbatch
 
-srun --container-image=nvcr.io/nvidia/gr00t:1.6.0 \
-     --container-mounts=/fsx:/fsx \
-     torchrun --nproc_per_node=4 \
-       /fsx/scratch/train_groot.py \
-       --dataset-path /fsx/datasets/groot/aloha \
-       --modality-config aloha \
-       --output-dir /fsx/checkpoints/vla/groot-aloha \
-       --max-steps 5000
-EOF
+# EKS
+cd hyperpod-training/k8s-templates
+MAX_STEPS=2000 ./render.sh rl/groot-finetune-job.yaml --apply
 ```
 
-### Monitoring the Job
+Roughly forty minutes for 2000 steps on one ml.g5.8xlarge (A10G, 24 GB). Do not raise
+`GLOBAL_BATCH_SIZE` past the default 32 — the 3B model only fits because the patch set turns on
+gradient checkpointing and a paged 8-bit optimizer, and the headroom that leaves is already spoken
+for.
+
+### Scoring the checkpoint
 
 ```bash
-squeue                              # check the job queue
-squeue -j <JOB_ID>                  # check a specific job's status
+# Slurm
+sbatch slurm-templates/vla/eval_closed_loop.sbatch
+
+# EKS — also logs action MSE to MLflow experiment vla-eval, which the Grafana console reads
+./render.sh rl/openloop-eval-job.yaml --apply
+```
+
+### Monitoring the job
+
+```bash
+# Slurm
+squeue                                        # check the job queue
 tail -f /fsx/scratch/logs/groot-<JOB_ID>.out  # follow the log in real time
-scancel <JOB_ID>                    # cancel a job
+scancel <JOB_ID>                              # cancel a job
+
+# EKS
+kubectl logs -n rl -l app=groot-finetune -f
+kubectl delete job -n rl groot-finetune-<SUFFIX>
 ```
 
 ## Step 7: Run RL Training (IsaacLab + Ray)
@@ -826,15 +845,75 @@ with mlflow.start_run():
 
 ## Step 9: Check Checkpoints (FSx → S3 Auto Export)
 
-Once training results are saved to `/fsx/checkpoints/`, they auto-export to S3.
+Once training results are saved to `/fsx/checkpoints/`, they auto-export to S3. The
+FSx DRA AutoExportPolicy does this, so no copy step is needed. If you submitted
+through the Argo portal, the tail of the `submit` step log prints that job's FSx and
+S3 paths along with a ready-to-run `aws s3 ls`.
 
 ```bash
-# check on FSx
-ls /fsx/checkpoints/vla/groot-aloha/
+# the bucket name comes from a stack output (one cluster per account)
+BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name HyperPodEks-$(aws sts get-caller-identity --query Account --output text) \
+  --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue|[0]" --output text)
 
-# check on S3 (synced after a few minutes)
-aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-aloha/
+# check on FSx (head node, or any pod mounting /fsx)
+ls /fsx/checkpoints/vla/groot-so101-place-orange/
+
+# check on S3 (the export finishes within seconds)
+aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/ --recursive
+
+# pull it down
+aws s3 sync s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./checkpoint-2000/
 ```
+
+### Finding a checkpoint from the UIs
+
+Both portals answer "where did this run's weights go", from different angles. Argo
+answers it for one execution; MLflow answers it across executions.
+
+In the Argo UI, open the workflow, click the `submit` node, and read the OUTPUTS
+panel:
+
+```
+artifact-fsx-dir   /fsx/checkpoints/vla/groot-so101-place-orange
+artifact-s3-uri    s3://<bucket>/checkpoints/vla/groot-so101-place-orange/
+```
+
+Jobs with no artifacts (setup, play) show `(none)`. Argo records expire with the
+workflow's `ttlSecondsAfterFinished`, so this is for the run you just submitted.
+
+In the MLflow UI, open Models. Each fine-tune registers a version of
+`groot-<dataset>` whose `source` is the S3 URI above, plus tags that pin the
+specific step and the job that produced it:
+
+```
+source             s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
+fsx_dir            /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_step    2000
+groot_version      n1.6
+job_name           groot-finetune-10220131
+```
+
+The version links back to the training run, so loss curves and the artifact
+pointer sit on one record. The weights themselves are not uploaded — the source
+points at the bytes FSx already exported.
+
+Because the UI can only serve files it stores itself, an external source has no
+download button. The run's Artifacts tab therefore carries the instructions
+instead:
+
+```
+CHECKPOINT.md    the S3 URI, the FSx path, the size breakdown, the sync command
+download.sh      the same sync, runnable (WEIGHTS_ONLY=1 skips optimizer.pt)
+```
+
+A full checkpoint is about 9 GiB, of which roughly 3 GiB is optimizer state that
+inference does not need.
+
+Promotion is manual: pick a version and assign an alias (for example
+`production`) in the UI. The evaluation in Step 8 reports open-loop MSE, which
+measures how closely the policy reproduces the demonstrations, not whether the
+task succeeds — so it cannot gate a release on its own.
 
 ## Step 10: Clean Up Resources
 

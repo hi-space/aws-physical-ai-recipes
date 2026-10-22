@@ -327,8 +327,9 @@ list 만 허용하므로 ALB DNS 이름으로는 직접 닿지 않는다. 상시
 과금이다.
 
 `install-job-portal.sh` 는 Job 제출을 브라우저로 옮겨 워크샵 참가자가 터미널을 열지 않아도 되게
-한다. `argo` 네임스페이스에 Argo Workflows 를 설치하고, `k8s-templates` 를 WorkflowTemplate 5개
-(`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`, `isaaclab-play`)로 바꾸고,
+한다. `argo` 네임스페이스에 Argo Workflows 를 설치하고, `k8s-templates` 를 WorkflowTemplate 8개
+(`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`, `isaaclab-play`,
+`vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`)로 바꾸고,
 UI 를 같은 IngressGroup 의 `/argo` 에 붙인다(group.order 30). 각 템플릿의 submit 단계는 CLI 경로와
 똑같은 `render.sh` 를 돌리므로, 포탈로 제출했든 셸에서 제출했든 만들어지는 Job 이 바이트 단위로
 같다. 진실의 출처가 둘로 갈라져 어긋날 여지가 없다. submit 단계는 `trap` 을 걸어 두고, Workflow 가
@@ -390,7 +391,7 @@ tfevents 만 쓰고 MLflow 에 연결되지 않은 경우(Isaac Lab 의 rsl_rl �
 run 이 보이면 거기서 읽을 것.
 
 `/argo` 의 Argo Workflows — Job 제출. `Workflow Templates` 에는 `install-job-portal.sh` 가
-`k8s-templates` 에서 만든 템플릿 5개가 있고, 각 행에 어떤 매니페스트를 렌더링하는지 설명이 붙어
+`k8s-templates` 에서 만든 템플릿 6개가 있고, 각 행에 어떤 매니페스트를 렌더링하는지 설명이 붙어
 있어 참가자가 YAML 을 읽지 않고도 템플릿을 고를 수 있다.
 
 ![Argo Workflows — Workflow Templates](docs/img/argo-workflow-templates.png)
@@ -501,7 +502,7 @@ kubectl get workloads -A
 | `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | 같은 ALB 에 클러스터 내부 MLflow + Postgres + TensorBoard. 다른 스크립트들이 의존하는 EBS CSI 애드온과 gp3 StorageClass 도 여기서 만든다 |
 | `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Training Console 을 Grafana 홈 대시보드로 지정하고 읽기 전용 MLflow Postgres 데이터소스를 추가 |
 | `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Prometheus·Grafana 를 gp3 PVC(retention 15d)로 옮기고 SNS 토픽·pod identity·알림 규칙 4개를 프로비저닝 |
-| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | 같은 ALB 의 `/argo` 에 Argo Workflows + WorkflowTemplate 5개. 브라우저에서 Job 을 제출한다. 각 submit 단계는 CLI 경로와 똑같은 `render.sh` 를 호출 |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | 같은 ALB 의 `/argo` 에 Argo Workflows + WorkflowTemplate 8개. 브라우저에서 Job 을 제출한다. 각 submit 단계는 CLI 경로와 똑같은 `render.sh` 를 호출 |
 | `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki(SingleBinary, chunk 는 `s3://<데이터 버킷>/loki/`) + Alloy DaemonSet + Grafana `Loki` 데이터소스. 끝난 Job 의 파드가 수거된 뒤에도 로그가 남는다 |
 | `eks/grafana-values.yaml` | in-cluster Grafana Helm values 템플릿 (`install-observability.sh` 가 envsubst 로 채운다) |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
@@ -718,49 +719,65 @@ ls /fsx/datasets/groot/my-robot/
 
 ## Step 6: VLA 학습 실행 (GR00T Fine-tuning)
 
-### SLURM 작업 제출
+두 오케스트레이션 경로가 FSx 위의 같은 자산을 공유하므로 환경이 갈라지지 않습니다. venv
+`/fsx/envs/gr00t`, 릴리스 태그로 고정한 Isaac-GR00T 체크아웃 `/fsx/scratch/Isaac-GR00T`,
+파인튜닝 패치 세트 `scripts/patch_groot_repo.py`, 데이터셋 `/fsx/datasets/groot/<DATASET>`,
+체크포인트 `/fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>` 가 그것입니다. 마지막 경로가
+open-loop 평가의 기본 입력이라, 어느 경로에서 만든 체크포인트든 어느 경로에서든 채점할 수 있습니다.
+
+### 최초 1회 준비
 
 ```bash
-# head node에서 실행
-cd /fsx/scratch
+# Slurm: head node 에서 실행
+bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/setup_groot_env.sh
+bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/prepare_groot_dataset.sh
 
-# 학습 스크립트 복사 (S3에서 자동 동기화되었거나 직접 복사)
-cp /path/to/examples/vla/train_groot.py .
-
-# SLURM 템플릿으로 제출
-/path/to/slurm-templates/vla/run_vla.sh \
-  --model groot \
-  --dataset /fsx/datasets/groot/aloha \
-  --epochs 50 \
-  --nodes 1
+# EKS: 위 두 스크립트를 한 Job 이 순서대로 돌리고, 파인튜닝이 읽는 경로까지 검증한다
+cd hyperpod-training/k8s-templates && ./render.sh setup/groot-setup-job.yaml --apply
 ```
 
-### 직접 sbatch 제출
+25~40분 걸리고 멱등이므로, 네트워크 실패 후 다시 돌려도 남은 작업만 수행합니다. 기본값인
+`GROOT_VERSION=n1.6` 은 공개 모델이고, `n1.7` 은 gated 모델이라 HuggingFace 토큰이 필요합니다
+(Slurm 은 `HF_TOKEN`, EKS 는 `hf-token` Secret).
+
+### 파인튜닝 제출
 
 ```bash
-sbatch --partition=dev --gres=gpu:4 --nodes=1 <<'EOF'
-#!/bin/bash
-#SBATCH --job-name=groot-finetune
-#SBATCH --output=/fsx/scratch/logs/groot-%j.out
+# Slurm — venv 모드. HyperPod 에서는 이쪽을 쓴다. 컨테이너 변형은 Pyxis 플러그인이
+# 필요한데 관리형 HyperPod 에는 들어 있지 않다.
+cd /fsx/scratch/aws-physical-ai-recipes/hyperpod-training
+DATASET=so101-place-orange MAX_STEPS=2000 sbatch slurm-templates/vla/finetune_groot_venv.sbatch
 
-srun --container-image=nvcr.io/nvidia/gr00t:1.6.0 \
-     --container-mounts=/fsx:/fsx \
-     torchrun --nproc_per_node=4 \
-       /fsx/scratch/train_groot.py \
-       --dataset-path /fsx/datasets/groot/aloha \
-       --modality-config aloha \
-       --output-dir /fsx/checkpoints/vla/groot-aloha \
-       --max-steps 5000
-EOF
+# EKS
+cd hyperpod-training/k8s-templates
+MAX_STEPS=2000 ./render.sh rl/groot-finetune-job.yaml --apply
+```
+
+ml.g5.8xlarge(A10G 24 GB) 1장에서 2000 step 약 40분입니다. `GLOBAL_BATCH_SIZE` 를 기본값 32 보다
+올리지 마세요. 3B 모델이 들어가는 건 패치 세트가 켜는 gradient checkpointing 과 paged 8-bit
+optimizer 덕분이고, 그렇게 남긴 여유분은 이미 쓰이고 있습니다.
+
+### 체크포인트 채점
+
+```bash
+# Slurm
+sbatch slurm-templates/vla/eval_closed_loop.sbatch
+
+# EKS — action MSE 를 MLflow 실험 vla-eval 에도 기록하고, Grafana 콘솔이 그것을 읽는다
+./render.sh rl/openloop-eval-job.yaml --apply
 ```
 
 ### 작업 모니터링
 
 ```bash
-squeue                              # 작업 큐 확인
-squeue -j <JOB_ID>                  # 특정 작업 상태
+# Slurm
+squeue                                        # 작업 큐 확인
 tail -f /fsx/scratch/logs/groot-<JOB_ID>.out  # 실시간 로그
-scancel <JOB_ID>                    # 작업 취소
+scancel <JOB_ID>                              # 작업 취소
+
+# EKS
+kubectl logs -n rl -l app=groot-finetune -f
+kubectl delete job -n rl groot-finetune-<SUFFIX>
 ```
 
 ## Step 7: RL 학습 실행 (IsaacLab + Ray)
@@ -815,15 +832,71 @@ with mlflow.start_run():
 
 ## Step 9: 체크포인트 확인 (FSx → S3 자동 익스포트)
 
-학습 결과가 `/fsx/checkpoints/`에 저장되면 S3로 자동 익스포트됩니다.
+학습 결과가 `/fsx/checkpoints/`에 저장되면 S3로 자동 익스포트됩니다. FSx DRA의
+AutoExportPolicy가 하는 일이므로 복사 명령은 필요 없습니다. Argo 포털로 제출했다면
+`submit` 단계 로그 마지막에 그 Job의 FSx/S3 경로와 `aws s3 ls` 명령이 그대로 찍힙니다.
 
 ```bash
-# FSx에서 확인
-ls /fsx/checkpoints/vla/groot-aloha/
+# 버킷 이름은 스택 Output 에서 읽는다 (1계정 1클러스터 규약)
+BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name HyperPodEks-$(aws sts get-caller-identity --query Account --output text) \
+  --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue|[0]" --output text)
 
-# S3에서 확인 (수분 후 동기화)
-aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-aloha/
+# FSx에서 확인 (헤드 노드 또는 /fsx 를 마운트한 파드)
+ls /fsx/checkpoints/vla/groot-so101-place-orange/
+
+# S3에서 확인 (익스포트는 수십 초 안에 끝난다)
+aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/ --recursive
+
+# 로컬로 내리기
+aws s3 sync s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./checkpoint-2000/
 ```
+
+### UI에서 체크포인트 찾기
+
+두 포털 모두 "이 run의 가중치가 어디로 갔나"에 답하지만 범위가 다릅니다. Argo는
+실행 하나에 대해, MLflow는 여러 실행을 가로질러 답합니다.
+
+Argo UI에서는 워크플로를 열고 `submit` 노드를 클릭해 OUTPUTS 패널을 봅니다.
+
+```
+artifact-fsx-dir   /fsx/checkpoints/vla/groot-so101-place-orange
+artifact-s3-uri    s3://<bucket>/checkpoints/vla/groot-so101-place-orange/
+```
+
+산출물이 없는 Job(setup, play)은 `(none)`으로 표시됩니다. Argo 레코드는 워크플로의
+`ttlSecondsAfterFinished`와 함께 사라지므로, 방금 제출한 실행을 확인하는 용도입니다.
+
+MLflow UI에서는 Models를 엽니다. 파인튜닝마다 `groot-<dataset>` 모델의 버전이
+등록되고, `source`가 위의 S3 경로이며 어느 step·어느 Job의 산출물인지가 태그로
+남습니다.
+
+```
+source             s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
+fsx_dir            /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_step    2000
+groot_version      n1.6
+job_name           groot-finetune-10220131
+```
+
+버전은 학습 run에 연결되므로 loss 곡선과 산출물 위치가 한 레코드에 모입니다.
+가중치 자체는 업로드하지 않습니다 — source는 FSx가 이미 익스포트한 바이트를
+가리킵니다.
+
+MLflow UI는 자기가 보관한 파일만 내려줄 수 있어서, 외부 source에는 다운로드
+버튼이 생기지 않습니다. 그래서 run의 Artifacts 탭에 받는 방법을 올려 둡니다.
+
+```
+CHECKPOINT.md    S3 경로, FSx 경로, 용량 구성, sync 명령
+download.sh      같은 sync를 실행 가능한 형태로 (WEIGHTS_ONLY=1 이면 optimizer.pt 제외)
+```
+
+체크포인트 하나가 약 9 GiB이고, 그중 3 GiB 정도는 추론에 필요 없는 optimizer
+state입니다.
+
+승급은 사람이 합니다. UI에서 버전을 고르고 alias(예: `production`)를 지정합니다.
+Step 8의 평가가 내는 open-loop MSE는 정책이 시연을 얼마나 그대로 재현하는지를
+재는 값이고 태스크 성공 여부가 아니므로, 단독으로 릴리스 게이트가 될 수 없습니다.
 
 ## Step 10: 리소스 정리
 

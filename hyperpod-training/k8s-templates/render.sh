@@ -34,9 +34,29 @@
 #   EPISODES        mujoco-render-job 에피소드 수 (기본 5, 각 10초)
 #   JOB_SUFFIX      Job 이름 접미어. 기본 현재 시각(MMDDHHMM) — 같은 이름의 Job 충돌을 피한다
 #   FSX_ID / FSX_DNS / FSX_MOUNT / FSX_GIB   fsx-pvc.yaml 용. 비어 있으면 HyperPodEks 스택 Output 에서 읽는다
-#   MLFLOW_TRACKING_URI  isaaclab-train-job 용. 비어 있으면 HyperPodEks 스택의 MlflowTrackingUri Output 에서
-#                   읽고, Output 이 없으면(enableMlflow=false 로 배포) 빈 값 = MLflow 추적 비활성
+#   DATASET_PATH    openloop-eval-job 이 채점 기준으로 쓸 LeRobot 데이터셋
+#                   (기본 /fsx/datasets/groot/so101-place-orange — Slurm 쪽 finetune_groot_venv.sbatch 의
+#                    DATASET_PATH=/fsx/datasets/groot/<DATASET> 규약과 같은 경로를 쓴다)
+#   NUM_EPISODES    openloop-eval-job 평가 에피소드 수 (기본 12)
+#   EMBODIMENT_TAG  openloop-eval-job 의 embodiment (기본 NEW_EMBODIMENT, 파인튜닝과 같아야 한다)
+#   MLFLOW_TRACKING_URI  isaaclab-train-job / groot-finetune-job / openloop-eval-job 용. 비어 있으면
+#                   HyperPodEks 스택의 MlflowTrackingUri Output 에서 읽고, Output 이 없으면
+#                   (enableMlflow=false 로 배포) 빈 값 = MLflow 추적 비활성
+#   MLFLOW_EXPERIMENT_NAME  실험 이름. 템플릿별 기본값이 있다
+#                   (RL 은 isaaclab-rl, VLA 파인튜닝은 vla-finetune, 평가는 vla-eval).
+#                   세 종류 run 을 한 실험에 섞으면 대시보드 패널이 서로를 끌어온다
 #   RECIPES_REF     workshop-setup-job 이 clone 할 브랜치 (기본 feat/e2e-workshop)
+#   GROOT_VERSION   groot-setup-job / groot-finetune-job 의 GR00T 버전 (기본 n1.6, 또는 n1.7)
+#                   n1.7 은 gated 모델이라 hf-token Secret 이 필요하다
+#   DATASET         /fsx/datasets/groot/<DATASET> 의 디렉터리 이름 (기본 so101-place-orange).
+#                   DATASET_PATH 는 이 값으로 만든 전체 경로이고, 직접 주면 그 값이 이긴다
+#   MAX_STEPS       groot-finetune-job 학습 step (기본 2000, g5.8xlarge 1장 약 40분)
+#   GLOBAL_BATCH_SIZE  groot-finetune-job 글로벌 배치 (기본 32)
+#   OUTPUT_DIR      groot-finetune-job 체크포인트 출력 (기본 /fsx/checkpoints/vla/groot-<DATASET>)
+#                   openloop-eval-job 의 CHECKPOINT 기본값이 이 경로를 가리킨다
+#   ARTIFACT_BUCKET groot-finetune-job 이 MLflow Model Registry 에 넣을 S3 URI 의 버킷.
+#                   비어 있으면 HyperPodEks 스택의 S3BucketName Output 에서 읽는다.
+#                   끝까지 비면 모델 등록만 건너뛰고 학습은 그대로 진행된다
 # =============================================================================
 set -euo pipefail
 
@@ -72,12 +92,26 @@ export MAX_ITERATIONS="${MAX_ITERATIONS:-300}"
 export TOTAL_STEPS="${TOTAL_STEPS:-1000000}"
 export LOG_DIR="${LOG_DIR:-/fsx/checkpoints/rl}"
 case "$TEMPLATE" in
-  *isaaclab-play*) export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt}" ;;
-  *)               export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}" ;;
+  *isaaclab-play*)  export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt}" ;;
+  *openloop-eval*)  export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}" ;;
+  *)                export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}" ;;
 esac
 export PLAY_ENVS="${PLAY_ENVS:-4}"
 export X_DISPLAY="${X_DISPLAY:-}"
 export EPISODES="${EPISODES:-5}"
+# GR00T 파인튜닝 관련 기본값은 Slurm 쪽 finetune_groot_venv.sbatch 와 같게 둔다.
+# 두 경로가 같은 체크포인트 경로를 쓰므로 openloop-eval 이 어느 쪽 산출물이든 읽는다.
+export GROOT_VERSION="${GROOT_VERSION:-n1.6}"
+export DATASET="${DATASET:-so101-place-orange}"
+export DATASET_PATH="${DATASET_PATH:-/fsx/datasets/groot/${DATASET}}"
+export MAX_STEPS="${MAX_STEPS:-2000}"
+export GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
+export OUTPUT_DIR="${OUTPUT_DIR:-/fsx/checkpoints/vla/groot-${DATASET}}"
+export NUM_EPISODES="${NUM_EPISODES:-12}"
+# 파인튜닝이 --embodiment-tag NEW_EMBODIMENT 로 학습하므로 평가도 같아야 한다.
+# eval_closed_loop.py 의 argparse 기본값은 OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT 이고,
+# 그대로 두면 학습과 다른 태그로 채점해 MSE 가 부풀려진다.
+export EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 export JOB_SUFFIX="${JOB_SUFFIX:-$(date +%m%d%H%M)}"
 export RECIPES_REF="${RECIPES_REF:-feat/e2e-workshop}"
 case "$TEMPLATE" in
@@ -85,13 +119,22 @@ case "$TEMPLATE" in
   *)        export TASK="${TASK:-Workshop-SO101-Reach-v0}" ;;
 esac
 
-# MLflow tracking URI 는 isaaclab-train-job 에만 필요하다. 둘 중 하나가 쓰인다.
+# 실험 이름은 템플릿별로 다르다. 평가 run 과 학습 run 이 같은 실험에 섞이면 Grafana 의
+# openloop_* 패널과 Train_mean_reward 패널이 서로의 run 을 끌어오므로 분리한다.
+case "$TEMPLATE" in
+  *openloop-eval*)   export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-eval}" ;;
+  *groot-finetune*)  export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-finetune}" ;;
+  *)                 export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-isaaclab-rl}" ;;
+esac
+
+# MLflow tracking URI 는 학습(isaaclab-train)과 평가(openloop-eval) Job 에 필요하다. 둘 중 하나가 쓰인다.
 #   1. 클러스터 안의 자체 호스팅 MLflow (scripts/eks/install-mlflow-selfhosted.sh). Service 가 있으면 이걸 쓴다.
 #      basic auth 자격증명은 mlflow 네임스페이스의 mlflow-credentials Secret 에 있고, 템플릿이
 #      MLFLOW_TRACKING_USERNAME / _PASSWORD 를 secretKeyRef 로 읽는다. presigned URL 이 필요 없다.
 #   2. SageMaker 관리형 MLflow. `-c enableMlflow=true` 로 배포했을 때만 Output 이 존재한다.
 # 둘 다 없으면 빈 값으로 둔다 (examples/rl/mlflow_isaaclab.py 가 no-op 으로 동작).
-if [[ "$TEMPLATE" == *isaaclab-train* && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
+if [[ ( "$TEMPLATE" == *isaaclab-train* || "$TEMPLATE" == *openloop-eval* || "$TEMPLATE" == *groot-finetune* ) \
+      && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
   if kubectl get service mlflow -n mlflow >/dev/null 2>&1; then
     MLFLOW_TRACKING_URI="http://mlflow.mlflow.svc.cluster.local/mlflow"
     echo "MLflow 추적 활성화 (자체 호스팅): ${MLFLOW_TRACKING_URI}" >&2
@@ -106,6 +149,20 @@ if [[ "$TEMPLATE" == *isaaclab-train* && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
   fi
 fi
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
+
+# 파인튜닝 Job 이 체크포인트를 MLflow Model Registry 에 등록할 때 S3 URI 를 만들어야 한다.
+# 버킷 이름을 여기서 넣어 주는 이유는 Job 쪽 role 에 cloudformation:DescribeStacks 가
+# 없어서다 — rl 네임스페이스의 default SA 는 MLflow 용 role 이고 sagemaker-mlflow 와
+# S3 권한만 가진다. 빈 값이면 register_groot_model.py 가 경고만 남기고 등록을 건너뛴다.
+if [[ "$TEMPLATE" == *groot-finetune* && -z "${ARTIFACT_BUCKET:-}" ]]; then
+  REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
+  ACCOUNT_ID="${ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
+  STACK="${STACK_NAME:-HyperPodEks-${ACCOUNT_ID}}"
+  ARTIFACT_BUCKET="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue | [0]" --output text 2>/dev/null || true)"
+  [[ "$ARTIFACT_BUCKET" == "None" ]] && ARTIFACT_BUCKET=""
+fi
+export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-}"
 
 # FSx 값은 fsx-pvc.yaml 에만 필요하다. 스택 Output 에서 읽는다 (1인 1계정: HyperPodEks-<ACCOUNT_ID>).
 if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z "${FSX_MOUNT:-}" ) ]]; then
@@ -122,7 +179,7 @@ if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z 
 fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
-VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB} ${MLFLOW_TRACKING_URI}'
+VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${DATASET} ${DATASET_PATH} ${NUM_EPISODES} ${EMBODIMENT_TAG} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB} ${MLFLOW_TRACKING_URI} ${MLFLOW_EXPERIMENT_NAME} ${GROOT_VERSION} ${MAX_STEPS} ${GLOBAL_BATCH_SIZE} ${OUTPUT_DIR} ${ARTIFACT_BUCKET}'
 
 render() {
   if [[ -n "$QUEUE" ]]; then

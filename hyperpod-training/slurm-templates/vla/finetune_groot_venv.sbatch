@@ -34,6 +34,11 @@
 #   SAVE_STEPS: Save every N steps (default: 2000)
 #   GLOBAL_BATCH_SIZE: Global batch size (default: 32)
 #   OUTPUT_DIR: Checkpoint output (default: /fsx/checkpoints/vla/groot-<DATASET>)
+#   WORKSHOP_DIR: Workshop checkout on FSx holding configs/ and scripts/
+#                 (default: /fsx/scratch/aws-physical-ai-recipes/hyperpod-training)
+#   ARTIFACT_BUCKET: Bucket for the S3 URI registered in MLflow Model Registry.
+#                 Unset is fine on the head node -- the script reads the
+#                 HyperPodEks stack's S3BucketName output instead.
 
 set -e
 
@@ -65,13 +70,23 @@ NUM_GPUS="${NUM_GPUS:-1}"
 DATASET="${DATASET:-so101-place-orange}"
 DATASET_PATH="${DATASET_PATH:-/fsx/datasets/groot/${DATASET}}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
-MODALITY_CONFIG="${MODALITY_CONFIG:-/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/configs/so101_modality.py}"
+# Workshop checkout on FSx, holding the modality config and the patch script.
+WORKSHOP_DIR="${WORKSHOP_DIR:-/fsx/scratch/aws-physical-ai-recipes/hyperpod-training}"
+MODALITY_CONFIG="${MODALITY_CONFIG:-${WORKSHOP_DIR}/configs/so101_modality.py}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-5}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 OUTPUT_DIR="${OUTPUT_DIR:-/fsx/checkpoints/vla/groot-${DATASET}}"
+
+# HF Trainer's MLflowCallback reads these two directly; patch_groot_repo.py puts
+# mlflow into report_to so the callback gets registered. Leave MLFLOW_TRACKING_URI
+# empty to skip tracking — the callback then logs one warning and sends nothing.
+# Keep the experiment separate from the eval runs (vla-eval): mixing them makes
+# the Grafana openloop_* panels and the train-loss panel pull each other's runs.
+export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
+export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-finetune}"
 
 GR00T_ENV="/fsx/envs/gr00t"
 GR00T_REPO="/fsx/scratch/Isaac-GR00T"
@@ -101,7 +116,14 @@ fi
 
 if [ ! -d "${GR00T_REPO}" ]; then
     echo "ERROR: Isaac-GR00T repository not found at ${GR00T_REPO}"
-    echo "Run: bash /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/scripts/setup_groot_env.sh"
+    echo "Run: bash ${WORKSHOP_DIR}/scripts/setup_groot_env.sh"
+    exit 1
+fi
+
+PATCH_SCRIPT="${WORKSHOP_DIR}/scripts/patch_groot_repo.py"
+if [ ! -f "${PATCH_SCRIPT}" ]; then
+    echo "ERROR: patch script not found at ${PATCH_SCRIPT}"
+    echo "Set WORKSHOP_DIR to the hyperpod-training directory of the workshop checkout."
     exit 1
 fi
 
@@ -128,88 +150,11 @@ cd "${GR00T_REPO}"
 
 GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 
-# Patches for GR00T fine-tuning compatibility (N1.6 and N1.7):
-# - Enable bf16 model loading (required for flash_attn in Eagle/Qwen3 backbone)
-# - Disable backbone_trainable_params_fp32 (prevents fp32 cast that breaks flash_attn)
-# - Enable gradient checkpointing to reduce VRAM usage
-# - Fix StopIteration bugs in device/dtype properties across model files
-# - N1.6 only: flash_attention_2 inject, VideoInput fix, paged_adamw_8bit
-sed -i 's/config.model.load_bf16 = False/config.model.load_bf16 = True/' \
-    gr00t/experiment/launch_finetune.py
-sed -i 's/config.model.backbone_trainable_params_fp32 = True/config.model.backbone_trainable_params_fp32 = False/' \
-    gr00t/experiment/launch_finetune.py
-sed -i 's/gradient_checkpointing: bool = False/gradient_checkpointing: bool = True/' \
-    gr00t/configs/training/training_config.py
-
-if [ "${GROOT_VERSION}" = "n1.6" ]; then
-    sed -i 's/config.training.optim = "adamw_torch"/config.training.optim = "paged_adamw_8bit"/' \
-        gr00t/experiment/launch_finetune.py
-fi
-
-export GROOT_VERSION="${GROOT_VERSION}"
-python3 << 'PATCH'
-import os
-import re
-
-GROOT_VERSION = os.environ.get("GROOT_VERSION", "n1.6")
-
-# Helper: safe device/dtype that doesn't crash on empty params or during __init__
-safe_device = "(lambda s: next((p.device for m in s.modules() for p in m.parameters()), __import__('torch').device('cuda')))(self)"
-safe_dtype = "(lambda s: next((p.dtype for m in s.modules() for p in m.parameters()), __import__('torch').bfloat16))(self)"
-
-# Fix dit.py (common to both N1.6 and N1.7)
-code = open('gr00t/model/modules/dit.py').read()
-code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
-code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
-open('gr00t/model/modules/dit.py', 'w').write(code)
-
-if GROOT_VERSION == "n1.6":
-    # Fix setup.py: cast entire model to bf16 after from_pretrained
-    code = open('gr00t/model/gr00t_n1d6/setup.py').read()
-    code = code.replace(
-        '            missing_keys = loading_info.get("missing_keys", [])',
-        '            import torch as _torch\n            model = model.to(_torch.bfloat16)\n            missing_keys = loading_info.get("missing_keys", [])'
-    )
-    open('gr00t/model/gr00t_n1d6/setup.py', 'w').write(code)
-
-    # Fix gr00t_n1d6.py
-    code = open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py').read()
-    code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.device', safe_device, code)
-    code = re.sub(r'next\(self\.backbone\.parameters\(\)\)\.dtype', safe_dtype, code)
-    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
-    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
-    open('gr00t/model/gr00t_n1d6/gr00t_n1d6.py', 'w').write(code)
-
-    # Fix eagle_backbone.py
-    code = open('gr00t/model/modules/eagle_backbone.py').read()
-    code = re.sub(r'next\(self\.parameters\(\)\)\.dtype', safe_dtype, code)
-    code = re.sub(r'next\(self\.parameters\(\)\)\.device', safe_device, code)
-    code = code.replace(
-        'self.model = AutoModel.from_config(config, trust_remote_code=True)',
-        'config._attn_implementation = "flash_attention_2"\n            self.model = AutoModel.from_config(config, trust_remote_code=True)'
-    )
-    open('gr00t/model/modules/eagle_backbone.py', 'w').write(code)
-
-    # Fix VideoInput import in Eagle processor (not available in transformers<5.0)
-    eagle_proc = 'gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2/processing_eagle3_vl.py'
-    if os.path.exists(eagle_proc):
-        code = open(eagle_proc).read()
-        if 'VideoInput' in code:
-            code = code.replace(
-                'from transformers.image_utils import (\n    ImageInput,\n    VideoInput,',
-                'from transformers.image_utils import (\n    ImageInput,'
-            )
-            code = 'from typing import Any\nVideoInput = Any\n' + code
-            open(eagle_proc, 'w').write(code)
-
-elif GROOT_VERSION == "n1.7":
-    # Fix gr00t_n1d7.py
-    code = open('gr00t/model/gr00t_n1d7/gr00t_n1d7.py').read()
-    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.device', safe_device, code)
-    code = re.sub(r'next\(iter\(self\.parameters\(\)\)\)\.dtype', safe_dtype, code)
-    open('gr00t/model/gr00t_n1d7/gr00t_n1d7.py', 'w').write(code)
-
-PATCH
+# Apply fine-tuning compatibility patches to the checkout. The patch set is
+# shared with the EKS path (k8s-templates/rl/groot-finetune-job.yaml) so it has
+# exactly one definition; patch_groot_repo.py documents why each patch exists.
+# Re-running is a no-op, which matters because /fsx is shared.
+python3 "${PATCH_SCRIPT}" --repo "${GR00T_REPO}" --version "${GROOT_VERSION}"
 
 set +e
 python -m gr00t.experiment.launch_finetune \
@@ -233,6 +178,17 @@ echo ""
 echo "=================================================="
 if [ ${EXIT_CODE} -eq 0 ]; then
     echo "Fine-tuning completed successfully"
+    # Register the checkpoint as an MLflow model version. The EKS path does the
+    # same (k8s-templates/rl/groot-finetune-job.yaml) so a checkpoint is
+    # discoverable in the UI regardless of which orchestrator produced it.
+    # Nothing is copied: the source is the S3 URI that FSx already exported.
+    # Registration only -- a human assigns the alias, because open-loop MSE is
+    # behaviour-cloning fidelity rather than task success.
+    JOB_NAME="${SLURM_JOB_NAME:-groot-finetune}-${SLURM_JOB_ID:-local}" \
+      python3 "${WORKSHOP_DIR}/examples/vla/register_groot_model.py" \
+        --checkpoint-dir "${OUTPUT_DIR}" \
+        --model-name "$(basename "${OUTPUT_DIR}")" \
+        --groot-version "${GROOT_VERSION}" || true
 else
     echo "Fine-tuning failed with exit code: ${EXIT_CODE}"
 fi

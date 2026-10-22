@@ -21,9 +21,19 @@ Usage (remote server):
     --policy-port 5555 \
     --num-episodes 5 \
     --headless
+
+Open-loop results (--dataset-path) are also mirrored to MLflow when
+MLFLOW_TRACKING_URI is set, which is what makes them visible on the
+Grafana "Training Console" dashboard. Tracking is opt-in and never
+fails the evaluation. Relevant env vars:
+  MLFLOW_TRACKING_URI       unset -> logging is skipped entirely
+  MLFLOW_EXPERIMENT_NAME    defaults to "vla-eval"
+  MLFLOW_RUN_NAME           defaults to "eval-<checkpoint dirname>"
+  MLFLOW_TRACKING_USERNAME / _PASSWORD   self-hosted MLflow basic auth
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -294,6 +304,47 @@ def evaluate_closed_loop_dummy(policy, args):
     return results
 
 
+def _mlflow_log_eval(results, args):
+    """Mirror open-loop eval results to MLflow so Grafana panels can read them.
+
+    No-op when MLFLOW_TRACKING_URI is unset, and every MLflow call is guarded —
+    tracking must never fail an evaluation that already produced results. Same
+    contract as examples/rl/mlflow_isaaclab.py.
+
+    Writes two metric families deliberately kept under separate keys:
+      openloop_mse       per episode, step=episode index (timeseries / bargauge)
+      openloop_mse_mean  one scalar per run (stat / table panels)
+    Splitting them avoids a MAX(step) subquery in every panel query.
+    """
+    if not os.environ.get("MLFLOW_TRACKING_URI") or not results:
+        return
+    try:
+        import mlflow
+        mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+        mlflow.set_experiment(os.environ.get("MLFLOW_EXPERIMENT_NAME", "vla-eval"))
+
+        checkpoint = args.model_path or f"{args.policy_host}:{args.policy_port}"
+        run_name = os.environ.get("MLFLOW_RUN_NAME") or f"eval-{Path(checkpoint).name}"
+
+        with mlflow.start_run(run_name=run_name):
+            mlflow.log_params({
+                "eval_type": "open_loop",
+                "checkpoint": checkpoint,
+                "eval_dataset": args.dataset_path,
+                "num_episodes": args.num_episodes,
+                "action_horizon": args.action_horizon,
+                "embodiment_tag": args.embodiment_tag,
+            })
+            for r in results:
+                mlflow.log_metric("openloop_mse", r["mse"], step=r["episode"])
+            mlflow.log_metric("openloop_mse_mean",
+                              float(np.mean([r["mse"] for r in results])))
+            mlflow.log_metric("openloop_episodes", len(results))
+        print(f"[MLflow] logged {len(results)} episodes as run '{run_name}'", flush=True)
+    except Exception as e:
+        print(f"[WARN] MLflow logging failed: {e}. Evaluation results are unaffected.")
+
+
 def main():
     args = parse_args()
 
@@ -317,6 +368,7 @@ def main():
         if results:
             mean_mse = np.mean([r["mse"] for r in results])
             print(f"\n  Mean MSE: {mean_mse:.4f}")
+        _mlflow_log_eval(results, args)
     else:
         print(f"\n--- Closed-loop evaluation (synthetic) ---")
         print(f"  NOTE: For real closed-loop, use with Isaac Sim or pass --dataset-path")

@@ -195,11 +195,32 @@ spec:
       inputs:
         parameters:
           - name: manifest
+      # Argo UI 의 노드 상세 OUTPUTS 에 경로를 띄운다. 로그 꼬리를 읽지 않아도
+      # 산출물 위치를 알 수 있게 하는 것이 목적이다. 산출물이 없는 Job(setup,
+      # play)이나 /fsx/scratch 로 쓰는 Job 은 artifact_hint 가 파일을 만들지
+      # 않으므로 default 가 쓰인다 — default 가 없으면 그 Job 들이 모두 실패한다.
+      outputs:
+        parameters:
+          - name: artifact-fsx-dir
+            valueFrom:
+              path: /tmp/artifact-fsx-dir
+              default: "(none)"
+          - name: artifact-s3-uri
+            valueFrom:
+              path: /tmp/artifact-s3-uri
+              default: "(none)"
       script:
         image: ${RENDER_IMAGE}
         command: [sh, -ceu]
         source: |
-          apk add --no-cache kubectl >/dev/null 2>&1
+          # aws-cli 는 artifact_hint 가 S3BucketName Output 을 읽는 데만 쓴다.
+          # 파드의 pod identity 에 describe-stacks 권한이 이미 있다 (install-job-portal.sh).
+          apk add --no-cache kubectl aws-cli >/dev/null 2>&1
+
+          # 계정·스택 이름은 1계정 1클러스터 규약을 따른다 (HyperPodEks-<계정>).
+          # render 단계가 render.sh 안에서 같은 규약으로 Output 을 읽는다.
+          STACK="${STACK_NAME:-HyperPodEks-$(aws sts get-caller-identity \
+                 --query Account --output text 2>/dev/null)}"
 
           cat >/tmp/job.yaml <<'MANIFESTEOF'
           {{inputs.parameters.manifest}}
@@ -212,6 +233,51 @@ spec:
           NS="${REF% *}"
           NAME="${REF#* }"
           echo "created job ${NS}/${NAME}" >&2
+
+          # 산출물을 어디서 받는지 알려 준다. 복사는 하지 않는다 — FSx 의
+          # /checkpoints 는 data repository association 으로 S3 에 자동
+          # 익스포트되므로(AutoExportPolicy NEW/CHANGED/DELETED) 학습이 끝나면
+          # 같은 바이트가 이미 s3://<버킷>/checkpoints/... 에 있다. 빠져 있던 것은
+          # 전송이 아니라 그 경로를 아무도 알려 주지 않는다는 점이었다.
+          #
+          # 경로는 Job 의 workshop/artifact-dir 애노테이션에서 읽는다. 매니페스트에서
+          # 추측하지 않는 이유는 /fsx/checkpoints 경로가 산출물일 때도 있고 입력일
+          # 때도 있어서다 — openloop-eval 은 checkpoint-2000 을 읽고 결과는 다른
+          # 디렉터리에 쓰며, isaaclab-play 는 읽기만 한다. 애노테이션이 없는 Job
+          # (play, setup)은 알릴 산출물이 없다는 뜻이다.
+          #
+          # /fsx/checkpoints 아래일 때만 출력한다. mujoco-train 을 LOG_DIR=/fsx/scratch
+          # 로 돌리는 거버넌스 실습(모듈 11)은 익스포트 대상이 아니므로 없는 S3
+          # 경로를 알려 주면 안 된다.
+          artifact_hint() {
+            FSX_OUT="$(kubectl get job "$NAME" -n "$NS" \
+                       -o jsonpath="{.metadata.annotations['workshop/artifact-dir']}" 2>/dev/null)"
+            case "$FSX_OUT" in /fsx/checkpoints/*) ;; *) return 0 ;; esac
+            # output parameter 로도 내보낸다 (Argo UI 의 OUTPUTS). 파일이 없으면
+            # outputs 선언의 default 가 쓰인다.
+            printf '%s' "$FSX_OUT" >/tmp/artifact-fsx-dir
+
+            BUCKET="$(aws cloudformation describe-stacks --stack-name "$STACK" \
+                      --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue|[0]" \
+                      --output text 2>/dev/null || true)"
+            [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ] || {
+              echo "artifacts: ${FSX_OUT} (on FSx; S3 bucket name unavailable)" >&2
+              return 0; }
+
+            # DRA 매핑은 /checkpoints <-> s3://<버킷>/checkpoints/ 이므로
+            # /fsx 접두어만 떼면 S3 키가 된다.
+            S3_URI="s3://${BUCKET}${FSX_OUT#/fsx}"
+            printf '%s' "${S3_URI}/" >/tmp/artifact-s3-uri
+            echo "" >&2
+            echo "artifacts" >&2
+            echo "  FSx : ${FSX_OUT}" >&2
+            echo "  S3  : ${S3_URI}/   (auto-exported, no copy step)" >&2
+            # --recursive 를 붙인다. 파인튜닝 산출물은 checkpoint-<step>/ 아래에
+            # 있어서 그냥 ls 하면 PRE 줄만 나온다.
+            echo "  list: aws s3 ls ${S3_URI}/ --recursive" >&2
+            echo "  get : aws s3 sync ${S3_URI}/ ./$(basename "$FSX_OUT")/" >&2
+            echo "" >&2
+          }
 
           # 성공·실패로 끝난 Job 은 남겨 둔다 (ttlSecondsAfterFinished 가 치운다).
           # 중단된 경우에만 지운다.
@@ -261,6 +327,7 @@ spec:
             if [ "${SUCCEEDED:-0}" -gt 0 ]; then
               wait "$LOG_PID" 2>/dev/null || true
               echo "job ${NS}/${NAME} succeeded" >&2
+              artifact_hint
               exit 0
             fi
             if [ "${FAILED:-0}" -gt 0 ]; then
@@ -453,6 +520,239 @@ spec:
                     CHECKPOINT={{workflow.parameters.checkpoint}}
                     PLAY_ENVS={{workflow.parameters.play-envs}}
                     X_DISPLAY={{workflow.parameters.x-display}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+# -----------------------------------------------------------------------------
+# vla-openloop-eval — 2단 평가의 1단. 체크포인트를 녹화 궤적과 비교해 MSE 만 낸다.
+#
+#   시뮬레이터는 필요 없지만 GPU 는 필요하다. eval_closed_loop.py 가 정책을
+#   cuda:0 에 올리기 때문이다. 그래서 CPU 템플릿이 아니라 g5.8xlarge 를 쓴다.
+#
+#   결과는 FSx 의 eval_results.json 과 MLflow(vla-eval 실험) 양쪽으로 나간다.
+#   MLflow 쪽이 Grafana "Training Console" 의 Open-loop eval 패널 3종이 읽는 곳이다.
+#   MLflow 가 없으면 로깅만 조용히 생략되고 평가는 그대로 끝난다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: vla-openloop-eval
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "GR00T open-loop eval (GPU)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/openloop-eval-job.yaml. Scores a GR00T checkpoint
+      against recorded LeRobot trajectories (action MSE) on one ml.g5.8xlarge,
+      roughly four minutes for twelve episodes. Results land in MLflow experiment
+      vla-eval and show up on the Grafana training console. Open-loop MSE measures
+      behaviour-cloning fidelity, not task success - use it as a first filter
+      before closed-loop rollout, not as the promotion gate.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: checkpoint
+        value: /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+        description: "GR00T checkpoint directory to score"
+      - name: dataset-path
+        value: /fsx/datasets/groot/so101-place-orange
+        description: "LeRobot dataset holding the reference trajectories"
+      - name: num-episodes
+        value: "12"
+        description: "Episodes to score (capped by what the dataset holds)"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/openloop-eval-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    CHECKPOINT={{workflow.parameters.checkpoint}}
+                    DATASET_PATH={{workflow.parameters.dataset-path}}
+                    NUM_EPISODES={{workflow.parameters.num-episodes}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+# -----------------------------------------------------------------------------
+# vla-groot-setup — VLA 경로의 최초 1회 준비. workshop-setup 과 별개로 두는 이유는
+#   세 가지다. (1) GPU 를 쓴다 — 마지막 검증이 `import gr00t, torch` 로 CUDA 런타임까지
+#   확인하므로 CPU 노드로는 돌지 않는다. (2) 25~40분 걸린다. (3) RL 경로만 할 참가자는
+#   필요하지 않다. workshop-setup 이 먼저 끝나 /fsx 에 코드가 있어야 한다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: vla-groot-setup
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "One-time VLA prep - GR00T venv, repo, SO-101 dataset"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/setup/groot-setup-job.yaml. Builds /fsx/envs/gr00t,
+      checks out Isaac-GR00T at the pinned release tag, and downloads the SO-101
+      LeRobot dataset with its modality.json. Takes 25-40 minutes on one
+      ml.g5.8xlarge and is idempotent, so a re-run after a network failure is
+      cheap. Run workshop-setup first - this needs the recipes checkout on /fsx.
+      N1.7 is a gated model and additionally needs a hf-token Secret.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: groot-version
+        value: n1.6
+        description: "n1.6 is open; n1.7 is gated and needs a hf-token Secret"
+        enum:
+          - n1.6
+          - n1.7
+      - name: dataset
+        value: so101-place-orange
+        description: "Directory name under /fsx/datasets/groot"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: setup/groot-setup-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    GROOT_VERSION={{workflow.parameters.groot-version}}
+                    DATASET={{workflow.parameters.dataset}}
+        - - name: submit
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render.outputs.result}}"
+---
+# -----------------------------------------------------------------------------
+# vla-groot-finetune — SO-101 데이터셋으로 GR00T 를 파인튜닝한다. 산출물은
+#   /fsx/checkpoints/vla/groot-<dataset>/checkpoint-<step> 이고, 이 경로가
+#   vla-openloop-eval 의 checkpoint 기본값이다. 두 템플릿을 순서대로 제출하면
+#   학습 → 평가 → Grafana 패널까지 이어진다.
+#
+#   batch-size 를 올리지 말 것. 3B 모델이 A10G 24 GB 에 들어가는 건 패치가 켜는
+#   gradient checkpointing 과 paged 8-bit optimizer 덕분이고 여유분이 거의 없다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: vla-groot-finetune
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "GR00T fine-tune (GPU)"
+    workflows.argoproj.io/description: >-
+      Submits k8s-templates/rl/groot-finetune-job.yaml. Fine-tunes GR00T on the
+      SO-101 dataset on one ml.g5.8xlarge - roughly forty minutes for 2000 steps.
+      Writes checkpoint-<step> directories under /fsx/checkpoints/vla, which is
+      exactly what vla-openloop-eval reads, so submit that next to score the
+      result. Run vla-groot-setup first. Raising batch-size will OOM: the 3B
+      model only fits in 24 GB thanks to gradient checkpointing and a paged
+      8-bit optimizer.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+      - name: groot-version
+        value: n1.6
+        description: "Must match what vla-groot-setup built"
+        enum:
+          - n1.6
+          - n1.7
+      - name: dataset
+        value: so101-place-orange
+        description: "Directory name under /fsx/datasets/groot"
+      - name: max-steps
+        value: "2000"
+        description: "Training steps. 2000 is about forty minutes on one A10G"
+      - name: global-batch-size
+        value: "32"
+        description: "Leave at 32 - larger values run out of VRAM on A10G"
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+  templates:
+    - name: main
+      steps:
+        - - name: render
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/groot-finetune-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    GROOT_VERSION={{workflow.parameters.groot-version}}
+                    DATASET={{workflow.parameters.dataset}}
+                    MAX_STEPS={{workflow.parameters.max-steps}}
+                    GLOBAL_BATCH_SIZE={{workflow.parameters.global-batch-size}}
         - - name: submit
             templateRef:
               name: isaaclab-train

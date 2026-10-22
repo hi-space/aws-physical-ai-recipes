@@ -15,6 +15,11 @@ kind: Job
 metadata:
   name: isaaclab-rl-${JOB_SUFFIX}
   namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
+    # 아래 --log_dir 와 같은 경로다. 하위 <task>/<experiment>/ 는 train_isaaclab.py
+    # 가 정하므로 여기서는 루트만 알린다.
+    workshop/artifact-dir: "/fsx/checkpoints/rl"
   labels:
     app: isaaclab-rl
     kueue.x-k8s.io/queue-name: ${QUEUE}

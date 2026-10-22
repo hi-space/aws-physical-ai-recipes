@@ -8,6 +8,10 @@ kind: Job
 metadata:
   name: mujoco-render-${JOB_SUFFIX}
   namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
+    # 아래 untrained 분기의 --video_dir 와 같은 경로다.
+    workshop/artifact-dir: "/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/videos"
   labels:
     app: mujoco-render
     kueue.x-k8s.io/queue-name: ${QUEUE}

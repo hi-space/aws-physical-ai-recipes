@@ -1,0 +1,226 @@
+# GR00T 파인튜닝 Job — Slurm 경로 slurm-templates/vla/finetune_groot_venv.sbatch 의 EKS 대응 자산.
+#
+# 두 경로가 같은 자산을 공유하므로 환경이 갈라지지 않는다.
+#   venv       /fsx/envs/gr00t            (scripts/setup_groot_env.sh)
+#   repo       /fsx/scratch/Isaac-GR00T   (n1.6-release / n1.7-release 태그 고정)
+#   패치       scripts/patch_groot_repo.py
+#   데이터셋   /fsx/datasets/groot/${DATASET}
+#   체크포인트 /fsx/checkpoints/vla/groot-${DATASET}/checkpoint-<step>
+# 마지막 경로가 openloop-eval-job.yaml 의 CHECKPOINT 기본값과 같다. 그래서 평가 Job 이
+# Slurm 쪽 산출물이든 이 Job 의 산출물이든 그대로 읽는다.
+#
+# 패치를 매 실행마다 다시 적용한다. /fsx 에 체크아웃이 하나뿐이고 setup_groot_env.sh 의
+# `git checkout -f` 가 패치를 되돌리기 때문이다. patch_groot_repo.py 는 멱등이고,
+# 대상이 사라지면 [NO MATCH] 로 즉시 실패한다 — 20분 뒤 CUDA dtype 에러로 죽는 것보다 낫다.
+#
+# 소요: ml.g5.8xlarge(A10G 24 GB) 1장에서 2000 step 약 40분.
+# GLOBAL_BATCH_SIZE 를 올리면 OOM 이다. 3B 모델이 24 GB 에 들어가는 건 patch_groot_repo.py 가
+# 켜는 gradient checkpointing 과 paged_adamw_8bit 덕분이고, 그 여유분이 배치에 쓰일 몫이다.
+#
+# 전제: setup/groot-setup-job.yaml 이 먼저 끝나야 한다 (venv + repo + 데이터셋).
+#
+# 렌더: ./render.sh rl/groot-finetune-job.yaml --apply
+#       MAX_STEPS=500 ./render.sh rl/groot-finetune-job.yaml --apply          # 짧게 확인만
+#       GROOT_VERSION=n1.7 ./render.sh rl/groot-finetune-job.yaml --apply     # n1.7 은 HF 토큰 필요
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: groot-finetune-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
+    # /fsx/checkpoints 는 FSx DRA 가 S3 로 자동 익스포트하므로 복사 단계는 없다.
+    workshop/artifact-dir: "${OUTPUT_DIR}"
+  labels:
+    app: groot-finetune
+    # task governance 의 admission policy 가 모든 Job 에 queue-name 라벨을 요구한다.
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  # 재시도하지 않는다. 여기서 실패하는 원인은 설정이나 VRAM 이라 같은 지점에서 다시 죽으면서
+  # GPU 를 한 번 더 점유한다. setup Job 과 다른 점이다 (그쪽은 네트워크 실패가 대부분).
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: groot-finetune
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.g5.8xlarge
+        sagemaker.amazonaws.com/node-health-status: Schedulable
+      containers:
+        - name: finetune
+          # 학습 코드와 CUDA 런타임은 /fsx/envs/gr00t venv 의 torch 휠이 들고 오지만,
+          # 이미지에 CUDA 툴킷(nvcc)까지 있어야 한다. transformers 가 설치된 deepspeed 를
+          # import 하고 deepspeed 는 import 시점에 nvcc 로 CUDA 버전을 확인한다. 단일 GPU
+          # 학습에서 deepspeed 를 실제로 쓰지는 않지만 import 는 막을 수 없고, pip 의
+          # nvidia-cuda-nvcc-cu12 휠에는 ptxas 만 들어 있어 대체가 안 된다. Slurm 경로는
+          # DLAMI 노드의 /usr/local/cuda 로 통과한다.
+          image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              GROOT_PY=/fsx/envs/gr00t/bin/python
+              WORKSHOP_DIR=/fsx/scratch/aws-physical-ai-recipes/hyperpod-training
+
+              # torchcodec(기본 video_backend)은 FFmpeg 공유 라이브러리를 dlopen 한다.
+              # 없으면 import 가 조용히 실패하고 resolve_backend 가 pyav 로 폴백하는데,
+              # get_frames_by_indices 에는 pyav 분기가 없어 첫 배치에서 NotImplementedError
+              # 로 죽는다. venv 에 담을 수 없는 시스템 라이브러리라 여기서 설치한다.
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+
+              # 전제 세 가지를 먼저 확인한다. 셋 다 setup Job 의 산출물이므로
+              # 없을 때 안내할 다음 명령이 하나로 같다.
+              for p in "$GROOT_PY" "$GR00T_REPO/gr00t" "${DATASET_PATH}/meta/modality.json"; do
+                [ -e "$p" ] || {
+                  echo "ERROR: missing $p"
+                  echo "  Run this first: ./render.sh setup/groot-setup-job.yaml --apply"
+                  exit 1; }
+              done
+
+              case "${GROOT_VERSION}" in
+                n1.6) BASE_MODEL=nvidia/GR00T-N1.6-3B ;;
+                n1.7) BASE_MODEL=nvidia/GR00T-N1.7-3B ;;
+                *)    echo "ERROR: unknown GROOT_VERSION='${GROOT_VERSION}' (use n1.6 or n1.7)"; exit 1 ;;
+              esac
+
+              echo "=================================================="
+              echo "GR00T fine-tune (${GROOT_VERSION})"
+              echo "  base model : ${BASE_MODEL}"
+              echo "  dataset    : ${DATASET_PATH}"
+              echo "  output     : ${OUTPUT_DIR}"
+              echo "  max steps  : ${MAX_STEPS}"
+              echo "  batch      : ${GLOBAL_BATCH_SIZE}"
+              echo "=================================================="
+              nvidia-smi || true
+
+              mkdir -p "${OUTPUT_DIR}"
+              # 이전 실행의 체크포인트가 남아 있으면 지운다. Trainer 가 재개를 시도하면서
+              # optimizer state 를 읽는데, 패치가 optimizer 를 paged_adamw_8bit 로 바꾸므로
+              # adamw_torch 로 저장된 state 와 맞지 않아 로드에서 죽는다.
+              if ls "${OUTPUT_DIR}"/checkpoint-* >/dev/null 2>&1; then
+                echo "Clearing stale checkpoints in ${OUTPUT_DIR} (optimizer mismatch)"
+                rm -rf "${OUTPUT_DIR}"/checkpoint-* "${OUTPUT_DIR}"/training_args.bin
+              fi
+
+              # 패치 정의는 Slurm 경로와 공유한다. 이유는 스크립트 docstring 에 있다.
+              # CUDA devel 이미지에는 시스템 python 이 없으므로 venv 인터프리터로 돌린다.
+              "$GROOT_PY" "$WORKSHOP_DIR/scripts/patch_groot_repo.py" \
+                --repo "$GR00T_REPO" --version "${GROOT_VERSION}"
+
+              cd "$GR00T_REPO"
+              # exec 를 쓰지 않는다. 학습 뒤에 모델 등록이 한 단계 더 남아 있다.
+              "$GROOT_PY" -m gr00t.experiment.launch_finetune \
+                --base-model-path "$BASE_MODEL" \
+                --dataset-path "${DATASET_PATH}" \
+                --embodiment-tag NEW_EMBODIMENT \
+                --modality-config-path "$WORKSHOP_DIR/configs/so101_modality.py" \
+                --num-gpus 1 \
+                --output-dir "${OUTPUT_DIR}" \
+                --save-total-limit 5 \
+                --save-steps "${MAX_STEPS}" \
+                --max-steps "${MAX_STEPS}" \
+                --no-use-wandb \
+                --global-batch-size "${GLOBAL_BATCH_SIZE}" \
+                --gradient-accumulation-steps "${GLOBAL_BATCH_SIZE}" \
+                --dataloader-num-workers 4
+
+              # 체크포인트를 MLflow Model Registry 에 등록한다. 파일은 옮기지 않고
+              # 이미 S3 에 익스포트된 경로를 source 로 가리킨다. 등록만 하고
+              # 승격(alias)은 UI 에서 사람이 한다 — open-loop MSE 는 행동 복제
+              # 충실도이지 태스크 성공률이 아니므로 단독 게이트로 쓸 수 없다.
+              # 실패해도 학습 결과에는 영향이 없으므로 Job 을 실패시키지 않는다.
+              "$GROOT_PY" "$WORKSHOP_DIR/examples/vla/register_groot_model.py" \
+                --checkpoint-dir "${OUTPUT_DIR}" \
+                --model-name "$(basename "${OUTPUT_DIR}")" \
+                --groot-version "${GROOT_VERSION}" || true
+          env:
+            - name: GROOT_VERSION
+              value: "${GROOT_VERSION}"
+            - name: GR00T_REPO
+              value: /fsx/scratch/Isaac-GR00T
+            - name: DATASET_PATH
+              value: "${DATASET_PATH}"
+            - name: OUTPUT_DIR
+              value: "${OUTPUT_DIR}"
+            - name: MAX_STEPS
+              value: "${MAX_STEPS}"
+            - name: GLOBAL_BATCH_SIZE
+              value: "${GLOBAL_BATCH_SIZE}"
+            - name: HF_HOME
+              value: /fsx/scratch/.cache/huggingface
+            # 모델 등록이 체크포인트의 S3 URI 를 만드는 데 쓴다. render.sh 가 스택
+            # Output 에서 읽어 넣는다 — 이 Pod 의 role 에는 DescribeStacks 가 없어서
+            # 안에서 직접 조회할 수 없다.
+            - name: ARTIFACT_BUCKET
+              value: "${ARTIFACT_BUCKET}"
+            # 등록된 model version 의 태그로 남겨서 어느 Job 이 만든 가중치인지
+            # MLflow UI 에서 역추적할 수 있게 한다.
+            - name: JOB_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # HF Trainer 의 MLflowCallback 이 이 두 변수를 직접 읽는다. 별도 로깅
+            # 코드는 없고, patch_groot_repo.py 가 report_to 에 mlflow 를 넣어주는
+            # 것으로 끝난다. 비어 있으면 콜백이 경고 한 줄 남기고 아무것도 보내지
+            # 않으므로 학습 자체는 영향받지 않는다.
+            - name: MLFLOW_TRACKING_URI
+              value: "${MLFLOW_TRACKING_URI}"
+            # 학습(vla-finetune)과 평가(vla-eval)를 다른 실험에 둔다. 한 실험에 섞으면
+            # Grafana 의 openloop_* 패널과 train loss 패널이 서로의 run 을 끌어온다.
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "${MLFLOW_EXPERIMENT_NAME}"
+            # 자체 호스팅 MLflow 의 basic auth. render.sh 가 mlflow 네임스페이스에서
+            # 이 네임스페이스로 Secret 을 복사한다. 관리형 서버에는 Secret 이 없으므로
+            # optional: true 로 두어 두 경로가 같은 템플릿을 공유한다.
+            - name: MLFLOW_TRACKING_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: username
+                  optional: true
+            - name: MLFLOW_TRACKING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: password
+                  optional: true
+            # n1.7 은 gated 모델이라 토큰이 필요하다. n1.6(기본)은 공개 모델이므로
+            # Secret 이 없어도 되게 optional: true 로 둔다.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "16"
+              memory: 64Gi
+              nvidia.com/gpu: 1
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc
+        # dataloader worker 가 비디오 프레임을 공유 메모리로 넘긴다. 기본 64 MB 로는
+        # "bus error" 로 죽으므로 넉넉히 준다.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi

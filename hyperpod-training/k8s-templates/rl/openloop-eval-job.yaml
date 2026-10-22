@@ -1,0 +1,160 @@
+# GR00T open-loop 평가 Job — Slurm 경로의 slurm-templates/vla/eval_closed_loop.sbatch 에 대응하는
+# EKS 경로 자산이되, 시뮬레이터 없이 녹화 궤적과 비교만 하는 1차 필터다.
+#
+# - 시뮬레이터는 필요 없지만 GPU 는 필요하다. examples/vla/eval_closed_loop.py 가
+#   LocalGR00TPolicy 로 정책을 cuda:0 에 올려 추론하기 때문이다. CPU 노드로는 돌지 않는다.
+#   ml.g5.8xlarge 1장이면 충분하다 (12 에피소드 약 4분).
+# - 평가 결과는 두 곳으로 나간다.
+#     1) ${LOG_DIR}/openloop-eval-<suffix>/eval_results.json  — FSx, 원본 보존
+#     2) MLflow metrics/params  — Grafana 의 "Open-loop eval" 패널 3종이 읽는 곳
+#   MLFLOW_TRACKING_URI 가 비어 있으면 2) 는 조용히 생략되고 평가 자체는 영향받지 않는다.
+# - 실험 이름을 학습(isaaclab-rl)과 분리해 vla-eval 로 둔다. 같은 실험에 섞으면
+#   openloop_* 패널과 Train_mean_reward 패널이 서로의 run 을 끌어온다.
+# - 2단 평가의 1단이다. 여기서 MSE 임계값을 통과한 체크포인트만 closed-loop 롤아웃으로
+#   보내 success_rate 를 받는 것이 설계 의도다. open-loop MSE 는 행동 복제 충실도이지
+#   태스크 성공률이 아니므로, 단독으로 승격 게이트에 쓰면 안 된다.
+#
+# 전제: /fsx/envs/gr00t (scripts/setup_groot_env.sh), 평가할 체크포인트, LeRobot 포맷 데이터셋
+#
+# 렌더: CHECKPOINT=/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-4000 \
+#         DATASET_PATH=/fsx/datasets/so101-pick-place NUM_EPISODES=12 \
+#         ./render.sh rl/openloop-eval-job.yaml --apply
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openloop-eval-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
+    # 아래 --output-dir 와 같은 경로여야 한다. 읽는 쪽인 ${CHECKPOINT} 가 아니다.
+    workshop/artifact-dir: "${LOG_DIR}/openloop-eval-${JOB_SUFFIX}"
+  labels:
+    app: openloop-eval
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: openloop-eval
+        # admission policy 는 Job 이 만드는 Pod 에도 같은 라벨을 요구한다.
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.g5.8xlarge
+        sagemaker.amazonaws.com/node-health-status: Schedulable
+      containers:
+        - name: eval
+          # GR00T 는 /fsx/envs/gr00t venv 에 들어 있고 Isaac Sim 은 필요 없지만,
+          # 이미지에 CUDA 툴킷(nvcc)이 있어야 한다. transformers 가 import 하는
+          # deepspeed 가 import 시점에 nvcc 로 CUDA 버전을 확인하기 때문이다.
+          # 자세한 이유는 groot-finetune-job.yaml 의 같은 자리 주석에 있다.
+          image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              GROOT_PY=/fsx/envs/gr00t/bin/python
+
+              # torchcodec 이 FFmpeg 공유 라이브러리를 dlopen 한다. 없으면 import 가
+              # 실패해 video_backend 가 pyav 로 폴백하고, get_frames_by_indices 에
+              # pyav 분기가 없어 프레임 로딩이 NotImplementedError 로 죽는다.
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+
+              # 전제 세 가지를 먼저 확인한다. 없으면 pip 나 python 이 내는
+              # "No such file or directory" 대신 무엇을 먼저 만들어야 하는지 알려준다.
+              [ -x "$GROOT_PY" ] || {
+                echo "ERROR: GR00T venv not found at /fsx/envs/gr00t"
+                echo "  Build it first: scripts/setup_groot_env.sh (Slurm head node or a GPU pod with /fsx mounted)"
+                exit 1; }
+              [ -d "${CHECKPOINT}" ] || {
+                echo "ERROR: checkpoint not found: ${CHECKPOINT}"
+                ls /fsx/checkpoints/vla 2>/dev/null || echo "  /fsx/checkpoints/vla does not exist yet - no VLA fine-tune has run"
+                exit 1; }
+              [ -d "${DATASET_PATH}" ] || {
+                echo "ERROR: dataset not found: ${DATASET_PATH}"
+                ls /fsx/datasets 2>/dev/null || echo "  /fsx/datasets does not exist yet"
+                exit 1; }
+              # MLflow 로깅은 선택이다. URI 가 채워져 있을 때만 패키지를 확인한다.
+              # mlflow-skinny 를 쓰는 이유는 전체 mlflow 가 pandas/numpy 를 끌어올려
+              # GR00T venv 의 고정 버전을 깨기 때문이다. 관리형 서버의 ARN 일 때만
+              # SigV4 서명을 붙이는 sagemaker-mlflow 를 함께 깐다.
+              if [ -n "${MLFLOW_TRACKING_URI:-}" ]; then
+                case "${MLFLOW_TRACKING_URI}" in
+                  arn:aws:sagemaker:*) MLFLOW_PKGS="mlflow-skinny sagemaker-mlflow" ;;
+                  *)                   MLFLOW_PKGS="mlflow-skinny" ;;
+                esac
+                "$GROOT_PY" -c 'import mlflow' 2>/dev/null ||
+                  "$GROOT_PY" -m pip install --no-cache-dir -q ${MLFLOW_PKGS}
+              fi
+              exec "$GROOT_PY" \
+                /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/vla/eval_closed_loop.py \
+                --model-path "${CHECKPOINT}" \
+                --dataset-path "${DATASET_PATH}" \
+                --embodiment-tag "${EMBODIMENT_TAG}" \
+                --num-episodes "${NUM_EPISODES}" \
+                --output-dir "${LOG_DIR}/openloop-eval-${JOB_SUFFIX}"
+          env:
+            - name: CHECKPOINT
+              value: "${CHECKPOINT}"
+            - name: DATASET_PATH
+              value: "${DATASET_PATH}"
+            - name: NUM_EPISODES
+              value: "${NUM_EPISODES}"
+            - name: EMBODIMENT_TAG
+              value: "${EMBODIMENT_TAG}"
+            - name: LOG_DIR
+              value: "${LOG_DIR}"
+            - name: JOB_SUFFIX
+              value: "${JOB_SUFFIX}"
+            - name: HF_HOME
+              value: /fsx/scratch/.cache/huggingface
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # render.sh 가 채운다. 자체 호스팅 MLflow Service 가 있으면 그 URL,
+            # 없으면 HyperPodEks 스택의 MlflowTrackingUri Output, 둘 다 없으면 빈 값.
+            # 빈 값이면 eval_closed_loop.py 의 _mlflow_log_eval 이 즉시 return 한다.
+            - name: MLFLOW_TRACKING_URI
+              value: "${MLFLOW_TRACKING_URI}"
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "${MLFLOW_EXPERIMENT_NAME}"
+            # 자체 호스팅 MLflow 의 basic auth. render.sh 가 mlflow 네임스페이스에서
+            # 이 네임스페이스로 Secret 을 복사한다. 관리형 서버에는 Secret 이 없으므로
+            # optional: true 로 두어 두 경로가 같은 템플릿을 공유한다.
+            - name: MLFLOW_TRACKING_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: username
+                  optional: true
+            - name: MLFLOW_TRACKING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: password
+                  optional: true
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: 1
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
