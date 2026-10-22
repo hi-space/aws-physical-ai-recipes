@@ -350,6 +350,12 @@ if ! aws iam get-role --role-name "$MLFLOW_ROLE" >/dev/null 2>&1; then
     --assume-role-policy-document "$POD_TRUST" >/dev/null
   echo "  IAM 역할 생성: ${MLFLOW_ROLE}"
 fi
+# 두 번째 statement 가 체크포인트를 읽기 전용으로 추가한다. Model Registry 에
+# 등록된 model version 의 source 는 s3://<버킷>/checkpoints/... 이고, UI 의
+# /model-versions/get-artifact 는 그 경로를 서버 자격증명으로 직접 읽는다. 이
+# 권한이 없으면 목록은 떠도(ListBucket 은 버킷 단위라 이미 허용) 파일을 누르는
+# 순간 S3 403 이 INTERNAL_ERROR 로 올라온다.
+# GetObject 만 준다 — 쓰기를 주면 추적 서버가 학습 산출물을 지울 수 있게 된다.
 aws iam put-role-policy --role-name "$MLFLOW_ROLE" --policy-name s3-artifacts \
   --policy-document "$(jq -nc --arg b "$S3_BUCKET" '{
     Version: "2012-10-17",
@@ -357,6 +363,10 @@ aws iam put-role-policy --role-name "$MLFLOW_ROLE" --policy-name s3-artifacts \
       Effect: "Allow",
       Action: ["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket","s3:GetBucketLocation"],
       Resource: ["arn:aws:s3:::\($b)", "arn:aws:s3:::\($b)/mlflow-artifacts/*"]
+    },{
+      Effect: "Allow",
+      Action: ["s3:GetObject"],
+      Resource: ["arn:aws:s3:::\($b)/checkpoints/*"]
     }]
   }')"
 if ! aws eks list-pod-identity-associations --cluster-name "$CLUSTER_NAME" --region "$REGION" \

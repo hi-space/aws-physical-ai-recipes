@@ -894,21 +894,34 @@ groot_version      n1.6
 job_name           groot-finetune-10220131
 ```
 
-The version links back to the training run, so loss curves and the artifact
-pointer sit on one record. The weights themselves are not uploaded — the source
-points at the bytes FSx already exported.
-
-Because the UI can only serve files it stores itself, an external source has no
-download button. The run's Artifacts tab therefore carries the instructions
-instead:
+The version links back to the training run, which is also tagged with the
+location, so the loss curves and the path sit on one record:
 
 ```
-CHECKPOINT.md    the S3 URI, the FSx path, the size breakdown, the sync command
-download.sh      the same sync, runnable (WEIGHTS_ONLY=1 skips optimizer.pt)
+checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
+checkpoint_fsx_dir    /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_size_gib   9.2
 ```
 
-A full checkpoint is about 9 GiB, of which roughly 3 GiB is optimizer state that
-inference does not need.
+The weights are not uploaded. FSx auto-exports `/fsx/checkpoints` to S3, so the
+same bytes are already in the bucket, and the tracking server reads them from
+there on request:
+
+```bash
+# any file in the registered checkpoint, served by MLflow itself
+curl -u "$USER:$PASS" -O \
+  "https://<domain>/mlflow/model-versions/get-artifact?name=groot-so101-place-orange&version=3&path=config.json"
+
+# or straight from S3 / FSx, with no MLflow involved
+aws s3 sync s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./ckpt/
+ls /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+```
+
+Serving through MLflow works because the MLflow pod role holds `s3:GetObject`
+on `checkpoints/*`, granted by `install-mlflow-selfhosted.sh`. A full
+checkpoint is about 9 GiB, of which roughly 3 GiB is optimizer state that
+inference does not need, so add `--exclude 'optimizer.pt' --exclude
+'scheduler.pt'` when you only want weights.
 
 Promotion is manual: pick a version and assign an alias (for example
 `production`) in the UI. The evaluation in Step 8 reports open-loop MSE, which

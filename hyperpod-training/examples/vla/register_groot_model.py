@@ -9,7 +9,7 @@ Run after training, from the job that produced the checkpoint:
       --checkpoint-dir /fsx/checkpoints/vla/groot-so101-place-orange \
       --model-name groot-so101-place-orange
 
-Registers a version and logs the download instructions as run artifacts.
+Registers a version and tags the run with the checkpoint's location.
 Nothing is promoted and the weights are never copied.
 
 Why registration is needed at all: MLflow already receives the training
@@ -27,11 +27,16 @@ account already holds. MLflow accepts an external source as long as the
 server does not set MLFLOW_CREATE_MODEL_VERSION_SOURCE_VALIDATION_REGEX
 (ours does not -- verified against the running 3.16 server).
 
-The cost of that choice is that the UI cannot offer a download button for an
-external source -- it only lists and serves mlflow-artifacts:/ paths. So the
-run also gets CHECKPOINT.md and download.sh, a few KB that carry the S3 URI
-and the sync command. The Artifacts tab then answers "how do I get the
-weights" even though the weights are not in it.
+The server serves those bytes itself: /model-versions/get-artifact resolves a
+version's source with the tracking server's own credentials, so
+`?name=<model>&version=<n>&path=config.json` returns the real file out of
+s3://<bucket>/checkpoints/... with no copy anywhere. That requires the MLflow
+pod role to hold s3:GetObject on checkpoints/* -- granted by
+scripts/eks/install-mlflow-selfhosted.sh. Without it the request fails with an
+S3 403 surfaced as INTERNAL_ERROR.
+
+The run is tagged with the S3 URI and the FSx path so the location is visible
+on the run's own page, not only on the model version.
 
 Promotion is left to a human. Open-loop MSE is behaviour-cloning fidelity,
 not task success, so it must not gate a release on its own; pick a version in
@@ -77,68 +82,17 @@ def resolve_bucket() -> str:
     raise RuntimeError(f"stack {stack} has no S3BucketName output")
 
 
-def log_pointer_artifacts(client, run_id: str, ckpt: Path, source: str) -> None:
-    """Put the download instructions in the run's Artifacts tab.
+def log_checkpoint_location(client, run_id: str, ckpt: Path, source: str) -> None:
+    """Record where the weights are, as tags on the run that produced them.
 
-    The model version records the S3 URI, but the MLflow UI only lists and
-    serves files that live under mlflow-artifacts:/, so an external source
-    shows as text with no download control. These two files are small enough
-    to upload, which makes the Artifacts tab answer "how do I get the
-    weights" without duplicating 9 GB into the artifact store.
+    Tags rather than uploaded files. The same bytes are already in FSx and in
+    S3, so the run only needs to say which paths they are at; the MLflow
+    server reads the S3 URI directly when the UI asks for a file.
     """
-    sizes = {p.name: p.stat().st_size for p in ckpt.rglob("*") if p.is_file()}
-    total = sum(sizes.values())
-    optim = sum(v for k, v in sizes.items() if k in ("optimizer.pt", "scheduler.pt"))
-    gib = 1 << 30
-
-    readme = f"""# {ckpt.name}
-
-| | |
-|---|---|
-| step | {ckpt.name.replace('checkpoint-', '')} |
-| S3 | `{source}/` |
-| FSx | `{ckpt}` |
-| size | {total / gib:.1f} GiB ({(total - optim) / gib:.1f} GiB weights + {optim / gib:.1f} GiB optimizer state) |
-
-The weights are not in MLflow's artifact store. FSx auto-exports
-`/fsx/checkpoints` to S3, so they are already in the bucket and copying them
-here would be a second {total / gib:.0f} GiB of the same bytes. Download with the CLI:
-
-```bash
-aws s3 sync {source}/ ./{ckpt.name}/
-```
-
-Weights only, skipping the optimizer state you do not need for inference:
-
-```bash
-aws s3 sync {source}/ ./{ckpt.name}/ --exclude 'optimizer.pt' --exclude 'scheduler.pt'
-```
-
-From a pod or the head node, read it in place -- no download at all:
-
-```bash
-ls {ckpt}
-```
-"""
-    script = f"""#!/usr/bin/env bash
-# Download {ckpt.name} into $1 (default ./{ckpt.name}).
-# Set WEIGHTS_ONLY=1 to skip the optimizer state, which inference does not need.
-set -euo pipefail
-DEST="${{1:-./{ckpt.name}}}"
-EXCLUDE=()
-[ "${{WEIGHTS_ONLY:-}}" = "1" ] && EXCLUDE=(--exclude 'optimizer.pt' --exclude 'scheduler.pt')
-aws s3 sync "{source}/" "$DEST/" "${{EXCLUDE[@]}}"
-echo "downloaded to $DEST"
-"""
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        md = Path(tmp) / "CHECKPOINT.md"
-        sh = Path(tmp) / "download.sh"
-        md.write_text(readme)
-        sh.write_text(script)
-        sh.chmod(0o755)
-        client.log_artifact(run_id, str(md))
-        client.log_artifact(run_id, str(sh))
+    total = sum(p.stat().st_size for p in ckpt.rglob("*") if p.is_file())
+    client.set_tag(run_id, "checkpoint_s3_uri", f"{source}/")
+    client.set_tag(run_id, "checkpoint_fsx_dir", str(ckpt))
+    client.set_tag(run_id, "checkpoint_size_gib", f"{total / (1 << 30):.1f}")
 
 
 def latest_checkpoint(output_dir: Path) -> Path:
@@ -215,7 +169,7 @@ def main():
                   "job_name": os.environ.get("JOB_NAME", "")})
 
         if run_id:
-            log_pointer_artifacts(client, run_id, ckpt, source)
+            log_checkpoint_location(client, run_id, ckpt, source)
 
         print(f"[register] {args.model_name} version {version.version}")
         print(f"[register]   source : {source}")

@@ -879,20 +879,34 @@ groot_version      n1.6
 job_name           groot-finetune-10220131
 ```
 
-버전은 학습 run에 연결되므로 loss 곡선과 산출물 위치가 한 레코드에 모입니다.
-가중치 자체는 업로드하지 않습니다 — source는 FSx가 이미 익스포트한 바이트를
-가리킵니다.
-
-MLflow UI는 자기가 보관한 파일만 내려줄 수 있어서, 외부 source에는 다운로드
-버튼이 생기지 않습니다. 그래서 run의 Artifacts 탭에 받는 방법을 올려 둡니다.
+버전은 학습 run에 연결되고, 그 run에도 위치가 태그로 남으므로 loss 곡선과
+경로가 한 레코드에 모입니다.
 
 ```
-CHECKPOINT.md    S3 경로, FSx 경로, 용량 구성, sync 명령
-download.sh      같은 sync를 실행 가능한 형태로 (WEIGHTS_ONLY=1 이면 optimizer.pt 제외)
+checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
+checkpoint_fsx_dir    /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_size_gib   9.2
 ```
 
-체크포인트 하나가 약 9 GiB이고, 그중 3 GiB 정도는 추론에 필요 없는 optimizer
-state입니다.
+가중치는 업로드하지 않습니다. FSx가 `/fsx/checkpoints`를 S3로 자동 익스포트하므로
+같은 바이트가 이미 버킷에 있고, 추적 서버가 요청을 받으면 그 경로에서 직접
+읽어 내려줍니다.
+
+```bash
+# 등록된 체크포인트의 아무 파일이나, MLflow가 직접 서빙한다
+curl -u "$USER:$PASS" -O \
+  "https://<domain>/mlflow/model-versions/get-artifact?name=groot-so101-place-orange&version=3&path=config.json"
+
+# 또는 MLflow를 거치지 않고 S3·FSx에서 바로
+aws s3 sync s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./ckpt/
+ls /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+```
+
+MLflow를 통한 서빙이 되는 이유는 MLflow 파드 role이 `checkpoints/*`에 대한
+`s3:GetObject`를 갖기 때문이며, `install-mlflow-selfhosted.sh`가 부여합니다.
+체크포인트 하나가 약 9 GiB이고 그중 3 GiB 정도는 추론에 필요 없는 optimizer
+state이므로, 가중치만 받으려면 `--exclude 'optimizer.pt' --exclude
+'scheduler.pt'`를 붙입니다.
 
 승급은 사람이 합니다. UI에서 버전을 고르고 alias(예: `production`)를 지정합니다.
 Step 8의 평가가 내는 open-loop MSE는 정책이 시연을 얼마나 그대로 재현하는지를
