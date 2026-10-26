@@ -1,68 +1,173 @@
 {
   "title": "HyperPod Physical AI — Training Console",
   "uid": "hyperpod-training-console",
-  "tags": ["hyperpod", "console"],
+  "tags": [
+    "hyperpod",
+    "console"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
-  "templating": { "list": [] },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
   "panels": [
     {
       "type": "text",
       "title": "",
-      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "options": {
         "mode": "html",
-        "content": "<div style=\"display:flex;gap:12px;align-items:stretch;font-family:Inter,system-ui,sans-serif\">\n  <a href=\"/d/hyperpod-task-governance/\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">Grafana</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Cluster &amp; GPU</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Nodes, Kueue queues, DCGM GPU metrics</div>\n  </a>\n  <a href=\"/mlflow\" target=\"_blank\" rel=\"noopener\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">MLflow &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Training metrics &mdash; start here</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Curves, params, checkpoints per run</div>\n  </a>\n  <a href=\"/tensorboard\" target=\"_blank\" rel=\"noopener\" style=\"flex:1;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;letter-spacing:.08em;color:#8b93a7;text-transform:uppercase\">TensorBoard &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Fallback curves</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Reads /fsx tfevents when a run is missing from MLflow</div>\n  </a>\n</div>"
+        "content": "<div style=\"display:flex;gap:12px;align-items:stretch;font-family:Inter,system-ui,sans-serif\">\n  <a href=\"/argo/\" target=\"_blank\" rel=\"noopener\" style=\"flex:1 1 0;min-width:0;display:flex;flex-direction:column;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-left:4px solid #a78bfa;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;font-weight:700;letter-spacing:.08em;color:#a78bfa;text-transform:uppercase\">1 &middot; Argo Workflows &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Pipeline runs</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Per-step status and logs for each DAG</div>\n  </a>\n  <a href=\"/d/hyperpod-task-governance/\" style=\"flex:1 1 0;min-width:0;display:flex;flex-direction:column;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-left:4px solid #8ed11e;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;font-weight:700;letter-spacing:.08em;color:#8ed11e;text-transform:uppercase\">2 &middot; Grafana</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Cluster &amp; GPU</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Nodes, Kueue queues, DCGM GPU metrics</div>\n  </a>\n  <a href=\"/mlflow\" target=\"_blank\" rel=\"noopener\" style=\"flex:1 1 0;min-width:0;display:flex;flex-direction:column;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-left:4px solid #4ea8f5;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;font-weight:700;letter-spacing:.08em;color:#4ea8f5;text-transform:uppercase\">3 &middot; MLflow &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Training metrics</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Curves, params and checkpoints per run</div>\n  </a>\n  <a href=\"/tensorboard\" target=\"_blank\" rel=\"noopener\" style=\"flex:1 1 0;min-width:0;display:flex;flex-direction:column;text-decoration:none;padding:16px 18px;border:1px solid #2e3440;border-left:4px solid #ff9d4d;border-radius:8px;background:#1f2430\">\n    <div style=\"font-size:13px;font-weight:700;letter-spacing:.08em;color:#ff9d4d;text-transform:uppercase\">4 &middot; TensorBoard &#8599;</div>\n    <div style=\"font-size:18px;font-weight:600;color:#e6e9ef;margin:4px 0 2px\">Fallback curves</div>\n    <div style=\"font-size:13px;color:#8b93a7\">Reads /fsx tfevents when MLflow lacks a run</div>\n  </a>\n</div>"
       }
     },
     {
       "type": "stat",
       "title": "Nodes Ready",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})" }
+        {
+          "refId": "A",
+          "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})"
+        }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      }
     },
     {
       "type": "stat",
       "title": "GPUs in cluster",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(kube_node_status_allocatable{resource=\"nvidia_com_gpu\"}) or vector(0)" }
+        {
+          "refId": "A",
+          "expr": "sum(kube_node_status_allocatable{resource=\"nvidia_com_gpu\"}) or vector(0)"
+        }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      }
     },
     {
       "type": "stat",
       "title": "Training pods running",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=~\"rl|hyperpod-ns-.*\"} == 1) or vector(0)" }
+        {
+          "refId": "A",
+          "expr": "count(kube_pod_status_phase{phase=\"Running\",namespace=~\"rl|hyperpod-ns-.*\"} == 1) or vector(0)"
+        }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      }
     },
     {
       "type": "stat",
       "title": "Kueue pending workloads",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 5
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(kueue_pending_workloads) or vector(0)" }
+        {
+          "refId": "A",
+          "expr": "sum(kueue_pending_workloads) or vector(0)"
+        }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      }
     },
     {
       "type": "stat",
-      "title": "MLflow runs (total)",
-      "description": "Read straight from the MLflow backend database, counting active runs only.",
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 5 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "title": "MLflow runs (all time)",
+      "description": "Counts every active run in the MLflow backend database, ignoring the dashboard time range — unlike the chart panels, which are filtered. Retitled so the number is not read as runs within the selected window.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
@@ -71,31 +176,102 @@
           "rawSql": "SELECT count(*) AS \"runs\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active';"
         }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      }
     },
     {
       "type": "stat",
-      "title": "MLflow runs active now",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 5 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "title": "Latest gate decision",
+      "description": "The most recent gate decision, so the dashboard answers 'is the current checkpoint shippable' without scrolling. PASS is not PROMOTE: open-loop MSE can clear a ceiling but cannot certify task success.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) AS \"running\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.status = 'RUNNING' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active';"
+          "rawSql": "SELECT coalesce(dec.value, 'none') AS \"decision\" FROM runs r JOIN params mt ON mt.run_uuid = r.run_uuid AND mt.key = 'gate_metric' LEFT JOIN params dec ON dec.run_uuid = r.run_uuid AND dec.key = 'gate_decision' WHERE r.lifecycle_stage = 'active' ORDER BY r.start_time DESC LIMIT 1;"
         }
       ],
-      "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" }
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "PROMOTE": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "PROMOTE"
+                },
+                "PASS": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "PASS"
+                },
+                "BLOCK": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "BLOCK"
+                },
+                "none": {
+                  "color": "text",
+                  "index": 3,
+                  "text": "no gate run"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^decision$/",
+          "values": false
+        }
+      }
     },
     {
       "type": "table",
       "title": "Recent MLflow runs",
       "description": "The 10 most recently started runs, straight from the MLflow backend database.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
@@ -104,79 +280,433 @@
           "rawSql": "SELECT to_timestamp(r.start_time / 1000) AS \"started\", e.name AS \"experiment\", r.name AS \"run\", r.status AS \"status\", round((coalesce(r.end_time, (extract(epoch from now()) * 1000)::bigint) - r.start_time) / 60000.0, 1) AS \"minutes\", (SELECT count(DISTINCT m.key) FROM metrics m WHERE m.run_uuid = r.run_uuid) AS \"metrics\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id WHERE r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY r.start_time DESC LIMIT 10;"
         }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "options": { "showHeader": true }
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
     },
     {
       "type": "timeseries",
       "title": "MLflow — mean reward by run",
-      "description": "The MLflow hook rewrites '/' to '_' in metric keys, so Isaac Lab's Train/mean_reward arrives as Train_mean_reward. The time filter uses $__unixEpochFilter because metrics.timestamp is epoch milliseconds, and because $__timeFilter() truncates its argument at the first ')' — a nested to_timestamp() call would compare a bigint against an RFC 3339 string.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "description": "Isaac Lab's reward scalar arrives as 'Train/mean_reward' with the slash intact: the sanitizer in examples/rl/mlflow_isaaclab.py permits '/', so it does not become 'Train_mean_reward'. The underscored key is matched as well because older runs carry it. The time filter uses $__unixEpochFilter because metrics.timestamp is epoch milliseconds, and because $__timeFilter() truncates its argument at the first ')' — a nested to_timestamp() call would compare a bigint against an RFC 3339 string.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key IN ('Train_mean_reward', 'rollout_ep_rew_mean') AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
+          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key IN ('Train/mean_reward', 'Train_mean_reward', 'rollout_ep_rew_mean') AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
         }
       ],
-      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GR00T fine-tune — training loss",
+      "description": "HF Trainer logs 'loss' per logging_steps; the RL reward panel above never matches a fine-tune because the GR00T run reports Trainer keys instead. Matching the experiment on 'vla-finetune%' keeps the legacy experiment (vla-finetune-legacy, kept because MLflow cannot move an experiment's artifact_location) in the same panel.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key = 'loss' AND e.name LIKE 'vla-finetune%' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "GR00T fine-tune — learning rate and grad norm",
+      "description": "Two keys on one panel on purpose: a loss that stops moving is read together with whether the schedule is still stepping and whether gradients are exploding. Log scale because the two differ by orders of magnitude.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name || ' · ' || m.key AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key IN ('learning_rate', 'grad_norm') AND e.name LIKE 'vla-finetune%' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "GPU utilization per node (DCGM)",
       "description": "Empty while the GPU instance group is scaled to 0.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
       "targets": [
-        { "refId": "A", "expr": "avg by (hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "{{hostname}} gpu{{gpu}}" }
+        {
+          "refId": "A",
+          "expr": "avg by (hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "CPU requested by training pods (vCPU)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\",namespace=~\"rl|hyperpod-ns-.*\"})",
+          "expr": "sum by (namespace) (kube_pod_container_resource_requests{resource=\"cpu\",namespace=~\"rl|hyperpod-ns-.*\"} * on (namespace, pod) group_left() (kube_pod_status_phase{phase=~\"Running|Pending\"} == 1))",
           "legendFormat": "{{namespace}}"
         }
       ],
-      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
     {
       "type": "table",
-      "title": "Open-loop eval — latest MSE per checkpoint",
-      "description": "One row per checkpoint, keeping only its most recent open-loop evaluation (DISTINCT ON). Answers 'which checkpoint on FSx is currently best'. MSE is behaviour-cloning fidelity against recorded trajectories, not task success rate — a low MSE does not imply the policy recovers out of distribution, so do not use it alone as a promotion gate. Populated by examples/vla/eval_closed_loop.py when MLFLOW_TRACKING_URI is set.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 26 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "title": "Gate decisions — promote / pass / block",
+      "description": "Every decision examples/vla/gate_checkpoint.py has made, newest first. This is the row that closes the development loop: the eval panels below say how a checkpoint scored, this one says whether that score was allowed to matter. BLOCK means the gate Job exited non-zero, so the Argo workflow failed and anything chained behind it never ran. The reasons column is the only durable copy of why - the Job log is deleted by ttlSecondsAfterFinished. Two metrics with different powers: openloop_mse is behaviour-cloning fidelity and can only block, so a clean run reads PASS, not PROMOTE; success_rate comes from real-robot or closed-loop trials and can promote, filling in the alias column. Only one of episodes / trials is filled per row, and which one tells you what kind of evidence the decision rests on: episodes counts recorded trajectories replayed open-loop, trials counts attempts at the actual task. They are not interchangeable sample counts, so they get separate columns rather than one n. Read whichever is filled before trusting the value - 3 episodes and 24 trials carry very different weight, and the threshold is applied to the mean either way.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (ckpt.value) ckpt.value AS \"checkpoint\", round(m.value::numeric, 6) AS \"mse\", to_timestamp(r.start_time / 1000) AS \"evaluated\", r.name AS \"run\" FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id JOIN params ckpt ON ckpt.run_uuid = r.run_uuid AND ckpt.key = 'checkpoint' WHERE m.key = 'openloop_mse_mean' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY ckpt.value, r.start_time DESC;"
+          "rawSql": "SELECT to_timestamp(r.start_time / 1000) AS \"decided\", coalesce(dec.value, '?') AS \"decision\", regexp_replace(coalesce(ckpt.value, r.name), '^.*/', '') AS \"checkpoint\", mt.value AS \"metric\", round(coalesce(mse.value, sr.value)::numeric, 3) AS \"value\", thr.value AS \"limit\", ep.value::int AS \"episodes\", tr.value::int AS \"trials\", coalesce(prom.value, '') AS \"alias\", coalesce(why.value, '') AS \"reasons\" FROM runs r JOIN experiments e ON e.experiment_id = r.experiment_id LEFT JOIN params dec  ON dec.run_uuid  = r.run_uuid AND dec.key  = 'gate_decision' LEFT JOIN params ckpt ON ckpt.run_uuid = r.run_uuid AND ckpt.key = 'checkpoint' LEFT JOIN params mt   ON mt.run_uuid   = r.run_uuid AND mt.key   = 'gate_metric' LEFT JOIN params thr  ON thr.run_uuid  = r.run_uuid AND thr.key  = 'threshold' LEFT JOIN params prom ON prom.run_uuid = r.run_uuid AND prom.key = 'promoted_alias' LEFT JOIN params why  ON why.run_uuid  = r.run_uuid AND why.key  = 'gate_reasons' LEFT JOIN metrics mse ON mse.run_uuid  = r.run_uuid AND mse.key  = 'eval_openloop_mse' LEFT JOIN metrics sr  ON sr.run_uuid   = r.run_uuid AND sr.key   = 'eval_success_rate' LEFT JOIN metrics ep  ON ep.run_uuid   = r.run_uuid AND ep.key   = 'eval_episodes' LEFT JOIN metrics tr  ON tr.run_uuid   = r.run_uuid AND tr.key   = 'eval_total_trials' WHERE mt.value IS NOT NULL AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY r.start_time DESC LIMIT 50;"
         }
       ],
       "fieldConfig": {
-        "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.1 }] } },
+        "defaults": {},
         "overrides": [
-          { "matcher": { "id": "byName", "options": "mse" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "decision"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PROMOTE": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "PROMOTE"
+                      },
+                      "PASS": {
+                        "color": "blue",
+                        "index": 1,
+                        "text": "PASS"
+                      },
+                      "BLOCK": {
+                        "color": "red",
+                        "index": 2,
+                        "text": "BLOCK"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reasons"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 560
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "checkpoint"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "episodes"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trials"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "decided",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "title": "Open-loop eval — latest MSE per checkpoint",
+      "description": "One row per checkpoint, keeping only its most recent open-loop evaluation (DISTINCT ON). Answers 'which checkpoint on FSx is currently best'. MSE is behaviour-cloning fidelity against recorded trajectories, not task success rate — a low MSE does not imply the policy recovers out of distribution, so do not use it alone as a promotion gate. Populated by examples/vla/eval_closed_loop.py when MLFLOW_TRACKING_URI is set. episodes is how many trajectories the mean is over, and worst is the highest per-episode MSE. A mean under the gate ceiling with a worst far above it is one bad episode averaged away - the mean alone cannot show that.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (ckpt.value) regexp_replace(ckpt.value, '^.*/', '') AS \"checkpoint\", round(m.value::numeric, 3) AS \"mse\", round(mx.mx::numeric, 3) AS \"worst\", ep.value::int AS \"episodes\", to_timestamp(r.start_time / 1000) AS \"evaluated\" FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id JOIN params ckpt ON ckpt.run_uuid = r.run_uuid AND ckpt.key = 'checkpoint' LEFT JOIN metrics ep ON ep.run_uuid = r.run_uuid AND ep.key = 'openloop_episodes' LEFT JOIN (SELECT run_uuid, max(value) AS mx FROM metrics            WHERE key = 'openloop_mse' GROUP BY run_uuid) mx       ON mx.run_uuid = r.run_uuid WHERE m.key = 'openloop_mse_mean' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' ORDER BY ckpt.value, r.start_time DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 400
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mse"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "worst"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
     },
     {
       "type": "timeseries",
       "title": "Open-loop MSE by eval run",
       "description": "Mean MSE per evaluation run over time — shows whether more training actually lowers the error. Flattening between consecutive checkpoints is the signal to stop spending GPU hours. Uses $__unixEpochFilter because metrics.timestamp is epoch milliseconds, same as the mean-reward panel above.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 26 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
@@ -185,15 +715,43 @@
           "rawSql": "SELECT to_timestamp(m.timestamp / 1000) AS \"time\", r.name AS metric, m.value FROM metrics m JOIN runs r ON r.run_uuid = m.run_uuid JOIN experiments e ON e.experiment_id = r.experiment_id WHERE m.key = 'openloop_mse_mean' AND r.lifecycle_stage = 'active' AND e.lifecycle_stage = 'active' AND $__unixEpochFilter(m.timestamp / 1000) ORDER BY 1;"
         }
       ],
-      "fieldConfig": { "defaults": { "decimals": 4, "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "always", "pointSize": 6 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 4,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "always",
+            "pointSize": 6
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
     {
       "type": "bargauge",
       "title": "Open-loop MSE per episode (latest eval)",
       "description": "Per-episode breakdown of the most recent open-loop run; metrics.step holds the episode index. Surfaces failure modes the mean hides — a couple of bad episodes among otherwise good ones means the policy loses the trajectory under specific conditions. Follow up by replaying those recordings.",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 35 },
-      "datasource": { "type": "postgres", "uid": "mlflow-postgres" },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "mlflow-postgres"
+      },
       "targets": [
         {
           "refId": "A",
@@ -203,10 +761,41 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "decimals": 4, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.1 }] } },
+        "defaults": {
+          "decimals": 4,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 400
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "orientation": "vertical", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^mse$/", "values": true } }
+      "options": {
+        "orientation": "vertical",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^mse$/",
+          "values": true
+        }
+      }
     }
   ]
 }

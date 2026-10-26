@@ -228,10 +228,23 @@ spec:
 
           # Job 의 네임스페이스·이름은 render.sh 가 manifest 에 이미 박아 두었다.
           # 생성 결과에서 바로 읽어 오면 이름 규칙을 여기서 또 알 필요가 없다.
+          # 생성 실패를 반드시 여기서 끊는다. `sh -ceu <파일>` 로 실행되면 -eu 는
+          # 명령 문자열인 파일 경로에만 적용되고 본문에는 걸리지 않으므로
+          # (본문의 $- 는 비어 있다) 실패한 create 가 그냥 통과한다. 그러면 REF 가
+          # 비고, NAME 도 비어서 아래 대기 루프가 job-name= 라벨로 영원히 아무것도
+          # 찾지 못한다 — 같은 분에 두 번 제출해 JOB_SUFFIX(MMDDHHMM)가 겹치면
+          # AlreadyExists 가 Running 상태로 위장된다.
           REF="$(kubectl create -f /tmp/job.yaml \
-                 -o jsonpath='{.metadata.namespace} {.metadata.name}')"
+                 -o jsonpath='{.metadata.namespace} {.metadata.name}')" || {
+            echo "ERROR: job creation failed. A name collision means another" >&2
+            echo "  submission in the same minute took the JOB_SUFFIX; pass" >&2
+            echo "  JOB_SUFFIX explicitly or retry." >&2
+            exit 1; }
           NS="${REF% *}"
           NAME="${REF#* }"
+          [ -n "$NS" ] && [ -n "$NAME" ] || {
+            echo "ERROR: could not read the created job's namespace/name." >&2
+            exit 1; }
           echo "created job ${NS}/${NAME}" >&2
 
           # 산출물을 어디서 받는지 알려 준다. 복사는 하지 않는다 — FSx 의
@@ -242,7 +255,7 @@ spec:
           #
           # 경로는 Job 의 workshop/artifact-dir 애노테이션에서 읽는다. 매니페스트에서
           # 추측하지 않는 이유는 /fsx/checkpoints 경로가 산출물일 때도 있고 입력일
-          # 때도 있어서다 — openloop-eval 은 checkpoint-2000 을 읽고 결과는 다른
+          # 때도 있어서다 — openloop-eval 은 체크포인트를 읽고 결과는 다른
           # 디렉터리에 쓰며, isaaclab-play 는 읽기만 한다. 애노테이션이 없는 Job
           # (play, setup)은 알릴 산출물이 없다는 뜻이다.
           #
@@ -565,8 +578,13 @@ spec:
       - name: namespace
         value: rl
       - name: checkpoint
-        value: /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
-        description: "GR00T checkpoint directory to score"
+        value: latest
+        description: >-
+          GR00T checkpoint directory to score, or latest to pick the most recent
+          one under /fsx/checkpoints/vla. A fixed default cannot work: with
+          tracking on the fine-tune writes to the MLflow run's own artifact path
+          and that run id does not exist at render time. To score a specific
+          version, pass the fsx_dir tag from the MLflow Model Registry.
       - name: dataset-path
         value: /fsx/datasets/groot/so101-place-orange
         description: "LeRobot dataset holding the reference trajectories"
@@ -605,6 +623,211 @@ spec:
               parameters:
                 - name: manifest
                   value: "{{steps.render.outputs.result}}"
+---
+# -----------------------------------------------------------------------------
+# vla-eval-gate — 평가 숫자를 승격/차단 결정으로 바꿔 개발 루프를 닫는다.
+#
+#   무엇이 없었나
+#     vla-openloop-eval 은 MSE 를 파일과 MLflow 에 쓴다. 그 숫자를 읽고 무언가를
+#     멈추는 주체가 없었으므로, 0% 로 평가된 체크포인트와 100% 가 파이프라인에서
+#     구분되지 않았다. 제어 루프는 닫혀 있었고(policy_server 가 30Hz 로 행동을
+#     돌려준다) 개발 루프는 열려 있었다.
+#
+#   무엇이 닫는가
+#     gate_checkpoint.py 가 BLOCK 이면 0 이 아닌 값으로 끝난다. Job 은
+#     backoffLimit 0 이므로 즉시 failed 가 되고, submit 단계가 status.failed 를
+#     보고 1 로 끝내므로 워크플로가 실패한다. Slurm 경로의 --dependency=afterok 와
+#     같은 역할이다. 배포를 이 뒤에 매달면 BLOCK 에서 멈춘다.
+#
+#   지표에 따라 할 수 있는 일이 다르다
+#     gate-input=openloop  action MSE 다. 행동 복제 충실도이지 태스크 성공률이
+#                          아니므로 차단만 할 수 있다. 통과하면 PROMOTE 가 아니라
+#                          PASS 이고 alias 도 건드리지 않는다. 비싼 closed-loop
+#                          롤아웃 앞에 두는 싼 1차 필터다.
+#     gate-input=trials    실로봇 per-trial JSONL 의 태스크 성공률이다. 승격할 수
+#                          있다. 이때만 promote-alias 가 동작한다.
+#     gate-input=rollout   leisaac 롤아웃 로그의 "[N/M]". 성공률이므로 승격 가능.
+#
+#   with-eval 를 끄면 평가를 건너뛰고 이미 있는 산출물만 채점한다. 실로봇 기록을
+#   채점할 때는 평가 Job 을 돌릴 이유가 없고, GPU 를 잡을 이유도 없다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: vla-eval-gate
+  namespace: ${ARGO_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: hyperpod-job-portal
+  annotations:
+    workflows.argoproj.io/title: "VLA eval gate - promote or block a checkpoint (CPU)"
+    workflows.argoproj.io/description: >-
+      Turns eval numbers into a promote/block decision and makes that decision
+      load-bearing. Optionally runs openloop-eval first, then submits
+      k8s-templates/rl/eval-gate-job.yaml, which aggregates the results and exits
+      non-zero on BLOCK. Chain a deploy step behind this workflow and a blocked
+      checkpoint never reaches it. The gate itself needs no GPU. Two metrics, two
+      powers - open-loop MSE can only block, because it measures behaviour-cloning
+      fidelity rather than task success; a real-robot or closed-loop success rate
+      can promote, and only then will promote-alias move a Model Registry alias.
+spec:
+  entrypoint: main
+  serviceAccountName: ${WORKFLOW_SA}
+  ttlStrategy:
+    secondsAfterCompletion: 604800
+  arguments:
+    parameters:
+      - name: namespace
+        value: rl
+        description: "Target namespace. hyperpod-ns-* routes the Job through the task governance queue."
+      - name: gate-input
+        value: openloop
+        enum:
+          - openloop
+          - trials
+          - rollout
+        description: >-
+          Which eval artifact to gate on. openloop reads eval_results.json
+          (action MSE) and can only block. trials reads per-trial JSONL and
+          rollout parses a leisaac log; both measure task success and can promote.
+      - name: with-eval
+        value: "true"
+        enum:
+          - "true"
+          - "false"
+        description: >-
+          Run an open-loop eval before gating. Set false to gate an artifact that
+          already exists - required when gate-input is trials, since real-robot
+          records come from hardware, not from a Job.
+      - name: gate-source
+        value: latest
+        description: >-
+          Path on /fsx to the artifact being gated. latest works only for
+          openloop and picks the most recent eval_results.json under
+          /fsx/checkpoints/rl. trials and rollout need an explicit path.
+      - name: max-mse
+        value: "500"
+        description: >-
+          gate-input=openloop: block when mean action MSE exceeds this. 500 comes
+          from what this cluster actually produced - seven open-loop evals in
+          2026-10-21..23 ranged 335 to 701, with the most-trained checkpoint
+          lowest. MSE scales with action normalisation, so this is not a
+          universal constant; re-fit it after a few evals on a new task. A
+          ceiling that blocks everything teaches people to ignore the gate.
+      - name: threshold
+        value: "0.5"
+        description: "gate-input=trials/rollout: block when success rate is below this"
+      - name: require-distinguishable
+        value: "false"
+        enum:
+          - "false"
+          - "true"
+        description: >-
+          Block when the margin over the runner-up is within noise. The
+          2026-10-22 real-robot run read 17% vs 12% at n=24, which needs ~1123
+          trials per arm to separate - without this, a one-trial difference
+          picks a winner.
+      - name: max-systematic-failures
+        value: ""
+        description: >-
+          Block when more than N parts fail every single attempt on every
+          checkpoint. A shared total failure implicates the part geometry or
+          grasp pose, not the model, so it must not be absorbed into a model
+          score. Empty disables the condition.
+      - name: promote-alias
+        value: ""
+        description: >-
+          On PROMOTE, move this Model Registry alias onto the matching version
+          (for example champion). The version is found by the fsx_dir tag that
+          register_groot_model.py writes. Empty leaves promotion to a human,
+          which is the default register_groot_model.py assumes.
+      - name: model-name
+        value: ""
+        description: >-
+          Registered model name that promote-alias acts on. Empty falls back to
+          groot-<dataset>, the name groot-finetune-job passes to
+          register_groot_model.py. Set it explicitly when the dataset differs
+          from the default, otherwise the alias is looked up on the wrong model.
+      - name: checkpoint
+        value: latest
+        description: >-
+          Checkpoint directory. Used for the eval step and, when promote-alias
+          is set, as the fsx_dir value that selects the model version. latest
+          skips that join, so pass an explicit path to promote an alias.
+      - name: dataset-path
+        value: /fsx/datasets/groot/so101-place-orange
+        description: "LeRobot dataset for the eval step. Ignored when with-eval is false."
+      - name: num-episodes
+        value: "12"
+        description: "Episodes for the eval step. Ignored when with-eval is false."
+      - name: priority
+        value: training-priority
+        enum:
+          - training-priority
+          - inference-priority
+          - background-priority
+        description: "WorkloadPriorityClass. Only used in team namespaces."
+  templates:
+    - name: main
+      steps:
+        # 평가는 선택이다. 실로봇 기록을 채점할 때는 돌릴 이유가 없으므로
+        # when 으로 건너뛴다. 건너뛰어도 뒤의 게이트 단계는 그대로 실행된다.
+        - - name: render-eval
+            when: "{{workflow.parameters.with-eval}} == true"
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/openloop-eval-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    CHECKPOINT={{workflow.parameters.checkpoint}}
+                    DATASET_PATH={{workflow.parameters.dataset-path}}
+                    NUM_EPISODES={{workflow.parameters.num-episodes}}
+        - - name: submit-eval
+            when: "{{workflow.parameters.with-eval}} == true"
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render-eval.outputs.result}}"
+        # 평가가 실패하면 여기까지 오지 않는다. 그게 의도다 — 평가가 안 끝난
+        # 체크포인트에 대해 게이트가 낼 수 있는 정직한 결정은 없다.
+        - - name: render-gate
+            templateRef:
+              name: isaaclab-train
+              template: render
+            arguments:
+              parameters:
+                - name: template
+                  value: rl/eval-gate-job.yaml
+                - name: env
+                  value: |
+                    NAMESPACE={{workflow.parameters.namespace}}
+                    PRIORITY={{workflow.parameters.priority}}
+                    GATE_INPUT={{workflow.parameters.gate-input}}
+                    GATE_SOURCE={{workflow.parameters.gate-source}}
+                    MAX_MSE={{workflow.parameters.max-mse}}
+                    THRESHOLD={{workflow.parameters.threshold}}
+                    REQUIRE_DISTINGUISHABLE={{workflow.parameters.require-distinguishable}}
+                    MAX_SYSTEMATIC_FAILURES={{workflow.parameters.max-systematic-failures}}
+                    PROMOTE_ALIAS={{workflow.parameters.promote-alias}}
+                    CHECKPOINT={{workflow.parameters.checkpoint}}
+                    MODEL_NAME={{workflow.parameters.model-name}}
+                    DATASET_PATH={{workflow.parameters.dataset-path}}
+        - - name: submit-gate
+            templateRef:
+              name: isaaclab-train
+              template: submit
+            arguments:
+              parameters:
+                - name: manifest
+                  value: "{{steps.render-gate.outputs.result}}"
 ---
 # -----------------------------------------------------------------------------
 # vla-groot-setup — VLA 경로의 최초 1회 준비. workshop-setup 과 별개로 두는 이유는

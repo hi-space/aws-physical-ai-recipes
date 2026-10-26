@@ -45,10 +45,13 @@ Why each patch is needed:
                                  workshop runs --no-use-wandb, so loss and
                                  learning rate never left stdout -- neither
                                  MLflow nor TensorBoard saw a fine-tune run.
+  run_name                       upstream derives it from the output directory,
+                                 which is now the MLflow run's own artifact
+                                 path, so runs were renamed "artifacts".
 
 Pinned refs this was verified against (tags, not branches):
-  n1.6  n1.6-release   10 patches apply
-  n1.7  n1.7-release    6 patches apply
+  n1.6  n1.6-release   11 patches apply
+  n1.7  n1.7-release    7 patches apply
 """
 
 import argparse
@@ -88,6 +91,19 @@ REPORT_TO = (
     "'is_' + i + '_available')()]"
 )
 REPORT_TO_MARKER = "'is_' + i + '_available'"
+
+# experiment.py derives its run name from the output directory basename. Since
+# checkpoints go to the MLflow run's own artifact path (examples/vla/
+# mlflow_run_dir.py), that basename is "artifacts", and TrainingArguments.run_name
+# wins over the name the run was created with -- MLflowCallback applies it on
+# setup. Every fine-tune then shows up as "artifacts" in the UI and in the
+# Grafana panels that key on runs.name. Prefer the job name the orchestrator
+# already passes for exactly this purpose.
+RUN_NAME = (
+    "__import__('os').environ.get('MLFLOW_RUN_NAME')"
+    " or __import__('os').environ.get('JOB_NAME') or experiment_name"
+)
+RUN_NAME_MARKER = "environ.get('MLFLOW_RUN_NAME')"
 
 
 class Patcher:
@@ -188,6 +204,17 @@ def patch_common(p: Patcher):
         "        run_name=experiment_name,",
         label="report metrics to MLflow/TensorBoard",
         marker=REPORT_TO_MARKER,
+    )
+    # Must run after the patch above, which is what inserts the line. Matching
+    # on the leading newline and eight spaces keeps this to TrainingArguments:
+    # CheckpointFormatCallback takes a run_name too, and that one names a
+    # directory on disk rather than the MLflow run.
+    p.replace(
+        "gr00t/experiment/experiment.py",
+        "\n        run_name=experiment_name,",
+        f"\n        run_name={RUN_NAME},",
+        label="keep the job name as the MLflow run name",
+        marker=RUN_NAME_MARKER,
     )
 
 

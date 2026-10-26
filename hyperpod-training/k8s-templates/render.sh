@@ -29,6 +29,9 @@
 #   LOG_DIR         mujoco-train-job 체크포인트 루트 (기본 /fsx/checkpoints/rl → S3 export). 거버넌스 실습은 /fsx/scratch/governance-demo/<팀>
 #   CHECKPOINT      mujoco-render-job 이 재생할 체크포인트 (기본 .../reach-mujoco/SO101_Reach/model_best.zip, 또는 untrained)
 #                   isaaclab-play-job 에서는 기본 /fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt
+#                   openloop-eval-job 에서는 기본 latest = /fsx/checkpoints/vla 아래에서 가장 최근
+#                   checkpoint-<step> 을 Job 안에서 고른다. 고정 경로를 쓸 수 없는 이유는
+#                   체크포인트가 MLflow run 의 artifact 경로에 쓰이고 run_id 가 렌더 시점에 없기 때문이다
 #   PLAY_ENVS       isaaclab-play-job 이 그릴 환경 수 (기본 4)
 #   X_DISPLAY       isaaclab-play-job 이 창을 띄울 노드의 X 디스플레이 (기본 비움 = DCV 가상 세션 자동 선택)
 #   EPISODES        mujoco-render-job 에피소드 수 (기본 5, 각 10초)
@@ -39,7 +42,8 @@
 #                    DATASET_PATH=/fsx/datasets/groot/<DATASET> 규약과 같은 경로를 쓴다)
 #   NUM_EPISODES    openloop-eval-job 평가 에피소드 수 (기본 12)
 #   EMBODIMENT_TAG  openloop-eval-job 의 embodiment (기본 NEW_EMBODIMENT, 파인튜닝과 같아야 한다)
-#   MLFLOW_TRACKING_URI  isaaclab-train-job / groot-finetune-job / openloop-eval-job 용. 비어 있으면
+#   MLFLOW_TRACKING_URI  isaaclab-train-job / groot-finetune-job / openloop-eval-job /
+#                   eval-gate-job 용. 비어 있으면
 #                   HyperPodEks 스택의 MlflowTrackingUri Output 에서 읽고, Output 이 없으면
 #                   (enableMlflow=false 로 배포) 빈 값 = MLflow 추적 비활성
 #   MLFLOW_EXPERIMENT_NAME  실험 이름. 템플릿별 기본값이 있다
@@ -52,8 +56,26 @@
 #                   DATASET_PATH 는 이 값으로 만든 전체 경로이고, 직접 주면 그 값이 이긴다
 #   MAX_STEPS       groot-finetune-job 학습 step (기본 2000, g5.8xlarge 1장 약 40분)
 #   GLOBAL_BATCH_SIZE  groot-finetune-job 글로벌 배치 (기본 32)
-#   OUTPUT_DIR      groot-finetune-job 체크포인트 출력 (기본 /fsx/checkpoints/vla/groot-<DATASET>)
-#                   openloop-eval-job 의 CHECKPOINT 기본값이 이 경로를 가리킨다
+#   OUTPUT_DIR      groot-finetune-job 체크포인트 출력. 추적이 꺼져 있을 때만 쓰인다
+#                   (기본 /fsx/checkpoints/vla/groot-<DATASET>). 추적이 켜져 있으면 파인튜닝 Job 이
+#                   MLflow run 의 artifact 경로 /fsx/checkpoints/vla/mlflow/<run_id>/artifacts 로
+#                   바꿔 쓴다 — 이유는 examples/vla/mlflow_run_dir.py 에 있다
+#   GATE_INPUT      eval-gate-job 의 입력 종류 (기본 openloop, 또는 trials / rollout).
+#                   openloop 은 action MSE 라 차단만 할 수 있고 승격은 못 한다.
+#                   trials / rollout 은 태스크 성공률이므로 승격할 수 있다
+#   GATE_SOURCE     채점할 파일 경로 (기본 latest — openloop 일 때만 유효하고,
+#                   LOG_DIR 아래 가장 최근 eval_results.json 을 Job 안에서 고른다).
+#                   GATE_INPUT=trials / rollout 이면 /fsx 경로를 명시해야 한다
+#   MAX_MSE         GATE_INPUT=openloop 의 평균 MSE 상한 (기본 500). 넘으면 BLOCK.
+#                   MSE 는 action 정규화에 비례하므로 보편 상수가 아니다 —
+#                   새 태스크에서는 평가를 몇 번 돌려 스케일을 보고 다시 잡는다
+#   THRESHOLD       GATE_INPUT=trials / rollout 의 최소 성공률 (기본 0.5)
+#   REQUIRE_DISTINGUISHABLE  true 면 2위와의 차이가 노이즈 범위일 때 차단 (기본 false)
+#   MAX_SYSTEMATIC_FAILURES  모든 시도에서 실패한 part 가 N 개를 넘으면 차단 (기본 미설정)
+#   PROMOTE_ALIAS   PROMOTE 일 때 이 Model Registry alias 를 해당 버전으로 옮긴다
+#                   (기본 미설정 = 승격 안 함). 성공률 리포트에서만 동작한다
+#   MODEL_NAME      PROMOTE_ALIAS 가 쓸 등록 모델 이름 (기본 groot-<DATASET>,
+#                   groot-finetune-job 이 register_groot_model.py 에 넘기는 규약과 같다)
 #   ARTIFACT_BUCKET groot-finetune-job 이 MLflow Model Registry 에 넣을 S3 URI 의 버킷.
 #                   비어 있으면 HyperPodEks 스택의 S3BucketName Output 에서 읽는다.
 #                   끝까지 비면 모델 등록만 건너뛰고 학습은 그대로 진행된다
@@ -93,7 +115,13 @@ export TOTAL_STEPS="${TOTAL_STEPS:-1000000}"
 export LOG_DIR="${LOG_DIR:-/fsx/checkpoints/rl}"
 case "$TEMPLATE" in
   *isaaclab-play*)  export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach/SO101_Reach/model_best.pt}" ;;
-  *openloop-eval*)  export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000}" ;;
+  # 고정 경로를 기본값으로 둘 수 없다. 추적이 켜져 있으면 파인튜닝이 체크포인트를
+  # MLflow run 의 artifact 경로에 쓰고 그 run_id 는 렌더 시점에 존재하지 않는다.
+  # latest 는 Job 안에서 /fsx 를 보고 고른다 — openloop-eval-job.yaml 참고.
+  *openloop-eval*)  export CHECKPOINT="${CHECKPOINT:-latest}" ;;
+  # 게이트는 체크포인트를 읽지 않는다. CHECKPOINT 를 쓰는 곳은 alias 승격 하나뿐이고
+  # (fsx_dir 태그로 Model Registry 버전을 찾는 조인 키), latest 면 그 조인을 건너뛴다.
+  *eval-gate*)      export CHECKPOINT="${CHECKPOINT:-latest}" ;;
   *)                export CHECKPOINT="${CHECKPOINT:-/fsx/checkpoints/rl/reach-mujoco/SO101_Reach/model_best.zip}" ;;
 esac
 export PLAY_ENVS="${PLAY_ENVS:-4}"
@@ -112,6 +140,34 @@ export NUM_EPISODES="${NUM_EPISODES:-12}"
 # eval_closed_loop.py 의 argparse 기본값은 OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT 이고,
 # 그대로 두면 학습과 다른 태그로 채점해 MSE 가 부풀려진다.
 export EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
+# eval-gate-job 기본값. 기본 입력을 openloop 으로 두는 이유는 EKS 경로에서 지금
+# 돌 수 있는 평가가 그것뿐이기 때문이다 (closed-loop 롤아웃은 시뮬레이터가 필요하고,
+# trials 는 실로봇 채점 기록이 있어야 한다). GATE_SOURCE=latest 는 Job 안에서
+# LOG_DIR 아래 가장 최근 eval_results.json 을 고른다 — 평가 Job 의 JOB_SUFFIX 는
+# 그 Job 이 자기 시각으로 만든 값이라 렌더 시점에 알 수 없다.
+export GATE_INPUT="${GATE_INPUT:-openloop}"
+export GATE_SOURCE="${GATE_SOURCE:-latest}"
+export THRESHOLD="${THRESHOLD:-0.5}"
+# MAX_MSE 기본값 500 은 이 클러스터에서 실제로 나온 값에서 잡았다. 2026-10-21~23 의
+# open-loop 평가 7건은 평균 MSE 335~701 이었고, 가장 많이 학습한 체크포인트(step 60)가
+# 335 로 가장 낮았다. 500 은 그 사이에 있으므로 step 60 은 통과하고 step 20 들은 막힌다.
+#
+# 이 값은 보편 상수가 아니다. MSE 는 action 공간 정규화에 그대로 비례하므로
+# embodiment 나 데이터셋이 바뀌면 스케일이 바뀐다. 0.05 같은 작은 값을 기본으로 두면
+# 모든 체크포인트가 BLOCK 되고, 그러면 사람들이 게이트를 무시하기 시작한다 —
+# 항상 막는 게이트는 아무것도 막지 않는 게이트와 같다. 새 태스크에서는 먼저 평가를
+# 몇 번 돌려 스케일을 보고 다시 잡아야 한다.
+export MAX_MSE="${MAX_MSE:-500}"
+export REQUIRE_DISTINGUISHABLE="${REQUIRE_DISTINGUISHABLE:-false}"
+export MAX_SYSTEMATIC_FAILURES="${MAX_SYSTEMATIC_FAILURES:-}"
+# alias 승격은 기본으로 꺼져 있다. 켜면 성공률 리포트의 PROMOTE 에서만 동작하고
+# MSE 리포트에서는 gate_checkpoint.py 가 PASS 를 내며 alias 를 건드리지 않는다.
+export PROMOTE_ALIAS="${PROMOTE_ALIAS:-}"
+# groot-finetune-job 이 register_groot_model.py 에 넘기는 이름과 같은 규약이다.
+# DATASET 이 아니라 DATASET_PATH 의 basename 을 쓰는 이유는 DATASET_PATH 를 직접
+# 주면 DATASET 은 기본값에 그대로 남기 때문이다. 그러면 등록된 이름과 게이트가
+# 찾는 이름이 갈라져 alias 승격이 조용히 다른 모델을 뒤진다.
+export MODEL_NAME="${MODEL_NAME:-groot-$(basename "${DATASET_PATH}")}"
 export JOB_SUFFIX="${JOB_SUFFIX:-$(date +%m%d%H%M)}"
 export RECIPES_REF="${RECIPES_REF:-feat/e2e-workshop}"
 case "$TEMPLATE" in
@@ -122,7 +178,10 @@ esac
 # 실험 이름은 템플릿별로 다르다. 평가 run 과 학습 run 이 같은 실험에 섞이면 Grafana 의
 # openloop_* 패널과 Train_mean_reward 패널이 서로의 run 을 끌어오므로 분리한다.
 case "$TEMPLATE" in
-  *openloop-eval*)   export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-eval}" ;;
+  # 게이트는 평가와 같은 실험에 들어간다. gate_promoted 와 openloop_mse 를 한
+  # 실험에서 봐야 어느 평가가 어떤 결정을 받았는지 이어 읽을 수 있다.
+  *openloop-eval*|*eval-gate*)
+                     export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-eval}" ;;
   *groot-finetune*)  export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-finetune}" ;;
   *)                 export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-isaaclab-rl}" ;;
 esac
@@ -133,7 +192,11 @@ esac
 #      MLFLOW_TRACKING_USERNAME / _PASSWORD 를 secretKeyRef 로 읽는다. presigned URL 이 필요 없다.
 #   2. SageMaker 관리형 MLflow. `-c enableMlflow=true` 로 배포했을 때만 Output 이 존재한다.
 # 둘 다 없으면 빈 값으로 둔다 (examples/rl/mlflow_isaaclab.py 가 no-op 으로 동작).
-if [[ ( "$TEMPLATE" == *isaaclab-train* || "$TEMPLATE" == *openloop-eval* || "$TEMPLATE" == *groot-finetune* ) \
+# eval-gate 도 포함해야 한다. 게이트는 gate_promoted / eval_success_rate 를 기록하고,
+# alias 승격은 MlflowClient 로 Model Registry 를 건드리므로 URI 없이는 둘 다 조용히
+# 생략된다 — 게이트 결정 자체는 그래도 유효하지만 승격은 일어나지 않는다.
+if [[ ( "$TEMPLATE" == *isaaclab-train* || "$TEMPLATE" == *openloop-eval* \
+        || "$TEMPLATE" == *groot-finetune* || "$TEMPLATE" == *eval-gate* ) \
       && -z "${MLFLOW_TRACKING_URI:-}" ]]; then
   if kubectl get service mlflow -n mlflow >/dev/null 2>&1; then
     MLFLOW_TRACKING_URI="http://mlflow.mlflow.svc.cluster.local/mlflow"
@@ -164,6 +227,18 @@ if [[ "$TEMPLATE" == *groot-finetune* && -z "${ARTIFACT_BUCKET:-}" ]]; then
 fi
 export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-}"
 
+# Job 의 workshop/artifact-dir 애노테이션 값. Argo submit 템플릿이 이걸 읽어 대응하는
+# S3 경로를 알려 준다. OUTPUT_DIR 과 갈라지는 이유: 추적이 켜져 있으면 파인튜닝 Job 이
+# 체크포인트를 MLflow run 의 artifact 경로
+# (/fsx/checkpoints/vla/mlflow/<run_id>/artifacts) 에 직접 쓰는데, run_id 는 렌더
+# 시점에는 없고 Pod 은 자기 Job 을 patch 할 권한이 없다 (rl:default SA 는 MLflow 와
+# S3 권한만 가진다). 그래서 애노테이션은 run 들의 상위 디렉터리를 가리킨다.
+if [[ "$TEMPLATE" == *groot-finetune* && -n "$MLFLOW_TRACKING_URI" && -n "$ARTIFACT_BUCKET" ]]; then
+  export ARTIFACT_DIR_HINT="/fsx/checkpoints/vla/mlflow"
+else
+  export ARTIFACT_DIR_HINT="${OUTPUT_DIR}"
+fi
+
 # FSx 값은 fsx-pvc.yaml 에만 필요하다. 스택 Output 에서 읽는다 (1인 1계정: HyperPodEks-<ACCOUNT_ID>).
 if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z "${FSX_MOUNT:-}" ) ]]; then
   REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}}"
@@ -179,7 +254,7 @@ if [[ "$TEMPLATE" == *fsx-pvc* && ( -z "${FSX_ID:-}" || -z "${FSX_DNS:-}" || -z 
 fi
 export FSX_GIB="${FSX_GIB:-1200}"
 
-VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${DATASET} ${DATASET_PATH} ${NUM_EPISODES} ${EMBODIMENT_TAG} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB} ${MLFLOW_TRACKING_URI} ${MLFLOW_EXPERIMENT_NAME} ${GROOT_VERSION} ${MAX_STEPS} ${GLOBAL_BATCH_SIZE} ${OUTPUT_DIR} ${ARTIFACT_BUCKET}'
+VARS='${NAMESPACE} ${QUEUE} ${PRIORITY} ${TASK} ${NUM_ENVS} ${MAX_ITERATIONS} ${TOTAL_STEPS} ${LOG_DIR} ${CHECKPOINT} ${EPISODES} ${PLAY_ENVS} ${X_DISPLAY} ${DATASET} ${DATASET_PATH} ${NUM_EPISODES} ${EMBODIMENT_TAG} ${JOB_SUFFIX} ${RECIPES_REF} ${FSX_ID} ${FSX_DNS} ${FSX_MOUNT} ${FSX_GIB} ${MLFLOW_TRACKING_URI} ${MLFLOW_EXPERIMENT_NAME} ${GROOT_VERSION} ${MAX_STEPS} ${GLOBAL_BATCH_SIZE} ${OUTPUT_DIR} ${ARTIFACT_BUCKET} ${ARTIFACT_DIR_HINT} ${GATE_INPUT} ${GATE_SOURCE} ${THRESHOLD} ${MAX_MSE} ${REQUIRE_DISTINGUISHABLE} ${MAX_SYSTEMATIC_FAILURES} ${PROMOTE_ALIAS} ${MODEL_NAME}'
 
 render() {
   if [[ -n "$QUEUE" ]]; then

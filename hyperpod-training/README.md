@@ -330,8 +330,9 @@ $5/month of gp3 plus per-notification SNS charges.
 
 `install-job-portal.sh` puts job submission in the browser so a workshop participant never has to
 open a terminal. It installs Argo Workflows into the `argo` namespace, converts the `k8s-templates`
-into eight WorkflowTemplates (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`,
-`isaaclab-play`, `vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`), and attaches the UI
+into nine WorkflowTemplates (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`,
+`isaaclab-play`, `vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`, `vla-eval-gate`),
+and attaches the UI
 to the same IngressGroup at `/argo`
 (group.order 30). Each template's submit step runs the same `render.sh` the CLI path uses, so the
 rendered Job is byte-identical whether it came from the portal or the shell — there is no second
@@ -513,9 +514,10 @@ kubectl get workloads -A
 | `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | In-cluster MLflow + Postgres + TensorBoard on the same ALB. Also installs the EBS CSI add-on and the gp3 StorageClass the other scripts depend on |
 | `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Makes the Training Console the Grafana home dashboard and adds the read-only MLflow Postgres datasource |
 | `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Moves Prometheus/Grafana onto gp3 PVCs (15d retention) and provisions the SNS topic, pod identity, and four alert rules |
-| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | Argo Workflows + eight WorkflowTemplates on the same ALB at `/argo`, so jobs can be submitted from the browser. Each submit step calls the same `render.sh` as the CLI path |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | Argo Workflows + nine WorkflowTemplates on the same ALB at `/argo`, so jobs can be submitted from the browser. Each submit step calls the same `render.sh` as the CLI path. `vla-eval-gate` chains eval → gate, so a BLOCK fails the whole workflow |
 | `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki (SingleBinary, chunks in `s3://<data-bucket>/loki/`) + Alloy DaemonSet + a Grafana `Loki` datasource, so a finished Job's logs survive the pod being reaped |
 | `eks/grafana-values.yaml` | Helm values template for the in-cluster Grafana (`install-observability.sh` fills it in with envsubst) |
+| `eks/dcgm-exporter.yaml` | DCGM exporter DaemonSet + ServiceMonitor, the source of the GPU panels (`DCGM_FI_DEV_*`). Unused where the add-on ships DCGM; applied by `install-dashboard-public.sh` |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Dashboards for Kueue waiting/running/preemption, ClusterQueue allocation/borrowing, DCGM GPU utilization (provisioned into self-hosted Grafana) |
 | `eks/grafana-dashboards/hyperpod-training-console.json` | Landing dashboard combining cluster, GPU, and MLflow run panels (`install-unified-dashboard.sh` sets it as the Grafana home) |
 | `eks/grafana-alerting/hyperpod-alerts.yaml` | Grafana alert provisioning — SNS contact point plus `TrainingPodFailed`, `KueueBacklog`, `NodeNotReady`, `GPUIdleWhileAllocated` (`install-dashboard-hardening.sh` fills in topic ARN and region with envsubst) |
@@ -732,10 +734,22 @@ ls /fsx/datasets/groot/my-robot/
 
 Both orchestration paths share the same assets on FSx, so the environment cannot diverge between
 them: the venv at `/fsx/envs/gr00t`, the Isaac-GR00T checkout at `/fsx/scratch/Isaac-GR00T` pinned to
-a release tag, the fine-tuning patch set in `scripts/patch_groot_repo.py`, the dataset at
-`/fsx/datasets/groot/<DATASET>`, and checkpoints at
-`/fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>`. That last path is what the open-loop
-evaluation reads by default, so a checkpoint produced on either path can be scored by either path.
+a release tag, the fine-tuning patch set in `scripts/patch_groot_repo.py`, and the dataset at
+`/fsx/datasets/groot/<DATASET>`.
+
+Where the checkpoints land depends on whether MLflow tracking is on:
+
+```
+tracking off   /fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>
+tracking on    /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-<step>
+```
+
+The second path exists because MLflow draws a run's Artifacts tab from `artifact_uri` and nothing
+else, so writing there is what makes the weights browsable in the UI without copying 9 GB a second
+time; `examples/vla/mlflow_run_dir.py` has the full reasoning. The open-loop evaluation therefore
+defaults to `CHECKPOINT=latest` and resolves the most recent checkpoint under
+`/fsx/checkpoints/vla` inside the job — a fixed default cannot work, since the run id does not
+exist at render time. Either orchestration path's output is scoreable by either path.
 
 ### One-time setup
 
@@ -857,13 +871,14 @@ BUCKET=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue|[0]" --output text)
 
 # check on FSx (head node, or any pod mounting /fsx)
-ls /fsx/checkpoints/vla/groot-so101-place-orange/
+# with tracking on the run id is in the path, so list the parent
+ls /fsx/checkpoints/vla/mlflow/*/artifacts/
 
 # check on S3 (the export finishes within seconds)
-aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/ --recursive
+aws s3 ls s3://${BUCKET}/checkpoints/vla/mlflow/ --recursive
 
-# pull it down
-aws s3 sync s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./checkpoint-2000/
+# pull one down (RUN_ID comes from the MLflow UI or the job log)
+aws s3 sync s3://${BUCKET}/checkpoints/vla/mlflow/${RUN_ID}/artifacts/checkpoint-2000/ ./checkpoint-2000/
 ```
 
 ### Finding a checkpoint from the UIs
@@ -875,33 +890,43 @@ In the Argo UI, open the workflow, click the `submit` node, and read the OUTPUTS
 panel:
 
 ```
-artifact-fsx-dir   /fsx/checkpoints/vla/groot-so101-place-orange
-artifact-s3-uri    s3://<bucket>/checkpoints/vla/groot-so101-place-orange/
+artifact-fsx-dir   /fsx/checkpoints/vla/mlflow
+artifact-s3-uri    s3://<bucket>/checkpoints/vla/mlflow/
 ```
 
-Jobs with no artifacts (setup, play) show `(none)`. Argo records expire with the
-workflow's `ttlSecondsAfterFinished`, so this is for the run you just submitted.
+With tracking on these point at the directory holding all runs, not at one run:
+the fine-tune writes to `<run_id>/artifacts` and the run id is only known after
+the job starts, while the annotation is fixed at render time. Use MLflow to get
+from there to a specific run. Jobs with no artifacts (setup, play) show
+`(none)`. Argo records expire with the workflow's `ttlSecondsAfterFinished`, so
+this is for the run you just submitted.
 
 In the MLflow UI, open Models. Each fine-tune registers a version of
 `groot-<dataset>` whose `source` is the S3 URI above, plus tags that pin the
 specific step and the job that produced it:
 
 ```
-source             s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
-fsx_dir            /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+source             s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/
+fsx_dir            /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 checkpoint_step    2000
 groot_version      n1.6
 job_name           groot-finetune-10220131
 ```
 
+`fsx_dir` is the value to pass as `CHECKPOINT` when scoring one specific
+version rather than the latest.
+
 The version links back to the training run, which is also tagged with the
 location, so the loss curves and the path sit on one record:
 
 ```
-checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
-checkpoint_fsx_dir    /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/
+checkpoint_fsx_dir    /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 checkpoint_size_gib   9.2
 ```
+
+With tracking on the run's own Artifacts tab lists `checkpoint-<step>/` directly,
+because that is the same path.
 
 The weights are not uploaded. FSx auto-exports `/fsx/checkpoints` to S3, so the
 same bytes are already in the bucket, and the tracking server reads them from
@@ -913,8 +938,9 @@ curl -u "$USER:$PASS" -O \
   "https://<domain>/mlflow/model-versions/get-artifact?name=groot-so101-place-orange&version=3&path=config.json"
 
 # or straight from S3 / FSx, with no MLflow involved
-aws s3 sync s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./ckpt/
-ls /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+# the paths are the version's source and fsx_dir tags verbatim
+aws s3 sync s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/ ./ckpt/
+ls /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 ```
 
 Serving through MLflow works because the MLflow pod role holds `s3:GetObject`
@@ -923,10 +949,38 @@ checkpoint is about 9 GiB, of which roughly 3 GiB is optimizer state that
 inference does not need, so add `--exclude 'optimizer.pt' --exclude
 'scheduler.pt'` when you only want weights.
 
-Promotion is manual: pick a version and assign an alias (for example
-`production`) in the UI. The evaluation in Step 8 reports open-loop MSE, which
-measures how closely the policy reproduces the demonstrations, not whether the
-task succeeds — so it cannot gate a release on its own.
+### Gating promotion on the evaluation
+
+`rl/eval-gate-job.yaml` reads an eval artifact and exits non-zero on BLOCK.
+The Job sets `backoffLimit: 0` and Argo's submit step waits on its result, so
+a BLOCK fails the workflow and holds back whatever is chained behind it.
+Assigning an alias by hand in the UI still works when there is no scored eval.
+
+```bash
+cd hyperpod-training/k8s-templates
+
+# gate on open-loop action MSE (default input; can only block)
+MAX_MSE=400 ./render.sh rl/eval-gate-job.yaml --apply
+
+# gate on task success rate, and promote on pass
+GATE_INPUT=trials GATE_SOURCE=/fsx/scratch/eval/trials.jsonl \
+THRESHOLD=0.5 PROMOTE_ALIAS=staging \
+  ./render.sh rl/eval-gate-job.yaml --apply
+```
+
+Open-loop MSE measures how closely the policy reproduces the demonstrations,
+not whether the task succeeds, so `GATE_INPUT=openloop` can only block. Only
+`trials` / `rollout` can move a Model Registry alias, and only with
+`PROMOTE_ALIAS` set. Two optional conditions tighten a weak success-rate gate:
+`REQUIRE_DISTINGUISHABLE=true` blocks when the margin over the runner-up is
+noise, `MAX_SYSTEMATIC_FAILURES=N` blocks when more than N parts fail every
+attempt. See `examples/vla/eval_trials/README.md`.
+
+The `vla-eval-gate` WorkflowTemplate chains eval → gate in one submit, and
+`with-eval=false` skips the eval when the artifact already exists (which is the
+case for real-robot records). Decisions go to MLflow (`gate_promoted`,
+`eval_success_rate`) and to the `Latest gate decision` panel on the Training
+Console.
 
 ## Step 10: Clean Up Resources
 
@@ -1025,6 +1079,9 @@ Be sure to run `cdk destroy` to clean up after the hands-on session.
 
 - [Detailed architecture doc](./docs/architecture.md)
 - [Researcher guide](./docs/researcher_guide.md)
+- [Training and evaluation scripts](./examples/README.md) — what each file in `examples/` does
+- [EKS-side installers](./scripts/eks/README.md) — install order, costs, and the matching deleters
+- [Job templates](./k8s-templates/README.md) — `render.sh` variables and the EKS manifests
 - [VLA training examples](./examples/vla/)
 - [RL training examples](./examples/rl/)
 - [SLURM templates](./slurm-templates/)

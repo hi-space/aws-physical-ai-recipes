@@ -55,7 +55,18 @@ CF_PREFIX_LIST="pl-22a6434b"           # com.amazonaws.global.cloudfront.origin-
 # 학습 Job 이 쓰는 실험 이름. Job 템플릿의 MLFLOW_EXPERIMENT_NAME 과
 # examples/{rl/mlflow_isaaclab.py,vla/eval_closed_loop.py,vla/register_groot_model.py}
 # 의 기본값을 합친 집합이며, 아래 [4/6] 에서 미리 만들어 trainer 에게 쓰기를 준다.
-MLFLOW_EXPERIMENTS="isaaclab-rl vla-finetune vla-eval"
+MLFLOW_EXPERIMENTS="isaaclab-rl vla-eval vla-finetune"
+# vla-finetune 만 artifact 루트를 기본 저장소(s3://<버킷>/mlflow-artifacts) 가 아니라
+# 체크포인트 익스포트 경로 아래에 둔다. GR00T 체크포인트는 FSx 의 /fsx/checkpoints 에
+# 쓰이고 DRA 가 같은 바이트를 s3://<버킷>/checkpoints 로 자동 익스포트하므로, 실험의
+# artifact 루트를 그 아래로 맞추면 Job 이 체크포인트를 run 의 artifact 경로에 직접 쓸
+# 수 있다. 그러면 업로드도 복사도 없이 Artifacts 탭에서 checkpoint-<step>/ 을 그대로
+# 열 수 있다. FSx 쪽 같은 위치가 k8s-templates/render.sh 의 OUTPUT_DIR 기본값이다.
+#
+# artifact_location 은 CreateExperiment 에서만 받는다 — UpdateExperiment 는 이름만
+# 바꾸고 SqlAlchemyStore 에는 위치를 고치는 경로가 없다. 그래서 기본 저장소로 이미
+# 만들어진 실험은 되돌릴 수 없고, 아래 [4/6] 루프가 그 경우를 경고로 알린다.
+MLFLOW_ARTIFACT_LOCATION_SUBPATH="vla-finetune=checkpoints/vla/mlflow"
 INGRESS_GROUP="hyperpod-dashboard"     # install-dashboard-public.sh 가 만든 그룹에 합류한다
 # rl 과 vla 를 모두 담는 공통 상위 디렉터리다. isaaclab-train-job 의 --log_dir
 # (/fsx/checkpoints/rl) 만 가리키면 GR00T 파인튜닝 산출물
@@ -470,7 +481,9 @@ TRAINER_USER="$(kubectl get secret mlflow-credentials -n "$NAMESPACE" -o jsonpat
 TRAINER_PASS="$(kubectl get secret mlflow-credentials -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)"
 kubectl exec -n "$NAMESPACE" deploy/mlflow -- env \
   AU="$ADMIN_USER" AP="$ADMIN_PASS" TU="$TRAINER_USER" TP="$TRAINER_PASS" \
-  EXPERIMENTS="$MLFLOW_EXPERIMENTS" python - <<'PY'
+  EXPERIMENTS="$MLFLOW_EXPERIMENTS" \
+  ARTIFACT_LOCATIONS="$MLFLOW_ARTIFACT_LOCATION_SUBPATH" S3_BUCKET="$S3_BUCKET" \
+  python - <<'PY'
 import base64, json, os, urllib.error, urllib.request
 
 host = "http://localhost:5000/mlflow"
@@ -531,8 +544,18 @@ def ensure_edit(exp_id: str) -> str:
     return "EDIT" if code == 200 else f"실패 {code} {body}"
 
 
+bucket = os.environ["S3_BUCKET"]
+locations = {}
+for item in os.environ["ARTIFACT_LOCATIONS"].split():
+    exp_name, _, subpath = item.partition("=")
+    locations[exp_name] = f"s3://{bucket}/{subpath}"
+
 for name in os.environ["EXPERIMENTS"].split():
-    code, body = call("/api/2.0/mlflow/experiments/create", {"name": name}, "POST")
+    want = locations.get(name)
+    payload = {"name": name}
+    if want:
+        payload["artifact_location"] = want
+    code, body = call("/api/2.0/mlflow/experiments/create", payload, "POST")
     if code == 200:
         exp_id = body["experiment_id"]
     else:
@@ -541,6 +564,15 @@ for name in os.environ["EXPERIMENTS"].split():
             print(f"  [WARN] 실험 {name} 확인 실패: {body}")
             continue
         exp_id = body["experiment"]["experiment_id"]
+        have = body["experiment"].get("artifact_location")
+        if want and have != want:
+            # 위치는 생성 시점에만 정해진다. 이 실험은 기본 저장소로 이미 만들어져
+            # 있으므로 체크포인트를 run artifact 경로에 직접 쓸 수 없다. 학습은
+            # 그대로 돌고 metric 도 올라가지만 Artifacts 탭은 비어 보인다.
+            print(f"  [WARN] 실험 {name} 의 artifact_location 이 {have} 입니다."
+                  f" {want} 로는 바꿀 수 없습니다 (CreateExperiment 전용).")
+            print(f"  [WARN]   체크포인트를 Artifacts 탭에서 보려면 이 실험을 UI 에서"
+                  f" 삭제(또는 이름 변경)한 뒤 이 스크립트를 다시 실행하세요.")
     print(f"  실험 {name} (id {exp_id}): {trainer} {ensure_edit(str(exp_id))}")
 PY
 

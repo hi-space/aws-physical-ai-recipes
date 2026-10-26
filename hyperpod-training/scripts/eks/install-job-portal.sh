@@ -130,7 +130,7 @@ cat <<EOF
 대상       : ${CLUSTER_NAME} (${REGION})
 붙는 곳    : https://${CF_DOMAIN}/argo
 생성 대상  : argo-workflows 차트 ${ARGO_CHART_VERSION} (v4.1.5) — namespace ${NAMESPACE}
-             WorkflowTemplate 8개 (준비·학습·검증·재생·VLA 파인튜닝·VLA 평가)
+             WorkflowTemplate 9개 (준비·학습·검증·재생·VLA 파인튜닝·VLA 평가·VLA 평가 게이트)
              ConfigMap job-templates — k8s-templates 사본 (원본은 수정하지 않는다)
              ServiceAccount ${ADMIN_SA} + 만료 없는 로그인 토큰 Secret
              IAM 역할 ${RENDER_ROLE} + pod identity (${NAMESPACE}/${WORKFLOW_SA})

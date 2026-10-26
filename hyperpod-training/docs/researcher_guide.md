@@ -164,7 +164,7 @@ sbatch /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/slurm-templates/vl
 | `MAX_STEPS` | 2000 | 총 학습 스텝 |
 | `GLOBAL_BATCH_SIZE` | 32 | 전체 배치 크기 |
 | `SAVE_STEPS` | 2000 | 체크포인트 저장 간격 |
-| `OUTPUT_DIR` | /fsx/checkpoints/vla/groot-<DATASET> | 체크포인트 저장 경로 |
+| `OUTPUT_DIR` | /fsx/checkpoints/vla/groot-<DATASET> | 체크포인트 저장 경로. MLflow 추적이 켜져 있으면 run 의 artifact 경로 `/fsx/checkpoints/vla/mlflow/<run_id>/artifacts` 로 바뀐다 (이유는 `examples/vla/mlflow_run_dir.py`) |
 
 ### 작업 모니터링
 

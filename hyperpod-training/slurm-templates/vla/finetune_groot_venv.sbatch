@@ -87,6 +87,11 @@ OUTPUT_DIR="${OUTPUT_DIR:-/fsx/checkpoints/vla/groot-${DATASET}}"
 # the Grafana openloop_* panels and the train-loss panel pull each other's runs.
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
 export MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-vla-finetune}"
+# Names the run, and has to stay exported through training: the run_name patch
+# in patch_groot_repo.py reads it inside the Trainer. Without it the Trainer
+# renames the run after the output directory's basename, which is "artifacts"
+# once checkpoints go to the run's own artifact path.
+export MLFLOW_RUN_NAME="${MLFLOW_RUN_NAME:-${SLURM_JOB_NAME:-groot-finetune}-${SLURM_JOB_ID:-local}}"
 
 GR00T_ENV="/fsx/envs/gr00t"
 GR00T_REPO="/fsx/scratch/Isaac-GR00T"
@@ -156,6 +161,18 @@ GRAD_ACCUM="${GRAD_ACCUM:-${GLOBAL_BATCH_SIZE}}"
 # Re-running is a no-op, which matters because /fsx is shared.
 python3 "${PATCH_SCRIPT}" --repo "${GR00T_REPO}" --version "${GROOT_VERSION}"
 
+# Create the MLflow run before training so the checkpoints can be written under
+# that run's artifact path, which is what makes checkpoint-<step>/ browsable in
+# the Artifacts tab with no copy. Shared with the EKS path; the reasoning is in
+# examples/vla/mlflow_run_dir.py. With tracking off OUTPUT_DIR is unchanged.
+eval "$(python3 "${WORKSHOP_DIR}/examples/vla/mlflow_run_dir.py" \
+          --fallback-output-dir "${OUTPUT_DIR}")"
+export MLFLOW_RUN_ID="${MLFLOW_RUN_ID:-}"
+OUTPUT_DIR="${CKPT_DIR}"
+mkdir -p "${OUTPUT_DIR}"
+echo "Output: ${OUTPUT_DIR}"
+echo "MLflow run: ${MLFLOW_RUN_ID:-<tracking off>}"
+
 set +e
 python -m gr00t.experiment.launch_finetune \
     --base-model-path "${BASE_MODEL}" \
@@ -184,10 +201,12 @@ if [ ${EXIT_CODE} -eq 0 ]; then
     # Nothing is copied: the source is the S3 URI that FSx already exported.
     # Registration only -- a human assigns the alias, because open-loop MSE is
     # behaviour-cloning fidelity rather than task success.
+    # The model name comes from the dataset, not from basename ${OUTPUT_DIR},
+    # which is "artifacts" when checkpoints go to the run's artifact path.
     JOB_NAME="${SLURM_JOB_NAME:-groot-finetune}-${SLURM_JOB_ID:-local}" \
       python3 "${WORKSHOP_DIR}/examples/vla/register_groot_model.py" \
         --checkpoint-dir "${OUTPUT_DIR}" \
-        --model-name "$(basename "${OUTPUT_DIR}")" \
+        --model-name "groot-$(basename "${DATASET_PATH}")" \
         --groot-version "${GROOT_VERSION}" || true
 else
     echo "Fine-tuning failed with exit code: ${EXIT_CODE}"

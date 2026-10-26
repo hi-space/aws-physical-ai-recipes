@@ -16,8 +16,16 @@
 #
 # 전제: /fsx/envs/gr00t (scripts/setup_groot_env.sh), 평가할 체크포인트, LeRobot 포맷 데이터셋
 #
-# 렌더: CHECKPOINT=/fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-4000 \
-#         DATASET_PATH=/fsx/datasets/so101-pick-place NUM_EPISODES=12 \
+# 체크포인트 경로는 파인튜닝이 어디에 썼는지에 따라 갈라진다.
+#   추적 끄면 /fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>
+#   추적 켜면 /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-<step>
+# 그래서 CHECKPOINT 기본값은 고정 경로가 아니라 latest 다 — run_id 는 렌더 시점에
+# 없으므로 Job 안에서 /fsx 를 보고 고른다. 특정 체크포인트를 채점하려면
+# MLflow Model Registry 의 fsx_dir 태그나 파인튜닝 Job 로그의 경로를 넘긴다.
+#
+# 렌더: ./render.sh rl/openloop-eval-job.yaml --apply                      # 가장 최근 체크포인트
+#       CHECKPOINT=/fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000 \
+#         DATASET_PATH=/fsx/datasets/groot/so101-place-orange NUM_EPISODES=12 \
 #         ./render.sh rl/openloop-eval-job.yaml --apply
 apiVersion: batch/v1
 kind: Job
@@ -26,7 +34,7 @@ metadata:
   namespace: ${NAMESPACE}
   annotations:
     # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
-    # 아래 --output-dir 와 같은 경로여야 한다. 읽는 쪽인 ${CHECKPOINT} 가 아니다.
+    # 아래 --output-dir 와 같은 경로여야 한다. 읽는 쪽인 체크포인트가 아니다.
     workshop/artifact-dir: "${LOG_DIR}/openloop-eval-${JOB_SUFFIX}"
   labels:
     app: openloop-eval
@@ -72,8 +80,32 @@ spec:
                 echo "ERROR: GR00T venv not found at /fsx/envs/gr00t"
                 echo "  Build it first: scripts/setup_groot_env.sh (Slurm head node or a GPU pod with /fsx mounted)"
                 exit 1; }
-              [ -d "${CHECKPOINT}" ] || {
-                echo "ERROR: checkpoint not found: ${CHECKPOINT}"
+              # 기본값 latest 는 /fsx 를 보고 가장 최근 체크포인트를 고른다. 고정 경로를
+              # 기본값으로 둘 수 없는 이유는 추적이 켜져 있으면 파인튜닝이 체크포인트를
+              # MLflow run 의 artifact 경로에 쓰고, 그 run_id 가 렌더 시점에 없기 때문이다.
+              # config.json 이 있는 디렉터리만 고른다 — 학습이 중간에 죽으면
+              # checkpoint-<step> 디렉터리만 남아 있을 수 있다.
+              #
+              # CKPT 라는 별도 이름을 쓴다. 이 매니페스트는 envsubst 로 렌더되므로
+              # CHECKPOINT 참조는 모두 렌더 시점 값으로 이미 치환되어 있고, 셸 변수로
+              # 남지 않는다. CKPT 는 render.sh 의 VARS 에 없어 그대로 남는다.
+              CKPT="${CHECKPOINT}"
+              if [ "$CKPT" = "latest" ]; then
+                # maxdepth 5 는 추적이 켜진 경로의 깊이다
+                # (mlflow/<run_id>/artifacts/checkpoint-<step>/config.json).
+                # 추적이 꺼진 groot-<DATASET>/checkpoint-<step>/ 는 더 얕으므로 같이 걸린다.
+                CKPT="$(find /fsx/checkpoints/vla -maxdepth 5 -type f -name config.json \
+                          -path '*/checkpoint-*/config.json' -printf '%T@ %h\n' 2>/dev/null |
+                        sort -rn | head -1 | cut -d' ' -f2-)"
+                [ -n "$CKPT" ] || {
+                  echo "ERROR: no checkpoint under /fsx/checkpoints/vla"
+                  echo "  Run a fine-tune first: ./render.sh rl/groot-finetune-job.yaml --apply"
+                  echo "  Or pass one explicitly: CHECKPOINT=<dir> ./render.sh rl/openloop-eval-job.yaml --apply"
+                  exit 1; }
+                echo "CHECKPOINT=latest resolved to $CKPT"
+              fi
+              [ -d "$CKPT" ] || {
+                echo "ERROR: checkpoint not found: $CKPT"
                 ls /fsx/checkpoints/vla 2>/dev/null || echo "  /fsx/checkpoints/vla does not exist yet - no VLA fine-tune has run"
                 exit 1; }
               [ -d "${DATASET_PATH}" ] || {
@@ -94,7 +126,7 @@ spec:
               fi
               exec "$GROOT_PY" \
                 /fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/vla/eval_closed_loop.py \
-                --model-path "${CHECKPOINT}" \
+                --model-path "$CKPT" \
                 --dataset-path "${DATASET_PATH}" \
                 --embodiment-tag "${EMBODIMENT_TAG}" \
                 --num-episodes "${NUM_EPISODES}" \

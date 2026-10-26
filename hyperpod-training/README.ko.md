@@ -327,9 +327,9 @@ list 만 허용하므로 ALB DNS 이름으로는 직접 닿지 않는다. 상시
 과금이다.
 
 `install-job-portal.sh` 는 Job 제출을 브라우저로 옮겨 워크샵 참가자가 터미널을 열지 않아도 되게
-한다. `argo` 네임스페이스에 Argo Workflows 를 설치하고, `k8s-templates` 를 WorkflowTemplate 8개
+한다. `argo` 네임스페이스에 Argo Workflows 를 설치하고, `k8s-templates` 를 WorkflowTemplate 9개
 (`workshop-setup`, `mujoco-train`, `mujoco-render`, `isaaclab-train`, `isaaclab-play`,
-`vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`)로 바꾸고,
+`vla-groot-setup`, `vla-groot-finetune`, `vla-openloop-eval`, `vla-eval-gate`)로 바꾸고,
 UI 를 같은 IngressGroup 의 `/argo` 에 붙인다(group.order 30). 각 템플릿의 submit 단계는 CLI 경로와
 똑같은 `render.sh` 를 돌리므로, 포탈로 제출했든 셸에서 제출했든 만들어지는 Job 이 바이트 단위로
 같다. 진실의 출처가 둘로 갈라져 어긋날 여지가 없다. submit 단계는 `trap` 을 걸어 두고, Workflow 가
@@ -502,9 +502,10 @@ kubectl get workloads -A
 | `scripts/eks/install-mlflow-selfhosted.sh` · `delete-mlflow-selfhosted.sh` | 같은 ALB 에 클러스터 내부 MLflow + Postgres + TensorBoard. 다른 스크립트들이 의존하는 EBS CSI 애드온과 gp3 StorageClass 도 여기서 만든다 |
 | `scripts/eks/install-unified-dashboard.sh` · `delete-unified-dashboard.sh` | Training Console 을 Grafana 홈 대시보드로 지정하고 읽기 전용 MLflow Postgres 데이터소스를 추가 |
 | `scripts/eks/install-dashboard-hardening.sh` · `delete-dashboard-hardening.sh` | Prometheus·Grafana 를 gp3 PVC(retention 15d)로 옮기고 SNS 토픽·pod identity·알림 규칙 4개를 프로비저닝 |
-| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | 같은 ALB 의 `/argo` 에 Argo Workflows + WorkflowTemplate 8개. 브라우저에서 Job 을 제출한다. 각 submit 단계는 CLI 경로와 똑같은 `render.sh` 를 호출 |
+| `scripts/eks/install-job-portal.sh` · `delete-job-portal.sh` | 같은 ALB 의 `/argo` 에 Argo Workflows + WorkflowTemplate 9개. 브라우저에서 Job 을 제출한다. 각 submit 단계는 CLI 경로와 똑같은 `render.sh` 를 호출. `vla-eval-gate` 는 eval → gate 를 엮어 BLOCK 이면 워크플로 전체가 실패 |
 | `scripts/eks/install-logs.sh` · `delete-logs.sh` | Loki(SingleBinary, chunk 는 `s3://<데이터 버킷>/loki/`) + Alloy DaemonSet + Grafana `Loki` 데이터소스. 끝난 Job 의 파드가 수거된 뒤에도 로그가 남는다 |
 | `eks/grafana-values.yaml` | in-cluster Grafana Helm values 템플릿 (`install-observability.sh` 가 envsubst 로 채운다) |
+| `eks/dcgm-exporter.yaml` | DCGM exporter DaemonSet + ServiceMonitor. GPU 패널(`DCGM_FI_DEV_*`)의 공급원. 애드온이 있는 리전에서는 애드온이 DCGM 을 넣어 주므로 쓰지 않고, `install-dashboard-public.sh` 가 적용한다 |
 | `eks/grafana-dashboards/hyperpod-task-governance.json` | Kueue 대기/실행/선점, ClusterQueue 할당·대여, DCGM GPU 사용률 대시보드 (self-hosted Grafana 에 프로비저닝) |
 | `eks/grafana-dashboards/hyperpod-training-console.json` | 클러스터·GPU·MLflow run 패널을 한 화면에 모은 랜딩 대시보드 (`install-unified-dashboard.sh` 가 Grafana 홈으로 지정) |
 | `eks/grafana-alerting/hyperpod-alerts.yaml` | Grafana 알림 프로비저닝 — SNS 연락 지점과 `TrainingPodFailed`, `KueueBacklog`, `NodeNotReady`, `GPUIdleWhileAllocated` (`install-dashboard-hardening.sh` 가 토픽 ARN 과 리전을 envsubst 로 채운다) |
@@ -721,9 +722,22 @@ ls /fsx/datasets/groot/my-robot/
 
 두 오케스트레이션 경로가 FSx 위의 같은 자산을 공유하므로 환경이 갈라지지 않습니다. venv
 `/fsx/envs/gr00t`, 릴리스 태그로 고정한 Isaac-GR00T 체크아웃 `/fsx/scratch/Isaac-GR00T`,
-파인튜닝 패치 세트 `scripts/patch_groot_repo.py`, 데이터셋 `/fsx/datasets/groot/<DATASET>`,
-체크포인트 `/fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>` 가 그것입니다. 마지막 경로가
-open-loop 평가의 기본 입력이라, 어느 경로에서 만든 체크포인트든 어느 경로에서든 채점할 수 있습니다.
+파인튜닝 패치 세트 `scripts/patch_groot_repo.py`, 데이터셋 `/fsx/datasets/groot/<DATASET>` 가
+그것입니다.
+
+체크포인트가 어디에 쓰이는지는 MLflow 추적을 켰는지에 따라 갈라집니다.
+
+```
+추적 끄면   /fsx/checkpoints/vla/groot-<DATASET>/checkpoint-<step>
+추적 켜면   /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-<step>
+```
+
+두 번째 경로가 있는 이유는 MLflow가 run의 Artifacts 탭을 `artifact_uri` 하나로만 그리기
+때문입니다. 그 경로에 직접 써야 9 GB를 한 번 더 복사하지 않고 UI에서 가중치를 열 수 있고,
+자세한 근거는 `examples/vla/mlflow_run_dir.py`에 있습니다. 그래서 open-loop 평가의
+`CHECKPOINT` 기본값은 고정 경로가 아니라 `latest`이고, Job 안에서 `/fsx/checkpoints/vla`
+아래의 가장 최근 체크포인트를 고릅니다. run_id가 렌더 시점에 없으므로 고정 경로를 기본값으로
+둘 수 없습니다. 어느 경로에서 만든 체크포인트든 어느 경로에서든 채점할 수 있습니다.
 
 ### 최초 1회 준비
 
@@ -843,13 +857,14 @@ BUCKET=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue|[0]" --output text)
 
 # FSx에서 확인 (헤드 노드 또는 /fsx 를 마운트한 파드)
-ls /fsx/checkpoints/vla/groot-so101-place-orange/
+# 추적이 켜져 있으면 경로에 run_id 가 들어가므로 상위 디렉터리를 본다
+ls /fsx/checkpoints/vla/mlflow/*/artifacts/
 
 # S3에서 확인 (익스포트는 수십 초 안에 끝난다)
-aws s3 ls s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/ --recursive
+aws s3 ls s3://${BUCKET}/checkpoints/vla/mlflow/ --recursive
 
-# 로컬로 내리기
-aws s3 sync s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./checkpoint-2000/
+# 하나 내리기 (RUN_ID 는 MLflow UI 나 Job 로그에서 얻는다)
+aws s3 sync s3://${BUCKET}/checkpoints/vla/mlflow/${RUN_ID}/artifacts/checkpoint-2000/ ./checkpoint-2000/
 ```
 
 ### UI에서 체크포인트 찾기
@@ -860,33 +875,42 @@ aws s3 sync s3://${BUCKET}/checkpoints/vla/groot-so101-place-orange/checkpoint-2
 Argo UI에서는 워크플로를 열고 `submit` 노드를 클릭해 OUTPUTS 패널을 봅니다.
 
 ```
-artifact-fsx-dir   /fsx/checkpoints/vla/groot-so101-place-orange
-artifact-s3-uri    s3://<bucket>/checkpoints/vla/groot-so101-place-orange/
+artifact-fsx-dir   /fsx/checkpoints/vla/mlflow
+artifact-s3-uri    s3://<bucket>/checkpoints/vla/mlflow/
 ```
 
-산출물이 없는 Job(setup, play)은 `(none)`으로 표시됩니다. Argo 레코드는 워크플로의
-`ttlSecondsAfterFinished`와 함께 사라지므로, 방금 제출한 실행을 확인하는 용도입니다.
+추적이 켜져 있으면 이 값은 run 하나가 아니라 run들의 상위 디렉터리를 가리킵니다.
+파인튜닝이 `<run_id>/artifacts` 에 쓰는데 run_id는 Job이 시작한 뒤에야 알 수 있고,
+애노테이션은 렌더 시점에 고정되기 때문입니다. 거기서 특정 run으로 좁히는 것은
+MLflow 쪽에서 합니다. 산출물이 없는 Job(setup, play)은 `(none)`으로 표시됩니다.
+Argo 레코드는 워크플로의 `ttlSecondsAfterFinished`와 함께 사라지므로, 방금 제출한
+실행을 확인하는 용도입니다.
 
 MLflow UI에서는 Models를 엽니다. 파인튜닝마다 `groot-<dataset>` 모델의 버전이
 등록되고, `source`가 위의 S3 경로이며 어느 step·어느 Job의 산출물인지가 태그로
 남습니다.
 
 ```
-source             s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
-fsx_dir            /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+source             s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/
+fsx_dir            /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 checkpoint_step    2000
 groot_version      n1.6
 job_name           groot-finetune-10220131
 ```
 
+최신이 아니라 특정 버전을 채점하려면 `fsx_dir` 값을 `CHECKPOINT` 로 넘깁니다.
+
 버전은 학습 run에 연결되고, 그 run에도 위치가 태그로 남으므로 loss 곡선과
 경로가 한 레코드에 모입니다.
 
 ```
-checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/
-checkpoint_fsx_dir    /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+checkpoint_s3_uri     s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/
+checkpoint_fsx_dir    /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 checkpoint_size_gib   9.2
 ```
+
+추적이 켜져 있으면 같은 경로이므로 run의 Artifacts 탭에 `checkpoint-<step>/` 이
+그대로 보입니다.
 
 가중치는 업로드하지 않습니다. FSx가 `/fsx/checkpoints`를 S3로 자동 익스포트하므로
 같은 바이트가 이미 버킷에 있고, 추적 서버가 요청을 받으면 그 경로에서 직접
@@ -898,8 +922,9 @@ curl -u "$USER:$PASS" -O \
   "https://<domain>/mlflow/model-versions/get-artifact?name=groot-so101-place-orange&version=3&path=config.json"
 
 # 또는 MLflow를 거치지 않고 S3·FSx에서 바로
-aws s3 sync s3://<bucket>/checkpoints/vla/groot-so101-place-orange/checkpoint-2000/ ./ckpt/
-ls /fsx/checkpoints/vla/groot-so101-place-orange/checkpoint-2000
+# 경로는 버전의 source·fsx_dir 태그 값 그대로다
+aws s3 sync s3://<bucket>/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000/ ./ckpt/
+ls /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-2000
 ```
 
 MLflow를 통한 서빙이 되는 이유는 MLflow 파드 role이 `checkpoints/*`에 대한
@@ -908,9 +933,37 @@ MLflow를 통한 서빙이 되는 이유는 MLflow 파드 role이 `checkpoints/*
 state이므로, 가중치만 받으려면 `--exclude 'optimizer.pt' --exclude
 'scheduler.pt'`를 붙입니다.
 
-승급은 사람이 합니다. UI에서 버전을 고르고 alias(예: `production`)를 지정합니다.
-Step 8의 평가가 내는 open-loop MSE는 정책이 시연을 얼마나 그대로 재현하는지를
-재는 값이고 태스크 성공 여부가 아니므로, 단독으로 릴리스 게이트가 될 수 없습니다.
+### 평가 결과로 승급을 게이트하기
+
+`rl/eval-gate-job.yaml`은 평가 산출물을 읽어 BLOCK이면 non-zero로 종료합니다.
+Job은 `backoffLimit: 0`으로 돌고 Argo의 submit 단계가 그 결과를 기다리므로,
+BLOCK은 워크플로를 실패시키고 뒤에 엮인 단계를 막습니다. 채점된 평가가 없을 때는
+UI에서 alias를 직접 지정하는 방식도 그대로 동작합니다.
+
+```bash
+cd hyperpod-training/k8s-templates
+
+# open-loop action MSE로 게이트 (기본 입력, 차단만 가능)
+MAX_MSE=400 ./render.sh rl/eval-gate-job.yaml --apply
+
+# 태스크 성공률로 게이트하고, 통과하면 승급
+GATE_INPUT=trials GATE_SOURCE=/fsx/scratch/eval/trials.jsonl \
+THRESHOLD=0.5 PROMOTE_ALIAS=staging \
+  ./render.sh rl/eval-gate-job.yaml --apply
+```
+
+open-loop MSE는 정책이 시연을 얼마나 그대로 재현하는지를 재는 값이고 태스크 성공
+여부가 아니므로, `GATE_INPUT=openloop`은 차단만 할 수 있습니다. Model Registry
+alias를 옮길 수 있는 것은 `trials` / `rollout`뿐이고, 그것도 `PROMOTE_ALIAS`가
+설정됐을 때만입니다. 성공률만으로는 약한 게이트가 되므로 조건 두 개를 더 쓸 수
+있습니다. `REQUIRE_DISTINGUISHABLE=true`는 2위와의 차이가 노이즈 범위 안일 때
+차단하고, `MAX_SYSTEMATIC_FAILURES=N`은 모든 시도에서 실패한 part가 N개를 넘으면
+차단합니다. `examples/vla/eval_trials/README.md`를 참고하세요.
+
+`vla-eval-gate` WorkflowTemplate이 eval → gate를 한 번의 제출로 연결하고,
+`with-eval=false`면 평가를 건너뛰고 이미 있는 산출물만 채점합니다(실로봇 기록이
+그 경우입니다). 결정은 MLflow(`gate_promoted`, `eval_success_rate`)와 Training
+Console의 `Latest gate decision` 패널에 남습니다.
 
 ## Step 10: 리소스 정리
 
@@ -1009,6 +1062,9 @@ aws cloudformation wait stack-delete-complete --stack-name HyperPod-${ACCOUNT_ID
 
 - [아키텍처 상세 문서](./docs/architecture.md)
 - [리서처 가이드](./docs/researcher_guide.md)
+- [학습·평가 스크립트](./examples/README.ko.md) — `examples/` 안의 파일별 역할
+- [EKS 쪽 설치 스크립트](./scripts/eks/README.ko.md) — 설치 순서, 비용, 짝이 되는 삭제 스크립트
+- [Job 템플릿](./k8s-templates/README.ko.md) — `render.sh` 변수와 EKS 매니페스트
 - [VLA 학습 예제](./examples/vla/)
 - [RL 학습 예제](./examples/rl/)
 - [SLURM 템플릿](./slurm-templates/)

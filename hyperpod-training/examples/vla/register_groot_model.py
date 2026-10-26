@@ -149,17 +149,20 @@ def main():
             pass  # already registered by an earlier run
 
         # Attach to the run the Trainer just finished so the metrics and the
-        # artifact pointer sit on one record. The newest run in this experiment
-        # is ours -- the fine-tune job holds the GPU, so no other run can
-        # interleave.
-        run_id = None
-        exp = mlflow.get_experiment_by_name(
-            os.environ.get("MLFLOW_EXPERIMENT_NAME", "vla-finetune"))
-        if exp:
-            runs = client.search_runs([exp.experiment_id], max_results=1,
-                                      order_by=["attributes.start_time DESC"])
-            if runs:
-                run_id = runs[0].info.run_id
+        # artifact pointer sit on one record. mlflow_run_dir.py created that
+        # run before training and exported its id; the search is the fallback
+        # for a run opened by the Trainer's callback instead. The newest run in
+        # the experiment is then ours -- the fine-tune job holds the GPU, so no
+        # other run can interleave.
+        run_id = os.environ.get("MLFLOW_RUN_ID") or None
+        if not run_id:
+            exp = mlflow.get_experiment_by_name(
+                os.environ.get("MLFLOW_EXPERIMENT_NAME", "vla-finetune"))
+            if exp:
+                runs = client.search_runs([exp.experiment_id], max_results=1,
+                                          order_by=["attributes.start_time DESC"])
+                if runs:
+                    run_id = runs[0].info.run_id
 
         version = client.create_model_version(
             name=args.model_name, source=source, run_id=run_id,

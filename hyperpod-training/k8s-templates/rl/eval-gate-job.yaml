@@ -1,0 +1,219 @@
+# 평가 결과를 승격/차단 결정으로 바꾸는 게이트 Job — 개발 루프를 닫는 조각이다.
+#
+# openloop-eval-job.yaml 은 MSE 를 파일과 MLflow 에 쓰지만, 그 숫자를 읽고 무언가를
+# 멈추는 주체가 없었다. 그래서 0% 로 평가된 체크포인트와 100% 가 파이프라인에서
+# 구분되지 않았다. 이 Job 이 그 숫자를 읽어 exit code 로 바꾼다.
+#
+# - exit code 가 전부다. gate_checkpoint.py 가 BLOCK 이면 0 이 아닌 값으로 끝나고,
+#   backoffLimit: 0 이므로 Job 은 즉시 failed 가 된다. Argo 의 submit 단계가
+#   status.failed 를 보고 1 로 끝내므로 뒤에 매달린 단계는 실행되지 않는다.
+#   Slurm 경로의 --dependency=afterok 와 같은 역할을 EKS 에서 하는 방식이다.
+# - GPU 가 필요 없다. 두 스크립트 모두 표준 라이브러리만 쓰고 (MLflow 만 try/except
+#   안의 선택적 import), 하는 일은 JSON 집계와 산술이다. 그래서 python:3.11-slim +
+#   CPU 노드로 돌린다. 평가 Job 과 같은 g5 를 잡으면 GPU 를 몇 초 쓰고 버린다.
+# - 두 종류의 입력을 받고, 각각 할 수 있는 일이 다르다.
+#     GATE_INPUT=openloop  eval_results.json 의 action MSE. 행동 복제 충실도이므로
+#                          차단만 할 수 있다. 통과하면 PROMOTE 가 아니라 PASS 이고
+#                          alias 도 건드리지 않는다.
+#     GATE_INPUT=trials    per-trial JSONL 의 태스크 성공률. 승격할 수 있다.
+#     GATE_INPUT=rollout   leisaac 롤아웃 로그의 "[N/M]". 성공률이므로 승격할 수 있다.
+#   한 지표가 두 권한을 다 갖지 않게 한 이유는 register_groot_model.py 가 승격을
+#   사람에게 남겨둔 이유와 같다 — MSE 는 태스크가 성공했는지 말해주지 않는다.
+# - PROMOTE 이고 PROMOTE_ALIAS 가 채워져 있으면 Model Registry 의 alias 를
+#   해당 버전으로 옮긴다. 버전은 register_groot_model.py 가 쓴 fsx_dir 태그로 찾는다.
+#   게이트는 체크포인트 경로를 알고 레지스트리는 버전 번호로 색인되기 때문이다.
+#   실패하면 경고만 내고 게이트 결정은 유지한다 — 레지스트리가 안 닿는다고
+#   이미 내린 측정 기반 결정을 되돌릴 이유가 없다.
+#
+# 전제: /fsx/scratch/aws-physical-ai-recipes (workshop-setup-job), 그리고 채점할 산출물
+#       (openloop 이면 평가 Job 이 쓴 eval_results.json, trials 면 JSONL 파일)
+#
+# 렌더: ./render.sh rl/eval-gate-job.yaml --apply                   # 최근 open-loop 결과, MSE 상한
+#       MAX_MSE=400 ./render.sh rl/eval-gate-job.yaml --apply
+#       GATE_INPUT=trials \
+#         GATE_SOURCE=/fsx/scratch/eval/real_pick_2026-10-22.jsonl \
+#         THRESHOLD=0.5 REQUIRE_DISTINGUISHABLE=true MAX_SYSTEMATIC_FAILURES=1 \
+#         ./render.sh rl/eval-gate-job.yaml --apply
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eval-gate-${JOB_SUFFIX}
+  namespace: ${NAMESPACE}
+  annotations:
+    # Argo submit 템플릿이 Job 완료 후 이 경로의 S3 위치를 안내한다.
+    # eval-report.json 과 gate-decision.json 이 여기에 떨어진다.
+    workshop/artifact-dir: "${LOG_DIR}/eval-gate-${JOB_SUFFIX}"
+  labels:
+    app: eval-gate
+    kueue.x-k8s.io/queue-name: ${QUEUE}
+    kueue.x-k8s.io/priority-class: ${PRIORITY}
+spec:
+  # 재시도하지 않는다. BLOCK 은 일시적 오류가 아니라 측정 결과이므로
+  # 다시 돌려도 같은 결정이 나온다. 재시도는 실패를 숨길 뿐이다.
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: eval-gate
+        kueue.x-k8s.io/queue-name: ${QUEUE}
+        kueue.x-k8s.io/priority-class: ${PRIORITY}
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ml.c5.4xlarge
+        sagemaker.amazonaws.com/node-health-status: Schedulable
+      containers:
+        - name: gate
+          # 표준 라이브러리만 쓰므로 GR00T venv 도 CUDA 도 필요 없다.
+          # MLflow 로깅과 alias 승격을 쓸 때만 mlflow-skinny 를 추가로 깐다.
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-ceu"]
+          args:
+            - |
+              VLA=/fsx/scratch/aws-physical-ai-recipes/hyperpod-training/examples/vla
+              OUT="${LOG_DIR}/eval-gate-${JOB_SUFFIX}"
+
+              [ -d "$VLA" ] || {
+                echo "ERROR: recipes not found at $VLA"
+                echo "  Run the setup first: ./render.sh setup/workshop-setup-job.yaml --apply"
+                exit 1; }
+              mkdir -p "$OUT"
+
+              # MLflow 는 선택이다. URI 가 비어 있으면 두 스크립트가 조용히 건너뛴다.
+              # mlflow-skinny 를 쓰는 이유는 전체 mlflow 가 pandas/numpy 를 끌어오는데
+              # 게이트는 그 둘을 전혀 쓰지 않기 때문이다. alias 승격에 필요한
+              # MlflowClient 는 skinny 에 들어 있다.
+              if [ -n "${MLFLOW_TRACKING_URI:-}" ]; then
+                case "${MLFLOW_TRACKING_URI}" in
+                  arn:aws:sagemaker:*) MLFLOW_PKGS="mlflow-skinny sagemaker-mlflow" ;;
+                  *)                   MLFLOW_PKGS="mlflow-skinny" ;;
+                esac
+                python3 -c 'import mlflow' 2>/dev/null ||
+                  pip install --no-cache-dir -q ${MLFLOW_PKGS}
+              fi
+
+              # 입력 종류에 따라 eval_report.py 인자와 게이트 조건이 갈라진다.
+              # SRC / REPORT_ARGS / GATE_ARGS 라는 이름을 쓰는 이유는 이 매니페스트가
+              # envsubst 로 렌더되기 때문이다. render.sh 의 VARS 에 있는 이름은 모두
+              # 렌더 시점에 치환되어 셸 변수로 남지 않는다.
+              SRC="${GATE_SOURCE}"
+              case "${GATE_INPUT}" in
+                openloop)
+                  # 평가 Job 의 JOB_SUFFIX 는 렌더 시점에 알 수 없다 — 다른 Job 이
+                  # 자기 시각으로 만든 값이다. 그래서 기본값은 고정 경로가 아니라
+                  # /fsx 에서 가장 최근 eval_results.json 을 고르는 것이다.
+                  if [ "$SRC" = "latest" ]; then
+                    SRC="$(find "${LOG_DIR}" -maxdepth 3 -type f -name eval_results.json \
+                             -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+                    [ -n "$SRC" ] || {
+                      echo "ERROR: no eval_results.json under ${LOG_DIR}"
+                      echo "  Run an eval first: ./render.sh rl/openloop-eval-job.yaml --apply"
+                      exit 1; }
+                    echo "GATE_SOURCE=latest resolved to $SRC"
+                  fi
+                  REPORT_ARGS="--openloop-results $SRC"
+                  # MSE 리포트에는 success_rate 가 없다. 상한만 적용할 수 있고
+                  # 통과해도 PASS 이지 PROMOTE 가 아니다.
+                  GATE_ARGS="--max-mse ${MAX_MSE}"
+                  ;;
+                trials)
+                  REPORT_ARGS="--trials $SRC"
+                  GATE_ARGS="--threshold ${THRESHOLD}"
+                  ;;
+                rollout)
+                  REPORT_ARGS="--rollout-log $SRC"
+                  GATE_ARGS="--threshold ${THRESHOLD}"
+                  ;;
+                *)
+                  echo "ERROR: GATE_INPUT must be openloop, trials, or rollout (got '${GATE_INPUT}')"
+                  exit 1
+                  ;;
+              esac
+
+              if [ "${GATE_INPUT}" != "openloop" ]; then
+                [ -f "$SRC" ] || {
+                  echo "ERROR: gate source not found: $SRC"
+                  echo "  GATE_INPUT=${GATE_INPUT} needs an explicit GATE_SOURCE path on /fsx."
+                  exit 1; }
+                # 임계값만으로는 낮은 성공률에서 약한 게이트다. 두 조건은
+                # 집계 숫자가 기준을 넘어도 그 런이 못 쓸 수 있는 경우를 막는다.
+                [ "${REQUIRE_DISTINGUISHABLE}" = "true" ] &&
+                  GATE_ARGS="$GATE_ARGS --require-distinguishable"
+                [ -n "${MAX_SYSTEMATIC_FAILURES}" ] &&
+                  GATE_ARGS="$GATE_ARGS --max-systematic-failures ${MAX_SYSTEMATIC_FAILURES}"
+                # alias 승격은 성공률 리포트에서만 의미가 있다. MSE 경로에
+                # 붙이지 않는 이유는 gate_checkpoint.py 가 PASS 에서는 alias 를
+                # 아예 건드리지 않기 때문이고, 그게 의도된 설계다.
+                if [ -n "${PROMOTE_ALIAS}" ] && [ -n "${MODEL_NAME}" ]; then
+                  GATE_ARGS="$GATE_ARGS --promote-alias ${PROMOTE_ALIAS} --model-name ${MODEL_NAME}"
+                  [ -n "${CHECKPOINT}" ] && [ "${CHECKPOINT}" != "latest" ] &&
+                    GATE_ARGS="$GATE_ARGS --checkpoint-dir ${CHECKPOINT}"
+                fi
+              fi
+
+              python3 "$VLA/eval_report.py" ${REPORT_ARGS} --out "$OUT/eval-report.json"
+
+              # exec 로 넘겨 게이트의 exit code 를 컨테이너의 exit code 로 만든다.
+              # 파이프나 후속 명령을 붙이면 $? 가 가려져 BLOCK 이 성공으로 보인다.
+              exec python3 "$VLA/gate_checkpoint.py" \
+                --report "$OUT/eval-report.json" \
+                --out "$OUT/gate-decision.json" \
+                --experiment "${MLFLOW_EXPERIMENT_NAME}" \
+                ${GATE_ARGS}
+          env:
+            - name: GATE_INPUT
+              value: "${GATE_INPUT}"
+            - name: GATE_SOURCE
+              value: "${GATE_SOURCE}"
+            - name: THRESHOLD
+              value: "${THRESHOLD}"
+            - name: MAX_MSE
+              value: "${MAX_MSE}"
+            - name: REQUIRE_DISTINGUISHABLE
+              value: "${REQUIRE_DISTINGUISHABLE}"
+            - name: MAX_SYSTEMATIC_FAILURES
+              value: "${MAX_SYSTEMATIC_FAILURES}"
+            - name: PROMOTE_ALIAS
+              value: "${PROMOTE_ALIAS}"
+            - name: MODEL_NAME
+              value: "${MODEL_NAME}"
+            - name: CHECKPOINT
+              value: "${CHECKPOINT}"
+            - name: LOG_DIR
+              value: "${LOG_DIR}"
+            - name: JOB_SUFFIX
+              value: "${JOB_SUFFIX}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # render.sh 가 채운다. 비어 있으면 gate_checkpoint.py 의
+            # log_to_mlflow 와 promote_alias 가 둘 다 즉시 return 하고,
+            # 게이트 결정 자체는 영향받지 않는다.
+            - name: MLFLOW_TRACKING_URI
+              value: "${MLFLOW_TRACKING_URI}"
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "${MLFLOW_EXPERIMENT_NAME}"
+            - name: MLFLOW_TRACKING_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: username
+                  optional: true
+            - name: MLFLOW_TRACKING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: password
+                  optional: true
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: fsx
+              mountPath: /fsx
+      volumes:
+        - name: fsx
+          persistentVolumeClaim:
+            claimName: fsx-pvc

@@ -236,7 +236,7 @@ Training completed!
 | `BASE_MODEL` | nvidia/GR00T-N1.7-3B | 베이스 모델 |
 | `DATASET` | demo_data | 데이터셋 이름 |
 | `DATASET_PATH` | /fsx/datasets/groot/{DATASET} | 데이터셋 전체 경로 (DATASET보다 우선) |
-| `OUTPUT_DIR` | /fsx/checkpoints/vla/groot-{DATASET} | 체크포인트 저장 경로 |
+| `OUTPUT_DIR` | /fsx/checkpoints/vla/groot-{DATASET} | 체크포인트 저장 경로. MLflow 추적이 켜져 있으면 run 의 artifact 경로 `/fsx/checkpoints/vla/mlflow/<run_id>/artifacts` 로 바뀐다 (이유는 `examples/vla/mlflow_run_dir.py`) |
 
 ### 4.5 메모리 최적화 (자동 적용)
 
@@ -256,6 +256,9 @@ Training completed!
 
 ```bash
 ls /fsx/checkpoints/vla/groot-demo_data/checkpoint-*/
+
+# MLflow 추적을 켜고 돌렸다면 체크포인트는 run 의 artifact 경로에 있다
+ls /fsx/checkpoints/vla/mlflow/*/artifacts/checkpoint-*/
 ```
 
 **예상 출력:**

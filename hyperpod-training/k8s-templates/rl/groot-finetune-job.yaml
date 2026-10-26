@@ -5,9 +5,16 @@
 #   repo       /fsx/scratch/Isaac-GR00T   (n1.6-release / n1.7-release 태그 고정)
 #   패치       scripts/patch_groot_repo.py
 #   데이터셋   /fsx/datasets/groot/${DATASET}
-#   체크포인트 /fsx/checkpoints/vla/groot-${DATASET}/checkpoint-<step>
-# 마지막 경로가 openloop-eval-job.yaml 의 CHECKPOINT 기본값과 같다. 그래서 평가 Job 이
-# Slurm 쪽 산출물이든 이 Job 의 산출물이든 그대로 읽는다.
+#   체크포인트 추적 끄면 /fsx/checkpoints/vla/groot-${DATASET}/checkpoint-<step>
+#              추적 켜면 /fsx/checkpoints/vla/mlflow/<run_id>/artifacts/checkpoint-<step>
+#
+# 체크포인트 경로가 갈라지는 이유는 examples/vla/mlflow_run_dir.py 에 있다. 요지는
+# MLflow 가 run 의 Artifacts 탭을 artifact_uri 하나로만 그리므로, 그 경로에 직접 써야
+# 9 GB 가중치를 복사하지 않고 UI 에서 열 수 있다는 것이다.
+#
+# 그래서 openloop-eval-job.yaml 의 CHECKPOINT 기본값과 자동으로 일치하지 않는다.
+# 평가 Job 에는 이 Job 이 로그 끝에 찍는 경로나 MLflow Model Registry 의 fsx_dir
+# 태그를 CHECKPOINT 로 넘긴다.
 #
 # 패치를 매 실행마다 다시 적용한다. /fsx 에 체크아웃이 하나뿐이고 setup_groot_env.sh 의
 # `git checkout -f` 가 패치를 되돌리기 때문이다. patch_groot_repo.py 는 멱등이고,
@@ -30,7 +37,9 @@ metadata:
   annotations:
     # Argo submit 템플릿이 Job 완료 후 이 경로에 대응하는 S3 위치를 안내한다.
     # /fsx/checkpoints 는 FSx DRA 가 S3 로 자동 익스포트하므로 복사 단계는 없다.
-    workshop/artifact-dir: "${OUTPUT_DIR}"
+    # 추적이 켜져 있으면 OUTPUT_DIR 이 아니라 run 들의 상위 디렉터리다 — 이유는
+    # render.sh 의 ARTIFACT_DIR_HINT 주석에 있다.
+    workshop/artifact-dir: "${ARTIFACT_DIR_HINT}"
   labels:
     app: groot-finetune
     # task governance 의 admission policy 가 모든 Job 에 queue-name 라벨을 요구한다.
@@ -91,23 +100,36 @@ spec:
                 *)    echo "ERROR: unknown GROOT_VERSION='${GROOT_VERSION}' (use n1.6 or n1.7)"; exit 1 ;;
               esac
 
+              # MLflow run 을 학습보다 먼저 만들어 체크포인트를 그 run 의 artifact
+              # 경로에 직접 쓴다. 복사 없이 Artifacts 탭에서 checkpoint-<step>/ 이
+              # 열리는 건 그래서다 — 이유는 mlflow_run_dir.py docstring 에 있다.
+              # 받은 경로를 CKPT_DIR 로 쓰는 이유: 이 매니페스트는 envsubst 로
+              # 렌더되므로 ${OUTPUT_DIR} 은 eval 이 돌기 전에 이미 렌더 시점 값으로
+              # 치환되어 있다. CKPT_DIR 은 render.sh 의 VARS 에 없어 그대로 남는다.
+              # 추적이 꺼져 있으면 헬퍼가 아래 env 의 OUTPUT_DIR 을 되돌려 준다.
+              eval "$("$GROOT_PY" "$WORKSHOP_DIR/examples/vla/mlflow_run_dir.py" \
+                        --fallback-output-dir "${OUTPUT_DIR}")"
+              export MLFLOW_RUN_ID="${MLFLOW_RUN_ID:-}"
+
               echo "=================================================="
               echo "GR00T fine-tune (${GROOT_VERSION})"
               echo "  base model : ${BASE_MODEL}"
               echo "  dataset    : ${DATASET_PATH}"
-              echo "  output     : ${OUTPUT_DIR}"
+              echo "  output     : $CKPT_DIR"
+              echo "  mlflow run : ${MLFLOW_RUN_ID:-<tracking off>}"
               echo "  max steps  : ${MAX_STEPS}"
               echo "  batch      : ${GLOBAL_BATCH_SIZE}"
               echo "=================================================="
               nvidia-smi || true
 
-              mkdir -p "${OUTPUT_DIR}"
+              mkdir -p "$CKPT_DIR"
               # 이전 실행의 체크포인트가 남아 있으면 지운다. Trainer 가 재개를 시도하면서
               # optimizer state 를 읽는데, 패치가 optimizer 를 paged_adamw_8bit 로 바꾸므로
-              # adamw_torch 로 저장된 state 와 맞지 않아 로드에서 죽는다.
-              if ls "${OUTPUT_DIR}"/checkpoint-* >/dev/null 2>&1; then
-                echo "Clearing stale checkpoints in ${OUTPUT_DIR} (optimizer mismatch)"
-                rm -rf "${OUTPUT_DIR}"/checkpoint-* "${OUTPUT_DIR}"/training_args.bin
+              # adamw_torch 로 저장된 state 와 맞지 않아 로드에서 죽는다. run artifact
+              # 경로는 매번 새 디렉터리라 추적이 꺼진 경우에만 걸린다.
+              if ls "$CKPT_DIR"/checkpoint-* >/dev/null 2>&1; then
+                echo "Clearing stale checkpoints in $CKPT_DIR (optimizer mismatch)"
+                rm -rf "$CKPT_DIR"/checkpoint-* "$CKPT_DIR"/training_args.bin
               fi
 
               # 패치 정의는 Slurm 경로와 공유한다. 이유는 스크립트 docstring 에 있다.
@@ -123,7 +145,7 @@ spec:
                 --embodiment-tag NEW_EMBODIMENT \
                 --modality-config-path "$WORKSHOP_DIR/configs/so101_modality.py" \
                 --num-gpus 1 \
-                --output-dir "${OUTPUT_DIR}" \
+                --output-dir "$CKPT_DIR" \
                 --save-total-limit 5 \
                 --save-steps "${MAX_STEPS}" \
                 --max-steps "${MAX_STEPS}" \
@@ -137,9 +159,11 @@ spec:
               # 승격(alias)은 UI 에서 사람이 한다 — open-loop MSE 는 행동 복제
               # 충실도이지 태스크 성공률이 아니므로 단독 게이트로 쓸 수 없다.
               # 실패해도 학습 결과에는 영향이 없으므로 Job 을 실패시키지 않는다.
+              # 모델 이름은 데이터셋에서 만든다. 산출 경로의 basename 을 쓰면
+              # run artifact 경로에 쓸 때 "artifacts" 가 되어 버린다.
               "$GROOT_PY" "$WORKSHOP_DIR/examples/vla/register_groot_model.py" \
-                --checkpoint-dir "${OUTPUT_DIR}" \
-                --model-name "$(basename "${OUTPUT_DIR}")" \
+                --checkpoint-dir "$CKPT_DIR" \
+                --model-name "groot-$(basename "${DATASET_PATH}")" \
                 --groot-version "${GROOT_VERSION}" || true
           env:
             - name: GROOT_VERSION
@@ -162,7 +186,10 @@ spec:
             - name: ARTIFACT_BUCKET
               value: "${ARTIFACT_BUCKET}"
             # 등록된 model version 의 태그로 남겨서 어느 Job 이 만든 가중치인지
-            # MLflow UI 에서 역추적할 수 있게 한다.
+            # MLflow UI 에서 역추적할 수 있게 한다. run 이름으로도 쓰인다:
+            # mlflow_run_dir.py 가 이 이름으로 run 을 만들고, patch_groot_repo.py 의
+            # run_name 패치가 Trainer 쪽에서 같은 값을 읽어 이름을 지킨다. 이 변수가
+            # 없으면 run 이름이 출력 경로의 basename, 즉 "artifacts" 가 된다.
             - name: JOB_NAME
               valueFrom:
                 fieldRef:
