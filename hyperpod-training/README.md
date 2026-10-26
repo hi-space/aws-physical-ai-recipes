@@ -397,7 +397,7 @@ directly, which is the only view left when a run's MLflow logging failed or when
 tfevents but was never wired to MLflow (rsl_rl under Isaac Lab, for instance). If a run shows up in
 MLflow, read it there.
 
-Argo Workflows at `/argo` — job submission. `Workflow Templates` lists the five templates
+Argo Workflows at `/argo` — job submission. `Workflow Templates` lists the nine templates
 `install-job-portal.sh` generates from `k8s-templates`; each row carries the description of the
 manifest it renders, so a participant picks a template without reading YAML.
 
@@ -409,7 +409,9 @@ path calls, which is why a Job created here is byte-identical to one created fro
 ![Argo Workflows — WorkflowTemplate manifest](docs/img/argo-workflow-template-manifest.png)
 
 `Workflows` is the run list. A submitted Workflow appears here with its phase and duration; the
-summary panel on the left counts running, pending, succeeded, failed, and errored runs.
+summary panel on the left counts running, pending, succeeded, failed, and errored runs. A failed row
+reports `child '<pod>' failed` and stops at `1/2`, so the phase alone does not say which step broke —
+open the row or the `Logs` tab for that.
 
 ![Argo Workflows — Workflow list](docs/img/argo-workflow-list.png)
 
@@ -426,35 +428,53 @@ is shipping them to Loki.
 
 Grafana at `/` — cluster health, and the entry point. This is the
 `HyperPod Physical AI — Training Console` landing dashboard that `install-unified-dashboard.sh`
-provisions: links to the other UIs across the top, then node, GPU, and Kueue panels plus a few
-MLflow run panels read through the Postgres datasource. Use it to answer "is the cluster healthy and
-is my job scheduled", not to read training curves.
+provisions: four numbered links to the other UIs across the top, then node, GPU, and Kueue stats
+alongside MLflow panels read through the Postgres datasource. `Latest gate decision` reads the
+`gate_decision` param of the newest gate run, so a red `BLOCK` on the landing page is the first thing
+a participant sees — the point of the gate is that a rejected checkpoint is visible without opening
+MLflow. Below
+the stats are the GR00T loss and learning-rate curves and the open-loop MSE panels. Use this to
+answer "is the cluster healthy, is my job scheduled, and did the last checkpoint pass".
 
 ![Grafana — Training Console](docs/img/grafana-training-console.png)
 
-MLflow at `/mlflow` — the place to read training metrics. Each training namespace writes into its own
-experiment.
+MLflow at `/mlflow` — the place to read training metrics. Each path writes into its own experiment:
+`vla-finetune` for GR00T runs, `vla-eval` for the open-loop and gate runs, `isaaclab-rl` for RL.
+`install-mlflow-selfhosted.sh` creates all three at install time and grants `trainer` write access,
+so a run never fails because `admin` happened to open the experiment first.
 
 ![MLflow — experiment list](docs/img/mlflow-experiment-list.png)
 
 A run's `Overview` tab holds the final metric values and the hyperparameters the template passed in,
-which is what makes two runs comparable after the fact.
+which is what makes two runs comparable after the fact. `Source` reads `mlflow_run_dir.py` rather
+than the training script, because the run is created before training starts so the checkpoints can be
+written inside it. The tags carry `checkpoint_size_gib` and the `/fsx` path, and
+`register_groot_model.py` has attached a `groot-so101-place-orange` model version to the run.
 
 ![MLflow — run overview](docs/img/mlflow-run-overview.png)
 
-`Model metrics` plots the same metrics per step, and `Auto-refresh` keeps the charts current while
-the Job is still running — which is why this, not TensorBoard, is the default place to watch a run.
+`Model metrics` plots those metrics per step, and `Auto-refresh` keeps the charts current while the
+Job is still running — which is why this, not TensorBoard, is the default place to watch a run. The
+run below is an RL one, where reward and episode length are the curves that matter; a GR00T run shows
+`loss`, `learning_rate`, and `grad_norm` instead.
 
 ![MLflow — run metrics](docs/img/mlflow-run-metrics.png)
 
-`Artifacts` holds the checkpoints written to the stack's S3 bucket under `mlflow-artifacts/`.
+`Artifacts` holds the checkpoint itself — `checkpoint-60/` plus the sharded `model-0000N-of-00002.safetensors`
+and `config.json` the Trainer wrote. These are not copies: `mlflow_run_dir.py` pointed the Trainer's
+output directory at this run's artifact path, so 9 GB of weights are browsable here without an upload
+step. The `vla-finetune` experiment is the one `install-mlflow-selfhosted.sh` roots at
+`checkpoints/vla/mlflow` instead of the default `mlflow-artifacts/`, which is why FSx DRA exports the
+same bytes to S3.
 
 ![MLflow — run artifacts](docs/img/mlflow-run-artifacts.png)
 
 TensorBoard at `/tensorboard` — the fallback. It reads the tfevents files under `/fsx` directly, with
-no dependency on the MLflow server or on logging calls in the training script. The curves below are
-the same three scalars as the MLflow screenshot above, from the same run, which is the point: reach
-for this only when a run is missing from MLflow.
+no dependency on the MLflow server or on logging calls in the training script. Every run directory
+under the mount appears in the left pane — the eight MuJoCo PPO runs here alongside VLA runs found at
+`vla/mlflow/<run-id>/artifacts/`, which is the same artifact directory the MLflow screenshots above
+show. There is no way to filter by params, which is why MLflow stays the default; reach for this when
+a run is missing from MLflow.
 
 ![TensorBoard — training curves](docs/img/tensorboard-training-curves.png)
 

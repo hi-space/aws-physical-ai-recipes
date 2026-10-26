@@ -391,7 +391,7 @@ tfevents 만 쓰고 MLflow 에 연결되지 않은 경우(Isaac Lab 의 rsl_rl �
 run 이 보이면 거기서 읽을 것.
 
 `/argo` 의 Argo Workflows — Job 제출. `Workflow Templates` 에는 `install-job-portal.sh` 가
-`k8s-templates` 에서 만든 템플릿 6개가 있고, 각 행에 어떤 매니페스트를 렌더링하는지 설명이 붙어
+`k8s-templates` 에서 만든 템플릿 9개가 있고, 각 행에 어떤 매니페스트를 렌더링하는지 설명이 붙어
 있어 참가자가 YAML 을 읽지 않고도 템플릿을 고를 수 있다.
 
 ![Argo Workflows — Workflow Templates](docs/img/argo-workflow-templates.png)
@@ -402,7 +402,9 @@ run 이 보이면 거기서 읽을 것.
 ![Argo Workflows — WorkflowTemplate 매니페스트](docs/img/argo-workflow-template-manifest.png)
 
 `Workflows` 는 실행 목록이다. 제출한 Workflow 가 phase 와 소요 시간과 함께 나타나고, 왼쪽 요약
-패널이 running / pending / succeeded / failed / error 개수를 센다.
+패널이 running / pending / succeeded / failed / error 개수를 센다. 실패한 행은
+`child '<pod>' failed` 를 적고 `1/2` 에서 멈추므로 phase 만으로는 어느 단계가 깨졌는지 알 수 없다 —
+행을 펼치거나 `Logs` 탭을 봐야 한다.
 
 ![Argo Workflows — Workflow 목록](docs/img/argo-workflow-list.png)
 
@@ -418,33 +420,51 @@ run 이 보이면 거기서 읽을 것.
 ![Argo Workflows — Workflow 로그](docs/img/argo-workflow-logs.png)
 
 `/` 의 Grafana — 클러스터 상태, 그리고 입구. `install-unified-dashboard.sh` 가 프로비저닝하는
-`HyperPod Physical AI — Training Console` 랜딩 대시보드다. 위쪽에 나머지 UI 로 가는 링크가 있고,
-아래에 노드·GPU·Kueue 패널과 Postgres 데이터소스로 읽는 MLflow run 패널 몇 개가 놓인다.
-"클러스터가 정상인가, 내 Job 이 스케줄됐나" 를 보는 곳이고 학습 곡선을 읽는 곳은 아니다.
+`HyperPod Physical AI — Training Console` 랜딩 대시보드다. 위쪽에 나머지 UI 로 가는 번호 붙은 링크
+4개가 있고, 아래에 노드·GPU·Kueue 스탯과 Postgres 데이터소스로 읽는 MLflow 패널들이 놓인다.
+`Latest gate decision` 은 가장 최근 게이트 run 의 `gate_decision` 파라미터를 읽는다. 랜딩 화면에
+빨간 `BLOCK` 이 뜨는 것이 참가자가 가장 먼저 보는 것이고, 그게 게이트의 요점이다 — 거부된
+체크포인트는 MLflow 를 열지 않아도 보인다. 스탯 아래로 GR00T loss·learning rate 곡선과 open-loop
+MSE 패널이 이어진다. "클러스터가 정상인가, 내 Job 이 스케줄됐나, 마지막 체크포인트가 통과했나" 를
+보는 곳이다.
 
 ![Grafana — Training Console](docs/img/grafana-training-console.png)
 
-`/mlflow` 의 MLflow — 학습 지표를 읽는 곳. 학습 네임스페이스마다 자기 experiment 에 기록한다.
+`/mlflow` 의 MLflow — 학습 지표를 읽는 곳. 경로마다 자기 experiment 에 기록한다. GR00T 학습은
+`vla-finetune`, open-loop 평가와 게이트는 `vla-eval`, RL 은 `isaaclab-rl` 이다.
+`install-mlflow-selfhosted.sh` 가 설치 시점에 셋을 모두 만들고 `trainer` 에 쓰기 권한을 주므로,
+`admin` 이 먼저 experiment 를 열었다는 이유로 run 이 실패하지 않는다.
 
 ![MLflow — experiment 목록](docs/img/mlflow-experiment-list.png)
 
 run 의 `Overview` 탭에는 최종 지표값과 템플릿이 넘긴 하이퍼파라미터가 있다. 나중에 두 run 을
-비교할 수 있는 근거가 여기다.
+비교할 수 있는 근거가 여기다. `Source` 가 학습 스크립트가 아니라 `mlflow_run_dir.py` 인 이유는,
+체크포인트를 run 안에 쓰기 위해 학습 시작 전에 run 을 먼저 만들기 때문이다. 태그에
+`checkpoint_size_gib` 와 `/fsx` 경로가 담기고, `register_groot_model.py` 가
+`groot-so101-place-orange` model version 을 이 run 에 붙여 놓았다.
 
 ![MLflow — run 개요](docs/img/mlflow-run-overview.png)
 
-`Model metrics` 는 같은 지표를 스텝별로 그린다. `Auto-refresh` 가 Job 이 도는 동안 차트를 갱신해
-주므로, run 을 지켜보는 기본 창은 TensorBoard 가 아니라 여기다.
+`Model metrics` 는 그 지표들을 스텝별로 그린다. `Auto-refresh` 가 Job 이 도는 동안 차트를 갱신해
+주므로, run 을 지켜보는 기본 창은 TensorBoard 가 아니라 여기다. 아래는 RL run 이라 보상과 에피소드
+길이가 볼 곡선이고, GR00T run 이면 대신 `loss`·`learning_rate`·`grad_norm` 이 뜬다.
 
 ![MLflow — run 지표](docs/img/mlflow-run-metrics.png)
 
-`Artifacts` 에는 스택 S3 버킷의 `mlflow-artifacts/` 아래로 쓰인 체크포인트가 담긴다.
+`Artifacts` 에는 체크포인트 자체가 담긴다 — `checkpoint-60/` 과 Trainer 가 쓴 샤드
+`model-0000N-of-00002.safetensors`, `config.json`. 이것은 복사본이 아니다. `mlflow_run_dir.py` 가
+Trainer 의 출력 디렉터리를 이 run 의 artifact 경로로 맞춰 두었으므로, 9 GB 가중치를 업로드 단계 없이
+여기서 바로 열어 볼 수 있다. `vla-finetune` 은 `install-mlflow-selfhosted.sh` 가 기본
+`mlflow-artifacts/` 대신 `checkpoints/vla/mlflow` 를 루트로 잡아 둔 experiment 이고, 그래서 FSx DRA
+가 같은 바이트를 S3 로 내보낸다.
 
 ![MLflow — run 아티팩트](docs/img/mlflow-run-artifacts.png)
 
 `/tensorboard` 의 TensorBoard — 폴백. `/fsx` 의 tfevents 파일을 직접 읽으므로 MLflow 서버에도,
-학습 스크립트의 로깅 코드에도 의존하지 않는다. 아래 곡선은 위 MLflow 스크린샷과 같은 run 의 같은
-스칼라 3개다. 그게 요점이다 — MLflow 에 run 이 없을 때만 여기를 열면 된다.
+학습 스크립트의 로깅 코드에도 의존하지 않는다. 마운트 아래 모든 run 디렉터리가 왼쪽 패널에 뜬다 —
+여기서는 MuJoCo PPO run 8개와 함께 `vla/mlflow/<run-id>/artifacts/` 에서 찾은 VLA run 들이 보이고,
+그 경로는 위 MLflow 스크린샷이 보여 준 바로 그 artifact 디렉터리다. 파라미터로 거를 방법이 없어
+기본은 여전히 MLflow 다. MLflow 에 run 이 없을 때 여기를 열면 된다.
 
 ![TensorBoard — 학습 곡선](docs/img/tensorboard-training-curves.png)
 
