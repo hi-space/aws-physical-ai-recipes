@@ -131,7 +131,7 @@ POD_TRUST='{
 #    HyperPod EKS 의 pod 는 노드 역할을 상속하지 않고 IMDS 도 막혀 있어서
 #    pod identity 가 유일한 자격증명 경로다.
 # -----------------------------------------------------------------------------
-echo "[1/6] AWS Load Balancer Controller"
+echo "[1/7] AWS Load Balancer Controller"
 POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${LBC_POLICY}"
 if ! aws iam get-policy --policy-arn "$POLICY_ARN" >/dev/null 2>&1; then
   curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v${LBC_CHART_VERSION}/docs/install/iam_policy.json" \
@@ -180,7 +180,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
 #    serviceMonitorSelectorNilUsesHelmValues=false 로 아래 3단계에서 따로 만드는
 #    Kueue ServiceMonitor 를 집어가게 한다.
 # -----------------------------------------------------------------------------
-echo "[2/6] kube-prometheus-stack"
+echo "[2/7] kube-prometheus-stack"
 kubectl create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 helm upgrade --install kps prometheus-community/kube-prometheus-stack \
@@ -236,13 +236,25 @@ EOF
 echo "  Kueue ServiceMonitor 적용"
 
 # -----------------------------------------------------------------------------
-# 3. Grafana
+# 3. DCGM exporter — GPU 패널(DCGM_FI_DEV_*)의 유일한 공급원.
+#    지원 리전에서는 amazon-sagemaker-hyperpod-observability 애드온이 DCGM 을 함께 넣어 주지만 이
+#    경로는 애드온을 쓰지 않으므로 직접 설치해야 한다. 빠뜨리면 GPU 노드가 Running 이어도
+#    "GPU utilization per node (DCGM)" 패널이 영구히 빈다.
+#    GPU 노드가 0대면 DaemonSet 의 desired 도 0 이어서 rollout 이 즉시 성공으로 끝난다.
+# -----------------------------------------------------------------------------
+echo "[3/7] DCGM exporter"
+kubectl apply -f "${EKS_DIR}/dcgm-exporter.yaml" >/dev/null
+kubectl -n gpu-operator rollout status ds/dcgm-exporter --timeout=5m
+echo "  DCGM exporter 적용 (네임스페이스 gpu-operator)"
+
+# -----------------------------------------------------------------------------
+# 4. Grafana
 #    대시보드 JSON 은 ConfigMap 으로 넣는다. values 안에 인라인으로 두면 Helm 이
 #    JSON 안의 {{ }} 를 템플릿으로 해석해서 깨진다.
 #    여기는 ALB 루트(/)로 서비스하므로 install-observability.sh 의
 #    serve_from_sub_path(/absproxy/3000/) 설정은 쓰지 않는다.
 # -----------------------------------------------------------------------------
-echo "[3/6] Grafana"
+echo "[4/7] Grafana"
 kubectl create configmap "$DASHBOARD_CONFIGMAP" \
   --namespace "$MONITORING_NAMESPACE" \
   --from-file="${EKS_DIR}/grafana-dashboards" \
@@ -270,7 +282,7 @@ helm upgrade --install grafana grafana/grafana \
   --wait --timeout 10m
 
 # -----------------------------------------------------------------------------
-# 4. ALB
+# 5. ALB
 #    security-group-prefix-lists 를 주면 컨트롤러가 관리형 보안그룹에 기본으로 넣는
 #    0.0.0.0/0 inbound 를 생략하고 prefix list 만 허용한다. 즉 ALB DNS 를 직접
 #    알아내도 CloudFront 를 거치지 않으면 닿지 않는다.
@@ -283,7 +295,7 @@ helm upgrade --install grafana grafana/grafana \
 #    다른 값을 쓰면 컨트롤러가 'conflicting tag' 로 그룹 전체의 조정을 멈추고,
 #    그 뒤에 추가한 Ingress 의 리스너 규칙이 만들어지지 않는다.
 # -----------------------------------------------------------------------------
-echo "[4/6] ALB (Ingress)"
+echo "[5/7] ALB (Ingress)"
 kubectl apply -f - >/dev/null <<EOF
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -329,10 +341,10 @@ done
 echo "  ALB: ${ALB_DNS}"
 
 # -----------------------------------------------------------------------------
-# 5. WAF Web ACL (us-east-1 / CLOUDFRONT scope)
+# 6. WAF Web ACL (us-east-1 / CLOUDFRONT scope)
 #    AWS 관리형 기본 룰셋 2종만 쓴다. IP 화이트리스트는 없다.
 # -----------------------------------------------------------------------------
-echo "[5/6] WAF Web ACL"
+echo "[6/7] WAF Web ACL"
 WAF_ARN="$(aws wafv2 list-web-acls --scope CLOUDFRONT --region "$WAF_REGION" \
   --query "WebACLs[?Name=='${WAF_ACL_NAME}'].ARN | [0]" --output text 2>/dev/null || true)"
 if [[ -z "$WAF_ARN" || "$WAF_ARN" == "None" ]]; then
@@ -364,11 +376,11 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 6. CloudFront
+# 7. CloudFront
 #    CachingDisabled + AllViewer. Grafana 는 동적 앱이라 캐싱하면 로그인이 깨진다.
 #    CallerReference 는 멱등 키 역할도 한다.
 # -----------------------------------------------------------------------------
-echo "[6/6] CloudFront"
+echo "[7/7] CloudFront"
 CF_ID="$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?Comment=='${CF_CALLER_REF}'].Id | [0]" --output text 2>/dev/null || true)"
 if [[ -z "$CF_ID" || "$CF_ID" == "None" ]]; then

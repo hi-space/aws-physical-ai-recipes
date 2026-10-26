@@ -83,6 +83,12 @@ groups:
       # Kueue 큐에 워크로드가 30분 넘게 묶여 있다. 쿼터 부족이거나 GPU 노드가 없다.
       # ClusterQueue 를 만들지 않으면(create-governance.sh 미실행) 이 지표는 아예
       # 없다. 그때는 vector(0) 이 되어 조용하다.
+      #
+      # status="active" 만 센다. kueue_pending_workloads 에는 inadmissible 도 들어
+      # 있는데, 그것은 요청이 ClusterQueue 쿼터를 넘어 기다려도 절대 admit 되지 않는
+      # 워크로드다. "기다리면 풀린다"는 backlog 와 성질이 다르고, 사람이 Job 의 요청량
+      # 이나 ComputeQuota 를 고쳐야 사라진다. 둘을 합치면 30분 뒤 경보가 울려도
+      # 용량이 부족한 것인지 요청이 잘못된 것인지 구분할 수 없다.
       # ---------------------------------------------------------------------
       - uid: hyperpod-kueue-backlog
         title: KueueBacklog
@@ -91,8 +97,8 @@ groups:
         noDataState: OK
         execErrState: Error
         annotations:
-          summary: Kueue 대기 워크로드가 30분 넘게 남아 있습니다.
-          description: kubectl get workloads -A 로 어느 ClusterQueue 가 막혔는지 확인하세요.
+          summary: admit 가능한 Kueue 워크로드가 30분 넘게 대기 중입니다(용량 부족).
+          description: kubectl get workloads -A 로 어느 ClusterQueue 가 막혔는지 확인하세요. 쿼터를 넘겨 아예 admit 되지 않는(inadmissible) 워크로드는 이 경보에 포함되지 않습니다. 대시보드의 "Pending workloads — active / inadmissible" 패널에서 보세요.
         labels:
           severity: warning
         data:
@@ -103,7 +109,7 @@ groups:
               refId: A
               instant: true
               editorMode: code
-              expr: sum(kueue_pending_workloads) or vector(0)
+              expr: sum(kueue_pending_workloads{status="active"}) or vector(0)
           - refId: B
             relativeTimeRange: { from: 0, to: 0 }
             datasourceUid: __expr__
@@ -174,7 +180,11 @@ groups:
               instant: true
               editorMode: code
               # GPU 요청이 있을 때만 1, 없으면 0. 뒤의 math 에서 게이트로 쓴다.
-              expr: clamp_max(sum(kube_pod_container_resource_requests{resource="nvidia_com_gpu"}) or vector(0), 1)
+              # kube_pod_container_resource_requests 는 Succeeded / Failed 파드의
+              # 시계열도 남긴다. 요청량만 더하면 학습이 전부 끝난 뒤에도 게이트가 1 로
+              # 붙은 채 GPU 사용률은 0 이 되어 이 경보가 영구히 울린다.
+              # kube_pod_status_phase 와 조인해 실행 중인 파드만 센다.
+              expr: clamp_max(sum(kube_pod_container_resource_requests{resource="nvidia_com_gpu"} * on (namespace, pod) group_left() (kube_pod_status_phase{phase=~"Running|Pending"} == 1)) or vector(0), 1)
           - refId: B
             relativeTimeRange: { from: 1800, to: 0 }
             datasourceUid: prometheus

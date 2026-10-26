@@ -78,11 +78,12 @@ ${ADDON_NAME} 애드온은 ${REGION} 에 아직 없습니다.
 
 HyperPod 관측 대시보드는 지원 리전(2026-10-16 실측: us-east-1, us-east-2, us-west-2, eu-west-1,
 eu-central-1, ap-northeast-1, ap-southeast-1, ap-southeast-2, ap-south-1)에 배포한 클러스터에서만
-설치할 수 있습니다. ${REGION} 에서는 이 단계를 건너뛰고 아래 대안으로 확인하세요.
+설치할 수 있습니다. ${REGION} 에서는 대신 아래를 쓰세요.
 
-  kubectl top nodes / kubectl top pods -A          # 즉석 사용량
-  nvidia-smi (파드 안)                              # GPU 사용률
-  CloudWatch Container Insights                    # amazon-cloudwatch-observability 애드온(리전 제공)
+  ./scripts/eks/install-dashboard-public.sh
+
+AMP 와 애드온 대신 클러스터 안 kube-prometheus-stack + DCGM exporter(eks/dcgm-exporter.yaml)로 같은
+Grafana 대시보드를 띄웁니다. GPU·노드·Kueue 패널이 모두 채워지므로 이 스크립트의 대체 경로입니다.
 
 task governance(Kueue) 실습은 영향이 없습니다 — 해당 애드온은 모든 리전에 있고 CDK 가 이미 설치합니다.
 EOF

@@ -69,6 +69,7 @@ if [[ -n "$LEFTOVER" ]]; then
   sed 's/^/  /' <<<"$LEFTOVER"
   echo "  이것들을 먼저 지우지 않으면 ALB 가 유지되어 계속 과금됩니다."
   echo "  MLflow / TensorBoard 라면: ./scripts/eks/delete-mlflow-selfhosted.sh"
+  echo "  Argo Workflows 라면:      ./scripts/eks/delete-job-portal.sh"
   echo ""
 fi
 
@@ -136,6 +137,13 @@ if kubectl get namespace "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
   echo "Helm 릴리스 grafana / kps + 네임스페이스 삭제"
 fi
 kubectl delete clusterrolebinding kps-kueue-metrics-reader >/dev/null 2>&1 || true
+
+# DCGM exporter(install-dashboard-public.sh 3단계). 네임스페이스를 지우면 안에 든
+# DaemonSet / Service / ServiceMonitor 가 함께 사라지므로 매니페스트 경로가 필요 없다.
+if kubectl get namespace gpu-operator >/dev/null 2>&1; then
+  kubectl delete namespace gpu-operator --wait=false >/dev/null 2>&1 || true
+  echo "DCGM exporter 삭제 (네임스페이스 gpu-operator)"
+fi
 
 # kube-prometheus-stack 은 CRD 를 남긴다. 다른 모니터링 스택이 쓸 수 있으므로 지우지 않는다.
 

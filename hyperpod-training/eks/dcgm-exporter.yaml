@@ -1,0 +1,118 @@
+---
+# DCGM exporter — GPU metrics for the Grafana "GPU utilization per node (DCGM)" panel.
+#
+# In regions that offer the amazon-sagemaker-hyperpod-observability addon, that addon ships DCGM
+# and this file is redundant. The addon does not exist in ap-northeast-2, so install DCGM directly
+# against the in-cluster kube-prometheus-stack instead.
+#
+# Scheduling mirrors kube-system/hyperpod-dependencies-nvidia-device-plugin: select on
+# nvidia.com/gpu.present and tolerate the nvidia.com/gpu and HyperPod health taints, so the pod
+# lands only on GPU nodes and stays there when the health agent marks a node Unschedulable.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-operator
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-operator
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dcgm-exporter
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dcgm-exporter
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: sagemaker.amazonaws.com/node-health-status
+          operator: Equal
+          value: Unschedulable
+          effect: NoSchedule
+      containers:
+        - name: dcgm-exporter
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:4.5.2-4.8.1-ubuntu22.04
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_ADMIN"]
+          env:
+            # Attributes each sample to the pod holding the GPU, so panels can break down by workload.
+            - name: DCGM_EXPORTER_KUBERNETES
+              value: "true"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: 9400
+          volumeMounts:
+            - name: pod-gpu-resources
+              mountPath: /var/lib/kubelet/pod-resources
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: pod-gpu-resources
+          hostPath:
+            path: /var/lib/kubelet/pod-resources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-operator
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: dcgm-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
+---
+# The Prometheus CR in the monitoring namespace leaves serviceMonitorSelector and
+# serviceMonitorNamespaceSelector empty, so a ServiceMonitor in any namespace is picked up as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-operator
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dcgm-exporter
+  namespaceSelector:
+    matchNames:
+      - gpu-operator
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      # DCGM emits its own Hostname label; copy the Kubernetes node name onto `hostname` so the
+      # dashboard's `avg by (hostname, gpu)` groups by node rather than by container hostname.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: hostname
+          action: replace

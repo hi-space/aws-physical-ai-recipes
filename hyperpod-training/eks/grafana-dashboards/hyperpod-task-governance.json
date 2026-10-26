@@ -19,8 +19,8 @@
         "type": "datasource",
         "query": "prometheus",
         "current": {
-          "text": "AMP",
-          "value": "AMP"
+          "text": "Prometheus",
+          "value": "prometheus"
         },
         "hide": 2
       }
@@ -30,7 +30,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Pending workloads (all queues)",
+      "title": "Pending workloads — active / inadmissible",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS}"
@@ -44,7 +44,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(kueue_pending_workloads)"
+          "legendFormat": "active",
+          "expr": "sum(kueue_pending_workloads{status=\"active\"}) or vector(0)"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "inadmissible",
+          "expr": "sum(kueue_pending_workloads{status=\"inadmissible\"}) or vector(0)"
         }
       ],
       "options": {
@@ -75,7 +81,8 @@
           }
         },
         "overrides": []
-      }
+      },
+      "description": "active = admissible, waiting for capacity to free up. inadmissible = the request exceeds the ClusterQueue quota and will never be admitted as-is; fix the job's resource request or the ComputeQuota. Summing the two hides that distinction, so they are kept apart."
     },
     {
       "id": 2,
@@ -118,7 +125,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Evicted (preempted) workloads (total)",
+      "title": "Evicted (preempted) workloads (dashboard range)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS}"
@@ -132,7 +139,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(kueue_evicted_workloads_total) or vector(0)"
+          "expr": "sum(increase(kueue_evicted_workloads_total[$__range])) or vector(0)"
         }
       ],
       "options": {
@@ -152,7 +159,8 @@
           "decimals": 0
         },
         "overrides": []
-      }
+      },
+      "description": "increase() over the dashboard time range, not the raw counter: kueue_evicted_workloads_total resets when kueue-controller-manager restarts, so the bare total is not a lifetime preemption count."
     },
     {
       "id": 4,
@@ -216,8 +224,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster_queue) (kueue_pending_workloads)",
-          "legendFormat": "pending {{cluster_queue}}"
+          "expr": "sum by (cluster_queue, status) (kueue_pending_workloads)",
+          "legendFormat": "pending {{status}} {{cluster_queue}}"
         },
         {
           "refId": "B",

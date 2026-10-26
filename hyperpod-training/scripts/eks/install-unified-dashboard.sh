@@ -7,7 +7,8 @@
 #
 #   https://<cloudfront-도메인>/
 #     └─ Grafana 홈 = "HyperPod Physical AI — Training Console"
-#          ├─ 카드 3장: Cluster & GPU / MLflow ↗ / TensorBoard ↗
+#          ├─ 카드 4장: 파이프라인 실행 순서대로 Argo Workflows ↗ → Cluster & GPU
+#          │            → MLflow ↗ → TensorBoard ↗ (각 카드마다 강조색이 다르다)
 #          ├─ 요약 6칸: Ready 노드, GPU 수, 학습 파드, Kueue 대기, MLflow run 수/진행중
 #          ├─ 최근 MLflow run 10건 + mean reward 그래프  ← Postgres 직접 조회
 #          └─ DCGM GPU 사용률 + 학습 파드 CPU 요청량      ← Prometheus
@@ -22,6 +23,8 @@
 # ─── 전제 ───
 #   install-dashboard-public.sh 와 install-mlflow-selfhosted.sh 를 모두 돌린 뒤 실행한다.
 #   둘 중 하나라도 없으면 무엇을 먼저 돌려야 하는지 알려주고 멈춘다.
+#   install-job-portal.sh 는 필수가 아니다. 없으면 Argo Workflows 카드가 404 로 가므로
+#   경고만 하고 계속 진행한다.
 #
 # 사용법:
 #   ./scripts/eks/install-unified-dashboard.sh [--cluster <eks-cluster-name>] [--yes]
@@ -77,6 +80,9 @@ if ! kubectl get statefulset mlflow-postgres -n "$MLFLOW_NAMESPACE" >/dev/null 2
   echo "MLflow Postgres 가 없습니다. 먼저: ./scripts/eks/install-mlflow-selfhosted.sh" >&2
   exit 1
 fi
+# Argo 는 선택이다. 카드는 항상 넣되 없으면 링크가 404 라는 것만 알려준다.
+ARGO_READY="true"
+kubectl get ingress argo-server -n argo >/dev/null 2>&1 || ARGO_READY="false"
 
 CF_DOMAIN="$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?Comment=='${CLUSTER_NAME}-dashboard'].DomainName | [0]" \
@@ -175,7 +181,10 @@ jq -n --arg pass "$PG_RO_PASS" --arg user "$PG_RO_USER" --arg ns "$MLFLOW_NAMESP
       datasources: [{
         name: "MLflow",
         uid: "mlflow-postgres",
-        type: "postgres",
+        # Grafana 12 에서 Postgres 플러그인 ID 가 postgres → grafana-postgresql-datasource 로
+        # 바뀌었다. 옛 ID 를 쓰면 데이터소스가 등록은 되지만 프론트엔드가 패널의 쿼리를
+        # 만들지 못해 /api/ds/query 요청 자체가 나가지 않고 패널이 조용히 빈다.
+        type: "grafana-postgresql-datasource",
         access: "proxy",
         url: "mlflow-postgres.\($ns).svc.cluster.local:5432",
         database: "mlflow",
@@ -254,11 +263,20 @@ cat <<EOF
   user : admin
   pass : kubectl get secret -n ${MONITORING_NAMESPACE} grafana -o jsonpath='{.data.admin-password}' | base64 -d
 
-로그인하면 Training Console 이 홈으로 뜬다. 카드로 MLflow(/mlflow)·TensorBoard(/tensorboard)
-로 넘어가고, MLflow run 목록과 mean reward 는 콘솔에서 바로 보인다.
+로그인하면 Training Console 이 홈으로 뜬다. 카드는 파이프라인을 돌리는 순서대로
+Argo Workflows(/argo) → Cluster & GPU → MLflow(/mlflow) → TensorBoard(/tensorboard) 이고,
+MLflow run 목록과 mean reward 는 콘솔에서 바로 보인다.
 
 학습을 한 번도 돌리지 않았다면 MLflow 패널은 비어 있다. 정상이다. GPU 노드가 0대인 동안
 DCGM 패널도 비어 있다.
+EOF
+if [[ "$ARGO_READY" != "true" ]]; then
+  cat <<'EOF'
+Argo Workflows 가 아직 없어서 첫 번째 카드(/argo)는 404 입니다. 붙이려면:
+  ./scripts/eks/install-job-portal.sh
+EOF
+fi
+cat <<'EOF'
 
 제거: ./scripts/eks/delete-unified-dashboard.sh
 EOF
