@@ -98,13 +98,19 @@ export class HyperPodClusterConstruct extends Construct {
       tags: [{ key: 'Name', value: `${p}-Cluster-Role` }],
     });
 
-    this.lifecycleBucket = new s3.CfnBucket(this, 'LifecycleBucket', {
+    // autoDeleteObjects: 버킷에는 BucketDeployment 스크립트 외에 노드가 올린 ssh/ 키도 남는다.
+    // 비우지 않으면 롤백/삭제 때 DeleteBucket이 BucketNotEmpty로 실패해 스택이 ROLLBACK_FAILED가 된다.
+    const lifecycleBucket = new s3.Bucket(this, 'LifecycleBucket', {
       // storage.ts의 DataBucket과 같은 이유로 namePrefix를 빼고 계정 ID+리전만 사용
       // (기존 hyperpod-lifecycle-hyperpod-<acct>-<acct>-<region>은 68자로 63자 제한 초과).
       bucketName: cdk.Fn.join('-', ['hyperpod-lifecycle', cdk.Aws.ACCOUNT_ID, cdk.Aws.REGION]),
-      tags: [{ key: 'Name', value: `${p}-Lifecycle-Bucket` }],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
     });
-    this.lifecycleBucket.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+    cdk.Tags.of(lifecycleBucket).add('Name', `${p}-Lifecycle-Bucket`);
+    this.lifecycleBucket = lifecycleBucket.node.defaultChild as s3.CfnBucket;
+    // CfnBucket 시절 logical ID를 유지해 기존 스택에서 버킷이 교체(같은 이름 재생성 충돌)되지 않게 한다.
+    this.lifecycleBucket.overrideLogicalId('HyperPodLifecycleBucketA3A64A1F');
 
     const clusterSG = new ec2.CfnSecurityGroup(this, 'ClusterSG', {
       groupDescription: 'HyperPod cluster internal communication',
@@ -159,7 +165,7 @@ export class HyperPodClusterConstruct extends Construct {
           `FSX_DNS_NAME=${props.fsxDnsName}\nFSX_MOUNT_NAME=${props.fsxMountName}\n`,
         ),
       ],
-      destinationBucket: s3.Bucket.fromBucketName(this, 'LifecycleBucketRef', this.lifecycleBucket.ref),
+      destinationBucket: lifecycleBucket,
       destinationKeyPrefix: 'lifecycle-scripts/',
     });
 
@@ -192,11 +198,10 @@ export class HyperPodClusterConstruct extends Construct {
       type: 'AWS::SageMaker::Cluster',
       properties: {
         ClusterName: this.clusterName,
-        Orchestrator: {
-          Slurm: {
-            SlurmConfigStrategy: 'Managed',
-          },
-        },
+        // 새 클러스터의 기본값은 Continuous provisioning이고, 이 모드는 slurm.conf를 Merge로만
+        // 관리하며 SlurmConfigStrategy(Managed/Merge/Overwrite)를 넣으면 API가 거부한다.
+        // 그래서 Orchestrator.Slurm 블록을 두지 않는다. 노드 타입/파티션은 각 그룹의 SlurmConfig로 넘긴다.
+        NodeProvisioningMode: 'Continuous',
         InstanceGroups: [
           buildInstanceGroup(props.head),
           ...props.gpu.map(buildInstanceGroup),
